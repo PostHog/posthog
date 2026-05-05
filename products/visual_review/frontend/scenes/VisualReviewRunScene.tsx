@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
+import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
@@ -162,7 +163,7 @@ function RunInProgressEmptyState({
             data-attr="visual-review-run-in-progress"
         >
             {isStale ? (
-                <LemonBanner type="warning" className="max-w-lg mb-4">
+                <LemonBanner type="warning" className="w-full max-w-lg mb-4">
                     The CI job hasn't reported back.{' '}
                     {ciJobUrl ? (
                         <Link to={ciJobUrl} target="_blank" className="font-semibold">
@@ -287,6 +288,8 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
+    const initialSnapshotsLoading = snapshotsLoading && snapshots.length === 0
+
     // Review summary (from loaded snapshots — paginated but covers actionable ones first)
     // Quarantined snapshots don't need review — exclude from pending count
     const reviewPending = snapshots.filter(
@@ -306,6 +309,7 @@ export function VisualReviewRunScene(): JSX.Element {
     // Predict whether recompute would flip the gate — uses client-side quarantine set
     // which updates immediately, unlike summary.unresolved which requires a recompute round-trip
     const allChangesResolved =
+        !initialSnapshotsLoading &&
         run.status === 'completed' &&
         !run.approved &&
         !run.is_stale &&
@@ -347,6 +351,7 @@ export function VisualReviewRunScene(): JSX.Element {
                     ) : undefined
                 }
             />
+            <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
 
             {run.is_stale && (
                 <LemonBanner type="warning" className="mb-4">
@@ -379,50 +384,65 @@ export function VisualReviewRunScene(): JSX.Element {
                 {/* Header: summary + thumbnail strip */}
                 <div className="bg-bg-light border-b">
                     <div className="flex items-center justify-between px-3 pt-3 pb-2">
-                        {/* Review summary (left) — what humans decided */}
-                        <span className="text-xs text-muted flex items-center gap-1.5">
-                            <span className="font-semibold text-default">Review</span>
-                            {[
-                                reviewPending > 0 && (
-                                    <span key="pend">
-                                        <span className="font-semibold">{reviewPending}</span>
-                                        {hasMore ? '+' : ''} pending
-                                    </span>
-                                ),
-                                reviewApproved > 0 && (
-                                    <span key="appr" className="text-success">
-                                        {reviewApproved} approved
-                                    </span>
-                                ),
-                                reviewTolerated > 0 && <span key="tol">{reviewTolerated} tolerated</span>,
-                            ]
-                                .filter(Boolean)
-                                .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}
-                        </span>
-                        {/* Diff summary (right) — what the system found */}
-                        <span className="text-xs text-muted flex items-center gap-1.5">
-                            <span className="font-semibold text-default">Diff</span>
-                            {[
-                                diffChanged > 0 && (
-                                    <span key="ch" className="text-warning-dark">
-                                        {diffChanged} changed
-                                    </span>
-                                ),
-                                diffNew > 0 && (
-                                    <span key="new" className="text-success">
-                                        {diffNew} added
-                                    </span>
-                                ),
-                                diffRemoved > 0 && (
-                                    <span key="rm" className="text-danger">
-                                        {diffRemoved} removed
-                                    </span>
-                                ),
-                                diffTolerated > 0 && <span key="tol">{diffTolerated} auto-tolerated</span>,
-                            ]
-                                .filter(Boolean)
-                                .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}
-                        </span>
+                        {initialSnapshotsLoading ? (
+                            <>
+                                <LemonSkeleton className="h-4 w-40" />
+                                <LemonSkeleton className="h-4 w-40" />
+                            </>
+                        ) : (
+                            <>
+                                {/* Review summary (left) — what humans decided */}
+                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                    <span className="font-semibold text-default">Review</span>
+                                    {[
+                                        reviewPending > 0 && (
+                                            <span key="pend">
+                                                <span className="font-semibold">{reviewPending}</span>
+                                                {hasMore ? '+' : ''} pending
+                                            </span>
+                                        ),
+                                        reviewApproved > 0 && (
+                                            <span key="appr" className="text-success">
+                                                {reviewApproved} approved
+                                            </span>
+                                        ),
+                                        reviewTolerated > 0 && <span key="tol">{reviewTolerated} tolerated</span>,
+                                    ]
+                                        .filter(Boolean)
+                                        .reduce<React.ReactNode[]>(
+                                            (acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]),
+                                            []
+                                        )}
+                                </span>
+                                {/* Diff summary (right) — what the system found */}
+                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                    <span className="font-semibold text-default">Diff</span>
+                                    {[
+                                        diffChanged > 0 && (
+                                            <span key="ch" className="text-warning-dark">
+                                                {diffChanged} changed
+                                            </span>
+                                        ),
+                                        diffNew > 0 && (
+                                            <span key="new" className="text-success">
+                                                {diffNew} added
+                                            </span>
+                                        ),
+                                        diffRemoved > 0 && (
+                                            <span key="rm" className="text-danger">
+                                                {diffRemoved} removed
+                                            </span>
+                                        ),
+                                        diffTolerated > 0 && <span key="tol">{diffTolerated} auto-tolerated</span>,
+                                    ]
+                                        .filter(Boolean)
+                                        .reduce<React.ReactNode[]>(
+                                            (acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]),
+                                            []
+                                        )}
+                                </span>
+                            </>
+                        )}
                     </div>
 
                     {navSnapshots.length > 0 && (

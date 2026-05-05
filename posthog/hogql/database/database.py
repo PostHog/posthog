@@ -113,6 +113,7 @@ from posthog.hogql.database.schema.session_replay_events import (
     join_replay_table_to_sessions_table_v2,
     join_replay_table_to_sessions_table_v3,
 )
+from posthog.hogql.database.schema.session_replay_features import SessionReplayFeaturesTable
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import (
     RawSessionsTableV2,
@@ -275,6 +276,9 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+                    "session_replay_features": TableNode(
+                        name="session_replay_features", table=SessionReplayFeaturesTable()
+                    ),
                 },
             ),
             "system": SystemTables(),

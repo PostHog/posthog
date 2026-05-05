@@ -32,6 +32,8 @@ export const LogsAlertsCreateParams = /* @__PURE__ */ zod.object({
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
+export const logsAlertsCreateBodyThresholdCountDefault = 100
+
 export const logsAlertsCreateBodyThresholdOperatorDefault = `above`
 export const logsAlertsCreateBodyWindowMinutesDefault = 5
 export const logsAlertsCreateBodyEvaluationPeriodsDefault = 1
@@ -44,20 +46,28 @@ export const logsAlertsCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsCreateBodyCooldownMinutesMin = 0
 
 export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsAlertsCreateBodyNameMax).describe('Human-readable name for this alert.'),
+    name: zod
+        .string()
+        .max(logsAlertsCreateBodyNameMax)
+        .optional()
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
     enabled: zod
         .boolean()
         .default(logsAlertsCreateBodyEnabledDefault)
         .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
         .unknown()
+        .optional()
         .describe(
-            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object).'
+            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
         .min(1)
-        .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
+        .default(logsAlertsCreateBodyThresholdCountDefault)
+        .describe(
+            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+        ),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('* `above` - Above\n* `below` - Below')
@@ -123,7 +133,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(logsAlertsPartialUpdateBodyNameMax)
         .optional()
-        .describe('Human-readable name for this alert.'),
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
     enabled: zod
         .boolean()
         .optional()
@@ -132,13 +142,15 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object).'
+            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
         .min(1)
         .optional()
-        .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
+        .describe(
+            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+        ),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('* `above` - Above\n* `below` - Below')

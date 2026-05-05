@@ -18,6 +18,12 @@ pub fn changelog_message_key(team_id: i64, person_id: i64) -> String {
 /// Encodes the `Person` proto as the message payload and uses
 /// `{team_id}:{person_id}` as the key for compaction and partitioning.
 /// Returns `Ok(())` on successful delivery, or an error string on failure.
+///
+/// The handoff protocol relies on "handler returned Ok == message durable in Kafka."
+/// That requires the delivery future to be awaited before returning (done here) and
+/// `acks=all` on the producer. We rely on librdkafka's default (`acks=-1`) for the
+/// latter; if that default ever changes, the drain-inflight step in
+/// `coordination::LeaderHandoffHandler::drain_partition_inflight` becomes unsafe.
 pub async fn produce_person_changelog(
     producer: &FutureProducer<KafkaContext>,
     topic: &str,

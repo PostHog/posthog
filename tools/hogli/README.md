@@ -115,9 +115,30 @@ my:command:
 
 ## Python Commands
 
-For complex logic, create Python commands using Click. Create a `commands.py` (or `__init__.py`) in your commands directory:
+For complex logic, create Python commands using Click. Two layouts are supported — pick based on how many commands you have.
+
+The directory name is yours to choose. PostHog uses `hogli-commands` (and the examples below follow that). One constraint: it **must not** be named `hogli`, since that shadows the installed framework and your commands will be silently ignored.
+
+### Minimal: single file (recommended for most repos)
+
+A handful of commands needs nothing more than one `commands.py`:
+
+```text
+your-repo/
+├── hogli.yaml
+└── tools/
+    └── hogli-commands/
+        └── commands.py
+```
+
+```yaml
+# hogli.yaml
+config:
+  commands_dir: tools/hogli-commands
+```
 
 ```python
+# tools/hogli-commands/commands.py
 import click
 from hogli.cli import cli
 
@@ -132,12 +153,32 @@ def db_migrate(dry_run: bool) -> None:
         pass
 ```
 
-Configure the location in `hogli.yaml`:
+The directory can live anywhere `hogli.yaml` can reference — `tools/hogli-commands/` fits a monorepo with a `tools/` convention, but a top-level `hogli-commands/` or any other path works equally well.
+
+### Full: package with submodules (for larger surfaces)
+
+When commands grow past one file and need to import each other, promote to a package. Add an inner `hogli_commands/` directory with `__init__.py` and split commands into submodules; `commands.py` becomes the registration entry point that imports them for side-effects:
+
+```text
+your-repo/
+├── hogli.yaml
+└── tools/
+    └── hogli-commands/
+        └── hogli_commands/    # underscored: this is the import name
+            ├── __init__.py
+            ├── commands.py    # `from . import build, db, deploy`
+            ├── build.py
+            ├── db.py
+            └── deploy.py
+```
 
 ```yaml
+# hogli.yaml
 config:
-  commands_dir: tools/cli # Defaults to hogli/ next to hogli.yaml
+  commands_dir: tools/hogli-commands/hogli_commands
 ```
+
+The dashed outer dir + underscored inner package follows PEP 8 (dashed project name, underscored import name). This is the layout PostHog itself uses.
 
 ## Extension Hooks
 
@@ -217,6 +258,35 @@ metadata:
 - Python 3.10+
 - click
 - pyyaml
+
+## Releasing
+
+Releases are published to PyPI via `.github/workflows/publish-hogli.yml`,
+triggered by pushing a `hogli-v*` tag from `master`.
+
+1. Bump `version` in `tools/hogli/pyproject.toml` and merge to `master`.
+2. From `master`, tag and push:
+
+   ```bash
+   git tag hogli-v0.1.1
+   git push origin hogli-v0.1.1
+   ```
+
+The workflow verifies the tag matches the `pyproject.toml` version, builds
+the sdist and wheel with `uv build`, smoke-tests the wheel in a fresh
+venv, publishes via PyPI trusted publishing (OIDC) — no API tokens —
+and creates a GitHub Release with auto-generated notes from the commits
+since the previous tag.
+
+To re-trigger after a failed publish, dispatch the workflow against the
+existing tag — no need to retag:
+
+```bash
+gh workflow run publish-hogli.yml --ref hogli-v0.1.1
+```
+
+The publish job is guarded by `if: startsWith(github.ref, 'refs/tags/hogli-v')`,
+so dispatches from a branch are no-ops.
 
 ## License
 
