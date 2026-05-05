@@ -646,16 +646,17 @@ def main(argv: list[str] | None = None) -> int:
     _install_signal_handlers()
 
     backend = _build_backend(args)
+    prompt_addendum = backend.prompt_addendum()
 
     info = ServerInfo(
         target=backend.target,
-        prompt_addendum=backend.prompt_addendum(),
+        prompt_addendum=prompt_addendum,
         primary_metric="latency_ms",
         # When the backend ships a prompt addendum, the agent has to act on
         # it (rewrite team_id predicates, etc.) before the baseline is
         # meaningful. So skip the orchestrator-side baseline whenever there's
         # any addendum text and let the agent capture it after rewriting.
-        capture_baseline_in_orchestrator=not backend.prompt_addendum().strip(),
+        capture_baseline_in_orchestrator=not prompt_addendum.strip(),
     )
     token = generate_token()
     server = make_server(host=args.bind_host, port=args.port, backend=backend, token=token, info=info)

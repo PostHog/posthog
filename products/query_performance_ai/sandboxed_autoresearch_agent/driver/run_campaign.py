@@ -187,7 +187,8 @@ def _run_pi_with_streaming_events(cmd: list[str], cwd: Path) -> None:
         bufsize=1,
         text=True,
     )
-    assert process.stdout is not None
+    if process.stdout is None:
+        raise CampaignError("pi process has no stdout — Popen was misconfigured")
     try:
         for raw in process.stdout:
             _print_pi_event(raw.rstrip("\n"))
