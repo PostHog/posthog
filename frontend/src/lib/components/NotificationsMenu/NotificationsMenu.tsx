@@ -13,7 +13,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element => {
     const { activePanelIdentifier, isLayoutPanelVisible } = useValues(panelLayoutLogic)
-    const { setActivePanelIdentifier, clearActivePanelIdentifier, showLayoutPanel } = useActions(panelLayoutLogic)
+    const { setActivePanelIdentifier, showLayoutPanel, closePanel } = useActions(panelLayoutLogic)
     const { inAppUnreadCount } = useValues(sidePanelNotificationsLogic)
     const [badgePulse, setBadgePulse] = useState(false)
     const prevCountRef = useRef(inAppUnreadCount)
@@ -31,8 +31,7 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
 
     const handleClick = (): void => {
         if (isActive) {
-            clearActivePanelIdentifier()
-            showLayoutPanel(false)
+            closePanel()
         } else {
             setActivePanelIdentifier('Notifications')
             showLayoutPanel(true)
