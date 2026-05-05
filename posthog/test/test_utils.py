@@ -936,13 +936,14 @@ class TestTemplateContextHistogram(TestCase):
     def _count_for_labels(template_name: str, authenticated: str) -> int:
         from posthog.utils import TEMPLATE_CONTEXT_DURATION_HISTOGRAM
 
-        for sample in TEMPLATE_CONTEXT_DURATION_HISTOGRAM.collect()[0].samples:
-            if (
-                sample.name.endswith("_count")
-                and sample.labels.get("template_name") == template_name
-                and sample.labels.get("authenticated") == authenticated
-            ):
-                return int(sample.value)
+        for metric in TEMPLATE_CONTEXT_DURATION_HISTOGRAM.collect():
+            for sample in metric.samples:
+                if (
+                    sample.name.endswith("_count")
+                    and sample.labels.get("template_name") == template_name
+                    and sample.labels.get("authenticated") == authenticated
+                ):
+                    return int(sample.value)
         return 0
 
     @parameterized.expand(
