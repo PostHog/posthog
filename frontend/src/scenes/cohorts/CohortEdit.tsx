@@ -1,7 +1,6 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
 import { IconClock, IconCopy, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
@@ -83,6 +82,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         removePersonFromCreateStaticCohort,
         setCreationPersonQuery,
         setStaticCohortMode,
+        setActiveTab,
         submitCohort,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
@@ -98,12 +98,11 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         isPendingCalculation,
         isCalculatingOrPending,
         staticCohortMode,
+        activeTab,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-
-    const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview')
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)

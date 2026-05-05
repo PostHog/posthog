@@ -1,7 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -53,6 +53,10 @@ export type CohortLogicProps = {
 }
 
 export type StaticCohortMode = 'criteria' | 'people'
+
+export type CohortEditTab = 'overview' | 'history'
+
+const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'overview' || value === 'history'
 
 const checkIsPendingCalculation = (cohort: CohortType): boolean =>
     cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
@@ -118,6 +122,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         resetPersonsToCreateStaticCohort: true,
         refreshPersonsData: true,
         setStaticCohortMode: (mode: StaticCohortMode) => ({ mode }),
+        setActiveTab: (tab: CohortEditTab) => ({ tab }),
     }),
 
     reducers(({ props }) => ({
@@ -284,6 +289,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             {
                 setCohort: (_, { cohort }) => inferStaticCohortMode(cohort),
                 setStaticCohortMode: (_, { mode }) => mode,
+            },
+        ],
+        activeTab: [
+            'overview' as CohortEditTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     })),
@@ -650,6 +661,27 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             // Refresh the persons data table
             const dataNodeLogicKey = createCohortDataNodeLogicKey(values.cohort.id)
             dataNodeLogic.findMounted({ key: dataNodeLogicKey })?.actions.loadData('force_blocking')
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        setActiveTab: () => {
+            const { pathname } = router.values.location
+            if (!pathname.startsWith('/cohorts/')) {
+                return
+            }
+            const { tab: _, ...restHash } = router.values.hashParams
+            const nextHash = values.activeTab === 'overview' ? restHash : { ...restHash, tab: values.activeTab }
+            return [pathname, router.values.searchParams, nextHash, { replace: true }]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        '/cohorts/:id': (_, __, { tab }) => {
+            const next = isCohortEditTab(tab) ? tab : 'overview'
+            if (values.activeTab !== next) {
+                actions.setActiveTab(next)
+            }
         },
     })),
 
