@@ -78,6 +78,13 @@ export type Context = {
     env: Env
     stateManager: StateManager
     sessionManager: SessionManager
+    mcp?: {
+        sessionUuid?: string | undefined
+        clientName?: string | undefined
+        clientVersion?: string | undefined
+        protocolVersion?: string | undefined
+        transport?: string | undefined
+    }
     /**
      * Resolve the current user's PostHog distinct ID. Cached by the MCP class —
      * safe to call repeatedly. Exposed on the context so tool handlers (e.g. the

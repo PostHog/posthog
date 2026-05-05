@@ -23,6 +23,7 @@ import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import LEGACY from '@/templates/sections/legacy.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
+import TOOL_CALL_CONTEXT from '@/templates/sections/tool-call-context.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 
@@ -64,6 +65,7 @@ export class InstructionsFormatter {
                 SCHEMA_WORKFLOW,
                 ENV_CONTEXT,
                 URL_PATTERNS,
+                ...(this.toolCallContextEnabled(ctx.featureFlags) ? [TOOL_CALL_CONTEXT] : []),
                 ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
                 EXAMPLES,
             ],
@@ -101,6 +103,7 @@ export class InstructionsFormatter {
             SCHEMA_WORKFLOW,
             ENV_CONTEXT,
             URL_PATTERNS,
+            ...(this.toolCallContextEnabled(ctx.featureFlags) ? [TOOL_CALL_CONTEXT] : []),
             ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
             EXAMPLES,
         ]
@@ -113,6 +116,10 @@ export class InstructionsFormatter {
      *  in `resolveToolFeatureFlags`. */
     private agentFeedbackEnabled(featureFlags: Record<string, boolean> | undefined): boolean {
         return featureFlags?.['mcp-feedback-tool'] === true
+    }
+
+    private toolCallContextEnabled(featureFlags: Record<string, boolean> | undefined): boolean {
+        return featureFlags?.['mcp-tool-call-context'] === true
     }
 
     private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {

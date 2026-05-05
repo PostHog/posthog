@@ -2,7 +2,7 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
 import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
-import type { z } from 'zod'
+import { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import {
@@ -28,6 +28,7 @@ import {
 import { handleToolError, wrapError } from '@/lib/errors'
 import { type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { MCP_CONTEXT_DESCRIPTION, MCP_CONTEXT_FIELD, MCP_CONTEXT_MAX_LENGTH, stripMcpContext } from '@/lib/mcp-context'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -91,6 +92,7 @@ export class MCP extends McpAgent<Env> {
     private mcpProtocolVersion: string | undefined
     private mcpMode: McpMode | undefined
     private mcpVersion: number | undefined
+    private toolCallContextEnabled = false
 
     get requestProperties(): RequestProperties {
         return this.props as RequestProperties
@@ -376,12 +378,12 @@ export class MCP extends McpAgent<Env> {
         tool: Tool<TSchema>,
         handler: (params: z.infer<TSchema>) => Promise<any>
     ): void {
-        const wrappedHandler = async (params: z.infer<TSchema>): Promise<any> => {
-            const validation = tool.schema.safeParse(params)
+        const wrappedHandler = async (params: z.infer<TSchema> & { [MCP_CONTEXT_FIELD]?: unknown }): Promise<any> => {
+            const cleanedParams = stripMcpContext(params)
+            const validation = tool.schema.safeParse(cleanedParams)
 
             if (!validation.success) {
                 const errorOutput = `Invalid input: ${validation.error.message}`
-
                 return {
                     content: [
                         {
@@ -397,7 +399,7 @@ export class MCP extends McpAgent<Env> {
                 const previousContext = isContextSwitch
                     ? await this.getAnalyticsContextSafe(await this.getContext())
                     : undefined
-                const handlerResult = await handler(params)
+                const handlerResult = await handler(validation.data)
                 if (isContextSwitch) {
                     this.ctx.waitUntil(
                         this.trackContextSwitchEvent(tool.name, await this.getContext(), previousContext)
@@ -420,7 +422,7 @@ export class MCP extends McpAgent<Env> {
                     handlerResult,
                     toolMeta: tool._meta,
                     toolName: tool.name,
-                    params,
+                    params: validation.data,
                     clientName: this.mcpClientName,
                     distinctId,
                 })
@@ -452,7 +454,16 @@ export class MCP extends McpAgent<Env> {
             {
                 title: tool.title,
                 description: tool.description,
-                inputSchema: tool.schema.shape,
+                inputSchema: this.toolCallContextEnabled
+                    ? {
+                          ...tool.schema.shape,
+                          [MCP_CONTEXT_FIELD]: z
+                              .string()
+                              .max(MCP_CONTEXT_MAX_LENGTH)
+                              .optional()
+                              .describe(MCP_CONTEXT_DESCRIPTION),
+                      }
+                    : tool.schema.shape,
                 annotations: tool.annotations,
                 ...(normalizedMeta ? { _meta: normalizedMeta } : {}),
             },
@@ -469,6 +480,15 @@ export class MCP extends McpAgent<Env> {
             env: this.env,
             stateManager,
             sessionManager: this.sessionManager,
+            mcp: {
+                sessionUuid: this.requestProperties.sessionId
+                    ? await this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
+                    : undefined,
+                clientName: this.mcpClientName,
+                clientVersion: this.mcpClientVersion,
+                protocolVersion: this.mcpProtocolVersion,
+                transport: this.requestProperties.transport,
+            },
             getDistinctId: () => this.getDistinctId(),
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
@@ -500,6 +520,7 @@ export class MCP extends McpAgent<Env> {
         const flagPromise = this.resolveVersionFlag()
         const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         const singleExecPromise = this.resolveSingleExecFlag()
+        const toolCallContextPromise = this.resolveToolCallContextFlag()
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -528,13 +549,15 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [flagVersion, toolFeatureFlags, singleExecFlagOn] = await Promise.all([
+        const [flagVersion, toolFeatureFlags, singleExecFlagOn, toolCallContextEnabled] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
+            toolCallContextPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
         ])
+        this.toolCallContextEnabled = toolCallContextEnabled
 
         const oauthClientName = (await this.cache.get('clientName')) || undefined
 
@@ -612,13 +635,18 @@ export class MCP extends McpAgent<Env> {
 
         const supportsInstructions = clientProfile.capabilities.supportsInstructions
 
+        const promptFeatureFlags = {
+            ...toolFeatureFlags,
+            'mcp-tool-call-context': toolCallContextEnabled,
+        }
+
         const instructionsContext = {
             guidelines,
             groupTypes,
             metadata,
             tools: toolInfos,
             queryTools: queryToolInfos,
-            featureFlags: toolFeatureFlags,
+            featureFlags: promptFeatureFlags,
         }
 
         // In single-exec mode, when the client honors the MCP `instructions` field we
@@ -800,6 +828,15 @@ export class MCP extends McpAgent<Env> {
         try {
             const distinctId = await this.getDistinctId()
             return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
+        } catch {
+            return false
+        }
+    }
+
+    private async resolveToolCallContextFlag(): Promise<boolean> {
+        try {
+            const distinctId = await this.getDistinctId()
+            return !!(await isFeatureFlagEnabled('mcp-tool-call-context', distinctId))
         } catch {
             return false
         }

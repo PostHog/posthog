@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers'
 import { track } from 'mcpcat'
 
 import type { MCPAnalyticsContext } from '@/lib/analytics'
+import { extractMcpContext } from '@/lib/mcp-context'
 
 /** Provider interface for resolving user/session identity and workspace context. */
 export type McpCatIdentityProvider = {
@@ -65,7 +66,7 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
             },
             // Recomputed per event so workspace switches (via `switch-project` / `switch-organization`)
             // are reflected on subsequent events without a reinit.
-            eventProperties: async () => {
+            eventProperties: async (request) => {
                 const [
                     mcpVersion,
                     clientUserAgent,
@@ -100,9 +101,13 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
                     ...(analyticsContext?.organizationId ? { organization: analyticsContext.organizationId } : {}),
                     ...(analyticsContext?.projectUuid ? { project: analyticsContext.projectUuid } : {}),
                 }
+                const mcpContext = extractMcpContext(
+                    (request as { params?: { arguments?: unknown } })?.params?.arguments
+                )
 
                 return {
                     ai_product: 'mcp',
+                    ...(mcpContext ? { mcp_context: mcpContext } : {}),
                     mcp_version: mcpVersion,
                     client_user_agent: clientUserAgent,
                     mcp_client_name: mcpClientName,

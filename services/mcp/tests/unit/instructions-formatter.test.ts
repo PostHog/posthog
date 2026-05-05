@@ -111,6 +111,20 @@ describe('InstructionsFormatter', () => {
                 expect(result).not.toContain('### Sharing feedback on this MCP server')
             }
         })
+
+        it('includes the tool-call context section only when the mcp-tool-call-context flag is on', () => {
+            const formatter = new InstructionsFormatter()
+            const withContext = formatter.buildV2Instructions({
+                ...fullCtx,
+                featureFlags: { 'mcp-tool-call-context': true },
+            })
+            expect(withContext).toContain('### Tool call context')
+
+            for (const featureFlags of [undefined, { 'mcp-tool-call-context': false }, {}]) {
+                const result = formatter.buildV2Instructions({ ...fullCtx, featureFlags })
+                expect(result).not.toContain('### Tool call context')
+            }
+        })
     })
 
     describe('buildExecInstructions', () => {
@@ -218,6 +232,23 @@ describe('InstructionsFormatter', () => {
                     { stripEnvContext }
                 )
                 expect(withoutFeedback).not.toContain('### Sharing feedback on this MCP server')
+            }
+        })
+
+        it('includes the tool-call context section only when the mcp-tool-call-context flag is on', () => {
+            const formatter = new InstructionsFormatter()
+            for (const stripEnvContext of [true, false]) {
+                const withContext = formatter.buildExecCommandReference(
+                    { ...fullCtx, featureFlags: { 'mcp-tool-call-context': true } },
+                    { stripEnvContext }
+                )
+                expect(withContext).toContain('### Tool call context')
+
+                const withoutContext = formatter.buildExecCommandReference(
+                    { ...fullCtx, featureFlags: { 'mcp-tool-call-context': false } },
+                    { stripEnvContext }
+                )
+                expect(withoutContext).not.toContain('### Tool call context')
             }
         })
     })

@@ -75,6 +75,31 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
         assert data["attempted_tool"] == "feature_flag_get_all"
         assert data["mcp_client_name"] == "Claude Desktop"
 
+    def test_create_feedback_submission_with_personal_api_key(self) -> None:
+        api_key = self.create_personal_api_key_with_scopes(["llm_analytics:write"])
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+            {
+                "goal": "understand MCP usage",
+                "feedback": "The tool result was hard to interpret.",
+                "category": "usability",
+                "attempted_tool": "query_execute",
+                "mcp_client_name": "local-mcp-test",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["kind"] == MCPAnalyticsSubmission.Kind.FEEDBACK
+        assert data["goal"] == "understand MCP usage"
+        assert data["summary"] == "The tool result was hard to interpret."
+        assert data["attempted_tool"] == "query_execute"
+        assert data["mcp_client_name"] == "local-mcp-test"
+
     @parameterized.expand(
         [
             ("missing_goal", {"feedback": "Need clearer results"}, "goal"),

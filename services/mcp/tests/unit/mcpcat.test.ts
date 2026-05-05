@@ -76,9 +76,9 @@ describe('initMcpCatObservability', () => {
         return options.eventTags
     }
 
-    function getEventPropertiesCallback(): () => Promise<Record<string, unknown>> {
+    function getEventPropertiesCallback(): (request?: unknown) => Promise<Record<string, unknown>> {
         const call = vi.mocked(track).mock.calls[0]!
-        const options = call[2] as { eventProperties: () => Promise<Record<string, unknown>> }
+        const options = call[2] as { eventProperties: (request?: unknown) => Promise<Record<string, unknown>> }
         return options.eventProperties
     }
 
@@ -264,6 +264,28 @@ describe('initMcpCatObservability', () => {
 
         const result = await getEventPropertiesCallback()()
         expect(result).toEqual(expected)
+    })
+
+    it('eventProperties promotes _mcp_context from request arguments to a top-level property', async () => {
+        const server = new McpServer({ name: 'test', version: '1.0.0' })
+        const identity = createMockIdentity()
+
+        await initMcpCatObservability(server, identity)
+
+        const result = await getEventPropertiesCallback()({
+            params: {
+                arguments: {
+                    query: 'select 1',
+                    _mcp_context: 'checking activation counts before replying to the user',
+                },
+            },
+        })
+
+        expect(result).toEqual(
+            expect.objectContaining({
+                mcp_context: 'checking activation counts before replying to the user',
+            })
+        )
     })
 
     it('swallows errors if mcpcat.track throws', async () => {

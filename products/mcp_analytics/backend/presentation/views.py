@@ -31,9 +31,10 @@ class MCPAnalyticsPagination(LimitOffsetPagination):
 @extend_schema(tags=["mcp_analytics"])
 class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPAnalyticsSubmissionSerializer
-    # Keep these endpoints staff-only until the MCP tools and auth model are ready for customer traffic.
+    # Keep these endpoints staff-only in cloud, but allow MCP clients to submit
+    # feedback with normal scoped API tokens during internal dogfooding.
     permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
-    scope_object = "INTERNAL"
+    scope_object = "llm_analytics"
     pagination_class = MCPAnalyticsPagination
     user_action_name: str = ""
 
