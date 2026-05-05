@@ -249,7 +249,7 @@ describe('vercel log drain template', () => {
         expect(props.proxy_vercel_cache).toBe('MISS')
     })
 
-    it('should not emit $ip or $raw_user_agent and should set $current_url from proxy data', async () => {
+    it('should not emit $ip or $raw_user_agent by default and should set $current_url from proxy data', async () => {
         const response = await tester.invoke(
             {},
             {
@@ -262,6 +262,18 @@ describe('vercel log drain template', () => {
         expect(props.$ip).toBeUndefined()
         expect(props.$raw_user_agent).toBeUndefined()
         expect(props.$current_url).toBe('https://my-app.vercel.app/api/users?page=1')
+    })
+
+    it('should emit $ip and $raw_user_agent when forward_ip_and_user_agent is enabled', async () => {
+        const response = await tester.invoke(
+            { forward_ip_and_user_agent: true },
+            { request: createVercelRequest(vercelLogDrain) }
+        )
+
+        expect(response.error).toBeUndefined()
+        const props = response.capturedPostHogEvents[0].properties
+        expect(props.$ip).toBe('120.75.16.101')
+        expect(props.$raw_user_agent).toBe('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
     })
 
     it('should handle logs with null message without crashing', async () => {
@@ -637,7 +649,7 @@ describe('vercel log drain template', () => {
         })
 
         it.each(['rotating_salt', 'fixed_salt', 'ip', 'custom'])(
-            'strategy %s: never emits $ip or $raw_user_agent',
+            'strategy %s: omits $ip and $raw_user_agent when forward toggle is off (default)',
             async (strategy) => {
                 const response = await tester.invoke(
                     {

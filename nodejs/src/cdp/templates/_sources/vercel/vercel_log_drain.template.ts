@@ -204,8 +204,9 @@ let queryParams := parseQueryParams(path)
 let pathname := extractPathname(path)
 
 let props := {
-    // PostHog standard properties. $ip and $raw_user_agent are intentionally
-    // omitted: PII is consumed only as inputs to distinctId derivation above.
+    // PostHog standard properties. $ip and $raw_user_agent are added below
+    // when forward_ip_and_user_agent is enabled — defaults to off so the
+    // strategy hashing isn't undermined by raw PII landing on every event.
     '$distinct_id_strategy': activeStrategy,
     '$current_url': f'{scheme}://{host}{path}',
     '$host': host,
@@ -278,6 +279,11 @@ let props := {
     'proxy_lambda_region': proxy.lambdaRegion,
     'proxy_waf_action': proxy.wafAction,
     'proxy_waf_rule_id': proxy.wafRuleId
+}
+
+if (inputs.forward_ip_and_user_agent) {
+    props['$ip'] := clientIp
+    props['$raw_user_agent'] := userAgent
 }
 
 postHogCapture({
@@ -358,6 +364,16 @@ return {
             default: 'rotating_salt',
             secret: false,
             required: true,
+        },
+        {
+            key: 'forward_ip_and_user_agent',
+            type: 'boolean',
+            label: 'Forward client IP and user agent',
+            description:
+                'When enabled, $ip and $raw_user_agent are emitted on every event (PostHog uses $ip for GeoIP enrichment). Off by default so raw PII does not land on events alongside hashed distinct IDs. Safe to enable when distinct_id_strategy is "ip", or whenever you do not need the strategy hashing to obscure the client.',
+            secret: false,
+            required: false,
+            default: false,
         },
         {
             key: 'custom_template',
