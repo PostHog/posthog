@@ -5,7 +5,6 @@ This is a two-phase query for performance: first find matching trace IDs, then f
 Time ranges are always required. Results can be large — dump to a file if needed.
 
 This query intentionally omits large content fields (`$ai_input`, `$ai_output`, `$ai_output_choices`, `$ai_input_state`, `$ai_output_state`, `$ai_tools`).
-Those fields are stripped from `events.properties` at write time post-cutover — they read populated on `events` only for pre-cutover rows; any event captured after the cutover reads NULL on `events`.
 Use the [single trace query](./example-llm-trace.md) (or the `query-llm-trace` wrapper) to retrieve those for a specific trace; both read from a dedicated table that retains the full payload for ~30 days.
 
 ## Phase 1 — Find trace IDs

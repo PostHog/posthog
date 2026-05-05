@@ -499,16 +499,12 @@ def sample_generation_details(
         WHERE event = '$ai_generation'
             AND trace_id IN {trace_ids}
             AND toString(uuid) IN {ids}
-            AND timestamp >= {ts_start}
-            AND timestamp < {ts_end}
         LIMIT {limit}
         """,
         placeholders={
             "ids": ast.Array(exprs=[ast.Constant(value=gid) for gid in ids_to_fetch]),
             "trace_ids": ast.Array(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
             "limit": ast.Constant(value=len(ids_to_fetch)),
-            "ts_start": ast.Constant(value=ts_start),
-            "ts_end": ast.Constant(value=ts_end),
         },
     )
 
@@ -582,7 +578,10 @@ def get_generation_detail(
     if not trace_id:
         return json.dumps({"error": f"Generation {generation_id} not found"})
 
-    gen_placeholders = {**shared_placeholders, "trace_id": ast.Constant(value=trace_id)}
+    gen_placeholders = {
+        "generation_id": shared_placeholders["generation_id"],
+        "trace_id": ast.Constant(value=trace_id),
+    }
 
     # Full generation event data — heavy `input` / `output` / `output_choices` /
     # `tools` / `input_state` / `output_state` only survive on ai_events.
@@ -616,8 +615,6 @@ def get_generation_detail(
         WHERE event = '$ai_generation'
             AND trace_id = {trace_id}
             AND toString(uuid) = {generation_id}
-            AND timestamp >= {ts_start}
-            AND timestamp < {ts_end}
         LIMIT 1
         """,
         placeholders=gen_placeholders,
@@ -706,32 +703,50 @@ def get_generation_text_repr(
     Args:
         generation_id: The generation event UUID to look up
     """
-    import orjson
+    from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
+    from posthog.models import Team
 
-    from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr
-
-    team_id = state["team_id"]
+    from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr_from_ai_events_row
 
     if not _UUID_RE.fullmatch(generation_id):
         return json.dumps({"error": "Invalid generation ID format"})
 
+    team = Team.objects.get(id=state["team_id"])
     ts_start, ts_end = _widened_ts_window(state)
 
-    rows = _execute_hogql(
-        team_id,
+    trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
+        team=team,
+        generation_uuids=[generation_id],
+        ts_start=ts_start,
+        ts_end=ts_end,
+        query_type="EvalReportAgentTraceIdResolve",
+    )
+    trace_id = trace_id_by_uuid.get(generation_id)
+    if not trace_id:
+        return json.dumps({"error": f"Generation {generation_id} not found"})
+
+    rows = _execute_hogql_via_ai_events(
+        team,
         """
-        SELECT uuid, event, timestamp, properties
-        FROM events
+        SELECT
+            toString(uuid) as uuid,
+            event,
+            timestamp,
+            input,
+            output,
+            output_choices,
+            tools,
+            is_error,
+            error
+        FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
+            AND trace_id = {trace_id}
             AND toString(uuid) = {generation_id}
-            AND timestamp >= {ts_start}
-            AND timestamp < {ts_end}
         LIMIT 1
         """,
         placeholders={
             "generation_id": ast.Constant(value=generation_id),
-            "ts_start": ast.Constant(value=ts_start),
-            "ts_end": ast.Constant(value=ts_end),
+            "trace_id": ast.Constant(value=trace_id),
         },
     )
 
@@ -739,18 +754,19 @@ def get_generation_text_repr(
         return json.dumps({"error": f"Generation {generation_id} not found"})
 
     row = rows[0]
-    props = row[3]
-    if isinstance(props, str):
-        props = orjson.loads(props)
-
-    event_data = {
-        "id": str(row[0]),
-        "event": row[1],
-        "timestamp": row[2].isoformat() if hasattr(row[2], "isoformat") else str(row[2]),
-        "properties": props,
-    }
-
-    text_repr = format_event_text_repr(event=event_data)
+    text_repr = format_event_text_repr_from_ai_events_row(
+        {
+            "uuid": row[0],
+            "event": row[1],
+            "timestamp": row[2],
+            "input": row[3],
+            "output": row[4],
+            "output_choices": row[5],
+            "tools": row[6],
+            "is_error": row[7],
+            "error": row[8],
+        }
+    )
 
     # Cap at 10k chars to avoid blowing up context
     if len(text_repr) > 10_000:

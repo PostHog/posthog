@@ -207,33 +207,6 @@ posthog:query-llm-traces-list
 }
 ```
 
-### By SQL (for full-text search or custom aggregations)
-
-Use SQL when you need something `query-llm-traces-list` can't express — typically full-text search across message content or custom aggregations.
-
-> **Heavy AI fields are stripped from `events.properties`.**
-> `$ai_input`, `$ai_output`, `$ai_output_choices`, `$ai_input_state`, `$ai_output_state`, and `$ai_tools`
-> are stripped from `events.properties` at write time post-cutover. They read populated on `events`
-> ONLY for pre-cutover rows; for any event captured after the cutover, those keys are NULL on
-> `events`. For full-text search across message content, prefer `query-llm-trace` /
-> `query-llm-traces-list` — they read from a dedicated table that retains the full payload for ~30
-> days. Token counts, costs, model names, and trace IDs are not stripped and are safe to query
-> directly.
-
-```sql
-SELECT
-    properties.$ai_trace_id AS trace_id,
-    properties.$ai_model AS model,
-    timestamp
-FROM events
-WHERE
-    event = '$ai_generation'
-    AND timestamp >= now() - INTERVAL 1 HOUR
-    AND properties.$ai_input ILIKE '%search term%'  -- ⚠ NULL post-strip; use query-llm-traces-list for content search
-ORDER BY timestamp DESC
-LIMIT 20
-```
-
 For more complex SQL patterns, read these references:
 
 - [Single trace retrieval](./references/example-llm-trace.md.j2) — fetches a single trace by ID with all events and properties (renders the `TraceQuery` HogQL)

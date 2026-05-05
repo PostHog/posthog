@@ -868,6 +868,18 @@ export interface LLMModelsListResponseApi {
     models: LLMModelInfoApi[]
 }
 
+export interface OfflineExperimentItemsRequestApi {
+    experiment_id: string
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export interface OfflineExperimentItemsResponseApi {
+    results: unknown[][]
+}
+
 export interface PaginatedLLMProviderKeyListApi {
     count: number
     /** @nullable */
@@ -1163,7 +1175,7 @@ export const SentimentRequestAnalysisLevelEnumApi = {
 
 export interface SentimentRequestApi {
     /**
-     * Trace IDs or generation IDs to classify, depending on analysis_level.
+     * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
      * @minItems 1
      * @maxItems 5
      */
@@ -1213,25 +1225,18 @@ export interface SentimentBatchResponseApi {
     results: SentimentBatchResponseApiResults
 }
 
-// Hand-written types for sentiment-generations and offline-evaluations endpoints.
-// Codegen drops them from api.schemas.ts even though the OpenAPI spec includes
-// the $ref'd schemas — yet api.ts (in the same regen pass) still emits typed
-// references to them. Worth a separate cleanup PR on the orval config.
+/**
+ * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
+
+`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+path used (dateRange, filterTestAccounts, properties), so the migration is
+behaviour-preserving for callers that pass a request unchanged.
+ */
 export interface SentimentGenerationsRequestApi {
-    filters?: { [key: string]: unknown }
+    filters?: unknown
 }
 
 export interface SentimentGenerationsResponseApi {
-    results: unknown[][]
-}
-
-export interface OfflineExperimentItemsRequestApi {
-    experiment_id: string
-    date_from?: string | null
-    date_to?: string | null
-}
-
-export interface OfflineExperimentItemsResponseApi {
     results: unknown[][]
 }
 
@@ -2274,6 +2279,10 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     TogetherAi: 'together_ai',
 } as const
 
+export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
+
 export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeysListParams = {
@@ -2368,6 +2377,10 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 

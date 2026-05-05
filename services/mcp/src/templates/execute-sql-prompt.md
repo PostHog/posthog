@@ -35,9 +35,9 @@ If the required events, properties, or tables do not exist, say so — do not ru
 
 Large JSON values in results (notably full `properties` objects) are truncated by default. If you anticipate a large result set, or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), dump the results to a file and process them with bash rather than returning them inline. Alternatively, cherry-pick specific keys (`properties.$browser`) instead of the whole object.
 
-### LLM trace fields are stripped from `events.properties`
+### Large LLM trace fields are stripped from `events.properties`
 
-For LLM events (`$ai_generation`, `$ai_trace`, `$ai_span`, etc.), these specific keys are stripped from `events.properties` at write time post-cutover:
+For LLM events (`$ai_generation`, `$ai_trace`, `$ai_span`, etc.), these specific keys with large values are stripped from `events.properties`:
 
 - `properties.$ai_input`
 - `properties.$ai_output`
@@ -46,13 +46,7 @@ For LLM events (`$ai_generation`, `$ai_trace`, `$ai_span`, etc.), these specific
 - `properties.$ai_output_state`
 - `properties.$ai_tools`
 
-Three regimes for `execute-sql FROM events` reads on these keys:
-
-- **Pre-cutover rows** (captured before the migration): keys are populated as-is.
-- **Post-cutover, recent rows** (captured after the cutover, within ~30 days): keys are NULL on `events`. They live on a dedicated table with a 30-day TTL.
-- **Post-cutover, aged-out rows** (captured after the cutover, older than ~30 days): keys are NULL on `events` AND have aged out of the dedicated table.
-
-Prefer `query-llm-trace` / `query-llm-traces-list` whenever you need any of those six keys — those wrappers read from the dedicated table directly. `execute-sql FROM events` for those keys works only for pre-cutover rows; recent post-cutover rows read NULL there. Other AI properties (token counts, costs, model, trace IDs) stay on `events` in all three regimes and are safe to query directly.
+Prefer `query-llm-trace` / `query-llm-traces-list` whenever you need any of those six keys — they contain information on the proper read patterns to a dedicated AI events table which contains these fields. Other AI properties (token counts, costs, model, trace IDs) stay on `events` in all three regimes and are safe to query directly.
 
 ### Example: searching for existing insights
 

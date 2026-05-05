@@ -194,6 +194,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     const grouped = new Map()
     const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
     const allSchemas = schema.components?.schemas ?? {}
+    const allParameters = schema.components?.parameters ?? {}
     const skippedTags = new Map()
     let skippedNoTags = 0
     let routedByTag = 0
@@ -307,6 +308,19 @@ function buildGroupedSchemasByOutput(schema, mappings) {
 
     // Build final schemas with only referenced components
     for (const [outputDir, entry] of grouped.entries()) {
+        const filteredParameters = {}
+        for (const ref of entry._refs) {
+            if (!ref.startsWith('#/components/parameters/')) {
+                continue
+            }
+            const paramName = ref.replace('#/components/parameters/', '')
+            const paramDef = allParameters[paramName]
+            if (paramDef) {
+                filteredParameters[paramName] = paramDef
+                collectSchemaRefs(paramDef, entry._refs)
+            }
+        }
+
         const allRefs = resolveNestedRefs(allSchemas, entry._refs)
         const filteredSchemas = {}
 
@@ -317,11 +331,16 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             }
         }
 
+        const components = { schemas: filteredSchemas }
+        if (Object.keys(filteredParameters).length > 0) {
+            components.parameters = filteredParameters
+        }
+
         grouped.set(outputDir, {
             openapi: entry.openapi,
             info: { ...entry.info, title: `${entry.info?.title ?? 'API'} - ${path.basename(outputDir)}` },
             paths: entry.paths,
-            components: { schemas: filteredSchemas },
+            components,
         })
     }
 

@@ -401,8 +401,6 @@ def fetch_generation_contents(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id IN {trace_ids}
-            AND timestamp >= {start_dt}
-            AND timestamp < {end_dt}
             AND toString(uuid) IN {ids}
         LIMIT {limit}
         """
@@ -411,8 +409,6 @@ def fetch_generation_contents(
     placeholders: dict[str, ast.Expr] = {
         "ids": ids_tuple,
         "trace_ids": trace_ids_tuple,
-        "start_dt": ast.Constant(value=window_start),
-        "end_dt": ast.Constant(value=window_end),
         "limit": ast.Constant(value=len(generation_ids)),
     }
 
