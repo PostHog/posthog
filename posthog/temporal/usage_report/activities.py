@@ -71,7 +71,12 @@ async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
 
         @database_sync_to_async
         def run() -> Any:
-            return spec.fn(inputs.ctx.period_start, inputs.ctx.period_end)
+            # Snapshot specs ignore the period (they read current state);
+            # period specs filter on (begin, end). The signature is enforced
+            # by `QuerySpec.fn`'s union type and validated in registry tests.
+            if spec.kind == "snapshot":
+                return spec.fn()  # type: ignore[call-arg]
+            return spec.fn(inputs.ctx.period_start, inputs.ctx.period_end)  # type: ignore[call-arg]
 
         started = time.monotonic()
         result = await run()

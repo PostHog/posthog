@@ -90,11 +90,11 @@ from products.error_tracking.backend.facade import api as error_tracking_api
 from products.surveys.backend.models import Survey
 
 # ---- Postgres ORM / API helpers ---------------------------------------------
-# These accept (begin, end) for uniform dispatch even though they don't use
-# the period — the registry treats every spec the same way.
+# These are snapshot queries — they take no period args because they read
+# the *current* state of the database at the moment they run.
 
 
-def _group_types_total(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _group_types_total() -> list[dict[str, int]]:
     return list(
         GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
         .annotate(total=Count("id"))
@@ -102,11 +102,11 @@ def _group_types_total(_begin: datetime, _end: datetime) -> list[dict[str, int]]
     )
 
 
-def _dashboard_count(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _dashboard_count() -> list[dict[str, int]]:
     return list(Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
 
 
-def _dashboard_template_count(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _dashboard_template_count() -> list[dict[str, int]]:
     return list(
         Dashboard.objects.filter(creation_mode="template")
         .values("team_id")
@@ -115,7 +115,7 @@ def _dashboard_template_count(_begin: datetime, _end: datetime) -> list[dict[str
     )
 
 
-def _dashboard_shared_count(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _dashboard_shared_count() -> list[dict[str, int]]:
     return list(
         Dashboard.objects.filter(sharingconfiguration__enabled=True)
         .values("team_id")
@@ -124,7 +124,7 @@ def _dashboard_shared_count(_begin: datetime, _end: datetime) -> list[dict[str, 
     )
 
 
-def _dashboard_tagged_count(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _dashboard_tagged_count() -> list[dict[str, int]]:
     return list(
         Dashboard.objects.filter(tagged_items__isnull=False)
         .values("team_id")
@@ -133,31 +133,31 @@ def _dashboard_tagged_count(_begin: datetime, _end: datetime) -> list[dict[str, 
     )
 
 
-def _ff_count(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _ff_count() -> list[dict[str, int]]:
     return list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
 
 
-def _ff_active_count(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _ff_active_count() -> list[dict[str, int]]:
     return list(
         FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
     )
 
 
-def _survey_count(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _survey_count() -> list[dict[str, int]]:
     return list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
 
 
-def _issues_created_total(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _issues_created_total() -> list[dict[str, int]]:
     return [{"team_id": team_id, "total": total} for team_id, total in error_tracking_api.get_issue_counts_by_team()]
 
 
-def _symbol_sets_count(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _symbol_sets_count() -> list[dict[str, int]]:
     return [
         {"team_id": team_id, "total": total} for team_id, total in error_tracking_api.get_symbol_set_counts_by_team()
     ]
 
 
-def _resolved_symbol_sets_count(_begin: datetime, _end: datetime) -> list[dict[str, int]]:
+def _resolved_symbol_sets_count() -> list[dict[str, int]]:
     return [
         {"team_id": team_id, "total": total}
         for team_id, total in error_tracking_api.get_symbol_set_counts_by_team(resolved_only=True)
@@ -182,18 +182,22 @@ def _exceptions_captured(begin: datetime, end: datetime) -> dict[str, list[list[
 # ---- Registry ---------------------------------------------------------------
 
 
+# Period queries filter on (begin, end) and are re-run safe.
+PeriodFn = Callable[[datetime, datetime], Any]
+# Snapshot queries take no args — they read current state and are *not*
+# re-run safe. See the module-level disclaimer above.
+SnapshotFn = Callable[[], Any]
+
+
 @dataclasses.dataclass(frozen=True)
 class QuerySpec:
     name: str
-    fn: Callable[[datetime, datetime], Any]
+    fn: PeriodFn | SnapshotFn
     output: Literal["single", "multi"] = "single"
     # For output="multi" specs only: maps source-keys returned by fn to
     # destination keys in the flat `all_data` dict.
     multi_keys_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
     timeout_minutes: int = 15
-    # `period` queries filter on (begin, end) and are re-run safe.
-    # `snapshot` queries ignore the period and read current state — see the
-    # disclaimer at the top of this module.
     kind: Literal["period", "snapshot"] = "period"
 
 
@@ -439,43 +443,43 @@ QUERIES: list[QuerySpec] = [
     # date can return different numbers if state has changed since.
     QuerySpec(
         name="teams_with_active_external_data_schemas_in_period",
-        fn=lambda _b, _e: get_teams_with_active_external_data_schemas_in_period(),
+        fn=get_teams_with_active_external_data_schemas_in_period,
         timeout_minutes=5,
         kind="snapshot",
     ),
     QuerySpec(
         name="teams_with_active_batch_exports_in_period",
-        fn=lambda _b, _e: get_teams_with_active_batch_exports_in_period(),
+        fn=get_teams_with_active_batch_exports_in_period,
         timeout_minutes=5,
         kind="snapshot",
     ),
     QuerySpec(
         name="teams_with_dwh_tables_storage_in_s3_in_mib",
-        fn=lambda _b, _e: get_teams_with_dwh_tables_storage_in_s3(),
+        fn=get_teams_with_dwh_tables_storage_in_s3,
         timeout_minutes=5,
         kind="snapshot",
     ),
     QuerySpec(
         name="teams_with_dwh_mat_views_storage_in_s3_in_mib",
-        fn=lambda _b, _e: get_teams_with_dwh_mat_views_storage_in_s3(),
+        fn=get_teams_with_dwh_mat_views_storage_in_s3,
         timeout_minutes=5,
         kind="snapshot",
     ),
     QuerySpec(
         name="teams_with_dwh_total_storage_in_s3_in_mib",
-        fn=lambda _b, _e: get_teams_with_dwh_total_storage_in_s3(),
+        fn=get_teams_with_dwh_total_storage_in_s3,
         timeout_minutes=5,
         kind="snapshot",
     ),
     QuerySpec(
         name="teams_with_active_hog_destinations_in_period",
-        fn=lambda _b, _e: get_teams_with_active_hog_destinations_in_period(),
+        fn=get_teams_with_active_hog_destinations_in_period,
         timeout_minutes=5,
         kind="snapshot",
     ),
     QuerySpec(
         name="teams_with_active_hog_transformations_in_period",
-        fn=lambda _b, _e: get_teams_with_active_hog_transformations_in_period(),
+        fn=get_teams_with_active_hog_transformations_in_period,
         timeout_minutes=5,
         kind="snapshot",
     ),

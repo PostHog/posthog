@@ -66,6 +66,46 @@ async def test_run_query_to_s3_calls_fn_with_period_and_writes_to_s3(activity_en
 
 
 @pytest.mark.asyncio
+async def test_run_query_to_s3_snapshot_kind_calls_fn_without_period(activity_environment) -> None:
+    """Snapshot specs declare zero-arg fns — the activity must dispatch
+    them without the period, otherwise we'd get a TypeError.
+    """
+    fn_args: list[tuple] = []
+
+    def fake_snapshot_query() -> list[dict[str, int]]:
+        fn_args.append(())
+        return [{"team_id": 1, "total": 7}]
+
+    fake_spec = QuerySpec(
+        name="test_snapshot_count",
+        fn=fake_snapshot_query,
+        kind="snapshot",
+    )
+
+    written: dict[str, Any] = {}
+
+    def fake_write(key: str, content: Any, extras: dict | None = None) -> None:
+        written[key] = content
+
+    with (
+        patch.dict(
+            "posthog.temporal.usage_report.activities.QUERY_INDEX",
+            {"test_snapshot_count": fake_spec},
+            clear=False,
+        ),
+        patch("posthog.temporal.usage_report.storage.object_storage.write", side_effect=fake_write),
+    ):
+        result = await activity_environment.run(
+            run_query_to_s3,
+            RunQueryToS3Inputs(ctx=_ctx(), query_name="test_snapshot_count"),
+        )
+
+    assert fn_args == [()], "Snapshot fn should be invoked with no positional args"
+    assert result.query_name == "test_snapshot_count"
+    assert json.loads(written[result.s3_key]) == [{"team_id": 1, "total": 7}]
+
+
+@pytest.mark.asyncio
 async def test_run_query_to_s3_propagates_query_failure(activity_environment) -> None:
     """If the underlying query raises, the activity must raise too —
     otherwise Temporal can't retry it.

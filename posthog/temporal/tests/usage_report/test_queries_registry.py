@@ -6,7 +6,20 @@ duplicated names, multi specs without mappings, two specs writing to the
 same destination key, etc.
 """
 
+import inspect
+
 from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX
+
+
+def _required_arg_count(fn) -> int:  # type: ignore[no-untyped-def]
+    """Count positional/positional-or-keyword params with no default."""
+    sig = inspect.signature(fn)
+    return sum(
+        1
+        for p in sig.parameters.values()
+        if p.default is inspect.Parameter.empty
+        and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    )
 
 
 def test_query_index_matches_queries_list() -> None:
@@ -74,3 +87,29 @@ def test_period_specs_outnumber_snapshot_specs() -> None:
     period_count = sum(1 for spec in QUERIES if spec.kind == "period")
     snapshot_count = sum(1 for spec in QUERIES if spec.kind == "snapshot")
     assert period_count > snapshot_count, f"Period={period_count} Snapshot={snapshot_count}"
+
+
+def test_period_specs_take_begin_and_end() -> None:
+    """`kind='period'` specs must accept (begin, end). The activity passes
+    them through; if a fn doesn't take them we'd silently drop the period.
+    """
+    for spec in QUERIES:
+        if spec.kind == "period":
+            required = _required_arg_count(spec.fn)
+            assert required == 2, (
+                f"Period spec {spec.name!r} fn must take exactly 2 required args (begin, end); got {required}"
+            )
+
+
+def test_snapshot_specs_take_no_args() -> None:
+    """`kind='snapshot'` specs must take zero args — they read current
+    state and the period would be misleading. Forcing zero args means
+    'fix this snapshot to honor the period' is a typed migration.
+    """
+    for spec in QUERIES:
+        if spec.kind == "snapshot":
+            required = _required_arg_count(spec.fn)
+            assert required == 0, (
+                f"Snapshot spec {spec.name!r} fn must take zero required args; got {required}. "
+                "If this query needs the period, change kind to 'period'."
+            )
