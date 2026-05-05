@@ -172,7 +172,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                     </LemonButton>
                 )}
                 <div className="flex items-center gap-1">
-                    {hasSummary && sessionSummary && (
+                    {sessionSummary && (
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -180,11 +180,14 @@ export function PlayerSummaryDock(): JSX.Element | null {
                             tooltip="Copy session summary for LLM"
                             aria-label="Copy session summary for LLM"
                             data-attr="copy-session-summary-for-llm"
-                            onClick={() => {
-                                void copyToClipboard(
+                            onClick={async () => {
+                                const success = await copyToClipboard(
                                     formatSessionSummary(sessionSummary, sessionRecordingId),
                                     'session summary'
                                 )
+                                if (!success) {
+                                    return
+                                }
                                 reportAISessionSummaryCopiedForLLM(sessionRecordingId, {
                                     segment_count: sessionSummary.segments?.length ?? 0,
                                     key_action_count:
