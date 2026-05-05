@@ -7,6 +7,7 @@ import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, PipelineEvent, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
@@ -200,6 +201,7 @@ describe('ErrorTrackingConsumer', () => {
                 ),
             }),
             teamManager: hub.teamManager,
+            errorTrackingSettingsManager: new ErrorTrackingSettingsManager(hub.postgres),
             hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,
             redisPool: hub.redisPool,

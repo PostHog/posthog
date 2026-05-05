@@ -8,6 +8,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
+import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 
 import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
@@ -86,6 +87,7 @@ export interface ErrorTrackingHogTransformer {
 export interface ErrorTrackingConsumerDeps {
     outputs: ErrorTrackingOutputs
     teamManager: TeamManager
+    errorTrackingSettingsManager: ErrorTrackingSettingsManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
     redisPool: GenericPool<Redis>
@@ -261,6 +263,7 @@ export class ErrorTrackingConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
+            errorTrackingSettingsManager: this.rateLimiter ? this.deps.errorTrackingSettingsManager : undefined,
             topHog: this.topHog,
         })
 
@@ -287,19 +290,20 @@ export class ErrorTrackingConsumer {
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:team_global',
-                // TODO: Read per-team bucket overrides from a Team Extension model
-                // (e.g. ErrorTrackingTeamSettings.rate_limit_bucket_size /
-                // .rate_limit_refill_rate). When those columns are nullable and unset,
-                // fall back to the env-configured defaults baked into `this.rateLimiter`.
-                // Wiring would look like:
-                //   getBucketConfig: (input) => {
-                //       const settings = (input as { team: TeamWithErrorTrackingSettings }).team
-                //           .error_tracking_settings
-                //       return {
-                //           bucketSize: settings?.rate_limit_bucket_size ?? undefined,
-                //           refillRate: settings?.rate_limit_refill_rate ?? undefined,
-                //       }
-                //   },
+                getBucketConfig: (input) => {
+                    // User model: "N events per M minutes". Token bucket: bucketSize=N (max burst),
+                    // refillRate=N/(M*60) per second (steady state). Falls back to env defaults
+                    // when the team has no row or hasn't set a project-wide value.
+                    const settings = input.errorTrackingSettings
+                    if (settings?.projectRateLimitValue == null) {
+                        return {}
+                    }
+                    const minutes = settings.projectRateLimitBucketSizeMinutes ?? 60
+                    return {
+                        bucketSize: settings.projectRateLimitValue,
+                        refillRate: settings.projectRateLimitValue / (minutes * 60),
+                    }
+                },
             },
             // TODO: Per-exception-hash limit using a coarse pre-Cymbal fingerprint
             // (Cymbal's proper fingerprint is post-symbolication, so we accept a
