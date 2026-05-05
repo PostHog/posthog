@@ -8,7 +8,7 @@ import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohor
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
-import { CohortType, PropertyFilterType, PropertyOperator } from '~/types'
+import { CohortPropertyFilter, CohortType, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { TaxonomicFilterGroupType } from '../../TaxonomicFilter/types'
 import { PropertyFilters } from '../PropertyFilters'
@@ -44,7 +44,7 @@ describe('TaxonomicPropertyFilter selectingKeyOnly', () => {
         cleanup()
     })
 
-    const cohortFilter = {
+    const cohortFilter: CohortPropertyFilter = {
         type: PropertyFilterType.Cohort,
         key: 'id',
         value: 1,
@@ -52,7 +52,7 @@ describe('TaxonomicPropertyFilter selectingKeyOnly', () => {
         cohort_name: 'Power Users',
     }
 
-    const eventFilter = {
+    const eventFilter: EventPropertyFilter = {
         type: PropertyFilterType.Event,
         key: '$browser',
         value: 'Chrome',
