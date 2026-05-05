@@ -1,0 +1,131 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "confidence": {
+            "description": "Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+        },
+        "dedupe_keys": {
+            "description": "Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`).",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "description": {
+            "description": "Canonical evidence-bundle prose. Becomes the signal's `description`.",
+            "type": "string"
+        },
+        "evidence": {
+            "description": "Citations supporting the finding. Capped at 20 entries.",
+            "items": {
+                "description": "One citation attached to a finding. Mirrors `SignalsAgentEvidenceEntry`.",
+                "properties": {
+                    "entity_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional ID of the cited entity (issue id, recording id, log query id)."
+                    },
+                    "source_product": {
+                        "description": "Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...).",
+                        "type": "string"
+                    },
+                    "summary": {
+                        "description": "One-sentence prose about why this evidence supports the finding.",
+                        "type": "string"
+                    }
+                },
+                "required": ["source_product", "summary"],
+                "type": "object"
+            },
+            "maxItems": 20,
+            "type": "array"
+        },
+        "finding_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Idempotency key. Re-using the same id within a run short-circuits without re-emitting."
+        },
+        "hypothesis": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional one-line hypothesis the finding tests."
+        },
+        "id": {
+            "pattern": "^[0-9a-f-]+$",
+            "type": "string"
+        },
+        "mcp_trace_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional MCP trace id for cross-system debugging."
+        },
+        "severity": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional severity tag (`P0`-`P4`) — informational only."
+        },
+        "time_range": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "date_from": {
+                            "description": "ISO-8601 inclusive lower bound for the finding's window.",
+                            "type": "string"
+                        },
+                        "date_to": {
+                            "description": "ISO-8601 inclusive upper bound for the finding's window.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["date_from", "date_to"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional time window the finding refers to."
+        },
+        "weight": {
+            "description": "Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+        }
+    },
+    "required": ["id", "description", "weight", "confidence", "evidence"],
+    "type": "object"
+}

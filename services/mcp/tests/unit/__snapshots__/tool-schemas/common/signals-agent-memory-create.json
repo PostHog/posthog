@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.",
+    "properties": {
+        "content": {
+            "description": "Prose to write. Read verbatim into future prompts.",
+            "type": "string"
+        },
+        "key": {
+            "description": "Agent-chosen semantic key. Re-using a key updates the existing entry in place.",
+            "maxLength": 300,
+            "type": "string"
+        },
+        "run_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected."
+        },
+        "tags": {
+            "description": "Tags for later search. Empty/whitespace tags are dropped.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "ttl_days": {
+            "description": "Days until expiry (default 7, hard cap 90).",
+            "maximum": 90,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["key", "content"],
+    "type": "object"
+}
