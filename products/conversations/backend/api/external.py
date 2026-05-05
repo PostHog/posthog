@@ -6,6 +6,7 @@ to third-party developers in the future.
 Authenticated via team secret API token passed as a Bearer token in the Authorization header.
 """
 
+import uuid
 import hashlib
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -89,7 +90,7 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
     sla_business_hours = serializers.JSONField(required=False, allow_null=True)
     snoozed_until = serializers.DateTimeField(required=False, allow_null=True)
     assignee = serializers.JSONField(required=False, allow_null=True)
-    tags = serializers.ListField(child=serializers.CharField(), required=False)
+    tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
 
     def validate_sla_business_hours(self, value):
         if value is None:
@@ -148,6 +149,11 @@ class ExternalTicketView(APIView):
             return error
 
         assert team is not None
+
+        try:
+            uuid.UUID(ticket_id)
+        except (ValueError, AttributeError):
+            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             ticket = Ticket.objects.select_related(
@@ -210,6 +216,11 @@ class ExternalTicketView(APIView):
             return error
 
         assert team is not None
+
+        try:
+            uuid.UUID(ticket_id)
+        except (ValueError, AttributeError):
+            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = ExternalTicketUpdateSerializer(data=request.data)
         if not serializer.is_valid():
