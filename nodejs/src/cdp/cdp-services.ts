@@ -240,10 +240,19 @@ export function createCdpValkeyShadowPools(
         `[${name}] shadow valkey writer=${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} reader=${config.CDP_VALKEY_READER_HOST || '<falling back to writer>'}`
     )
 
+    // commandTimeout aborts in-flight commands at the ioredis protocol level, so a slow shadow
+    // doesn't tie up a pool client until the kernel TCP timeout. Pair this with mirrorCall()'s
+    // race-timeout (which only stops awaiting); together they prevent leaks on bad shadow health.
+    const shadowCommandTimeoutMs = 1000
+
     const writer = createRedisV2PoolFromConfig({
         connection: {
             url: config.CDP_VALKEY_HOST,
-            options: { port: config.CDP_VALKEY_PORT, password: config.CDP_VALKEY_PASSWORD },
+            options: {
+                port: config.CDP_VALKEY_PORT,
+                password: config.CDP_VALKEY_PASSWORD,
+                commandTimeout: shadowCommandTimeoutMs,
+            },
             name: `${name}-shadow`,
         },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
@@ -266,7 +275,11 @@ export function createCdpValkeyShadowPools(
         reader = createRedisV2PoolFromConfig({
             connection: {
                 url: config.CDP_VALKEY_READER_HOST,
-                options: { port: config.CDP_VALKEY_READER_PORT, password: config.CDP_VALKEY_PASSWORD },
+                options: {
+                    port: config.CDP_VALKEY_READER_PORT,
+                    password: config.CDP_VALKEY_PASSWORD,
+                    commandTimeout: shadowCommandTimeoutMs,
+                },
                 name: `${name}-shadow-reader`,
             },
             poolMinSize: config.REDIS_POOL_MIN_SIZE,
