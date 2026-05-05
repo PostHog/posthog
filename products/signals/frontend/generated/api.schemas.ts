@@ -336,7 +336,7 @@ export interface ProjectProfileApi {
 export interface SignalAgentRunSummaryApi {
     /** UUID of the run row. */
     run_id: string
-    /** Canonical skill name the run executed (e.g. `signals-agent-scout`). */
+    /** Canonical skill name the run executed (e.g. `signals-agent-general`). */
     skill_name: string
     /** Skill version snapshotted at run start. */
     skill_version: number

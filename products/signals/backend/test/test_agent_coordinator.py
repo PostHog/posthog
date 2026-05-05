@@ -172,10 +172,10 @@ async def test_lazy_seeds_canonical_skills_for_brand_new_team(ateam):
             LLMSkill.objects.filter(team=ateam, name__startswith="signals-agent-").values_list("name", flat=True)
         )
     )()
-    # signals-agent-scout is the canonical skill shipped in-repo; assert membership
+    # signals-agent-general is the canonical skill shipped in-repo; assert membership
     # rather than equality so future canonical additions don't break this test.
-    assert "signals-agent-scout" in seeded
-    assert any(p.skill_name == "signals-agent-scout" for p in output.planned_runs)
+    assert "signals-agent-general" in seeded
+    assert any(p.skill_name == "signals-agent-general" for p in output.planned_runs)
 
 
 @pytest.mark.asyncio

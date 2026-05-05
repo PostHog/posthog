@@ -18,7 +18,7 @@ def _make_run(team, **overrides) -> SignalAgentRun:
     config, _ = SignalAgentConfig.objects.get_or_create(team=team)
     defaults: dict = {
         "agent_config": config,
-        "skill_name": "signals-agent-scout",
+        "skill_name": "signals-agent-general",
         "skill_version": 1,
         "status": SignalAgentRun.Status.RUNNING,
         "summary": "investigating checkout 500s",

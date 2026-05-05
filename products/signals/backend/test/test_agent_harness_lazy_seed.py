@@ -171,14 +171,14 @@ class TestDiscoverCanonicalSkills:
         # Exercises the production manifest at `products/signals/skills/` — growing the
         # canonical set is a deliberate edit, so this serves as the lock.
         skills = discover_canonical_skills()
-        assert any(s.name == "signals-agent-scout" for s in skills)
+        assert any(s.name == "signals-agent-general" for s in skills)
 
 
 class TestSeedCanonicalSkills(BaseTest):
     def test_seeds_canonicals_when_team_has_no_signals_agent_skills(self) -> None:
         result = seed_canonical_skills(self.team)
-        assert "signals-agent-scout" in result.created_skill_names
-        seeded = LLMSkill.objects.get(team=self.team, name="signals-agent-scout")
+        assert "signals-agent-general" in result.created_skill_names
+        seeded = LLMSkill.objects.get(team=self.team, name="signals-agent-general")
         assert seeded.is_latest is True
         assert seeded.body  # body copied from SKILL.md
         assert seeded.metadata["seeded_by"] == "signals_agent_harness"
@@ -208,7 +208,7 @@ class TestSeedCanonicalSkills(BaseTest):
         # Re-seeding archived rows would resurrect content the team deliberately removed.
         result = seed_canonical_skills(self.team)
         assert result.created_skill_names == ()
-        assert not LLMSkill.objects.filter(team=self.team, name="signals-agent-scout", deleted=False).exists()
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-agent-general", deleted=False).exists()
 
     def test_idempotent_on_repeat_call(self) -> None:
         first = seed_canonical_skills(self.team)
@@ -220,7 +220,7 @@ class TestSeedCanonicalSkills(BaseTest):
 
     def test_seeded_skill_is_loadable_via_load_skill_for_run(self) -> None:
         seed_canonical_skills(self.team)
-        loaded = load_skill_for_run(self.team, "signals-agent-scout")
-        assert loaded.name == "signals-agent-scout"
+        loaded = load_skill_for_run(self.team, "signals-agent-general")
+        assert loaded.name == "signals-agent-general"
         assert loaded.version == 1
         assert "Signals scout" in loaded.body

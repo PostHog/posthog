@@ -17,7 +17,9 @@ class SignalAgentRunSummarySerializer(serializers.Serializer):
     """Lightweight projection of a `SignalAgentRun` row used by `search-recent-runs`."""
 
     run_id = serializers.CharField(help_text="UUID of the run row.")
-    skill_name = serializers.CharField(help_text="Canonical skill name the run executed (e.g. `signals-agent-scout`).")
+    skill_name = serializers.CharField(
+        help_text="Canonical skill name the run executed (e.g. `signals-agent-general`)."
+    )
     skill_version = serializers.IntegerField(help_text="Skill version snapshotted at run start.")
     status = serializers.CharField(
         help_text="Run status: scheduled | running | completed | failed | abandoned.",

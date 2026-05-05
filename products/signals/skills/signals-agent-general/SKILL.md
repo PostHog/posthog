@@ -1,13 +1,16 @@
 ---
-name: signals-agent-scout
+name: signals-agent-general
 description: >
-  Generic Signals scout for PostHog projects. Explores freely across whichever products the
+  General Signals scout for PostHog projects. Explores freely across whichever products the
   team uses (errors, replays, web analytics, experiments, feature flags, warehouse, LLM
   analytics, surveys, hog functions), saves observations as durable memory, and emits the
   findings that clear the confidence bar via signals-agent-runs-findings-create.
-  Use for first-pass scouting on any project. The scout's understanding of the team
-  compounds across runs through memory; per-product references in references/products/
-  steer attention without prescribing a fixed playbook.
+  One peer in the signals-agent-* fleet — the cross-product explorer. Specialist
+  siblings (signals-agent-llm-analytics, signals-agent-logs, etc.) carry tighter focus
+  for specific products. The coordinator samples one skill per (team, tick) randomly,
+  so general fires intermixed with specialists over time. The scout's understanding of
+  the team compounds across runs through shared per-team memory; per-product references
+  in references/products/ steer attention without prescribing a fixed playbook.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with read-only PostHog MCP
   scopes (signal_agent:read, llm_skill:read, plus standard analytics reads). Assumes the
