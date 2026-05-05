@@ -224,8 +224,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 const latest = await api.savedHeatmaps.get(props.id)
                 if (latest.status === 'failed') {
                     actions.setScreenshotError(
-                        latest.exception ||
-                            'Screenshot generation failed. Click Retry to try again.'
+                        latest.exception || 'Screenshot generation failed. Click Retry to try again.'
                     )
                 } else if (latest.status === 'completed' && latest.has_content) {
                     const w = width ?? DEFAULT_HEATMAP_WIDTH
@@ -240,9 +239,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     )
                 }
             } catch {
-                actions.setScreenshotError(
-                    'Screenshot generation timed out. Click Retry to try again.'
-                )
+                actions.setScreenshotError('Screenshot generation timed out. Click Retry to try again.')
             }
         },
         regenerateScreenshot: async () => {
