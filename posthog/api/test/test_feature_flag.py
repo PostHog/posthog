@@ -12716,11 +12716,6 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
 
-    # NOTE: This test is replaced by the working timestamp evaluation.
-    # The original test was testing for a 400 when person didn't exist at timestamp,
-    # but now that we removed the boolean return from build_person_properties_at_time,
-    # person existence is determined by the earlier Postgres lookup.
-
     @patch("posthog.api.feature_flag.get_flags_from_service")
     def test_test_evaluation_missing_internal_token_error(self, mock_get_flags):
         """Test 500 when INTERNAL_REQUEST_TOKEN is not set."""
