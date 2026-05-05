@@ -327,8 +327,10 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")
 
-    # 7b. Detect team member sender
-    posthog_user = _resolve_team_member(sender_email, team)
+    # 7b. Detect team member sender — only trust From when DKIM passes,
+    # since the From header is trivially forgeable without it.
+    dkim_passed = request.POST.get("X-Mailgun-Dkim-Check-Result", "").lower() == "pass"
+    posthog_user = _resolve_team_member(sender_email, team) if dkim_passed else None
     is_team_member = posthog_user is not None
 
     # 8. Create ticket/comment/mapping in a transaction

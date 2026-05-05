@@ -943,7 +943,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         return self.client.post("/api/conversations/v1/email/inbound", data)
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_team_member_reply_detected_as_support(self, _mock_sig: MagicMock):
+    def test_team_member_reply_attribution_and_unread(self, _mock_sig: MagicMock):
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
@@ -955,6 +955,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         )
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.email_from == "customer@external.com"
+        assert ticket.unread_team_count == 1
 
         self._post(
             {
@@ -963,6 +964,7 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
                 "Message-Id": "<reply@team.com>",
                 "In-Reply-To": "<init@external.com>",
                 "stripped-text": "Looking into this",
+                "X-Mailgun-Dkim-Check-Result": "Pass",
             }
         )
 
@@ -977,31 +979,35 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert support_comment.item_context["author_type"] == "support"
         assert support_comment.created_by_id == self.user.id
 
+        ticket.refresh_from_db()
+        assert ticket.unread_team_count == 1
+
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_team_member_reply_does_not_increment_unread(self, _mock_sig: MagicMock):
+    def test_forged_team_member_from_without_dkim_treated_as_customer(self, _mock_sig: MagicMock):
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
                 "from": "Customer <customer@external.com>",
-                "Message-Id": "<unread-init@external.com>",
+                "Message-Id": "<dkim-init@external.com>",
                 "subject": "Question",
                 "stripped-text": "Hello",
             }
         )
-        ticket = Ticket.objects.get(team=self.team)
-        assert ticket.unread_team_count == 1
 
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
-                "from": f"Agent <{self.user.email}>",
-                "Message-Id": "<unread-reply@team.com>",
-                "In-Reply-To": "<unread-init@external.com>",
-                "stripped-text": "On it",
+                "from": f"Forged <{self.user.email}>",
+                "Message-Id": "<dkim-forged@external.com>",
+                "In-Reply-To": "<dkim-init@external.com>",
+                "stripped-text": "I am totally a team member",
             }
         )
-        ticket.refresh_from_db()
-        assert ticket.unread_team_count == 1
+
+        comments = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")
+        forged_comment = comments[1]
+        assert forged_comment.item_context["author_type"] == "customer"
+        assert forged_comment.created_by is None
 
 
 class TestEmailInboundCcParticipants(BaseTest):
