@@ -5,6 +5,8 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesColorPalette } from 'lib/colors'
 
+import { LiveOpenInsightButton } from './LiveOpenInsightButton'
+
 interface BreakdownItem {
     count: number
     percentage: number
@@ -20,6 +22,7 @@ interface BreakdownLiveCardProps<T extends BreakdownItem> {
     statLabel: string
     totalCount?: number
     isLoading?: boolean
+    openInsightUrl?: string
 }
 
 const BreakdownLiveCardInner = <T extends BreakdownItem>({
@@ -32,6 +35,7 @@ const BreakdownLiveCardInner = <T extends BreakdownItem>({
     statLabel,
     totalCount,
     isLoading,
+    openInsightUrl,
 }: BreakdownLiveCardProps<T>): JSX.Element => {
     const colors = useMemo(() => getSeriesColorPalette(), [])
 
@@ -67,8 +71,9 @@ const BreakdownLiveCardInner = <T extends BreakdownItem>({
 
     return (
         <div className="bg-bg-light rounded-lg border border-border p-4 h-full min-h-[340px] flex flex-col">
-            <div className="mb-4">
+            <div className="mb-4 flex items-start justify-between gap-2">
                 {typeof title === 'string' ? <h3 className="text-sm font-semibold text-default">{title}</h3> : title}
+                {openInsightUrl && <LiveOpenInsightButton to={openInsightUrl} />}
             </div>
 
             {isLoading ? (

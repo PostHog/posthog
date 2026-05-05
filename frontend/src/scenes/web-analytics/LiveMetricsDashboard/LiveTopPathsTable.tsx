@@ -6,6 +6,7 @@ interface LiveTopPathsTableProps {
     isLoading: boolean
     className?: string
     totalPageviews: number
+    openInsightUrl?: string
 }
 
 const renderPathLabel = (item: PathItem): { node: React.ReactNode; tooltipTitle: string } => ({
@@ -18,6 +19,7 @@ export const LiveTopPathsTable = ({
     isLoading,
     className,
     totalPageviews,
+    openInsightUrl,
 }: LiveTopPathsTableProps): JSX.Element => (
     <LiveAnimatedTable
         items={paths}
@@ -30,5 +32,6 @@ export const LiveTopPathsTable = ({
         isLoading={isLoading}
         totalPageviews={totalPageviews}
         className={className}
+        openInsightUrl={openInsightUrl}
     />
 )

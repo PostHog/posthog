@@ -3,6 +3,8 @@ import { type ReactNode } from 'react'
 
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { LiveOpenInsightButton } from './LiveOpenInsightButton'
+
 interface LiveChartCardProps {
     title: string
     subtitle?: string
@@ -11,6 +13,8 @@ interface LiveChartCardProps {
     children: ReactNode
     className?: string
     contentClassName?: string
+    openInsightUrl?: string
+    openInsightLabel?: string
 }
 
 export const LiveChartCard = ({
@@ -21,19 +25,24 @@ export const LiveChartCard = ({
     children,
     className = '',
     contentClassName = '',
+    openInsightUrl,
+    openInsightLabel,
 }: LiveChartCardProps): JSX.Element => {
     return (
         <div className={clsx('bg-bg-light rounded-lg border p-4 h-full min-h-[340px] flex flex-col', className)}>
-            <div className="flex items-baseline justify-between mb-4">
+            <div className="flex items-baseline justify-between gap-2 mb-4">
                 <h3 className="text-sm font-semibold">{title}</h3>
-                {subtitle &&
-                    (subtitleTooltip ? (
-                        <Tooltip title={subtitleTooltip}>
-                            <span className="text-xs text-muted cursor-help">{subtitle}</span>
-                        </Tooltip>
-                    ) : (
-                        <span className="text-xs text-muted">{subtitle}</span>
-                    ))}
+                <div className="flex items-center gap-2">
+                    {subtitle &&
+                        (subtitleTooltip ? (
+                            <Tooltip title={subtitleTooltip}>
+                                <span className="text-xs text-muted cursor-help">{subtitle}</span>
+                            </Tooltip>
+                        ) : (
+                            <span className="text-xs text-muted">{subtitle}</span>
+                        ))}
+                    {openInsightUrl && <LiveOpenInsightButton to={openInsightUrl} label={openInsightLabel} />}
+                </div>
             </div>
             {isLoading ? (
                 <div className="flex-1 flex items-center justify-center">

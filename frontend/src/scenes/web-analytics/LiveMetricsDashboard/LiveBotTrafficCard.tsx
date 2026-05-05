@@ -1,11 +1,15 @@
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
-import { LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesColorPalette } from 'lib/colors'
 import { IconRobot } from 'lib/lemon-ui/icons'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { LiveOpenInsightButton } from './LiveOpenInsightButton'
 import { BotBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 
 interface LiveBotTrafficCardProps {
@@ -13,6 +17,8 @@ interface LiveBotTrafficCardProps {
     totalBotEvents: number
     totalEvents: number
     isLoading?: boolean
+    openInsightUrl?: string
+    getRowInsightUrl?: (item: BotBreakdownItem) => string | undefined
 }
 
 const LiveBotTrafficCardInner = ({
@@ -20,6 +26,8 @@ const LiveBotTrafficCardInner = ({
     totalBotEvents,
     totalEvents,
     isLoading,
+    openInsightUrl,
+    getRowInsightUrl,
 }: LiveBotTrafficCardProps): JSX.Element => {
     const colors = useMemo(() => getSeriesColorPalette(), [])
 
@@ -45,14 +53,23 @@ const LiveBotTrafficCardInner = ({
 
     return (
         <div className="bg-bg-light rounded-lg border border-border p-4 h-full min-h-[340px] flex flex-col">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-default flex items-center gap-2">
                     <IconRobot className="text-base text-muted" />
                     Bot traffic
                 </h3>
-                <Tooltip title="Based on PostHog's experimental user agent bot detection, matching search engines, AI crawlers, monitoring tools and more.">
-                    <span className="text-xs text-muted">Preview</span>
-                </Tooltip>
+                <div className="flex items-center gap-2">
+                    <Tooltip title="Based on PostHog's experimental user agent bot detection, matching search engines, AI crawlers, monitoring tools and more.">
+                        <span className="text-xs text-muted">Preview</span>
+                    </Tooltip>
+                    {openInsightUrl && (
+                        <LiveOpenInsightButton
+                            to={openInsightUrl}
+                            label="Breakdown"
+                            title="Open the bot traffic breakdown as a Trends insight"
+                        />
+                    )}
+                </div>
             </div>
 
             {isLoading ? (
@@ -76,45 +93,68 @@ const LiveBotTrafficCardInner = ({
                     <div className="space-y-2">
                         {processedData.map(({ item, color }, index) => {
                             const isTop = index === 0
-                            return (
-                                <Tooltip
-                                    key={item.bot}
-                                    title={`${item.count.toLocaleString()} events · ${item.bot}${
-                                        item.category ? ` (${item.category})` : ''
-                                    }`}
+                            const rowUrl = getRowInsightUrl?.(item)
+                            const tooltip = `${item.count.toLocaleString()} events · ${item.bot}${
+                                item.category ? ` (${item.category})` : ''
+                            }${rowUrl ? ' · click to open as insight' : ''}`
+                            const rowContent = (
+                                <div
+                                    className={clsx(
+                                        'flex items-center gap-2 px-1 py-0.5 rounded',
+                                        rowUrl ? 'cursor-pointer hover:bg-bg-3000 transition-colors' : 'cursor-default'
+                                    )}
                                 >
-                                    <div className="flex items-center gap-2 cursor-default">
-                                        <div
-                                            className={clsx(
-                                                'text-xs truncate w-20',
-                                                isTop ? 'text-default font-medium' : 'text-muted'
-                                            )}
-                                        >
-                                            {item.bot}
-                                        </div>
-                                        {item.category ? (
-                                            <LemonTag type="muted" size="small" className="shrink-0 text-[10px]">
-                                                {item.category}
-                                            </LemonTag>
-                                        ) : null}
-                                        <div className="flex-1 h-2 bg-border-light rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full rounded-full transition-all duration-300 ease-out"
-                                                style={{
-                                                    width: `${item.percentage}%`,
-                                                    backgroundColor: color,
-                                                }}
-                                            />
-                                        </div>
-                                        <div
-                                            className={clsx(
-                                                'w-10 text-xs text-right tabular-nums',
-                                                isTop ? 'text-default font-medium' : 'text-muted'
-                                            )}
-                                        >
-                                            {item.percentage.toFixed(0)}%
-                                        </div>
+                                    <div
+                                        className={clsx(
+                                            'text-xs truncate w-20',
+                                            isTop ? 'text-default font-medium' : 'text-muted'
+                                        )}
+                                    >
+                                        {item.bot}
                                     </div>
+                                    {item.category ? (
+                                        <LemonTag type="muted" size="small" className="shrink-0 text-[10px]">
+                                            {item.category}
+                                        </LemonTag>
+                                    ) : null}
+                                    <div className="flex-1 h-2 bg-border-light rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full transition-all duration-300 ease-out"
+                                            style={{
+                                                width: `${item.percentage}%`,
+                                                backgroundColor: color,
+                                            }}
+                                        />
+                                    </div>
+                                    <div
+                                        className={clsx(
+                                            'w-10 text-xs text-right tabular-nums',
+                                            isTop ? 'text-default font-medium' : 'text-muted'
+                                        )}
+                                    >
+                                        {item.percentage.toFixed(0)}%
+                                    </div>
+                                </div>
+                            )
+                            return (
+                                <Tooltip key={item.bot} title={tooltip}>
+                                    {rowUrl ? (
+                                        <Link
+                                            to={rowUrl}
+                                            className="block no-underline text-default hover:text-default"
+                                            onClick={() => {
+                                                void addProductIntentForCrossSell({
+                                                    from: ProductKey.WEB_ANALYTICS,
+                                                    to: ProductKey.PRODUCT_ANALYTICS,
+                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                                })
+                                            }}
+                                        >
+                                            {rowContent}
+                                        </Link>
+                                    ) : (
+                                        rowContent
+                                    )}
                                 </Tooltip>
                             )
                         })}

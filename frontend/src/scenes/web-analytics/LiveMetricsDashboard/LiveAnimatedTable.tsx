@@ -3,6 +3,8 @@ import { ReactNode, useLayoutEffect, useRef } from 'react'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
+import { LiveOpenInsightButton } from './LiveOpenInsightButton'
+
 const ROW_HEIGHT = 36
 
 interface AnimatedRowProps {
@@ -78,6 +80,7 @@ interface LiveAnimatedTableProps<T> {
     isLoading: boolean
     totalPageviews: number
     className?: string
+    openInsightUrl?: string
 }
 
 export function LiveAnimatedTable<T>({
@@ -91,6 +94,7 @@ export function LiveAnimatedTable<T>({
     isLoading,
     totalPageviews,
     className,
+    openInsightUrl,
 }: LiveAnimatedTableProps<T>): JSX.Element {
     const prevPositionsRef = useRef<Map<string, number>>(new Map())
     const deltaVersionRef = useRef(0)
@@ -114,7 +118,10 @@ export function LiveAnimatedTable<T>({
 
     return (
         <div className={clsx('bg-bg-light rounded-lg border p-4 h-full min-h-[340px] flex flex-col', className)}>
-            <h3 className="text-sm font-semibold mb-4">{title}</h3>
+            <div className="flex items-start justify-between gap-2 mb-4">
+                <h3 className="text-sm font-semibold">{title}</h3>
+                {openInsightUrl && <LiveOpenInsightButton to={openInsightUrl} />}
+            </div>
             {isLoading ? (
                 <div className="flex-1 flex flex-col justify-center space-y-2">
                     {Array.from({ length: 5 }).map((_, i) => (

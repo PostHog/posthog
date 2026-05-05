@@ -39,6 +39,7 @@ interface LiveTopReferrersTableProps {
     isLoading: boolean
     className?: string
     totalPageviews: number
+    openInsightUrl?: string
 }
 
 export const LiveTopReferrersTable = ({
@@ -46,6 +47,7 @@ export const LiveTopReferrersTable = ({
     isLoading,
     className,
     totalPageviews,
+    openInsightUrl,
 }: LiveTopReferrersTableProps): JSX.Element => (
     <LiveAnimatedTable
         items={referrers}
@@ -58,5 +60,6 @@ export const LiveTopReferrersTable = ({
         isLoading={isLoading}
         totalPageviews={totalPageviews}
         className={className}
+        openInsightUrl={openInsightUrl}
     />
 )

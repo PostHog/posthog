@@ -14,6 +14,7 @@ interface LiveLocationsCardProps {
     countryData: CountryBreakdownItem[]
     cityData: CityBreakdownItem[]
     isLoading?: boolean
+    openInsightUrl?: string
 }
 
 const renderFlagOrGlobe = (countryCode: string): JSX.Element => {
@@ -45,7 +46,12 @@ const getCityLabel = (d: CityBreakdownItem): string => {
 const renderCityIcon = (d: CityBreakdownItem): JSX.Element =>
     renderFlagOrGlobe(d.cityName === 'Other' ? 'Other' : d.countryCode)
 
-export const LiveLocationsCard = ({ countryData, cityData, isLoading }: LiveLocationsCardProps): JSX.Element => {
+export const LiveLocationsCard = ({
+    countryData,
+    cityData,
+    isLoading,
+    openInsightUrl,
+}: LiveLocationsCardProps): JSX.Element => {
     const [activeTab, setActiveTab] = useState<LocationTab>('country')
 
     const tabs = (
@@ -71,6 +77,7 @@ export const LiveLocationsCard = ({ countryData, cityData, isLoading }: LiveLoca
                 emptyMessage="No city data"
                 statLabel="unique visitors"
                 isLoading={isLoading}
+                openInsightUrl={openInsightUrl}
             />
         )
     }
@@ -85,6 +92,7 @@ export const LiveLocationsCard = ({ countryData, cityData, isLoading }: LiveLoca
             emptyMessage="No country data"
             statLabel="unique visitors"
             isLoading={isLoading}
+            openInsightUrl={openInsightUrl}
         />
     )
 }

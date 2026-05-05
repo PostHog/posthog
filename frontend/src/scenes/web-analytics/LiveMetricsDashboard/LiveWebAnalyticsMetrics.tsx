@@ -30,12 +30,28 @@ import { CONTENT_CARD_SPAN, LiveContentCardId, LiveStatCardId } from './liveCard
 import { LiveChartCard } from './LiveChartCard'
 import { LiveLocationsCard } from './LiveLocationsCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
+import {
+    activeUsersChartInsightUrl,
+    botEventsChartInsightUrl,
+    botRowInsightUrl,
+    botTrafficBreakdownInsightUrl,
+    browsersInsightUrl,
+    countriesInsightUrl,
+    devicesInsightUrl,
+    topPathsInsightUrl,
+    topReferrersInsightUrl,
+} from './liveTileInsightUrls'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
 import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { liveWebAnalyticsLayoutLogic } from './liveWebAnalyticsLayoutLogic'
 import { BotEventsPerMinuteChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
-import { BrowserBreakdownItem, CountryBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
+import {
+    BotBreakdownItem,
+    BrowserBreakdownItem,
+    CountryBreakdownItem,
+    DeviceBreakdownItem,
+} from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
 
 const LIVE_FEED_COLUMNS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
@@ -183,6 +199,12 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         }
     }
 
+    const insightCtx = { host: selectedHost ?? null }
+    const getBotRowInsightUrl = (item: BotBreakdownItem): string | undefined =>
+        item.bot && item.bot !== 'Other'
+            ? botRowInsightUrl({ ...insightCtx, botName: item.bot, category: item.category })
+            : undefined
+
     const renderContentCard = (id: LiveContentCardId): JSX.Element | null => {
         switch (id) {
             case 'active_users_chart':
@@ -192,18 +214,27 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
                         isLoading={isLoading}
+                        openInsightUrl={activeUsersChartInsightUrl(insightCtx)}
                     >
                         <UsersPerMinuteChart data={chartData} />
                     </LiveChartCard>
                 )
             case 'top_paths':
-                return <LiveTopPathsTable paths={topPaths} isLoading={isLoading} totalPageviews={totalPageviews} />
+                return (
+                    <LiveTopPathsTable
+                        paths={topPaths}
+                        isLoading={isLoading}
+                        totalPageviews={totalPageviews}
+                        openInsightUrl={topPathsInsightUrl(insightCtx)}
+                    />
+                )
             case 'top_referrers':
                 return (
                     <LiveTopReferrersTable
                         referrers={topReferrers}
                         isLoading={isLoading}
                         totalPageviews={totalPageviews}
+                        openInsightUrl={topReferrersInsightUrl(insightCtx)}
                     />
                 )
             case 'devices':
@@ -216,6 +247,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         emptyMessage="No device data"
                         statLabel="unique devices"
                         isLoading={isLoading}
+                        openInsightUrl={devicesInsightUrl(insightCtx)}
                     />
                 )
             case 'browsers':
@@ -230,6 +262,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         statLabel="unique browsers"
                         totalCount={totalBrowsers}
                         isLoading={isLoading}
+                        openInsightUrl={browsersInsightUrl(insightCtx)}
                     />
                 )
             case 'top_countries':
@@ -244,6 +277,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                             emptyMessage="No country data"
                             statLabel="unique visitors"
                             isLoading={isLoading}
+                            openInsightUrl={countriesInsightUrl(insightCtx)}
                         />
                     )
                 }
@@ -252,6 +286,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         countryData={topCountryBreakdown}
                         cityData={topCityBreakdown}
                         isLoading={isLoading}
+                        openInsightUrl={countriesInsightUrl(insightCtx)}
                     />
                 )
             case 'bot_events_chart':
@@ -265,6 +300,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         subtitleTooltip="Metrics are shown in your local timezone"
                         isLoading={isLoading}
                         contentClassName="h-64 md:h-80"
+                        openInsightUrl={botEventsChartInsightUrl(insightCtx)}
                     >
                         <BotEventsPerMinuteChart data={chartData} />
                     </LiveChartCard>
@@ -279,6 +315,8 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         totalBotEvents={totalBotEvents}
                         totalEvents={totalBotEligibleEvents}
                         isLoading={isLoading}
+                        openInsightUrl={botTrafficBreakdownInsightUrl(insightCtx)}
+                        getRowInsightUrl={getBotRowInsightUrl}
                     />
                 )
             case 'countries':
