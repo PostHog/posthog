@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -8,10 +8,21 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { billingLogic } from './billingLogic'
 import { CODE_PLAN_PRO } from './constants'
-import { canReactivateSeat, isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
+import {
+    canReactivateSeat,
+    isAlphaPlanKey,
+    isProPlanKey,
+    seatBillingLogic,
+    seatPriceFromPlanKey,
+} from './seatBillingLogic'
 import type { SeatData, SeatStatus } from './types'
 
+const ALPHA_PLAN_MIGRATION_DATE = 'June 4, 2026'
+
 function planLabel(planKey: string): string {
+    if (isAlphaPlanKey(planKey)) {
+        return 'Alpha'
+    }
     if (isProPlanKey(planKey)) {
         return 'Pro'
     }
@@ -44,8 +55,16 @@ function statusColor(status: SeatStatus): 'success' | 'warning' | 'muted' | 'pri
 }
 
 export function CodeSeatsSection(): JSX.Element {
-    const { displaySeats, orgSeatsLoading, isAdmin, members, activeCount, cancelingCount, monthlyTotal } =
-        useValues(seatBillingLogic)
+    const {
+        displaySeats,
+        orgSeatsLoading,
+        isAdmin,
+        members,
+        activeCount,
+        cancelingCount,
+        monthlyTotal,
+        hasAlphaSeats,
+    } = useValues(seatBillingLogic)
     const { adminCancelSeat, adminUpgradeSeat, adminReactivateSeat } = useActions(seatBillingLogic)
     const { billing } = useValues(billingLogic)
 
@@ -75,6 +94,12 @@ export function CodeSeatsSection(): JSX.Element {
                     )}
                 </div>
             </div>
+            {hasAlphaSeats && (
+                <LemonBanner type="info" className="mb-4">
+                    Alpha plan seats will be moved to the free plan automatically on {ALPHA_PLAN_MIGRATION_DATE}. After
+                    that, you'll be able to upgrade them to the Pro plan.
+                </LemonBanner>
+            )}
             <LemonTable
                 loading={orgSeatsLoading}
                 dataSource={displaySeats}
@@ -106,11 +131,22 @@ export function CodeSeatsSection(): JSX.Element {
                         title: 'Plan',
                         key: 'plan',
                         align: 'center',
-                        render: (_, seat: SeatData) => (
-                            <LemonTag type={isProPlanKey(seat.plan_key) ? 'primary' : 'muted'}>
-                                {planLabel(seat.plan_key)}
-                            </LemonTag>
-                        ),
+                        render: (_, seat: SeatData) => {
+                            if (isAlphaPlanKey(seat.plan_key)) {
+                                return (
+                                    <Tooltip
+                                        title={`Alpha seats will be migrated to the free plan on ${ALPHA_PLAN_MIGRATION_DATE}.`}
+                                    >
+                                        <LemonTag type="completion">{planLabel(seat.plan_key)}</LemonTag>
+                                    </Tooltip>
+                                )
+                            }
+                            return (
+                                <LemonTag type={isProPlanKey(seat.plan_key) ? 'primary' : 'muted'}>
+                                    {planLabel(seat.plan_key)}
+                                </LemonTag>
+                            )
+                        },
                     },
                     {
                         title: 'Status',
@@ -146,7 +182,10 @@ export function CodeSeatsSection(): JSX.Element {
                             if (!billing?.has_active_subscription || !isAdmin) {
                                 return null
                             }
-                            const canUpgrade = seat.status === 'active' && !isProPlanKey(seat.plan_key)
+                            const canUpgrade =
+                                seat.status === 'active' &&
+                                !isProPlanKey(seat.plan_key) &&
+                                !isAlphaPlanKey(seat.plan_key)
                             const canCancel = seat.status === 'active'
                             const canReactivate = canReactivateSeat(seat)
 

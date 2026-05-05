@@ -8,7 +8,6 @@ import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { CdpConfig } from './cdp/config'
 import type {
-    KafkaMskProducerEnvConfig,
     KafkaWarehouseProducerEnvConfig,
     KafkaWarpstreamCalculatedEventsProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
@@ -121,7 +120,6 @@ export interface PluginsServerConfig
         SessionRecordingConfig,
         SessionRecordingApiConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
-        KafkaMskProducerEnvConfig,
         KafkaWarpstreamIngestionProducerEnvConfig,
         KafkaWarpstreamCalculatedEventsProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,

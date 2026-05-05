@@ -166,3 +166,11 @@ class PostHogConfig(AppConfig):
         # Don't use lazy loading in tests and migrations
         if not settings.TEST and "migrate" not in sys.argv and "test" not in sys.argv:
             admin.site._registry = LazyAdminRegistry()
+
+        # Install the OAuth sidebar regrouping override eagerly. It must wrap
+        # `get_app_list` before the first admin request — if it were installed
+        # from inside `register_all_admin()` it would only land mid-call, after
+        # the original method had already started executing.
+        from posthog.admin import install_admin_app_list_overrides
+
+        install_admin_app_list_overrides()

@@ -1725,6 +1725,7 @@ dependencies = [
  "base64 0.22.1",
  "brotli",
  "bytes",
+ "capture",
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
@@ -2231,6 +2232,7 @@ name = "common-redis"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "futures-timer",
  "redis",
  "serde-pickle",
  "testcontainers",
@@ -7357,10 +7359,12 @@ dependencies = [
  "futures",
  "lifecycle",
  "metrics",
+ "metrics-util",
  "personhog-proto",
  "quick_cache",
  "rand 0.8.5",
  "regex",
+ "rstest",
  "serde",
  "serde_json",
  "serve-metrics",
