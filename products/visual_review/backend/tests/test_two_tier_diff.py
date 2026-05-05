@@ -12,7 +12,6 @@ from products.visual_review.backend.diffing import (
     classify_compare_result,
 )
 from products.visual_review.backend.facade.enums import ChangeKind
-from products.visual_review.backend.ssim import compute_ssim
 
 
 def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:
@@ -58,34 +57,6 @@ def _classify(baseline_bytes: bytes, current_bytes: bytes) -> ChangeKind | None:
     """Run the production classifier on a fresh compare result."""
     result = compare_images(baseline_bytes, current_bytes, with_thumbnail=False)
     return classify_compare_result(result)
-
-
-class TestComputeSSIM:
-    def test_identical_images_score_one(self):
-        img = _make_png(100, 100, (200, 100, 50, 255))
-        assert compute_ssim(img, img) > 0.999
-
-    def test_completely_different_images_low_score(self):
-        img1 = _make_png(100, 100, (255, 0, 0, 255))
-        img2 = _make_png(100, 100, (0, 0, 255, 255))
-        assert compute_ssim(img1, img2) < 0.8
-
-    def test_slight_difference_high_score(self):
-        img1 = _make_png(100, 100, (100, 100, 100, 255))
-        img2 = _make_png(100, 100, (105, 100, 100, 255))
-        assert compute_ssim(img1, img2) > 0.99
-
-    def test_small_images_below_window_size(self):
-        img1 = _make_png(5, 5, (255, 0, 0, 255))
-        img2 = _make_png(5, 5, (255, 0, 0, 255))
-        assert compute_ssim(img1, img2) > 0.999
-
-    def test_different_sizes_pads_to_larger(self):
-        small = _make_png(50, 50, (200, 200, 200, 255))
-        large = _make_png(100, 100, (200, 200, 200, 255))
-        score = compute_ssim(small, large)
-        # 75% of padded area is black vs gray — significant structural difference
-        assert 0.0 < score < 1.0
 
 
 class TestTwoTierClassification:
