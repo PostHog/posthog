@@ -296,7 +296,7 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
     ),
 })
 
-export const ErrorTrackingRateLimitConfigUpdateConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     project_rate_limit_value: zod
         .number()
         .min(1)

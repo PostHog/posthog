@@ -28,11 +28,11 @@ import type {
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssuesListParams,
-    ErrorTrackingRateLimitConfigApi,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesListParams,
+    ErrorTrackingSettingsApi,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
     ErrorTrackingStackFrameApi,
@@ -57,8 +57,8 @@ import type {
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingIssueFullApi,
-    PatchedErrorTrackingRateLimitConfigApi,
     PatchedErrorTrackingReleaseApi,
+    PatchedErrorTrackingSettingsApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
     PatchedErrorTrackingSymbolSetApi,
@@ -800,43 +800,6 @@ export const errorTrackingIssuesValuesRetrieve = async (projectId: string, optio
     })
 }
 
-export const getErrorTrackingRateLimitConfigRetrieveConfigRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/rate_limit_config/retrieve_config/`
-}
-
-export const errorTrackingRateLimitConfigRetrieveConfigRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<ErrorTrackingRateLimitConfigApi> => {
-    return apiMutator<ErrorTrackingRateLimitConfigApi>(
-        getErrorTrackingRateLimitConfigRetrieveConfigRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getErrorTrackingRateLimitConfigUpdateConfigPartialUpdateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/rate_limit_config/update_config/`
-}
-
-export const errorTrackingRateLimitConfigUpdateConfigPartialUpdate = async (
-    projectId: string,
-    patchedErrorTrackingRateLimitConfigApi: PatchedErrorTrackingRateLimitConfigApi,
-    options?: RequestInit
-): Promise<ErrorTrackingRateLimitConfigApi> => {
-    return apiMutator<ErrorTrackingRateLimitConfigApi>(
-        getErrorTrackingRateLimitConfigUpdateConfigPartialUpdateUrl(projectId),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingRateLimitConfigApi),
-        }
-    )
-}
-
 export const getErrorTrackingRecommendationsListUrl = (
     projectId: string,
     params?: ErrorTrackingRecommendationsListParams
@@ -912,6 +875,37 @@ export const errorTrackingRecommendationsRestoreCreate = async (
     return apiMutator<ErrorTrackingRecommendationApi>(getErrorTrackingRecommendationsRestoreCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getErrorTrackingSettingsRetrieveSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/settings/retrieve_settings/`
+}
+
+export const errorTrackingSettingsRetrieveSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSettingsApi> => {
+    return apiMutator<ErrorTrackingSettingsApi>(getErrorTrackingSettingsRetrieveSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSettingsUpdateSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/settings/update_settings/`
+}
+
+export const errorTrackingSettingsUpdateSettingsPartialUpdate = async (
+    projectId: string,
+    patchedErrorTrackingSettingsApi: PatchedErrorTrackingSettingsApi,
+    options?: RequestInit
+): Promise<ErrorTrackingSettingsApi> => {
+    return apiMutator<ErrorTrackingSettingsApi>(getErrorTrackingSettingsUpdateSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingSettingsApi),
     })
 }
 

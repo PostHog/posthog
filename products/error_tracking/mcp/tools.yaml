@@ -239,12 +239,6 @@ tools:
     error-tracking-issues-values-retrieve:
         operation: error_tracking_issues_values_retrieve
         enabled: false
-    error-tracking-settings-retrieve-settings-retrieve:
-        operation: error_tracking_settings_retrieve_settings_retrieve
-        enabled: false
-    error-tracking-settings-update-settings-partial-update:
-        operation: error_tracking_settings_update_settings_partial_update
-        enabled: false
     error-tracking-recommendations-dismiss-create:
         operation: error_tracking_recommendations_dismiss_create
         enabled: false
@@ -277,6 +271,12 @@ tools:
         enabled: false
     error-tracking-releases-update:
         operation: error_tracking_releases_update
+        enabled: false
+    error-tracking-settings-retrieve-settings-retrieve:
+        operation: error_tracking_settings_retrieve_settings_retrieve
+        enabled: false
+    error-tracking-settings-update-settings-partial-update:
+        operation: error_tracking_settings_update_settings_partial_update
         enabled: false
     error-tracking-spike-detection-config-list:
         operation: error_tracking_spike_detection_config_list
