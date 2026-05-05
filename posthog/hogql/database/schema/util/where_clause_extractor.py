@@ -633,8 +633,11 @@ def build_session_property_pre_aggregation_predicate(
     session instead of however many the outer SELECT pulls in (e.g. ``$channel_type`` drags in
     7+).
 
-    Returns None when there's no session-only predicate to lift, or the predicate doesn't
-    reference any of the outer query's session fields.
+    Returns None when ``WhereClauseExtractor`` produces no liftable session predicate (no session
+    filter, or only filters guarded by NOT/OR with non-session terms — see the visitor's tombstone
+    handling). The predicate-references-outer-fields check is a defensive belt; in practice
+    ``requested_fields`` already contains every session alias the outer query references, so
+    extraction guarantees a non-empty intersection.
     """
     extractor = WhereClauseExtractor(context)
     extractor.add_local_tables(join_to_add)
