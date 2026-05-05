@@ -4,7 +4,7 @@ from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -4769,6 +4769,134 @@ class TestCreateWebhook(APIBaseTest):
 
     @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_update_webhook_inputs_rejects_blanked_required_field(self, mock_create_webhook, _mock_flag):
+        mock_create_webhook.return_value = self._webhook_result()
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
+            data={"inputs": {"signing_secret": ""}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "signing_secret" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_update_webhook_inputs_partial_update_preserves_other_required_fields(
+        self, mock_create_webhook, _mock_flag
+    ):
+        from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
+
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_initial"})
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/")
+
+        # Inject a second required webhook field into the source config so we can test
+        # that a partial update which omits one required field is accepted while still
+        # preserving the existing value on the HogFunction.
+        from posthog.temporal.data_imports.sources import SourceRegistry
+
+        from products.data_warehouse.backend.types import ExternalDataSourceType
+
+        original_source = SourceRegistry.get_source(ExternalDataSourceType("Stripe"))
+        original_config = original_source.get_source_config
+        extra_field = SourceFieldInputConfig(
+            name="extra_required",
+            label="Extra required",
+            type=SourceFieldInputConfigType.TEXT,
+            required=True,
+            placeholder="",
+            secret=False,
+        )
+        patched_config = original_config.model_copy(
+            update={"webhookFields": [*(original_config.webhookFields or []), extra_field]}
+        )
+
+        with patch(
+            "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_source_config",
+            new_callable=PropertyMock,
+            return_value=patched_config,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
+                data={"inputs": {"signing_secret": "whsec_rotated"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] is True
+
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert hog_function.encrypted_inputs is not None
+        assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_rotated"
+
+    def test_update_webhook_inputs_rejects_non_webhook_source(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            job_inputs={"host": "localhost"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
+            data={"inputs": {"signing_secret": "whsec_test"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "does not support webhooks" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    def test_update_webhook_inputs_rejects_empty_payload(self, _mock_flag):
+        source = self._create_stripe_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
+            data={"inputs": {}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No inputs provided" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_update_webhook_inputs_requires_eligible_schema(self, mock_create_webhook, _mock_flag):
+        # Webhook is created (HogFunction exists), but the schema's should_sync is then
+        # turned off — so no eligible schemas remain. The action must reject the update.
+        mock_create_webhook.return_value = self._webhook_result()
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        schema = self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/")
+
+        schema.should_sync = False
+        schema.save(update_fields=["should_sync"])
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_webhook_inputs/",
+            data={"inputs": {"signing_secret": "whsec_rotated"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No eligible schemas found" in response.json()["message"]
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook, _mock_flag):
         """Regression: creating a source with multiple webhook tables then hitting the
         create_webhook endpoint must populate schema_mapping for every webhook schema.
@@ -5260,6 +5388,47 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["exists"] is True
         assert data["external_status"] is None
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
+    )
+    def test_webhook_info_masks_set_secret_input(self, _mock_info, _mock_flag):
+        from posthog.models.hog_functions.hog_function import HogFunction
+
+        source = self._create_stripe_source()
+        hog_function = self._create_hog_function(source)
+        hog_function.inputs_schema = [
+            *hog_function.inputs_schema,
+            {"type": "string", "key": "signing_secret", "label": "Signing secret", "required": True, "secret": True},
+        ]
+        hog_function.encrypted_inputs = {"signing_secret": {"value": "whsec_existing"}}
+        hog_function.save()
+        # Sanity check the model routed the secret correctly.
+        hog_function.refresh_from_db()
+        assert (
+            HogFunction.objects.get(pk=hog_function.pk).encrypted_inputs["signing_secret"]["value"] == "whsec_existing"
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["inputs"] == {"signing_secret": {"secret": True}}
+
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
+    )
+    def test_webhook_info_omits_unset_inputs(self, _mock_info, _mock_flag):
+        source = self._create_stripe_source()
+        self._create_hog_function(source)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["inputs"] == {}
 
 
 class TestDeleteWebhook(APIBaseTest):

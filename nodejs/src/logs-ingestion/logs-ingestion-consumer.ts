@@ -21,7 +21,7 @@ import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import type { CompiledRuleSet } from './sampling/evaluate'
-import { processBufferWithSampling } from './sampling/process-buffer-with-sampling'
+import { type SamplingRateContext, processBufferWithSampling } from './sampling/process-buffer-with-sampling'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
@@ -48,8 +48,6 @@ export type UsageStats = {
     bytesDropped: number
     recordsDropped: number
     piiReplacements: number
-    /** Log lines dropped by head sampling / drop rules (not quota or rate limit). */
-    samplingRecordsDropped: number
 }
 
 const DEFAULT_USAGE_STATS: UsageStats = {
@@ -60,7 +58,6 @@ const DEFAULT_USAGE_STATS: UsageStats = {
     bytesDropped: 0,
     recordsDropped: 0,
     piiReplacements: 0,
-    samplingRecordsDropped: 0,
 }
 
 export type UsageStatsByTeam = Map<number, UsageStats>
@@ -127,6 +124,7 @@ export class LogsIngestionConsumer {
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
+    private readonly logsSamplingRateLimitTtlSeconds: number
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
 
@@ -162,6 +160,7 @@ export class LogsIngestionConsumer {
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(config, this.redis)
+        this.logsSamplingRateLimitTtlSeconds = config.LOGS_LIMITER_TTL_SECONDS
         this.samplingEnabledTeamsRaw = overrides.LOGS_SAMPLING_ENABLED_TEAMS ?? config.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = overrides.LOGS_SAMPLING_KILLSWITCH ?? config.LOGS_SAMPLING_KILLSWITCH
     }
@@ -227,7 +226,14 @@ export class LogsIngestionConsumer {
         })
 
         if (useSamplingPipeline && ruleSet) {
-            const sampled = await processBufferWithSampling(message.message.value!, logsSettings, ruleSet)
+            const rateCtx: SamplingRateContext | null = ruleSet.hasRateLimitRules
+                ? {
+                      teamId: message.teamId,
+                      redis: this.redis,
+                      ttlSeconds: this.logsSamplingRateLimitTtlSeconds,
+                  }
+                : null
+            const sampled = await processBufferWithSampling(message.message.value!, logsSettings, ruleSet, rateCtx)
             if (sampled.recordsDropped > 0) {
                 logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
             }
@@ -359,15 +365,6 @@ export class LogsIngestionConsumer {
         usage.set(teamId, row)
     }
 
-    private addSamplingRecordsDroppedIntoUsage(usage: UsageStatsByTeam, teamId: number, count: number): void {
-        if (count === 0) {
-            return
-        }
-        const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
-        row.samplingRecordsDropped += count
-        usage.set(teamId, row)
-    }
-
     private async filterQuotaLimitedMessages(
         messages: LogsIngestionMessage[]
     ): Promise<{ quotaAllowedMessages: LogsIngestionMessage[]; quotaDroppedMessages: LogsIngestionMessage[] }> {
@@ -461,13 +458,11 @@ export class LogsIngestionConsumer {
                                 1
                             )
                             this.addPiiStatsIntoUsage(usageStats, message.teamId, resolved.pii)
-                            this.addSamplingRecordsDroppedIntoUsage(usageStats, message.teamId, resolved.recordsDropped)
                             this.queueSamplingRecordsDroppedByRule(message.teamId, resolved.recordsDroppedByRuleId)
                             return Promise.resolve()
                         }
-                        const { processedValue, pii, recordsDropped, recordsDroppedByRuleId } = resolved
+                        const { processedValue, pii, recordsDroppedByRuleId } = resolved
                         this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
-                        this.addSamplingRecordsDroppedIntoUsage(usageStats, message.teamId, recordsDropped)
                         this.queueSamplingRecordsDroppedByRule(message.teamId, recordsDroppedByRuleId)
 
                         // Await so a rejection here lands in the catch and routes to the DLQ.
@@ -539,7 +534,6 @@ export class LogsIngestionConsumer {
             this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
             this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
             this.queueUsageMetric(teamId, 'pii_replacements', stats.piiReplacements)
-            this.queueUsageMetric(teamId, 'sampling_records_dropped', stats.samplingRecordsDropped)
         }
 
         // Best-effort: don't let metric failures block ingestion
@@ -565,7 +559,10 @@ export class LogsIngestionConsumer {
         })
     }
 
-    /** Per-rule head sampling drops; `instance_id` is the LogsExclusionRule UUID (app_metrics2 dimension). */
+    /**
+     * Per-rule head sampling drops in app_metrics2 (`sampling_records_dropped_by_rule`).
+     * Team-level sampling volume in CH is `sum(count)` over those rows (no separate aggregate metric).
+     */
     private queueSamplingRecordsDroppedByRule(teamId: number, byRule: Map<string, number>): void {
         for (const [ruleId, count] of byRule) {
             if (count <= 0) {

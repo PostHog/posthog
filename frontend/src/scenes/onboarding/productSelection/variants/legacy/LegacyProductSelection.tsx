@@ -168,7 +168,7 @@ function ProductSelectionStep(): JSX.Element {
             {recommendationSource === 'browsing_history' && <BrowsingHistoryBanner />}
 
             {/* Products list */}
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,190px))] gap-3 justify-center w-full">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 justify-center w-full">
                 {availableRecommendedProducts.map((productKey) => (
                     <ProductCard
                         key={productKey}

@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react'
 
-import { getBarChartPrivate } from '../core/bar-layout'
 import { useChartLayout } from '../core/chart-context'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
@@ -11,17 +10,13 @@ export interface ValueLabelsProps {
     /** `seriesIndex` is `-1` for stack-total labels. */
     valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
     minGap?: number
-    maxPointsPerSeries?: number
     mode?: ValueLabelsMode
-    /** Bar charts only; CSS pixels. Defaults to 16. */
-    minBarSize?: number
 }
 
 const LABEL_FONT =
     '600 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_HEIGHT = 22
 const STACK_TOTAL_KEY = '__stack_total__'
-const DEFAULT_MIN_BAR_SIZE = 16
 
 let measureCtx: CanvasRenderingContext2D | null = null
 function getMeasureCtx(): CanvasRenderingContext2D | null {
@@ -57,11 +52,8 @@ interface BuildCandidatesArgs {
     scales: ChartScales
     resolveValue: ResolveValueFn
     valueFormatter: NonNullable<ValueLabelsProps['valueFormatter']>
-    maxPointsPerSeries: number
     isHorizontal: boolean
     mode: ValueLabelsMode
-    minBarSize: number
-    isBarChart: boolean
     isPercent: boolean
 }
 
@@ -122,9 +114,9 @@ function bandTotal(visible: ResolvedSeries[], dIdx: number): number | null {
 }
 
 function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, valueFormatter, isHorizontal, isBarChart, minBarSize, isPercent } = args
+    const { series, labels, scales, valueFormatter, isHorizontal, isPercent } = args
     const out: Candidate[] = []
-    if (isPercent || labels.length > args.maxPointsPerSeries) {
+    if (isPercent) {
         return out
     }
     const visible = series.filter((s) => !s.visibility?.excluded && !s.visibility?.fromValueLabels)
@@ -134,7 +126,6 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     const topSeries = visible[visible.length - 1]
     const yScale = resolveYScale(topSeries, scales)
     const topColor = topSeries.color
-    const baseline = isBarChart && minBarSize > 0 ? yScale(0) : NaN
 
     for (let dIdx = 0; dIdx < labels.length; dIdx++) {
         const total = bandTotal(visible, dIdx)
@@ -144,9 +135,6 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         const categoricalCoord = scales.x(labels[dIdx])
         const valueCoord = yScale(total)
         if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
-            continue
-        }
-        if (isFinite(baseline) && Math.abs(valueCoord - baseline) < minBarSize) {
             continue
         }
         pushCandidate(
@@ -166,14 +154,12 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal, isBarChart, minBarSize, isPercent } =
-        args
+    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal } = args
     const out: Candidate[] = []
-    const filterNarrow = isBarChart && minBarSize > 0 && !isPercent
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
-        if (s.visibility?.excluded || s.visibility?.fromValueLabels || s.data.length > args.maxPointsPerSeries) {
+        if (s.visibility?.excluded || s.visibility?.fromValueLabels) {
             continue
         }
         const yScale = resolveYScale(s, scales)
@@ -190,12 +176,6 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             const valueCoord = yScale(yValue)
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
-            }
-            if (filterNarrow) {
-                const segmentBottom = yScale(yValue - rawValue)
-                if (isFinite(segmentBottom) && Math.abs(valueCoord - segmentBottom) < minBarSize) {
-                    continue
-                }
             }
             pushCandidate(
                 out,
@@ -311,13 +291,10 @@ function transformFor(c: Candidate, isHorizontal: boolean): string {
 export function ValueLabels({
     valueFormatter,
     minGap = 4,
-    maxPointsPerSeries = 100,
     mode = 'per-segment',
-    minBarSize = DEFAULT_MIN_BAR_SIZE,
 }: ValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels, theme, resolveValue, axisOrientation, isPercent } = useChartLayout()
     const isHorizontal = axisOrientation === 'horizontal'
-    const isBarChart = !!getBarChartPrivate(scales)
 
     const formatter = valueFormatter ?? defaultLocaleFormatter
 
@@ -330,30 +307,14 @@ export function ValueLabels({
                     scales,
                     resolveValue,
                     valueFormatter: formatter,
-                    maxPointsPerSeries,
                     isHorizontal,
                     mode,
-                    minBarSize,
-                    isBarChart,
                     isPercent,
                 }),
                 minGap,
                 isHorizontal
             ),
-        [
-            series,
-            labels,
-            scales,
-            resolveValue,
-            formatter,
-            minGap,
-            maxPointsPerSeries,
-            isHorizontal,
-            mode,
-            minBarSize,
-            isBarChart,
-            isPercent,
-        ]
+        [series, labels, scales, resolveValue, formatter, minGap, isHorizontal, mode, isPercent]
     )
 
     if (visible.length === 0) {
