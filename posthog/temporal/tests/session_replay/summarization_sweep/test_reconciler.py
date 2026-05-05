@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import temporalio.worker
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -305,8 +306,6 @@ async def test_reconcile_workflow_fails_when_every_fanout_fails():
     @activity.defn(name="delete_team_schedule_activity")
     async def delete_mocked(inputs: DeleteTeamScheduleInput) -> None:
         raise RuntimeError("delete boom")
-
-    from temporalio.client import WorkflowFailureError
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:

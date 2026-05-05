@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from google.genai.errors import APIError
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -241,8 +242,6 @@ async def test_delete_failure_keeps_redis_state_for_retry(activity_environment, 
 async def test_treats_gemini_404_as_success(activity_environment, fixed_now, gemini_redis):
     # If a previous untrack failed and left an orphan key, the actual file may already be gone
     # from Gemini. Don't keep retrying — drop the key and move on.
-    from google.genai.errors import APIError
-
     await _track(gemini_redis, file_name="files/already-gone", workflow_id="wf-1", age=SWEEP_MIN_AGE * 10)
     raw = _StubRawClient()
     raw.files.delete_raises_for = {"files/already-gone": APIError(code=404, response_json={})}

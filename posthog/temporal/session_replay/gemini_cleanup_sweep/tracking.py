@@ -8,6 +8,7 @@ import structlog
 
 from posthog.redis import get_async_client
 from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
+    MGET_BATCH_SIZE,
     REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX,
     REDIS_KEY_TTL,
@@ -15,8 +16,6 @@ from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import (
 from posthog.temporal.session_replay.gemini_cleanup_sweep.types import TrackedFile
 
 logger = structlog.get_logger(__name__)
-
-_MGET_BATCH = 200
 
 
 def _redis_key_for(gemini_file_name: str) -> str:
@@ -67,8 +66,8 @@ async def iter_tracked_files(limit: int) -> AsyncIterator[TrackedFile | None]:
     if not file_names:
         return
 
-    for batch_start in range(0, len(file_names), _MGET_BATCH):
-        batch = file_names[batch_start : batch_start + _MGET_BATCH]
+    for batch_start in range(0, len(file_names), MGET_BATCH_SIZE):
+        batch = file_names[batch_start : batch_start + MGET_BATCH_SIZE]
         keys = [_redis_key_for(fn) for fn in batch]
         raw_values = await redis.mget(*keys)
         stale: list[str] = []

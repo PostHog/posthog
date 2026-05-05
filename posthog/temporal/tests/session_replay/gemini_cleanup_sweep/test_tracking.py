@@ -139,7 +139,7 @@ async def test_iter_respects_limit(gemini_redis):
 
 @pytest.mark.asyncio
 async def test_iter_batches_across_mget_boundary(gemini_redis):
-    n = 250  # > _MGET_BATCH (200)
+    n = 250  # > MGET_BATCH_SIZE (200)
     for i in range(n):
         await track_uploaded_file(f"files/n{i:04d}", "wf-x", _NOW + dt.timedelta(seconds=i))
     items = await _collect(iter_tracked_files(limit=n))
