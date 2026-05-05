@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
+import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
 
-import { api } from 'lib/api'
+import api from 'lib/api'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { ANY_VARIANT, variantOptions } from 'lib/components/IngestionControls/triggers/FlagTrigger/VariantSelector'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { humanFriendlyNumber } from 'lib/utils'
+import { formatRE2Error } from 'lib/utils/regexp'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -41,9 +43,9 @@ function getRegexValidationError(pattern: string, matchType: UrlMatchMode): stri
     }
 
     try {
-        new RegExp(pattern)
+        RE2JS.compile(pattern)
     } catch (error) {
-        return error instanceof Error ? error.message : 'Invalid regex'
+        return error instanceof Error ? formatRE2Error(error, pattern) : 'Invalid RE2 regex'
     }
 
     return null
@@ -282,7 +284,7 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                             placeholder={urlInputPlaceholder}
                             allowCustomValues
                             status={isPathInputInExactMode || regexValidationError ? 'danger' : undefined}
-                            loading={urlOptions?.status === 'loading'}
+                            loading={urlMatchMode !== SurveyMatchType.Regex && urlOptions?.status === 'loading'}
                             options={urlSuggestions}
                         />
                         {regexValidationError ? (
