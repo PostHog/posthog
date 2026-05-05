@@ -134,11 +134,10 @@ def _bump_org_serializer_cache_version(organization_id: str) -> None:
 
 
 CacheField = Literal["teams", "projects"]
+OrgCacheField = Literal["member_count"]
 
 
-def _cached_per_user_org(field: CacheField, user_id: int, organization_id: str, fetcher: Callable[[], Any]) -> Any:
-    version = _org_serializer_cache_version(organization_id)
-    cache_key = f"org_serializer:{field}:{organization_id}:v{version}:{user_id}"
+def _cached_org_serializer_field(cache_key: str, fetcher: Callable[[], Any]) -> Any:
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
@@ -147,7 +146,10 @@ def _cached_per_user_org(field: CacheField, user_id: int, organization_id: str, 
     return result
 
 
-OrgCacheField = Literal["member_count"]
+def _cached_per_user_org(field: CacheField, user_id: int, organization_id: str, fetcher: Callable[[], Any]) -> Any:
+    version = _org_serializer_cache_version(organization_id)
+    cache_key = f"org_serializer:{field}:{organization_id}:v{version}:{user_id}"
+    return _cached_org_serializer_field(cache_key, fetcher)
 
 
 def _fetch_member_count(organization: Organization) -> int:
@@ -165,12 +167,7 @@ def _fetch_member_count(organization: Organization) -> int:
 def _cached_per_org(field: OrgCacheField, organization_id: str, fetcher: Callable[[], Any]) -> Any:
     version = _org_serializer_cache_version(organization_id)
     cache_key = f"org_serializer:{field}:{organization_id}:v{version}"
-    cached = get_safe_cache(cache_key)
-    if cached is not None:
-        return cached
-    result = fetcher()
-    safe_cache_set(cache_key, result, timeout=ORG_SERIALIZER_CACHE_TTL_SECONDS)
-    return result
+    return _cached_org_serializer_field(cache_key, fetcher)
 
 
 def _resolve_cached_user_id(serializer_context: dict[str, Any]) -> int | None:
