@@ -5,7 +5,7 @@ from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory
 
-from posthog.admin import install_admin_app_list_overrides, register_all_admin
+from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
 from posthog.admin.admins.user_admin import UserAdmin
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
 from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
@@ -50,13 +50,7 @@ class TestOAuthSidebarRegrouping(BaseTest):
         oauth_apps = [app for app in result if app["app_label"] == "oauth"]
         assert len(oauth_apps) == 1
         oauth_object_names = {model["object_name"] for model in oauth_apps[0]["models"]}
-        assert oauth_object_names == {
-            "OAuthApplication",
-            "OAuthAccessToken",
-            "OAuthGrant",
-            "OAuthIDToken",
-            "OAuthRefreshToken",
-        }
+        assert oauth_object_names == _OAUTH_ADMIN_MODEL_NAMES
 
         posthog_apps = [app for app in result if app["app_label"] == "posthog"]
         assert len(posthog_apps) == 1
@@ -70,13 +64,7 @@ class TestOAuthSidebarRegrouping(BaseTest):
         assert len(result) == 1
         assert result[0]["app_label"] == "oauth"
         assert result[0]["name"] == "OAuth"
-        assert {model["object_name"] for model in result[0]["models"]} == {
-            "OAuthApplication",
-            "OAuthAccessToken",
-            "OAuthGrant",
-            "OAuthIDToken",
-            "OAuthRefreshToken",
-        }
+        assert {model["object_name"] for model in result[0]["models"]} == _OAUTH_ADMIN_MODEL_NAMES
 
 
 class TestUserAdmin(BaseTest):
