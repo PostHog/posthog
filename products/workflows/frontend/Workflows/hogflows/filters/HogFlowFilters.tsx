@@ -59,14 +59,18 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
         actionsTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEvents)
     }
 
+    // WorkflowVariables comes first so its dedicated tab renders first in the category list.
+    // ActionFilter does not pipe `taxonomicFilterOptionsFromProp`, so the All/Suggestions tab
+    // does not aggregate variables here — variable surfacing in All/Suggestions only kicks in
+    // for the property-level filter (HogFlowPropertyFilters below).
     const propertyTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.WorkflowVariables,
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.PersonProperties,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.HogQLExpression,
-        TaxonomicFilterGroupType.WorkflowVariables,
     ]
     if (shouldShowInternalEvents) {
         propertyTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEventProperties)
@@ -101,6 +105,14 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
 export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { workflow } = useValues(workflowLogic)
+    // Surface workflow variables in the All/Suggestions tab so a user searching by variable key
+    // sees a match alongside event/person properties. The dedicated tab still works without this.
+    const taxonomicFilterOptionsFromProp = {
+        [TaxonomicFilterGroupType.WorkflowVariables]: (workflow?.variables ?? []).map((variable) => ({
+            name: variable.key,
+        })),
+    }
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
@@ -117,6 +129,7 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
                 TaxonomicFilterGroupType.HogQLExpression,
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
+            taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
             metadataSource={{
                 kind: NodeKind.EventsQuery,
                 select: defaultDataTableColumns(NodeKind.EventsQuery),

@@ -3,3 +3,4 @@ Use 'hogli dev:explain' to see why each service is running
 hogli now collects anonymous usage data - run 'hogli telemetry:status' for details
 Press 't' in phrocs to toggle services on or off — replaces hogli dev:setup
 hogli now supports detached mode: run hogli up -d, then hogli wait / hogli down
+pnpm now uses a global virtual store — worktree installs are nearly instant (avoid concurrent pnpm install)

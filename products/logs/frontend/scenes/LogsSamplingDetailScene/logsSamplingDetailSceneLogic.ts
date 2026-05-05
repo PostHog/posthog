@@ -6,7 +6,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -14,8 +13,10 @@ import {
     buildSamplingFormDefaults,
     logsSamplingFormLogic,
 } from 'products/logs/frontend/components/LogsSampling/logsSamplingFormLogic'
+import { fetchSamplingRuleDropTotalsLast24h } from 'products/logs/frontend/components/LogsSampling/samplingRuleDropImpact'
 import { logsSamplingRulesDestroy, logsSamplingRulesRetrieve } from 'products/logs/frontend/generated/api'
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
+import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
 
 import type { logsSamplingDetailSceneLogicType } from './logsSamplingDetailSceneLogicType'
 
@@ -38,10 +39,7 @@ export const logsSamplingDetailSceneLogic = kea<logsSamplingDetailSceneLogicType
 
     connect((props: LogsSamplingDetailSceneLogicProps) => ({
         values: [teamLogic, ['currentTeamId']],
-        actions: [
-            logsSamplingFormLogic({ rule: { id: props.id } as LogsSamplingRuleApi }),
-            ['resetSamplingForm', 'submitSamplingFormSuccess'],
-        ],
+        actions: [logsSamplingFormLogic({ rule: { id: props.id } as LogsSamplingRuleApi }), ['resetSamplingForm']],
     })),
 
     actions({
@@ -55,6 +53,16 @@ export const logsSamplingDetailSceneLogic = kea<logsSamplingDetailSceneLogicType
                 loadRule: async () => logsSamplingRulesRetrieve(String(values.currentTeamId), props.id),
             },
         ],
+        ruleDropImpact24h: [
+            null as number | null,
+            {
+                loadRuleDropImpact24h: async (_, breakpoint) => {
+                    await breakpoint(1)
+                    const map = await fetchSamplingRuleDropTotalsLast24h([props.id])
+                    return map[props.id] ?? 0
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -64,10 +72,10 @@ export const logsSamplingDetailSceneLogic = kea<logsSamplingDetailSceneLogicType
                 {
                     key: Scene.Logs,
                     name: 'Logs',
-                    path: `${urls.logs()}?activeTab=configuration&section=environment-logs&setting=logs-sampling`,
+                    path: logsDropRulesSettingsUrl(),
                     iconType: 'logs',
                 },
-                { key: Scene.LogsSamplingDetail, name: 'Sampling rule', iconType: 'logs' },
+                { key: Scene.LogsSamplingDetail, name: 'Drop rule', iconType: 'logs' },
             ],
         ],
     }),
@@ -77,17 +85,13 @@ export const logsSamplingDetailSceneLogic = kea<logsSamplingDetailSceneLogicType
             if (values.rule) {
                 actions.resetSamplingForm(buildSamplingFormDefaults(values.rule))
             }
-        },
-        submitSamplingFormSuccess: () => {
-            actions.loadRule()
+            actions.loadRuleDropImpact24h(undefined)
         },
         deleteRule: async () => {
             try {
                 await logsSamplingRulesDestroy(String(values.currentTeamId), props.id)
                 lemonToast.success('Rule deleted')
-                router.actions.push(
-                    `${urls.logs()}?activeTab=configuration&section=environment-logs&setting=logs-sampling`
-                )
+                router.actions.push(logsDropRulesSettingsUrl())
             } catch (e: any) {
                 lemonToast.error(e?.detail ?? e?.message ?? 'Failed to delete')
             }

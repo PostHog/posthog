@@ -126,6 +126,8 @@ export function ManagedSourcesTable(): JSX.Element {
                                           <AppMetricsSparkline
                                               logicKey={`dwh-source-sparkline-${source.id}`}
                                               loadOnChanges
+                                              successMetricNames={['rows_synced']}
+                                              metricLabels={{ rows_synced: 'Rows synced' }}
                                               forceParams={{
                                                   appSource: DATA_WAREHOUSE_APP_SOURCE,
                                                   appSourceId: source.id,

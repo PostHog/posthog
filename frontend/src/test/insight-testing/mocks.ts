@@ -69,6 +69,7 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
             },
             label: s.label,
             count: s.data.reduce((a, b) => a + b, 0),
+            aggregated_value: s.data.reduce((a, b) => a + b, 0),
             data: s.data,
             labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
             days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),

@@ -318,6 +318,20 @@ def _create_integration(team: Team, label: str):
     return Integration.objects.create(team=team, kind="slack", errors="")
 
 
+def _create_integration_repository_cache_entry(team: Team, label: str):
+    from posthog.models.integration import Integration
+    from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
+
+    integration = Integration.objects.create(team=team, kind="github", errors="")
+    return IntegrationRepositoryCacheEntry.objects.create(
+        integration=integration,
+        team=team,
+        full_name=f"owner/repo_{label}",
+        default_branch="main",
+        default_branch_sha=f"sha_{label}",
+    )
+
+
 def _create_logs_view(team: Team, label: str) -> LogsView:
     return LogsView.objects.create(team=team, name=f"logs_view_{label}")
 
@@ -500,6 +514,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("integrations", _create_integration),
+    ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
     ("logs_views", _create_logs_view),
     ("notebooks", _create_notebook),

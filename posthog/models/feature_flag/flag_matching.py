@@ -36,7 +36,6 @@ from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
@@ -145,13 +144,10 @@ class FlagsMatcherCache:
         if self.failed_to_fetch_flags:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, READ_ONLY_DATABASE_FOR_PERSONS):
-                group_type_mapping_rows = GroupTypeMapping.objects.db_manager(  # nosemgrep: no-direct-persons-db-orm
-                    READ_ONLY_DATABASE_FOR_PERSONS
-                ).filter(  # nosemgrep: no-direct-persons-db-orm
-                    project_id=self.project_id
-                )
-                return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
+            from posthog.models.group_type_mapping import get_group_types_for_project
+
+            rows = get_group_types_for_project(self.project_id)
+            return {row["group_type"]: cast(GroupTypeIndex, row["group_type_index"]) for row in rows}
         except DatabaseError as e:
             logger.exception("group_types_to_indexes database error", error=str(e), exc_info=True)
             self.failed_to_fetch_flags = True

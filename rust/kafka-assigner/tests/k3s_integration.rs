@@ -56,6 +56,13 @@ async fn setup_k3s() -> (
     let container = K3s::default()
         .with_conf_mount(tmp_dir.path())
         .with_privileged(true)
+        .with_cmd([
+            "server",
+            "--snapshotter=native",
+            "--disable=traefik",
+            "--disable=servicelb",
+            "--disable=metrics-server",
+        ])
         .start()
         .await
         .expect("failed to start k3s container");
@@ -328,18 +335,25 @@ async fn trigger_statefulset_rollout(client: &Client, name: &str) {
 /// testcontainer; this avoids burning the `wait_for_condition` budget on
 /// Connect errors.
 async fn wait_for_k3s_api_ready(client: &Client, timeout_dur: Duration) {
+    const REQUIRED_CONSECUTIVE: u32 = 3;
     let start = std::time::Instant::now();
     let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::namespaced(client.clone(), NAMESPACE);
+    let mut consecutive_ok: u32 = 0;
     loop {
         if tokio::time::timeout(Duration::from_secs(5), pods.list(&ListParams::default()))
             .await
             .map(|r| r.is_ok())
             .unwrap_or(false)
         {
-            return;
+            consecutive_ok += 1;
+            if consecutive_ok >= REQUIRED_CONSECUTIVE {
+                return;
+            }
+        } else {
+            consecutive_ok = 0;
         }
         if start.elapsed() > timeout_dur {
-            panic!("k3s API server did not recover within {timeout_dur:?}");
+            panic!("k3s API server did not stabilize within {timeout_dur:?}");
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
