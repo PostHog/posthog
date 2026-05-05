@@ -405,13 +405,15 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
 
             if existing_ticket:
                 qs = Ticket.objects.filter(id=ticket.id, team=team)
-                updates: dict[str, Any] = {}
-                if not is_team_member:
-                    updates["unread_team_count"] = F("unread_team_count") + 1
-                if cc_list:
-                    updates["cc_participants"] = list(dict.fromkeys(ticket.cc_participants + cc_list))
-                if updates:
-                    qs.update(**updates)
+                if not is_team_member and cc_list:
+                    qs.update(
+                        unread_team_count=F("unread_team_count") + 1,
+                        cc_participants=list(dict.fromkeys(ticket.cc_participants + cc_list)),
+                    )
+                elif not is_team_member:
+                    qs.update(unread_team_count=F("unread_team_count") + 1)
+                elif cc_list:
+                    qs.update(cc_participants=list(dict.fromkeys(ticket.cc_participants + cc_list)))
 
             EmailMessageMapping.objects.create(
                 message_id=email_message_id,
