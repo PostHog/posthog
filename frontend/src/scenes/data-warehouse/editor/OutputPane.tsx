@@ -862,10 +862,6 @@ function InternalDataTableVisualization(
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
-    // When the host already constrains height (embedded contexts like notebook nodes),
-    // force the chart to fill its container instead of using the 60vh viewport-relative preset.
-    const effectivePresetChartHeight = props.embedded ? false : presetChartHeight
-
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
@@ -902,7 +898,7 @@ function InternalDataTableVisualization(
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
-                presetChartHeight={effectivePresetChartHeight}
+                presetChartHeight={presetChartHeight}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
@@ -916,7 +912,7 @@ function InternalDataTableVisualization(
                 xData={_xData}
                 yData={_yData}
                 chartSettings={chartSettings}
-                presetChartHeight={effectivePresetChartHeight}
+                presetChartHeight={presetChartHeight}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {

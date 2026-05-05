@@ -189,10 +189,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const { queryId, pollResponse } = useValues(dataNodeLogic)
 
-    // When the host already constrains height (embedded contexts like notebook nodes),
-    // force the chart to fill its container instead of using the 60vh viewport-relative preset.
-    const effectivePresetChartHeight = props.embedded ? false : presetChartHeight
-
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
         [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
@@ -249,7 +245,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
-                presetChartHeight={effectivePresetChartHeight}
+                presetChartHeight={presetChartHeight}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
@@ -265,7 +261,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 xData={_xData}
                 yData={_yData}
                 chartSettings={chartSettings}
-                presetChartHeight={effectivePresetChartHeight}
+                presetChartHeight={presetChartHeight}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
