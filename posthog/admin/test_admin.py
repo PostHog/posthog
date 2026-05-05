@@ -11,7 +11,7 @@ from posthog.admin.admins.user_admin import UserAdmin
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
 from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 from posthog.models import User
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 
 
 class TestAdmin(BaseTest):
@@ -149,20 +149,17 @@ class TestPluginAttachmentInline(BaseTest):
         assert "cannot preview:" in result
 
 
-class TestEventIngestionRestrictionConfigAdmin(BaseTest):
-    def test_display_team_id_resolves_token_to_team_id(self):
+class TestEventIngestionRestrictionConfigAdmin:
+    def test_display_team_id_reads_annotation(self):
         admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
         cases = [
-            ("matching token", self.team.api_token, self.team.id),
-            ("unknown token", "phc_nonexistent_token", None),
+            ("present", 42, 42),
+            ("missing", None, None),
         ]
-        for label, token, expected in cases:
-            with self.subTest(label):
-                config = EventIngestionRestrictionConfig.objects.create(
-                    token=token,
-                    restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
-                )
-                assert admin_instance.display_team_id(config) == expected
+        for label, annotation_value, expected in cases:
+            obj = MagicMock()
+            obj.team_id_from_token = annotation_value
+            assert admin_instance.display_team_id(obj) == expected, label
 
 
 class TestEventIngestionRestrictionConfigAdminConfig:
