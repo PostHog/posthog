@@ -451,12 +451,15 @@ def funnel_evaluation_expr(
                 '{funnel_order_type}',
                 array(array('')),
                 [],
-                arraySort(t -> t.1, groupArray(tuple(
-                    toFloat({timestamp_field}),
-                    {uuid_field},
-                    array(''),
-                    arrayFilter(x -> x > 0, [{step_conditions_str}])
-                )))
+                arraySort(t -> t.1, arrayFilter(
+                    t -> isNotNull(t.1) AND isNotNull(t.2),
+                    groupArray(tuple(
+                        toFloat({timestamp_field}),
+                        {uuid_field},
+                        array(''),
+                        arrayFilter(x -> x > 0, [{step_conditions_str}])
+                    ))
+                ))
             )
         )
     )[1]

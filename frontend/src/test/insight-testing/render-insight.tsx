@@ -58,16 +58,19 @@ export interface RenderInsightProps {
     mocks?: SetupMocksOptions
     featureFlags?: Record<string, string | boolean>
     context?: QueryContext<InsightVizNode>
+    inSharedMode?: boolean
 }
 
 function InsightWrapper({
     query,
     showFilters = false,
     context,
+    inSharedMode,
 }: {
     query: TrendsQuery
     showFilters: boolean
     context?: QueryContext<InsightVizNode>
+    inSharedMode?: boolean
 }): JSX.Element {
     const [vizQuery, setVizQuery] = useState<InsightVizNode>({
         kind: NodeKind.InsightVizNode,
@@ -82,7 +85,15 @@ function InsightWrapper({
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { InsightViz } = require('~/queries/nodes/InsightViz/InsightViz')
 
-    return <InsightViz uniqueKey={INSIGHT_TEST_KEY} query={vizQuery} setQuery={setVizQuery} context={context} />
+    return (
+        <InsightViz
+            uniqueKey={INSIGHT_TEST_KEY}
+            query={vizQuery}
+            setQuery={setVizQuery}
+            context={context}
+            inSharedMode={inSharedMode}
+        />
+    )
 }
 
 export function renderInsight(props: RenderInsightProps = {}): ReturnType<typeof render> {
@@ -93,6 +104,7 @@ export function renderInsight(props: RenderInsightProps = {}): ReturnType<typeof
             query={props.query ?? buildTrendsQuery()}
             showFilters={props.showFilters ?? true}
             context={props.context}
+            inSharedMode={props.inSharedMode}
         />
     )
 }

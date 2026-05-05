@@ -1,6 +1,7 @@
+import hashlib
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class RasterizeRecordingInputs(BaseModel, frozen=True):
@@ -66,7 +67,27 @@ class RasterizationActivityOutput(BaseModel, frozen=True):
 
 
 class FinalizeRasterizationInput(BaseModel, frozen=True):
-    """Input to finalize_rasterization."""
-
     exported_asset_id: int
     result: RasterizationActivityOutput
+    render_fingerprint: str
+
+
+# Output destination fields — excluded so bucket/prefix changes don't invalidate caches.
+_FINGERPRINT_EXCLUDE: set[str] = {"team_id", "session_id", "s3_bucket", "s3_key_prefix"}
+
+
+def compute_params_fingerprint(activity_input: "RasterizationActivityInput") -> str:
+    payload = activity_input.model_dump_json(exclude=_FINGERPRINT_EXCLUDE)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+class BuildRasterizationResult(BaseModel, frozen=True):
+    activity_input: RasterizationActivityInput | None = None
+    cached_output: RasterizationActivityOutput | None = None
+    render_fingerprint: str
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "BuildRasterizationResult":
+        if (self.activity_input is None) == (self.cached_output is None):
+            raise ValueError("Exactly one of activity_input/cached_output must be set")
+        return self

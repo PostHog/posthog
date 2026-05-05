@@ -803,16 +803,17 @@ export interface ErrorTrackingIssueSplitResponseApi {
     new_issue_ids: string[]
 }
 
+export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
+
 export interface ErrorTrackingRecommendationApi {
     readonly id: string
     readonly type: string
-    readonly meta: unknown
+    readonly meta: ErrorTrackingRecommendationApiMeta
+    readonly completed: boolean
     /** @nullable */
     readonly computed_at: string | null
     /** @nullable */
     readonly dismissed_at: string | null
-    /** @nullable */
-    readonly next_refresh_at: string | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -824,6 +825,36 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingRecommendationApi[]
+}
+
+export interface ErrorTrackingSettingsApi {
+    /**
+     * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the project-wide rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_bucket_size_minutes?: number | null
+}
+
+export interface PatchedErrorTrackingSettingsApi {
+    /**
+     * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the project-wide rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_bucket_size_minutes?: number | null
 }
 
 export interface ErrorTrackingSpikeDetectionConfigApi {

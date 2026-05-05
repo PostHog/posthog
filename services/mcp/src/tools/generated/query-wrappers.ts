@@ -427,6 +427,26 @@ const AssistantTrendsActionsNode = z.object({
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
+const AssistantTrendsGroupNode = z.object({
+    custom_name: z.string().optional(),
+    kind: z.literal('GroupNode').default('GroupNode'),
+    math: MathType.describe(
+        'Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes.'
+    ).optional(),
+    math_group_type_index: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    math_hogql: z.string().describe('Custom HogQL aggregation. When set, `math` must be `hogql`.').optional(),
+    math_multiplier: z.coerce.number().optional(),
+    math_property: z.string().optional(),
+    math_property_type: z.string().optional(),
+    name: z.string().describe('Display name for the combined series.').optional(),
+    nodes: z
+        .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode]))
+        .describe(
+            "Events and actions combined into the series. Mirror the group's `math*` on each node for UI round-trip; they're ignored at execution time."
+        ),
+    operator: z.literal('OR').describe('Only `OR` is supported.').default('OR'),
+})
+
 const AggregationAxisFormat = z.enum([
     'numeric',
     'duration',
@@ -542,8 +562,10 @@ const AssistantTrendsQuery = z.object({
     kind: z.literal('TrendsQuery').default('TrendsQuery'),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for all series').default([]).optional(),
     series: z
-        .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode]))
-        .describe('Events or actions to include. Prioritize the more popular and fresh events and actions.'),
+        .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode, AssistantTrendsGroupNode]))
+        .describe(
+            'Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series.'
+        ),
     trendsFilter: AssistantTrendsFilter.describe('Properties specific to the trends insight').optional(),
 })
 

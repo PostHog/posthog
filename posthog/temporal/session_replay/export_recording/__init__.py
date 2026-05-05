@@ -7,13 +7,13 @@ from posthog.temporal.session_replay.export_recording.activities import (
     export_replay_clickhouse_rows,
     store_export_data,
 )
-from posthog.temporal.session_replay.export_recording.workflows import ExportRecordingWorkflow
+from posthog.temporal.session_replay.export_recording.workflow import ExportRecordingWorkflow
 
-WORKFLOWS = [
+EXPORT_RECORDING_WORKFLOWS = [
     ExportRecordingWorkflow,
 ]
 
-ACTIVITIES = [
+EXPORT_RECORDING_ACTIVITIES = [
     build_recording_export_context,
     cleanup_export_data,
     export_event_clickhouse_rows,

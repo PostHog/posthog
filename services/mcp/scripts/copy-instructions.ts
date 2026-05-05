@@ -10,7 +10,7 @@ const REPO_ROOT = resolve(ROOT_DIR, '../..')
 
 const PROMPTS = [
     {
-        src: 'products/posthog_ai/skills/query-examples/references/guidelines.md',
+        src: 'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md',
         dest: 'shared/guidelines.md',
     },
 ]

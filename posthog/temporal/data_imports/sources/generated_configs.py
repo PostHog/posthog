@@ -237,6 +237,7 @@ class ClickHouseSourceConfig(config.Config):
     database: str
     user: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     password: str | None = None
     secure: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     verify: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
@@ -281,7 +282,8 @@ class CopperSourceConfig(config.Config):
 
 @config.config
 class CustomerIOSourceConfig(config.Config):
-    pass
+    app_api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -467,6 +469,7 @@ class MSSQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -525,6 +528,7 @@ class MySQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -759,6 +763,7 @@ class SnowflakeSourceConfig(config.Config):
     warehouse: str
     auth_type: SnowflakeAuthTypeConfig
     schema: str
+    connection_string: str | None = None
     role: str | None = None
 
 

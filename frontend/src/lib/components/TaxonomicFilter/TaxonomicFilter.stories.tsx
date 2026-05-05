@@ -501,17 +501,3 @@ export const CategoryDropdownPill: Story = {
         },
     },
 }
-
-export const CategoryDropdownIcon: Story = {
-    render: (args) => <CategoryDropdownStoryRender {...args} variant="icon" />,
-    args: CATEGORY_DROPDOWN_ARGS,
-    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
-    parameters: {
-        ...CATEGORY_DROPDOWN_PARAMETERS,
-        docs: {
-            description: {
-                story: 'Test variant "icon": left-hand Categories column is hidden; a generic filter icon in the right-hand suffix opens the category dropdown.',
-            },
-        },
-    },
-}

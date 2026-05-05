@@ -24,6 +24,7 @@ export class LiveMetricsSlidingWindow {
 
     // Incrementally-maintained aggregates
     private _totalPageviews = 0
+    private _totalBotEligibleEvents = 0
     private _globalPathCounts = new Map<string, number>()
     private _globalReferrerCounts = new Map<string, number>()
     private _globalBotCounts = new Map<string, number>()
@@ -39,6 +40,7 @@ export class LiveMetricsSlidingWindow {
         distinctId: string,
         data: {
             pageviews?: number
+            botEligibleEvents?: number
             pathname?: string
             referringDomain?: string
             device?: { deviceId: string; deviceType: string }
@@ -53,6 +55,11 @@ export class LiveMetricsSlidingWindow {
         if (data.pageviews) {
             bucket.pageviews += data.pageviews
             this._totalPageviews += data.pageviews
+        }
+
+        if (data.botEligibleEvents) {
+            bucket.botEligibleEvents += data.botEligibleEvents
+            this._totalBotEligibleEvents += data.botEligibleEvents
         }
 
         if (data.pathname) {
@@ -109,6 +116,11 @@ export class LiveMetricsSlidingWindow {
         if (data.pageviews) {
             bucket.pageviews += data.pageviews
             this._totalPageviews += data.pageviews
+        }
+
+        if (data.botEligibleEvents) {
+            bucket.botEligibleEvents += data.botEligibleEvents
+            this._totalBotEligibleEvents += data.botEligibleEvents
         }
 
         if (data.devices) {
@@ -370,6 +382,7 @@ export class LiveMetricsSlidingWindow {
                     this.decrementBotCounts(bucket.bots)
                 }
                 this._totalPageviews -= bucket.pageviews
+                this._totalBotEligibleEvents -= bucket.botEligibleEvents
                 this.buckets.delete(ts)
             }
         }
@@ -400,6 +413,10 @@ export class LiveMetricsSlidingWindow {
 
     getTotalPageviews(): number {
         return this._totalPageviews
+    }
+
+    getTotalBotEligibleEvents(): number {
+        return this._totalBotEligibleEvents
     }
 
     getDeviceBreakdown(): { device: string; count: number; percentage: number }[] {
@@ -598,6 +615,7 @@ export class LiveMetricsSlidingWindow {
         if (!bucket) {
             bucket = {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map<string, Set<string>>(),

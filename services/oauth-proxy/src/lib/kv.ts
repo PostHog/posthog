@@ -56,3 +56,27 @@ export async function putCallbackRedirectUri(kv: KVNamespace, key: string, redir
 export async function getCallbackRedirectUri(kv: KVNamespace, key: string): Promise<string | null> {
     return kv.get(`${CALLBACK_PREFIX}${await hashKey(key)}`)
 }
+
+/**
+ * Derive the regional client_id and optional client_secret rewrite for a given
+ * region from a client mapping. Returns null if the mapping has no client_id
+ * for the requested region.
+ */
+export function resolveMappingRewrite(
+    mapping: ClientMapping,
+    region: Region
+): { regionalClientId: string; clientSecretRewrite?: { from: string; to: string } } | null {
+    const regionalClientId = region === 'eu' ? mapping.eu_client_id : mapping.us_client_id
+    if (!regionalClientId) {
+        return null
+    }
+
+    const proxySecret = mapping.us_client_secret
+    const regionalSecret = region === 'eu' ? mapping.eu_client_secret : mapping.us_client_secret
+    let clientSecretRewrite: { from: string; to: string } | undefined
+    if (proxySecret && regionalSecret && proxySecret !== regionalSecret) {
+        clientSecretRewrite = { from: proxySecret, to: regionalSecret }
+    }
+
+    return { regionalClientId, clientSecretRewrite }
+}

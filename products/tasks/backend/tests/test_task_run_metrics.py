@@ -9,6 +9,10 @@ from posthog.models import Organization, Team, User
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
+from products.tasks.backend.temporal.process_task.activities.track_workflow_event import (
+    TrackWorkflowEventInput,
+    track_workflow_event,
+)
 
 
 def _sample_value(name: str, labels: dict[str, str]) -> float:
@@ -159,3 +163,42 @@ class TestTaskRunMetrics(TestCase):
             assert _sample_value("posthog_tasks_task_run_workflow_start_total", labels) == before + 1
 
         assert mock_sync_connect.called is expect_sync_connect_called
+
+    def test_task_run_failed_event_increments_failure_counter(self) -> None:
+        distinct_id = self.user.distinct_id
+        assert distinct_id is not None
+
+        labels = {
+            "origin_product": "user_created",
+            "mode": "background",
+            "run_source": "manual",
+            "runtime_adapter": "codex",
+            "error_type": "ActivityError",
+            "temporal_activity_type": "forward_pending_user_message",
+            "temporal_activity_retry_state": "MAXIMUM_ATTEMPTS_REACHED",
+            "cause_error_type": "RuntimeError",
+        }
+        before = _sample_value("posthog_tasks_task_run_failed_total", labels)
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.track_workflow_event.posthoganalytics.capture"
+        ):
+            track_workflow_event(
+                TrackWorkflowEventInput(
+                    event_name="task_run_failed",
+                    distinct_id=distinct_id,
+                    properties={
+                        "origin_product": "user_created",
+                        "environment": "cloud",
+                        "mode": "background",
+                        "run_source": "manual",
+                        "runtime_adapter": "codex",
+                        "error_type": "ActivityError",
+                        "temporal_activity_type": "forward_pending_user_message",
+                        "temporal_activity_retry_state": "MAXIMUM_ATTEMPTS_REACHED",
+                        "cause_error_type": "RuntimeError",
+                    },
+                )
+            )
+
+        assert _sample_value("posthog_tasks_task_run_failed_total", labels) == before + 1

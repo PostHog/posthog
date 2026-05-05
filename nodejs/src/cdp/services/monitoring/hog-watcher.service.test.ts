@@ -1,4 +1,5 @@
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { logger } from '~/utils/logger'
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
@@ -393,6 +394,76 @@ describe('HogWatcher', () => {
         })
     })
 
+    describe('getPersistedStates', () => {
+        it('should return healthy with full bucket for unknown function', async () => {
+            const state = await watcher.getPersistedState('totally-unknown-function-id')
+            expect(state).toEqual({
+                state: HogWatcherState.healthy,
+                tokens: 10000,
+            })
+        })
+
+        it('should not create Redis keys on read-only access', async () => {
+            const unknownId = 'never-executed-function'
+            await watcher.getPersistedState(unknownId)
+            await watcher.getPersistedState(unknownId)
+
+            // Verify no key was created — reads should be side-effect-free
+            const exists = await redis.useClient({ name: 'test-check' }, async (client) => {
+                return await client.exists(`${BASE_REDIS_KEY}/tokens/${unknownId}`)
+            })
+            expect(exists).toEqual(0)
+        })
+
+        it('should cap refill at bucketSize after large time gap', async () => {
+            await watcher.observeResults([createResult({ duration: 10000, kind: 'async_function' })])
+            expect((await watcher.getPersistedState(hogFunctionId)).tokens).toBeLessThan(10000)
+
+            // Advance time by a very large amount — tokens should cap at bucketSize, not overflow
+            advanceTime(1_000_000_000)
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(state.tokens).toEqual(watcherConfig.bucketSize)
+        })
+
+        it('should handle pool existing without ts in Redis', async () => {
+            // Write pool directly without ts to simulate corrupted state
+            await redis.useClient({ name: 'test-setup' }, async (client) => {
+                await client.hset(`${BASE_REDIS_KEY}/tokens/${hogFunctionId}`, 'pool', '5000')
+            })
+
+            const state = await watcher.getPersistedState(hogFunctionId)
+            // With no ts, timeDiff is 0, so no refill — tokens should be the raw pool value
+            expect(state.tokens).toEqual(5000)
+        })
+
+        it('should handle ts existing without pool in Redis', async () => {
+            // Write ts directly without pool to simulate corrupted state
+            await redis.useClient({ name: 'test-setup' }, async (client) => {
+                await client.hset(`${BASE_REDIS_KEY}/tokens/${hogFunctionId}`, 'ts', Math.round(now / 1000))
+            })
+
+            const state = await watcher.getPersistedState(hogFunctionId)
+            // With no pool, should return bucketSize (healthy default)
+            expect(state.tokens).toEqual(watcherConfig.bucketSize)
+        })
+
+        it('should return consistent results between write and read paths', async () => {
+            // Write costs via observeResults (uses evalsha Lua script)
+            await watcher.observeResults([
+                createResult({ duration: 5000, kind: 'async_function' }),
+                createResult({ duration: 5000, kind: 'async_function' }),
+            ])
+
+            // Read immediately via getPersistedState (uses hget)
+            const state = await watcher.getPersistedState(hogFunctionId)
+
+            // Tokens should be reduced but function still healthy
+            expect(state.tokens).toBeLessThan(watcherConfig.bucketSize)
+            expect(state.tokens).toBeGreaterThan(0)
+            expect(state.state).toEqual(HogWatcherState.healthy)
+        })
+    })
+
     describe('doStateChanges - with resetPool', () => {
         const expectMockCaptureTeamEvent = (state: string, previousState: string) => {
             expect(mockCaptureTeamEvent).toHaveBeenCalledWith(team, 'hog_function_state_change', {
@@ -480,6 +551,72 @@ describe('HogWatcher', () => {
             expect(observeResultsSpy).toHaveBeenCalledTimes(2)
             expect(observeResultsSpy).toHaveBeenCalledWith([results[0], results[1], results[2]])
             expect(observeResultsSpy).toHaveBeenCalledWith([results[3]])
+        })
+    })
+
+    describe('reader fallback', () => {
+        let loggerWarnSpy: jest.SpyInstance
+
+        const makeFailingReader = (err: Error): RedisV2 => ({
+            useClient: jest.fn(() => Promise.reject(err)),
+            usePipeline: jest.fn(() => Promise.reject(err)),
+        })
+
+        beforeEach(() => {
+            loggerWarnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined)
+        })
+
+        afterEach(() => {
+            loggerWarnSpy.mockRestore()
+        })
+
+        it('should fall back to the writer when the reader throws on getPersistedStates', async () => {
+            const failingReader = makeFailingReader(new Error('reader unavailable'))
+            const watcherWithFailingReader = new HogWatcherService(hub.teamManager, watcherConfig, redis, failingReader)
+
+            // Seed state on the writer so a successful fallback returns real data
+            await watcherWithFailingReader.observeResults([createResult({ duration: 1000, kind: 'hog' })])
+
+            const state = await watcherWithFailingReader.getPersistedState(hogFunctionId)
+
+            expect(failingReader.usePipeline).toHaveBeenCalledTimes(1)
+            expect(state.tokens).toBeLessThan(watcherConfig.bucketSize)
+            expect(loggerWarnSpy).toHaveBeenCalledWith(
+                '🔀',
+                expect.stringContaining('reader getStates failed'),
+                expect.any(Object)
+            )
+        })
+
+        it('should fall back to the writer when the reader throws on getAllFunctionStates', async () => {
+            // Seed enough cost to trigger a state transition - that's what writes the
+            // state key that getAllFunctionStates SCANs for.
+            await watcher.observeResults(Array(10000).fill(createResult({ duration: 25000, kind: 'async_function' })))
+
+            const failingReader = makeFailingReader(new Error('reader unavailable'))
+            const watcherWithFailingReader = new HogWatcherService(hub.teamManager, watcherConfig, redis, failingReader)
+
+            const states = await watcherWithFailingReader.getAllFunctionStates()
+
+            expect(failingReader.useClient).toHaveBeenCalledTimes(1)
+            expect(Object.keys(states)).toContain(hogFunctionId)
+            expect(loggerWarnSpy).toHaveBeenCalledWith(
+                '🔀',
+                expect.stringContaining('reader scanStates failed'),
+                expect.any(Object)
+            )
+        })
+
+        it('should not log a fallback when the reader is healthy', async () => {
+            const healthyWatcher = new HogWatcherService(hub.teamManager, watcherConfig, redis, redis)
+
+            await healthyWatcher.getPersistedState(hogFunctionId)
+
+            expect(loggerWarnSpy).not.toHaveBeenCalledWith(
+                '🔀',
+                expect.stringContaining('reader getStates failed'),
+                expect.any(Object)
+            )
         })
     })
 })

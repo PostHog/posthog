@@ -1,3 +1,5 @@
+import { useCallback, useMemo } from 'react'
+
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import type { TooltipContext } from 'lib/hog-charts'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -8,6 +10,8 @@ import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/querie
 import { IntervalType } from '~/types'
 
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
+
+const NOOP = (): void => {}
 
 interface TrendsTooltipProps {
     context: TooltipContext<TrendsSeriesMeta>
@@ -43,39 +47,71 @@ export function TrendsTooltip({
     formatCompareLabel,
     onRowClick,
 }: TrendsTooltipProps): React.ReactElement {
-    // TODO: CI bands and moving-average datasets aren't yet built in the hog-charts path. When they
-    // are, the bridge (or TrendsLineChart) will need to mark them as non-tooltip rows — legacy
-    // Chart.js path used a `hideTooltip: true` flag on the dataset for this.
-    const seriesData: SeriesDatum[] = context.seriesData.map((entry, idx) => {
-        const meta = entry.series.meta ?? {}
-        return {
-            id: idx,
-            dataIndex: context.dataIndex,
-            datasetIndex: idx,
-            order: meta.order ?? idx,
-            label: entry.series.label,
-            color: entry.color,
-            count: entry.value,
-            action: meta.action,
-            breakdown_value: meta.breakdown_value,
-            compare_label: meta.compare_label,
-            date_label: meta.days?.[context.dataIndex],
-            filter: meta.filter,
-        }
-    })
+    const seriesData = useMemo<SeriesDatum[]>(
+        () =>
+            context.seriesData.map((entry, idx) => {
+                const meta = entry.series.meta ?? {}
+                return {
+                    id: idx,
+                    dataIndex: context.dataIndex,
+                    datasetIndex: idx,
+                    order: meta.order ?? idx,
+                    label: entry.series.label,
+                    color: entry.color,
+                    count: entry.value,
+                    action: meta.action,
+                    breakdown_value: meta.breakdown_value,
+                    compare_label: meta.compare_label,
+                    date_label: meta.days?.[context.dataIndex],
+                    filter: meta.filter,
+                }
+            }),
+        [context.seriesData, context.dataIndex]
+    )
 
     const date = context.seriesData[0]?.series.meta?.days?.[context.dataIndex]
 
-    const renderCount = (value: number): string => {
-        if (showPercentView) {
-            // Stickiness percent view: value is already a percentage.
-            return `${value.toFixed(1)}%`
-        }
-        if (!isPercentStackView) {
-            return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
-        }
-        return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
-    }
+    const renderCount = useCallback(
+        (value: number): string => {
+            if (showPercentView) {
+                // Stickiness percent view: value is already a percentage.
+                return `${value.toFixed(1)}%`
+            }
+            if (!isPercentStackView) {
+                return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
+            }
+            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
+        },
+        [showPercentView, isPercentStackView, trendsFilter, baseCurrency]
+    )
+
+    const hasMultipleSeries = seriesData.length > 1
+
+    const renderSeries = useCallback(
+        (value: React.ReactNode, datum: SeriesDatum): React.ReactElement => {
+            const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
+
+            if (hasBreakdown && !hasMultipleSeries) {
+                const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
+                return <div className="datum-label-column">{title}</div>
+            }
+
+            return (
+                <div className="datum-label-column">
+                    {!formula && (
+                        <SeriesLetter
+                            className="mr-2"
+                            hasBreakdown={hasBreakdown}
+                            seriesIndex={datum.action?.order ?? datum.id}
+                            seriesColor={datum.color}
+                        />
+                    )}
+                    {value}
+                </div>
+            )
+        },
+        [hasMultipleSeries, breakdownFilter, formatCompareLabel, formula]
+    )
 
     return (
         <InsightTooltip
@@ -87,30 +123,8 @@ export function TrendsTooltip({
             dateRange={dateRange}
             formatCompareLabel={formatCompareLabel}
             groupTypeLabel={groupTypeLabel}
-            onClose={context.onUnpin ?? (() => {})}
-            renderSeries={(value, datum) => {
-                const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
-                const hasMultipleSeries = seriesData.length > 1
-
-                if (hasBreakdown && !hasMultipleSeries) {
-                    const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
-                    return <div className="datum-label-column">{title}</div>
-                }
-
-                return (
-                    <div className="datum-label-column">
-                        {!formula && (
-                            <SeriesLetter
-                                className="mr-2"
-                                hasBreakdown={hasBreakdown}
-                                seriesIndex={datum.action?.order ?? datum.id}
-                                seriesColor={datum.color}
-                            />
-                        )}
-                        {value}
-                    </div>
-                )
-            }}
+            onClose={context.onUnpin ?? NOOP}
+            renderSeries={renderSeries}
             renderCount={renderCount}
             onRowClick={onRowClick}
             hideInspectActorsSection={!onRowClick}

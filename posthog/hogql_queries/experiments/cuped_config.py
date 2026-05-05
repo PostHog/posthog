@@ -1,7 +1,14 @@
 from dataclasses import dataclass
 from typing import Any
 
-from posthog.schema import ActionsNode, EventsNode, ExperimentMeanMetric
+from posthog.schema import (
+    ActionsNode,
+    EventsNode,
+    ExperimentDataWarehouseNode,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    StepOrderValue,
+)
 
 from posthog.hogql_queries.experiments.base_query_utils import is_session_property_metric
 
@@ -29,13 +36,31 @@ def _parse_lookback_days(value: Any) -> int:
     return days
 
 
-def get_cuped_config(stats_config: dict | None, metric: object) -> CupedQueryConfig:
-    if not isinstance(metric, ExperimentMeanMetric):
-        return CupedQueryConfig()
+def _metric_supports_cuped(metric: object) -> bool:
+    if isinstance(metric, ExperimentMeanMetric):
+        # Session property metrics use a separate session-deduplication CTE pipeline.
+        # Keep CUPED disabled there until the same single-scan windowing is implemented.
+        if isinstance(metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(metric.source):
+            return False
+        return True
 
-    # Session property metrics use a separate session-deduplication CTE pipeline.
-    # Keep CUPED disabled there until the same single-scan windowing is implemented.
-    if isinstance(metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(metric.source):
+    if isinstance(metric, ExperimentFunnelMetric):
+        # Unordered funnels rely on a temporal join that excludes pre-exposure events,
+        # which we'd need to relax (and re-mask) to compute the pre-window covariate.
+        # Skip until that pattern is in place.
+        if metric.funnel_order_type == StepOrderValue.UNORDERED:
+            return False
+        # Data warehouse funnel steps go through an unimplemented UNION ALL pattern;
+        # CUPED can't be wired in until that exists.
+        if any(isinstance(step, ExperimentDataWarehouseNode) for step in metric.series):
+            return False
+        return True
+
+    return False
+
+
+def get_cuped_config(stats_config: dict | None, metric: object) -> CupedQueryConfig:
+    if not _metric_supports_cuped(metric):
         return CupedQueryConfig()
 
     cuped_config = (stats_config or {}).get("cuped") or {}

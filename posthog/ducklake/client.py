@@ -31,7 +31,7 @@ class DuckLakeTableResult:
     file_size_delta_bytes: int = 0
 
 
-def _make_duckgres_conninfo(team_id: int, *, organization_id: str | None = None) -> str:
+def make_duckgres_conninfo(team_id: int, *, organization_id: str | None = None) -> str:
     from posthog.ducklake.common import _duckgres_dev_config, _get_org_id_for_team
 
     if is_dev_mode():
@@ -115,7 +115,7 @@ def execute_ducklake_query(
 
     assert sql is not None
 
-    conninfo = _make_duckgres_conninfo(team_id, organization_id=organization_id)
+    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
     with psycopg.connect(conninfo) as conn:
         _set_search_path(conn)
         with conn.cursor() as cur:
@@ -176,7 +176,7 @@ def execute_ducklake_create_table(
     safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
     safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
     qualified = psql.Identifier(safe_schema, safe_table)
-    conninfo = _make_duckgres_conninfo(team_id, organization_id=organization_id)
+    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
     # capture previous table size before replacing — best-effort, don't block materialization
     previous_file_size_bytes = _calculate_table_size(conninfo, safe_schema, safe_table)
     with psycopg.connect(conninfo) as conn:

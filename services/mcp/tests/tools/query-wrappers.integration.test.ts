@@ -68,6 +68,41 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
         })
+
+        it('should execute trends with a GroupNode', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-trends')
+            const result = (await tool.handler(context, {
+                series: [
+                    {
+                        kind: 'GroupNode',
+                        operator: 'OR',
+                        name: 'Pageviews on Safari, Pageleaves on Chrome',
+                        math: 'total',
+                        nodes: [
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageview',
+                                name: 'Pageview',
+                                math: 'total',
+                                properties: [{ key: '$browser', operator: 'exact', type: 'event', value: ['Safari'] }],
+                            },
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageleave',
+                                name: 'Pageleave',
+                                math: 'total',
+                                properties: [{ key: '$browser', operator: 'exact', type: 'event', value: ['Chrome'] }],
+                            },
+                        ],
+                    },
+                ],
+                dateRange: { date_from: '-7d' },
+                interval: 'day',
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+        })
     })
 
     describe('query-funnel', () => {
