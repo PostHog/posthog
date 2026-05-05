@@ -14,7 +14,6 @@ import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { mirrorCall } from '../utils/mirror-call'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -24,6 +23,7 @@ import {
     LogEntry,
     MinimalAppMetric,
 } from '../types'
+import { mirrorCall } from '../utils/mirror-call'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterHogFunctionStateOnEvent, counterParseError, counterRateLimited } from './metrics'
 import { shouldBlockInvocationDueToQuota } from './quota-limiting-helper'
@@ -136,7 +136,9 @@ export class CdpEventsConsumer<
             instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
                 return await this.hogWatcher.getEffectiveStates(hogFunctionIds)
             }),
-            mirrorCall('hog-watcher.getEffectiveStates', () => this.hogWatcherMirror?.getEffectiveStates(hogFunctionIds)),
+            mirrorCall('hog-watcher.getEffectiveStates', () =>
+                this.hogWatcherMirror?.getEffectiveStates(hogFunctionIds)
+            ),
         ])
 
         const rateLimitInputs = possibleInvocations.map((x) => [x.hogFunction.id, 1] as [string, number])
@@ -144,7 +146,9 @@ export class CdpEventsConsumer<
             instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
                 return await this.hogRateLimiter.rateLimitMany(rateLimitInputs)
             }),
-            mirrorCall('hog-rate-limiter.rateLimitMany', () => this.hogRateLimiterMirror?.rateLimitMany(rateLimitInputs)),
+            mirrorCall('hog-rate-limiter.rateLimitMany', () =>
+                this.hogRateLimiterMirror?.rateLimitMany(rateLimitInputs)
+            ),
         ])
 
         const validInvocations: CyclotronJobInvocationHogFunction[] = []
@@ -309,7 +313,9 @@ export class CdpEventsConsumer<
             instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
                 return await this.hogRateLimiter.rateLimitMany(rateLimitInputs)
             }),
-            mirrorCall('hog-rate-limiter.rateLimitMany', () => this.hogRateLimiterMirror?.rateLimitMany(rateLimitInputs)),
+            mirrorCall('hog-rate-limiter.rateLimitMany', () =>
+                this.hogRateLimiterMirror?.rateLimitMany(rateLimitInputs)
+            ),
         ])
         const validInvocations: CyclotronJobInvocation[] = []
 

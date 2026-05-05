@@ -30,10 +30,7 @@ export async function mirrorCall(
         await Promise.race([
             promise,
             new Promise<never>((_, reject) => {
-                timeoutId = setTimeout(
-                    () => reject(new Error(`mirror call timed out after ${timeoutMs}ms`)),
-                    timeoutMs
-                )
+                timeoutId = setTimeout(() => reject(new Error(`mirror call timed out after ${timeoutMs}ms`)), timeoutMs)
             }),
         ])
     } catch (err) {
