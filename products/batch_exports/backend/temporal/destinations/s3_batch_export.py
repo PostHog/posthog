@@ -120,6 +120,7 @@ class S3InsertInputs(BatchExportInsertInputs):
     prefix: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
+    aws_session_token: str | None = None
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
@@ -292,9 +293,14 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         return
 
 
+@dataclasses.dataclass
+class S3BatchExportResult(BatchExportResult):
+    files_uploaded: list[str] = dataclasses.field(default_factory=list)
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExportResult:
+async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchExportResult:
     """Activity to batch export data to a customer's S3.
 
     This is a new version of the `insert_into_s3_activity` activity that reads data from our internal S3 stage
@@ -354,7 +360,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
                 inputs.data_interval_end or "END",
             )
 
-            return BatchExportResult(records_completed=0, bytes_exported=0)
+            return S3BatchExportResult(records_completed=0, bytes_exported=0)
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -385,12 +391,19 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
                 max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
-        return await run_consumer_from_stage(
+        result = await run_consumer_from_stage(
             queue=queue,
             consumer=consumer,
             producer_task=producer_task,
             transformer=transformer,
             json_columns=json_columns,
+        )
+        return S3BatchExportResult(
+            bytes_exported=result.bytes_exported,
+            records_completed=result.records_completed,
+            records_failed=result.records_failed,
+            error=result.error,
+            files_uploaded=consumer.files_uploaded,
         )
 
 
@@ -417,6 +430,7 @@ class ConcurrentS3Consumer(Consumer):
         file_format: str,
         aws_access_key_id: str,
         aws_secret_access_key: str,
+        aws_session_token: str | None = None,
         kms_key_id: str | None = None,
         max_file_size_mb: int | None = None,
         compression: str | None = None,
@@ -451,6 +465,7 @@ class ConcurrentS3Consumer(Consumer):
 
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
+        self.aws_session_token = aws_session_token
         self.kms_key_id = kms_key_id
         self.endpoint_url = endpoint_url
         self.use_virtual_style_addressing = use_virtual_style_addressing
@@ -499,6 +514,7 @@ class ConcurrentS3Consumer(Consumer):
             max_file_size_mb=s3_inputs.max_file_size_mb,
             aws_access_key_id=s3_inputs.aws_access_key_id,
             aws_secret_access_key=s3_inputs.aws_secret_access_key,
+            aws_session_token=s3_inputs.aws_session_token,
             kms_key_id=s3_inputs.kms_key_id,
             endpoint_url=s3_inputs.endpoint_url,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
@@ -530,6 +546,7 @@ class ConcurrentS3Consumer(Consumer):
                     region_name=self.region_name,
                     aws_access_key_id=self.aws_access_key_id,
                     aws_secret_access_key=self.aws_secret_access_key,
+                    aws_session_token=self.aws_session_token,
                     endpoint_url=self.endpoint_url,
                     config=boto_config,
                 )

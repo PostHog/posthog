@@ -1,6 +1,6 @@
 import * as d3 from 'd3'
 
-import { dimensions, makeSeries } from '../test-helpers'
+import { dimensions, makeSeries } from '../testing'
 import { type BarRect, drawBarHighlight, drawBars, type DrawContext, traceRoundedBarPath } from './canvas-renderer'
 
 function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {

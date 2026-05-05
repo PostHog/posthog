@@ -17,15 +17,17 @@ from products.logs.backend.temporal.metrics import (
     increment_check_errors,
     increment_checkpoint_unavailable,
     increment_checks_total,
+    increment_cohort_save_fallback,
     increment_notification_failures,
     increment_state_transition,
-    record_alert_event_create_duration,
-    record_alert_save_duration,
-    record_alert_update_duration,
     record_alerts_active,
     record_check_duration,
     record_checkpoint_lag,
     record_clickhouse_duration,
+    record_cohort_event_insert_duration,
+    record_cohort_save_duration,
+    record_cohort_size,
+    record_cohort_update_duration,
     record_pending_alerts,
     record_schedule_to_start_latency,
     record_scheduler_lag,
@@ -180,7 +182,11 @@ class TestRecordCheckDuration:
     @patch("products.logs.backend.temporal.metrics._record_histogram")
     def test_records_histogram_with_duration(self, mock_record: MagicMock):
         record_check_duration(150)
-        mock_record.assert_called_once_with("logs_alerting_check_duration_ms", "Per-alert evaluation duration", 150)
+        mock_record.assert_called_once_with(
+            "logs_alerting_check_duration_ms",
+            "Per-alert end-to-end duration (eval + dispatch); cohort bulk save excluded — see logs_alerting_cohort_save_ms",
+            150,
+        )
 
 
 class TestRecordClickhouseDuration:
@@ -205,29 +211,36 @@ class TestRecordSemaphoreWait:
         )
 
 
-class TestRecordAlertSaveSubstageDurations:
+class TestRecordCohortSaveSubstageDurations:
     @parameterized.expand(
         [
             (
                 "save_total",
-                record_alert_save_duration,
-                "logs_alerting_alert_save_ms",
-                "Postgres write time for the per-eval alert state update (full transaction)",
+                record_cohort_save_duration,
+                "logs_alerting_cohort_save_ms",
+                "Postgres write time for the per-cohort bulk save (full transaction: bulk_create + bulk_update)",
                 45,
             ),
             (
-                "event_create",
-                record_alert_event_create_duration,
-                "logs_alerting_alert_event_create_ms",
-                "Postgres INSERT time for the per-eval LogsAlertEvent audit row (only on state change or error)",
+                "event_insert",
+                record_cohort_event_insert_duration,
+                "logs_alerting_cohort_event_insert_ms",
+                "Postgres bulk_create time for LogsAlertEvent rows in a cohort (only on state changes or errors)",
                 12,
             ),
             (
-                "alert_update",
-                record_alert_update_duration,
-                "logs_alerting_alert_update_ms",
-                "Postgres UPDATE time for the alert configuration row (without surrounding transaction overhead)",
+                "cohort_update",
+                record_cohort_update_duration,
+                "logs_alerting_cohort_update_ms",
+                "Postgres bulk_update time for LogsAlertConfiguration rows in a cohort",
                 28,
+            ),
+            (
+                "cohort_size",
+                record_cohort_size,
+                "logs_alerting_cohort_size",
+                "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
+                17,
             ),
         ]
     )
@@ -237,6 +250,22 @@ class TestRecordAlertSaveSubstageDurations:
     ):
         fn(sample_value)
         mock_record.assert_called_once_with(metric_name, description, sample_value)
+
+
+class TestIncrementCohortSaveFallback:
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_increments_counter_with_reason(self, mock_get_meter: MagicMock):
+        mock_meter = MagicMock()
+        mock_counter = MagicMock()
+        mock_meter.create_counter.return_value = mock_counter
+        mock_get_meter.return_value = mock_meter
+
+        increment_cohort_save_fallback("integrity_error")
+
+        mock_get_meter.assert_called_once_with({"reason": "integrity_error"})
+        (name, _description), _ = mock_meter.create_counter.call_args
+        assert name == "logs_alerting_cohort_save_fallback_total"
+        mock_counter.add.assert_called_once_with(1)
 
 
 class TestRecordPendingAlerts:

@@ -15,10 +15,10 @@ import type {
     EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
-    EventDefinitionsPromotedPropertiesRetrieveParams,
+    EventDefinitionsPrimaryPropertiesRetrieveParams,
     PaginatedEnterpriseEventDefinitionListApi,
     PatchedEnterpriseEventDefinitionApi,
-    PromotedPropertiesResponseApi,
+    PrimaryPropertiesResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -232,15 +232,15 @@ export const eventDefinitionsGolangRetrieve = async (projectId: string, options?
 }
 
 /**
- * Resolve team-configured promoted properties for event definitions.
+ * Resolve team-configured primary properties for event definitions.
 
-The response only contains entries where a non-null promoted_property is set on the
+The response only contains entries where a non-null primary_property is set on the
 EventDefinition. Callers should fall back to the core taxonomy defaults client-side
 for names not present in the response.
  */
-export const getEventDefinitionsPromotedPropertiesRetrieveUrl = (
+export const getEventDefinitionsPrimaryPropertiesRetrieveUrl = (
     projectId: string,
-    params?: EventDefinitionsPromotedPropertiesRetrieveParams
+    params?: EventDefinitionsPrimaryPropertiesRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -253,17 +253,17 @@ export const getEventDefinitionsPromotedPropertiesRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/event_definitions/promoted_properties/?${stringifiedParams}`
-        : `/api/projects/${projectId}/event_definitions/promoted_properties/`
+        ? `/api/projects/${projectId}/event_definitions/primary_properties/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/primary_properties/`
 }
 
-export const eventDefinitionsPromotedPropertiesRetrieve = async (
+export const eventDefinitionsPrimaryPropertiesRetrieve = async (
     projectId: string,
-    params?: EventDefinitionsPromotedPropertiesRetrieveParams,
+    params?: EventDefinitionsPrimaryPropertiesRetrieveParams,
     options?: RequestInit
-): Promise<PromotedPropertiesResponseApi> => {
-    return apiMutator<PromotedPropertiesResponseApi>(
-        getEventDefinitionsPromotedPropertiesRetrieveUrl(projectId, params),
+): Promise<PrimaryPropertiesResponseApi> => {
+    return apiMutator<PrimaryPropertiesResponseApi>(
+        getEventDefinitionsPrimaryPropertiesRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',

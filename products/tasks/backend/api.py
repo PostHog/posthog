@@ -12,13 +12,15 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Q, Subquery
+from django.db.models.functions import JSONObject
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
 import requests as http_requests
 import jsonschema
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -31,6 +33,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
+from posthog.models.integration import Integration
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
@@ -84,6 +87,8 @@ from .serializers import (
     TaskStagedArtifactsFinalizeUploadResponseSerializer,
     TaskStagedArtifactsPrepareUploadRequestSerializer,
     TaskStagedArtifactsPrepareUploadResponseSerializer,
+    TaskSummariesRequestSerializer,
+    TaskSummarySerializer,
     build_task_run_artifact_size_error,
     get_task_run_artifact_max_size_bytes,
 )
@@ -116,10 +121,14 @@ from .temporal.client import (
 )
 from .temporal.process_task.utils import (
     PrAuthorshipMode,
+    RunSource,
     cache_github_user_token,
+    get_pr_authorship_mode,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
     parse_run_state,
+    resolve_user_github_integration_for_task,
+    user_github_integration_is_usable,
 )
 
 logger = logging.getLogger(__name__)
@@ -127,6 +136,63 @@ TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
+
+
+def _ensure_task_team_github_integration(task: Task) -> bool:
+    if task.github_integration_id is not None:
+        return True
+
+    github_integration = Integration.objects.filter(team_id=task.team_id, kind="github").first()
+    if github_integration is None:
+        return False
+
+    task.github_integration = github_integration
+    task.save(update_fields=["github_integration", "updated_at"])
+    return True
+
+
+def _resolve_cloud_pr_authorship_mode(
+    task: Task,
+    *,
+    pr_authorship_mode: PrAuthorshipMode | str | None,
+    request_user_id: int | None,
+    github_user_token: str | None,
+) -> tuple[PrAuthorshipMode | str | None, Response | None]:
+    if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
+        return pr_authorship_mode, None
+
+    if task.created_by_id != request_user_id:
+        return None, Response(
+            {
+                "type": "validation_error",
+                "code": "github_authorization_required",
+                "detail": "User-authored runs must be started by the task creator, or provide github_user_token.",
+                "attr": "pr_authorship_mode",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
+    if user_github_integration is not None and user_github_integration_is_usable(user_github_integration):
+        if task.github_user_integration_id != user_github_integration.integration.id:
+            task.github_user_integration = user_github_integration.integration
+            task.save(update_fields=["github_user_integration", "updated_at"])
+        return PrAuthorshipMode.USER, None
+
+    if _ensure_task_team_github_integration(task):
+        return PrAuthorshipMode.BOT, None
+
+    return None, Response(
+        {
+            "type": "validation_error",
+            "code": "github_authorization_required",
+            "detail": ("Link a GitHub account with repo access before running user-authored cloud tasks."),
+            "attr": "pr_authorship_mode",
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
@@ -210,6 +276,62 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .order_by("repository")
         )
         serializer = TaskRepositoriesResponseSerializer({"repositories": list(repositories)})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskSummariesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskSummarySerializer(many=True),
+                description="Summary fields for the requested tasks",
+            ),
+        },
+        summary="Fetch task summaries by ID",
+        description=(
+            "Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, "
+            "`updated_at`, and the latest run's `status` and `environment`."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Page size for the paginated response.",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Offset into the result set for pagination.",
+            ),
+        ],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="summaries",
+        required_scopes=["task:read"],
+        filter_backends=[],
+    )
+    def summaries(self, request, **kwargs):
+        ids = request.validated_data["ids"]
+        latest_run = (
+            TaskRun.objects.filter(task=OuterRef("pk"))
+            .order_by("-created_at", "-id")
+            .annotate(_data=JSONObject(status="status", environment="environment"))
+        )
+        tasks = (
+            Task.objects.filter(team=self.team, deleted=False, id__in=ids)
+            .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
+            .order_by("-created_at", "id")
+        )
+        page = self.paginate_queryset(tasks)
+        if page is not None:
+            serializer = TaskSummarySerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = TaskSummarySerializer(tasks, many=True)
         return Response(serializer.data)
 
     @validated_request(
@@ -309,8 +431,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-        # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
-        qs = qs.select_related("created_by", "team").prefetch_related("runs")
+        # select_related to avoid N+1 on created_by (UserBasicSerializer), team (slug property),
+        # and GitHub integrations returned on task rows.
+        qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").prefetch_related(
+            "runs"
+        )
 
         # `stage` joins through `runs` and can produce duplicate task rows. If any other
         # JOIN-producing filter is added above, broaden this guard (or move `.distinct()`
@@ -532,6 +657,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        if run_source == RunSource.SIGNAL_REPORT:
+            pr_authorship_mode = PrAuthorshipMode.BOT
 
         runtime_state_fields = {
             "pr_authorship_mode": pr_authorship_mode,
@@ -613,9 +740,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        # Only require a user token when the task has a repo (no-repo cloud runs skip GitHub operations)
-        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
-            return Response({"detail": "github_user_token is required for user-authored cloud runs"}, status=400)
+        pr_authorship_mode, validation_response = _resolve_cloud_pr_authorship_mode(
+            task,
+            pr_authorship_mode=pr_authorship_mode,
+            request_user_id=getattr(request.user, "id", None),
+            github_user_token=github_user_token,
+        )
+        if validation_response is not None:
+            return validation_response
+        if pr_authorship_mode is not None:
+            extra_state = extra_state or {}
+            extra_state["pr_authorship_mode"] = (
+                pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
+            )
 
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(
@@ -731,7 +868,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
-    queryset = TaskRun.objects.select_related("task").all()
+    queryset = TaskRun.objects.select_related(
+        "task", "task__created_by", "task__github_integration", "task__github_user_integration"
+    ).all()
     posthog_feature_flag = {
         "tasks": [
             "list",
@@ -788,6 +927,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        if run_source == RunSource.SIGNAL_REPORT:
+            pr_authorship_mode = PrAuthorshipMode.BOT
 
         extra_state: dict[str, Any] | None = None
         if initial_permission_mode is not None:
@@ -824,10 +965,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
-            return Response(
-                {"detail": "github_user_token is required for user-authored cloud runs"},
-                status=status.HTTP_400_BAD_REQUEST,
+        pr_authorship_mode, validation_response = _resolve_cloud_pr_authorship_mode(
+            task,
+            pr_authorship_mode=pr_authorship_mode,
+            request_user_id=getattr(request.user, "id", None),
+            github_user_token=github_user_token,
+        )
+        if validation_response is not None:
+            return validation_response
+        if pr_authorship_mode is not None:
+            extra_state = extra_state or {}
+            extra_state["pr_authorship_mode"] = (
+                pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
             )
 
         if sandbox_environment_id is not None:
@@ -1735,7 +1884,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["get"],
         url_path="connection_token",
-        required_scopes=["task:read"],
+        required_scopes=["task:write"],
     )
     def connection_token(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
@@ -2055,7 +2204,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         with transaction.atomic():
-            task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
+            task_run = (
+                TaskRun.objects.select_for_update(of=("self",))
+                .select_related("task", "task__created_by", "task__github_integration", "task__github_user_integration")
+                .get(pk=task_run.pk)
+            )
 
             is_cloud_active = task_run.environment == TaskRun.Environment.CLOUD and task_run.status in (
                 TaskRun.Status.QUEUED,
@@ -2066,6 +2219,23 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     ErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            if get_pr_authorship_mode(task_run.task, task_run.state) == PrAuthorshipMode.USER:
+                pr_authorship_mode, validation_response = _resolve_cloud_pr_authorship_mode(
+                    task_run.task,
+                    pr_authorship_mode=PrAuthorshipMode.USER,
+                    request_user_id=getattr(request.user, "id", None),
+                    github_user_token=None,
+                )
+                if validation_response is not None:
+                    return validation_response
+                if pr_authorship_mode is not None:
+                    task_run.state = {
+                        **(task_run.state or {}),
+                        "pr_authorship_mode": (
+                            pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
+                        ),
+                    }
 
             prior_status = task_run.status
             prior_environment = task_run.environment
