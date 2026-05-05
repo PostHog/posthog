@@ -151,9 +151,7 @@ class TestPostgresSourceNonRetryableErrors:
         )
 
         with mock.patch.object(source, "validate_credentials", return_value=(True, None)) as validate_credentials:
-            valid, error = source.validate_credentials_for_access_method(
-                config, team_id=1, access_method="warehouse"
-            )
+            valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
 
         assert valid is True
         assert error is None
