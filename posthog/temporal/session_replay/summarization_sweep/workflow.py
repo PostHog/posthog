@@ -20,7 +20,11 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     SESSION_LOOKBACK_MINUTES,
     WORKFLOW_NAME,
 )
-from posthog.temporal.session_replay.summarization_sweep.types import FindSessionsInput, SummarizeTeamSessionsInputs
+from posthog.temporal.session_replay.summarization_sweep.types import (
+    ConsumeSummaryQuotaInput,
+    FindSessionsInput,
+    SummarizeTeamSessionsInputs,
+)
 
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
 
@@ -30,7 +34,10 @@ with workflow.unsafe.imports_passed_through():
 
     from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
     from posthog.temporal.session_replay.session_summary.workflow import SummarizeSingleSessionWorkflow
-    from posthog.temporal.session_replay.summarization_sweep.activities import find_sessions_for_team_activity
+    from posthog.temporal.session_replay.summarization_sweep.activities import (
+        consume_summary_quota_activity,
+        find_sessions_for_team_activity,
+    )
 
 
 @workflow.defn(name=WORKFLOW_NAME)

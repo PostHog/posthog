@@ -9,6 +9,7 @@ from temporalio import activity
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
+from posthog.session_recordings.ai_summary_cap import consume_summary_quota, headroom
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
@@ -26,6 +27,7 @@ from posthog.temporal.session_replay.summarization_sweep.session_candidates impo
     filter_session_ids_with_events,
 )
 from posthog.temporal.session_replay.summarization_sweep.types import (
+    ConsumeSummaryQuotaInput,
     DeleteTeamScheduleInput,
     FindSessionsInput,
     FindSessionsResult,
@@ -133,6 +135,14 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
         sessions_to_summarize = [sid for sid in sessions_to_summarize if sid in sessions_with_events]
     stuck = await _stuck_session_ids(inputs.team_id, sessions_to_summarize)
     sessions_to_summarize = [sid for sid in sessions_to_summarize if sid not in stuck]
+
+    # Hard-cap the dispatch list by the team's remaining monthly headroom. Without
+    # this, an autonomous sweep can drain the bucket and starve the DRF entrypoint.
+    # Race against concurrent DRF traffic is fine — the cap is a backstop, not billing.
+    available = await database_sync_to_async(headroom, thread_sensitive=False)(inputs.team_id)
+    if available <= 0:
+        return FindSessionsResult(team_id=inputs.team_id)
+    sessions_to_summarize = sessions_to_summarize[:available]
 
     return FindSessionsResult(
         team_id=inputs.team_id,

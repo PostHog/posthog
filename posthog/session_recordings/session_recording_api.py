@@ -81,6 +81,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
+from posthog.session_recordings.ai_summary_cap import check_and_consume
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -1537,8 +1538,6 @@ class SessionRecordingViewSet(
         # Per-team monthly hard cap as a cost backstop. Consumed on entry (not LLM
         # success) — counts failed calls too, but avoids streaming-response
         # finalization complexity. See posthog/session_recordings/ai_summary_cap.py.
-        from posthog.session_recordings.ai_summary_cap import check_and_consume
-
         cap_decision = check_and_consume(self.team.id)
         if not cap_decision.allowed:
             posthoganalytics.capture(

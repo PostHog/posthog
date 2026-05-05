@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
+from redis.exceptions import ResponseError
 
 from posthog.redis import get_client
 
@@ -64,7 +65,7 @@ def coerce_max_summaries_per_period(value: object) -> int:
         return DEFAULT_MAX_SUMMARIES_PER_PERIOD
     try:
         cap = int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return DEFAULT_MAX_SUMMARIES_PER_PERIOD
     if cap <= 0:
         return DEFAULT_MAX_SUMMARIES_PER_PERIOD
@@ -116,7 +117,17 @@ def current_usage(team_id: int, *, now: datetime | None = None) -> int:
         return 0
 
 
-def consume(team_id: int, n: int = 1, *, now: datetime | None = None) -> int:
+def headroom(team_id: int, *, now: datetime | None = None) -> int:
+    """Remaining quota for the team this month. Never negative.
+
+    Used by the autonomous sweep to slice its dispatch list before starting
+    children — the cap is otherwise only enforced on the DRF entrypoint, which
+    would let a runaway sweep starve interactive users.
+    """
+    return max(0, get_cap_for_team(team_id) - current_usage(team_id, now=now))
+
+
+def consume_summary_quota(team_id: int, n: int = 1, *, now: datetime | None = None) -> int:
     """Increment the team's monthly counter by `n`. Sets a TTL on first write
     so abandoned keys GC themselves. Returns the new counter value.
 
@@ -127,7 +138,15 @@ def consume(team_id: int, n: int = 1, *, now: datetime | None = None) -> int:
         return current_usage(team_id, now=now)
     key = _redis_key(team_id, now=now)
     client = get_client()
-    new_value = client.incrby(key, n)
+    try:
+        new_value = client.incrby(key, n)
+    except ResponseError:
+        # WRONGTYPE: somebody SET the key to a non-integer string. Reset and
+        # retry — losing the (uncountable) prior usage is fine for a backstop,
+        # and crashing the summarize path would be worse.
+        logger.warning("replay_summary_cap.corrupt_counter_on_write", team_id=team_id)
+        client.delete(key)
+        new_value = client.incrby(key, n)
     # Set TTL only when this is the first write of the month. INCRBY returning
     # exactly `n` is a tight enough proxy (collision requires the key to have
     # been GCed and re-incremented in the same race — fine for a backstop).
@@ -141,10 +160,17 @@ def check_and_consume(team_id: int, *, requested: int = 1, now: datetime | None 
     allows ~maxConcurrentCalls overshoot (sub-cap concurrent requests can all
     pass the read, then all increment past the cap). Acceptable for a backstop;
     do not use this for billing.
+
+    `requested` must be non-negative. A negative value would silently "refund"
+    quota under the previous implementation, which is almost never what a
+    caller wants — surface it loudly instead.
     """
+    if requested < 0:
+        raise ValueError(f"requested must be >= 0, got {requested}")
+    now = now or datetime.now(UTC)
     cap = get_cap_for_team(team_id)
     used = current_usage(team_id, now=now)
     if used + requested > cap:
         return CapDecision(allowed=False, used=used, cap=cap)
-    new_used = consume(team_id, requested, now=now)
+    new_used = consume_summary_quota(team_id, requested, now=now)
     return CapDecision(allowed=True, used=new_used, cap=cap)
