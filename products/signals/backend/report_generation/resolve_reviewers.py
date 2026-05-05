@@ -6,7 +6,8 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+from uuid import UUID
 
 from django.db.models import Prefetch, QuerySet, Subquery
 from django.db.models.functions import Lower
@@ -27,6 +28,11 @@ logger = logging.getLogger(__name__)
 
 MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
+GitHubLoginFieldLookup = Literal[
+    "extra_data__login",
+    "config__github_user__login",
+    "config__connecting_user_github_login",
+]
 
 
 def enrich_reviewer_dicts_with_org_members(
@@ -48,7 +54,7 @@ def enrich_reviewer_dicts_with_org_members(
         resolved_map = login_to_user
     else:
         wanted = normalized_github_logins_from_reviewer_payloads(reviewer_dicts)
-        resolved_map = resolve_org_github_login_to_users(team_id, wanted) if wanted else dict[str, User]()
+        resolved_map = resolve_org_github_login_to_users(team_id, wanted) if wanted else {}
 
     enriched: list[dict] = []
     for r in reviewer_dicts:
@@ -263,7 +269,7 @@ def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]
     return login_to_user
 
 
-def _candidate_user_ids_for_organization(org_id: int) -> set[int]:
+def _candidate_user_ids_for_organization(org_id: UUID | str) -> set[int]:
     """Org member IDs that might have any GitHub identity."""
     mid_sq = Subquery(OrganizationMembership.objects.filter(organization_id=org_id).values("user_id"))
     candidates: set[int] = set()
@@ -283,7 +289,7 @@ def _candidate_user_ids_for_organization(org_id: int) -> set[int]:
     return candidates
 
 
-def _candidate_user_ids_for_org_and_logins(org_id: int, logins_lower: frozenset[str]) -> set[int]:
+def _candidate_user_ids_for_org_and_logins(org_id: UUID | str, logins_lower: frozenset[str]) -> set[int]:
     """Subset of org members whose stored GitHub identity might match one of ``logins_lower`` (case-insensitive)."""
     if not logins_lower:
         return set()
@@ -317,20 +323,22 @@ def _candidate_user_ids_for_org_and_logins(org_id: int, logins_lower: frozenset[
 
 def _filter_github_login_field_lc(
     qs: QuerySet,
-    login_field_lookup: str,
+    login_field_lookup: GitHubLoginFieldLookup,
     logins_lower: frozenset[str],
 ) -> QuerySet:
     """Case-insensitive match: ``Lower(login_field_lookup) ∈ logins_lower`` (expects lowercased logins)."""
-    alias = "_github_login_lc_lookup"
-    return qs.annotate(**{alias: Lower(login_field_lookup)}).filter(**{f"{alias}__in": sorted(logins_lower)})
+    return qs.annotate(_github_login_lc_lookup=Lower(login_field_lookup)).filter(
+        _github_login_lc_lookup__in=sorted(logins_lower)
+    )
 
 
 def _github_identity_prefetches() -> tuple[Prefetch, ...]:
-    """Prefetch relations read by `User.get_github_login()` (includes team `Integration` via `integration_set`)."""
+    """Prefetch relations read by `User.get_github_login()`."""
     return (
         Prefetch(
             "integrations",
             UserIntegration.objects.filter(kind=UserIntegration.IntegrationKind.GITHUB),
+            to_attr="_prefetched_github_user_integrations",
         ),
         Prefetch("social_auth", UserSocialAuth.objects.filter(provider="github")),
         Prefetch(
@@ -338,5 +346,6 @@ def _github_identity_prefetches() -> tuple[Prefetch, ...]:
             Integration.objects.filter(kind="github")
             .exclude(config__connecting_user_github_login=None)
             .only("config", "id", "created_by_id"),
+            to_attr="_prefetched_github_integrations",
         ),
     )

@@ -398,8 +398,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         """
         from posthog.models.user_integration import UserGitHubIntegration
 
-        user_integration = self.integrations.filter(kind="github").first()
-        if user_integration:
+        prefetched_user_integrations = getattr(self, "_prefetched_github_user_integrations", None)
+        if prefetched_user_integrations is not None:
+            user_integrations = prefetched_user_integrations
+        else:
+            user_integrations = self.integrations.filter(kind="github")[:1]
+
+        for user_integration in user_integrations:
             login = UserGitHubIntegration(user_integration).github_login
             if login:
                 return login
