@@ -155,7 +155,7 @@ export function createCdpReaderRedisPool(
             '🔌',
             `[${name}] writer=${config.CDP_REDIS_HOST}:${config.CDP_REDIS_PORT} reader=${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT}`
         )
-        return createRedisV2PoolFromConfig({
+        const readerPool = createRedisV2PoolFromConfig({
             connection: {
                 url: config.CDP_REDIS_READER_HOST,
                 options: { port: config.CDP_REDIS_READER_PORT, password: config.CDP_REDIS_PASSWORD },
@@ -164,6 +164,19 @@ export function createCdpReaderRedisPool(
             poolMinSize: config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
+
+        // Non-blocking startup health check — surfaces misconfig immediately in logs
+        void readerPool
+            .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+            .catch((err) => {
+                logger.error(
+                    '🔌',
+                    `[${name}] reader at ${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT} failed startup health check — reads will fall back to writer`,
+                    { err }
+                )
+            })
+
+        return readerPool
     }
 
     const sanitizedWriter = config.CDP_REDIS_HOST || getRedisHost(config.REDIS_URL)
