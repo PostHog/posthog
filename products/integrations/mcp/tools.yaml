@@ -33,8 +33,16 @@ tools:
             idempotent: true
         title: Get integration
         description: >
-            Get a specific integration by ID. Returns the full integration details including kind, display name,
-            non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.
+            Get a specific integration by ID. Returns full integration details including kind, display name, error
+            status, and creation metadata. Does not expose sensitive credentials or raw configuration.
+        response:
+            include:
+                - id
+                - kind
+                - display_name
+                - errors
+                - created_at
+                - created_by
     integrations-authorize-retrieve:
         operation: integrations_authorize_retrieve
         enabled: false
@@ -132,6 +140,13 @@ tools:
             display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack,
             github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are
             never serialized.
+        response:
+            include:
+                - id
+                - kind
+                - display_name
+                - created_at
+                - created_by
     integrations-twilio-phone-numbers-retrieve:
         operation: integrations_twilio_phone_numbers_retrieve
         enabled: false

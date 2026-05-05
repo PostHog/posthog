@@ -913,11 +913,18 @@ legacy_project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-projects_router.register(
+project_notebooks_router = projects_router.register(
     r"notebooks",
     NotebookViewSet,
     "project_notebooks",
     ["project_id"],
+)
+
+project_notebooks_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_notebook_sharing",
+    ["project_id", "notebook_id"],
 )
 
 projects_router.register(

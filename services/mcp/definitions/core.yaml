@@ -401,6 +401,18 @@ tools:
     members-update:
         operation: members_update
         enabled: false
+    notebooks-sharing-list:
+        operation: notebooks_sharing_list
+        enabled: false
+    notebooks-sharing-passwords-create:
+        operation: notebooks_sharing_passwords_create
+        enabled: false
+    notebooks-sharing-passwords-destroy:
+        operation: notebooks_sharing_passwords_destroy
+        enabled: false
+    notebooks-sharing-refresh-create:
+        operation: notebooks_sharing_refresh_create
+        enabled: false
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false

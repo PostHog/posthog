@@ -34,6 +34,21 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a new password for the sharing configuration.
+ */
+export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().nullish(),
+    password_required: zod.boolean().optional(),
+})
+
+export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().nullish(),
+    password_required: zod.boolean().optional(),
+})
+
+/**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
 export const notebooksUpdateBodyTitleMax = 256

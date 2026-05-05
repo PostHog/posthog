@@ -41,10 +41,14 @@ export interface BuildMovingAverageSeriesInput<Meta = unknown> {
     label?: string
 }
 
+export function movingAverageKey(sourceKey: string): string {
+    return `${sourceKey}-ma`
+}
+
 export function buildMovingAverageSeries<Meta = unknown>(input: BuildMovingAverageSeriesInput<Meta>): Series<Meta> {
     const { sourceSeries, window: windowSize } = input
     return {
-        key: `${sourceSeries.key}-ma`,
+        key: movingAverageKey(sourceSeries.key),
         label: input.label ?? `${sourceSeries.label} (Moving avg)`,
         data: movingAverage(sourceSeries.data, windowSize),
         color: sourceSeries.color,
