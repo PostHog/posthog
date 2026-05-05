@@ -16,13 +16,6 @@ export interface RateLimitConfigForm {
     project_rate_limit_bucket_size_minutes: number
 }
 
-export const DEFAULT_BUCKET_MINUTES = 60
-
-const DEFAULT_CONFIG: RateLimitConfigForm = {
-    project_rate_limit_value: null,
-    project_rate_limit_bucket_size_minutes: DEFAULT_BUCKET_MINUTES,
-}
-
 export interface BucketOption {
     label: string
     minutes: number
@@ -37,8 +30,16 @@ export const BUCKET_OPTIONS: BucketOption[] = [
     { label: '1 week', minutes: 10080, bucketCount: 12 },
 ]
 
+export const DEFAULT_BUCKET_OPTION: BucketOption = BUCKET_OPTIONS.find((o) => o.minutes === 60) ?? BUCKET_OPTIONS[0]
+export const DEFAULT_BUCKET_MINUTES: number = DEFAULT_BUCKET_OPTION.minutes
+
 export function getBucketOption(minutes: number): BucketOption {
-    return BUCKET_OPTIONS.find((o) => o.minutes === minutes) ?? BUCKET_OPTIONS[2]
+    return BUCKET_OPTIONS.find((o) => o.minutes === minutes) ?? DEFAULT_BUCKET_OPTION
+}
+
+const DEFAULT_CONFIG: RateLimitConfigForm = {
+    project_rate_limit_value: null,
+    project_rate_limit_bucket_size_minutes: DEFAULT_BUCKET_MINUTES,
 }
 
 export interface ExceptionVolumeBucket {
