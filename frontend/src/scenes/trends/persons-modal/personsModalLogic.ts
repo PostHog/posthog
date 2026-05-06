@@ -459,11 +459,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 if (!query) {
                     return null
                 }
-                const sourceTags = query.tags ?? query.source?.tags
+                const sourceTags = { ...query.source?.tags, ...query.tags }
                 const activeScene = sceneLogic.findMounted()?.values.activeSceneId
                 const tags = {
                     ...sourceTags,
-                    ...(activeScene && !sourceTags?.scene ? { scene: activeScene } : {}),
+                    ...(activeScene && !sourceTags.scene ? { scene: activeScene } : {}),
                 }
                 return setLatestVersionsOnQuery(
                     {
