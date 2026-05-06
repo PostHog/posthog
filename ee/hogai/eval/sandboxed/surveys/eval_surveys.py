@@ -40,7 +40,6 @@ def _survey_case(
     return SandboxedEvalCase(
         name=name,
         prompt=prompt,
-        use_demo_data=False,
         expected={
             "survey_created": {"should_create": True},
             "survey_create_alignment": expected_survey,

@@ -163,7 +163,6 @@ async def SandboxedEval(
                     "name": case.name,
                     "prompt": case.prompt,
                     "repo_fixture": case.repo_fixture,
-                    "use_demo_data": case.use_demo_data,
                 },
                 expected=case.expected,
                 metadata=case.metadata,
@@ -175,7 +174,6 @@ async def SandboxedEval(
             name=input["name"],
             prompt=input["prompt"],
             repo_fixture=input.get("repo_fixture", ""),
-            use_demo_data=input.get("use_demo_data", True),
         )
         original_case = cases_by_name.get(input["name"])
 
@@ -186,7 +184,6 @@ async def SandboxedEval(
             sandbox_context = await asyncio.to_thread(
                 sandboxed_demo_data.make_context,
                 eval_case.name,
-                use_demo_data=eval_case.use_demo_data,
             )
             if not eval_case.repo_fixture:
                 sandbox_context = replace(sandbox_context, repository=None)

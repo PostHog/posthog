@@ -22,9 +22,6 @@ class SandboxedEvalCase(BaseModel):
     repo_fixture: str = ""
     """Name of the repo fixture (informational, for tracking)."""
 
-    use_demo_data: bool = True
-    """Whether to clone the Hedgebox demo ClickHouse/Postgres dataset for this case."""
-
     expected: dict[str, Any] = Field(default_factory=dict)
     """Expected values for scoring, keyed by scorer ``_name()``.
 
