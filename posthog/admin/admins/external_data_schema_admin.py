@@ -1,5 +1,5 @@
 import time
-from typing import Any, get_args
+from typing import Any, assert_never, get_args
 
 from django.conf import settings
 from django.contrib import admin, messages
@@ -178,12 +178,10 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             partition_value = new_count
             previous_value = schema.partition_count
         else:
-            messages.error(
-                request,
-                f"Unsupported partition_mode {schema.partition_mode!r}; admin repartition only "
-                f"handles datetime / numerical / md5.",
-            )
-            return redirect(_change_url(schema_id))
+            # Exhaustive over PartitionMode after the None check above; assert_never
+            # makes mypy happy and crashes loudly if a new mode is added without
+            # updating this view.
+            assert_never(schema.partition_mode)
 
         change_label = f"{partition_field}: {previous_value!r} → {partition_value!r}"
 
