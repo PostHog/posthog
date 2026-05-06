@@ -20,6 +20,7 @@ from uuid import UUID
 from django.contrib.auth import get_user_model
 
 from .. import logic
+from ..diff_metadata import DiffMetadata
 from . import contracts
 from .enums import ReviewDecision
 
@@ -55,10 +56,45 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
+def _parse_diff_metadata(
+    diff_metadata_raw: dict | None,
+) -> tuple[contracts.ClusterSummary | None, bool]:
+    """Translate the compact storage shape into the verbose wire shape.
+
+    Returns `(cluster_summary, size_mismatch)`. The cluster_summary side
+    is None for legacy rows and identical-pair rows; size_mismatch
+    defaults to False everywhere it isn't explicitly recorded.
+    """
+    if not diff_metadata_raw:
+        return None, False
+    parsed = DiffMetadata.model_validate(diff_metadata_raw)
+    cluster_summary: contracts.ClusterSummary | None = None
+    if parsed.cluster_summary is not None:
+        cs = parsed.cluster_summary
+        cluster_summary = contracts.ClusterSummary(
+            items=[
+                contracts.DiffCluster(
+                    x=c.bbox[0],
+                    y=c.bbox[1],
+                    width=c.bbox[2],
+                    height=c.bbox[3],
+                    pixel_count=c.px,
+                    centroid_x=c.centroid[0],
+                    centroid_y=c.centroid[1],
+                )
+                for c in cs.items
+            ],
+            total=cs.total,
+            truncated=cs.truncated,
+        )
+    return cluster_summary, parsed.size_mismatch
+
+
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
+    cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
         identifier=snapshot.identifier,
@@ -76,6 +112,10 @@ def _to_snapshot(
         is_quarantined=snapshot.is_quarantined,
         reviewed_by=reviewed_by,
         metadata=snapshot.metadata or {},
+        ssim_score=snapshot.ssim_score,
+        change_kind=snapshot.change_kind or "",
+        cluster_summary=cluster_summary,
+        size_mismatch=size_mismatch,
     )
 
 
@@ -342,6 +382,13 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
             diff_percentage=e.diff_percentage,
             review_state=e.review_state,
             current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
+            ssim_score=e.ssim_score,
+            change_kind=e.change_kind or "",
+            # Read the flag directly instead of round-tripping through the
+            # full Pydantic parse — `cluster_summary` isn't on the history
+            # entry contract and we'd just be allocating cluster dataclasses
+            # to throw away. The default mirrors `DiffMetadata.size_mismatch`.
+            size_mismatch=bool((e.diff_metadata or {}).get("size_mismatch", False)),
         )
         for e in entries
     ]

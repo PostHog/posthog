@@ -4206,6 +4206,74 @@
           "row_count": null,
           "type": "system"
       },
+      "system.error_tracking_symbol_sets": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ref": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ref",
+                  "id": null,
+                  "name": "ref",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "release_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "release_id",
+                  "id": null,
+                  "name": "release_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_used": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_used",
+                  "id": null,
+                  "name": "last_used",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "failure_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "failure_reason",
+                  "id": null,
+                  "name": "failure_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.error_tracking_symbol_sets",
+          "name": "system.error_tracking_symbol_sets",
+          "row_count": null,
+          "type": "system"
+      },
       "system.error_tracking_suppression_rules": {
           "fields": {
               "id": {
@@ -11319,6 +11387,74 @@
           },
           "id": "system.error_tracking_releases",
           "name": "system.error_tracking_releases",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.error_tracking_symbol_sets": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ref": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ref",
+                  "id": null,
+                  "name": "ref",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "release_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "release_id",
+                  "id": null,
+                  "name": "release_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_used": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_used",
+                  "id": null,
+                  "name": "last_used",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "failure_reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "failure_reason",
+                  "id": null,
+                  "name": "failure_reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.error_tracking_symbol_sets",
+          "name": "system.error_tracking_symbol_sets",
           "row_count": null,
           "type": "system"
       },

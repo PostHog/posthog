@@ -357,19 +357,70 @@ tools:
         enabled: false
     error-tracking-symbol-sets-download-retrieve:
         operation: error_tracking_symbol_sets_download_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Download error tracking symbol set
+        description: >
+            Get a presigned download URL for a source map symbol set by ID. The URL expires after one hour. Use it
+            immediately, and do not echo it back unless the user explicitly asks. If you only have a symbol set
+            reference, call `error-tracking-symbol-sets-list` with the exact `ref` first.
     error-tracking-symbol-sets-finish-upload-update:
         operation: error_tracking_symbol_sets_finish_upload_update
         enabled: false
     error-tracking-symbol-sets-list:
         operation: error_tracking_symbol_sets_list
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List error tracking symbol sets
+        description: >
+            List source map symbol sets for the current project. Supports pagination plus filtering by exact `ref` or
+            upload `status` (`valid`, `invalid`, or `all`) and sorting with `order_by`. Each result includes
+            `has_uploaded_file` so you can tell whether the download tool will work.
+        response:
+            include:
+                - id
+                - ref
+                - created_at
+                - last_used
+                - failure_reason
+                - has_uploaded_file
+                - release
     error-tracking-symbol-sets-partial-update:
         operation: error_tracking_symbol_sets_partial_update
         enabled: false
     error-tracking-symbol-sets-retrieve:
         operation: error_tracking_symbol_sets_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get error tracking symbol set
+        description: >
+            Get a source map symbol set by ID. If you only have a symbol set reference, call
+            `error-tracking-symbol-sets-list` with the exact `ref` first.
+        response:
+            include:
+                - id
+                - ref
+                - created_at
+                - last_used
+                - failure_reason
+                - has_uploaded_file
+                - release
     error-tracking-symbol-sets-start-upload-create:
         operation: error_tracking_symbol_sets_start_upload_create
         enabled: false

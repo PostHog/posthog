@@ -14,7 +14,8 @@ from blake3 import blake3
 from pixelhog import thumbnail as pixelhog_thumbnail
 
 from .diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult, compare_images
-from .facade.enums import ClassificationReason, SnapshotResult, ToleratedReason
+from .diff_metadata import DiffMetadata
+from .facade.enums import ChangeKind, ClassificationReason, SnapshotResult, ToleratedReason
 from .models import RunSnapshot, ToleratedHash
 
 logger = structlog.get_logger(__name__)
@@ -30,6 +31,25 @@ logger = structlog.get_logger(__name__)
 # Only when both are below threshold is the snapshot reclassified as UNCHANGED.
 PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
 SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
+
+
+def classify_compare_result(result: CompareResult) -> ChangeKind | None:
+    """Classify a compare result into a ChangeKind, or None for unchanged.
+
+    Pure function — no DB, no side effects — so tests can drive every
+    classification path without spinning up a snapshot row. The same logic
+    drives `_diff_snapshot` below; keeping it here means the production
+    branch and the tests can't drift.
+
+    Size mismatch is *not* a kind — pixelhog pads to the largest dims and
+    we still get a real pixel/SSIM answer over that padded image. The fact
+    that sizes differed is recorded separately on `DiffMetadata`.
+    """
+    if result.diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
+        return ChangeKind.PIXEL
+    if (1.0 - result.ssim_score) >= SSIM_DISSIMILARITY_THRESHOLD:
+        return ChangeKind.STRUCTURAL
+    return None
 
 
 def _store_thumbnail(snapshot: RunSnapshot, result: CompareResult) -> None:
@@ -55,8 +75,12 @@ def _store_thumbnail(snapshot: RunSnapshot, result: CompareResult) -> None:
     artifact.save(update_fields=["thumbnail"])
 
 
-def _store_diff(snapshot: RunSnapshot, result: CompareResult) -> None:
-    """Upload diff artifact and update snapshot metrics."""
+def _store_diff(
+    snapshot: RunSnapshot,
+    result: CompareResult,
+    change_kind: ChangeKind,
+) -> None:
+    """Upload diff artifact and update snapshot metrics + classification."""
     from . import logic
 
     if not result.diff_image:
@@ -71,11 +95,19 @@ def _store_diff(snapshot: RunSnapshot, result: CompareResult) -> None:
         team_id=snapshot.team_id,
     )
 
+    diff_metadata = DiffMetadata(
+        cluster_summary=result.cluster_summary,
+        size_mismatch=result.size_mismatch,
+    )
+
     logic.update_snapshot_diff(
         snapshot_id=snapshot.id,
         diff_artifact=diff_artifact,
         diff_percentage=result.diff_percentage,
         diff_pixel_count=result.diff_pixel_count,
+        ssim_score=result.ssim_score,
+        change_kind=change_kind,
+        diff_metadata=diff_metadata,
         team_id=snapshot.team_id,
     )
 
@@ -83,20 +115,30 @@ def _store_diff(snapshot: RunSnapshot, result: CompareResult) -> None:
         "visual_review.diff_computed",
         snapshot_id=str(snapshot.id),
         identifier=snapshot.identifier,
+        change_kind=change_kind.value,
         diff_percentage=result.diff_percentage,
         diff_pixel_count=result.diff_pixel_count,
         ssim_score=result.ssim_score,
+        size_mismatch=result.size_mismatch,
+        cluster_count=result.cluster_summary.total if result.cluster_summary else 0,
     )
 
 
 def _diff_snapshot(snapshot: RunSnapshot) -> None:
-    """
-    Compare snapshot against baseline using single-pass pixelhog.compare().
+    """Compare snapshot against baseline; classify and store diff metrics.
 
-    Classification:
-    1. Pixel diff above threshold -> CHANGED
-    2. SSIM dissimilarity above threshold -> CHANGED (tall-page dilution)
-    3. Both below -> UNCHANGED (noise), auto-populate tolerance cache
+    Classification (in priority order):
+    1. Pixel diff above threshold -> CHANGED, kind=pixel
+    2. SSIM dissimilarity above threshold -> CHANGED, kind=structural
+       (tall-page dilution safety net)
+    3. Both below -> UNCHANGED (noise), auto-populate tolerance cache.
+
+    Size mismatch is recorded as `diff_metadata.size_mismatch` and surfaced
+    separately in the UI — a snapshot can have a different viewport AND a
+    real content change, so we don't conflate the two.
+
+    `diff_percentage` and `ssim_score` are recorded faithfully; the categorical
+    kind is what callers use to render. No overwriting one signal with another.
     """
     from . import logic
 
@@ -121,37 +163,26 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
 
     _store_thumbnail(snapshot, result)
 
-    if result.diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
-        _store_diff(snapshot, result)
+    kind = classify_compare_result(result)
+    if kind is not None:
+        _store_diff(snapshot, result, kind)
         return
 
-    ssim_dissimilarity = 1.0 - result.ssim_score
-
-    if ssim_dissimilarity >= SSIM_DISSIMILARITY_THRESHOLD:
-        result.diff_percentage = round(ssim_dissimilarity * 100, 4)
-        result.diff_pixel_count = 0
-        _store_diff(snapshot, result)
-        logger.info(
-            "visual_review.diff_caught_by_ssim",
-            snapshot_id=str(snapshot.id),
-            identifier=snapshot.identifier,
-            diff_percentage=result.diff_percentage,
-            ssim_dissimilarity=round(ssim_dissimilarity, 4),
-        )
-        return
-
-    # Both below threshold — genuine noise, reclassify and cache for future runs
+    # Both tiers below threshold — genuine noise, reclassify and cache for future runs
     snapshot.result = SnapshotResult.UNCHANGED
     snapshot.classification_reason = ClassificationReason.BELOW_THRESHOLD
     snapshot.diff_percentage = result.diff_percentage
     snapshot.diff_pixel_count = result.diff_pixel_count
-    snapshot.save(update_fields=["result", "classification_reason", "diff_percentage", "diff_pixel_count"])
+    snapshot.ssim_score = result.ssim_score
+    snapshot.save(
+        update_fields=["result", "classification_reason", "diff_percentage", "diff_pixel_count", "ssim_score"]
+    )
     logger.info(
         "visual_review.diff_below_threshold",
         snapshot_id=str(snapshot.id),
         identifier=snapshot.identifier,
         diff_percentage=result.diff_percentage,
-        ssim_dissimilarity=round(ssim_dissimilarity, 4),
+        ssim_score=result.ssim_score,
     )
 
     # Auto-populate tolerance cache so future runs skip diffing for this hash

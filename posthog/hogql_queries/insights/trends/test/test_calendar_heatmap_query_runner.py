@@ -1321,3 +1321,42 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert (date_from_explicit.hour, date_from_explicit.minute, date_from_explicit.second) == (14, 32, 11)
         assert (date_to_explicit.hour, date_to_explicit.minute, date_to_explicit.second) == (14, 32, 11)
         assert (date_to_explicit - date_from_explicit).total_seconds() == 7 * 24 * 60 * 60
+
+    def test_unique_users_buckets_per_event_not_per_session(self):
+        # Regression test: with `dau` math, every (day-of-week, hour) bucket the user touched
+        # must report the user — not just the bucket containing the session's first event.
+        # All events below share one session_id, so the previous templateUniqueUsers
+        # implementation would only count the user in the 23:00 bucket of Saturday.
+        shared_session_id = str(uuid7())
+        timestamps = [
+            "2023-12-02 23:50:00",  # Saturday 23:00
+            "2023-12-03 00:10:00",  # Sunday 00:00 — same session, next day/hour
+            "2023-12-03 01:30:00",  # Sunday 01:00
+        ]
+        with freeze_time(timestamps[0]):
+            _create_person(team_id=self.team.pk, distinct_ids=["userA"], properties={"name": "userA"})
+        for timestamp in timestamps:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="userA",
+                timestamp=timestamp,
+                uuid=str(uuid7()),
+                properties={"$session_id": shared_session_id, "$start_timestamp": timestamps[0]},
+            )
+
+        query = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-04"),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+        )
+        response = CalendarHeatmapQueryRunner(team=self.team, query=query).calculate()
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
+
+        assert results_dict.get((6, 23)) == 1, f"Expected 1 unique user at Sat 23:00, got {results_dict.get((6, 23))}"
+        assert results_dict.get((7, 0)) == 1, f"Expected 1 unique user at Sun 00:00, got {results_dict.get((7, 0))}"
+        assert results_dict.get((7, 1)) == 1, f"Expected 1 unique user at Sun 01:00, got {results_dict.get((7, 1))}"
+        assert response.results.allAggregations == 1, (
+            f"Expected 1 unique user total, got {response.results.allAggregations}"
+        )
