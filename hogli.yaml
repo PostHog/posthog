@@ -706,6 +706,21 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test-timings:latest:
+        click: hogli_commands.test_timings:latest
+        description: Top-N slowest backend tests from the latest master Backend CI run
+    test-timings:show:
+        click: hogli_commands.test_timings:show
+        description: Top-N slowest backend tests for a specific Backend CI run id
+    test-timings:compare:
+        click: hogli_commands.test_timings:compare
+        description: Compare two Backend CI runs and show biggest test-time movers
+    test-timings:regressions:
+        click: hogli_commands.test_timings:regressions
+        description: Flag tests in the latest master run that grew vs the median of recent runs
+    test-timings:cache:clear:
+        click: hogli_commands.test_timings:cache_clear
+        description: Clear the local test-timings cache
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint

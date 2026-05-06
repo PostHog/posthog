@@ -1981,3 +1981,58 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+
+    backend-test-timings-report:
+        # Renders a slowest-tests / regressions / flaky-rate report from JUnit
+        # artifacts for the team-wide CI dashboard angle. The hogli command
+        # `test-timings:*` covers per-developer triage from the same artifacts.
+        name: Backend test timings report
+        needs: [django_tests]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        # Master pushes always; PRs only when labelled `inspect-test-timings`. Skip forks (no secrets / PR comment access).
+        if: >-
+            always() &&
+            github.repository == 'PostHog/posthog' &&
+            needs.django_tests.result != 'skipped' &&
+            (
+            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
+            (github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+            contains(github.event.pull_request.labels.*.name, 'inspect-test-timings'))
+            )
+        permissions:
+            contents: read
+            pull-requests: write
+            actions: read
+        steps:
+            - name: Download junit artifacts
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-backend-*
+            - name: Convert JUnit XML to CTRF
+              # Ubuntu runners ship Node by default; one-shot npx avoids a setup-node step.
+              run: |
+                  npx --yes junit-to-ctrf@0.0.14 \
+                      "./junit-artifacts/**/junit-*.xml" \
+                      -o ./ctrf/report.json \
+                      -t "Backend CI"
+            - name: Publish test timings report
+              # Step summary is on by default. PR comment is off by default and only
+              # turns on when the `inspect-test-timings` label is set on the PR.
+              # `upload-artifact: true` stores the processed CTRF so the next run can
+              # diff against it (this is how summary-delta-report does cross-run trends).
+              uses: ctrf-io/github-test-reporter@0f299074936c32ccaab5be5230511f6b2b9080aa # v1.0.28
+              with:
+                  report-path: './ctrf/report.json'
+                  slowest-report: true
+                  summary-delta-report: true
+                  fail-rate-report: true
+                  flaky-rate-report: true
+                  upload-artifact: true
+                  pull-request: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'inspect-test-timings') }}
+                  update-comment: true
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
