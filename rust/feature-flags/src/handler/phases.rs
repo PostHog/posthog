@@ -170,10 +170,18 @@ mod tests {
         // exhaustiveness is enforced by the compiler; this test guards
         // the array.
         assert_eq!(Phase::ALL.len(), Phase::COUNT);
-        for phase in Phase::ALL {
-            // `phase as usize` must be a valid index into the duration
-            // table, not just a strictly increasing integer.
-            assert!((phase as usize) < Phase::COUNT);
+        for (i, phase) in Phase::ALL.iter().enumerate() {
+            // `PhaseDurations` indexes `durations[phase as usize]`, then
+            // `iter()` zips that array with `Phase::ALL`. If a future
+            // variant insertion shifts a discriminant without updating
+            // `Phase::ALL` in lockstep (or vice versa), iteration would
+            // mislabel histograms while keeping bounds intact. Pin the
+            // index↔discriminant alignment explicitly.
+            assert_eq!(
+                *phase as usize, i,
+                "Phase::ALL[{i}] = {phase:?} but discriminant is {}",
+                *phase as usize
+            );
         }
     }
 

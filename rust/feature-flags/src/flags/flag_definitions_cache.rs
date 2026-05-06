@@ -17,25 +17,32 @@ use crate::metrics::consts::{
 };
 
 /// Outcome of a single `get_or_load` call. Used as the `outcome` label on
-/// `flags_definitions_inmem_load_ms`. The set is closed and small (5
+/// `flags_definitions_inmem_load_ms`. The set is closed and small (6
 /// values) so cardinality stays bounded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LoadOutcome {
     /// In-memory cache returned a value without invoking the loader.
     Hit,
-    /// Loader ran successfully (HyperCache → Redis/S3 → PG); a cacheable
-    /// (non-`Fallback`) result was produced.
+    /// Loader ran successfully via the HyperCache → Redis/S3 path; the
+    /// returned `CacheSource` is non-`Fallback` and the result was
+    /// inserted under the etag.
     MissLoadOk,
     /// Loader returned `Err`. Includes both HyperCache infrastructure
     /// failures and `compile_from_wrapper` data-parsing errors.
     MissLoadErr,
-    /// `etag` parameter was `Some` empty / missing in Redis but the
-    /// loader returned a non-empty wrapper — true version-key drift.
+    /// `etag` parameter was `Some` but the loader returned a non-empty
+    /// wrapper for which no etag is in Redis — true version-key drift.
     EtagMissing,
     /// `etag` was `None` and the loader returned the `__missing__`
     /// sentinel (Django's empty-team marker). Treated separately so
     /// dashboards can exclude steady-state empty teams from alerts.
     Sentinel,
+    /// Loader fell through to PG (`CacheSource::Fallback`). The result
+    /// is intentionally NOT cached under the etag (see struct doc), so
+    /// the next request reloads. Surfaced as a distinct label so a PG
+    /// fallback storm — the actually-bad case — is visually separable
+    /// on the dashboard from a normal etag-rollover thunder herd.
+    Fallback,
 }
 
 impl LoadOutcome {
@@ -47,6 +54,7 @@ impl LoadOutcome {
             LoadOutcome::MissLoadErr => "miss_load_err",
             LoadOutcome::EtagMissing => "etag_missing",
             LoadOutcome::Sentinel => "sentinel",
+            LoadOutcome::Fallback => "fallback",
         }
     }
 }
@@ -188,12 +196,18 @@ impl FlagDefinitionsCache {
         self.report_cache_metrics();
 
         // Source is checked after the loader returns so a fall-through to PG
-        // never persists under the etag (see struct doc).
-        if !matches!(src, CacheSource::Fallback) {
+        // never persists under the etag (see struct doc). The `Fallback`
+        // path is also distinguished at the histogram label so a PG
+        // fallback storm — every request rebuilding from PG — does not
+        // hide behind a normal `miss_load_ok` thunder-herd shape.
+        let outcome = if matches!(src, CacheSource::Fallback) {
+            LoadOutcome::Fallback
+        } else {
             self.cache.insert(cache_key, Arc::clone(&prepared)).await;
-        }
+            LoadOutcome::MissLoadOk
+        };
 
-        Ok((prepared, src, LoadOutcome::MissLoadOk))
+        Ok((prepared, src, outcome))
     }
 
     /// Starts periodic monitoring of cache metrics. Honors the lifecycle
@@ -413,6 +427,62 @@ mod tests {
             counter.load(Ordering::SeqCst),
             2,
             "etag=None must invoke loader on every call"
+        );
+    }
+
+    /// PG fallback must surface as `outcome="fallback"` on
+    /// `flags_definitions_inmem_load_ms`. The label is the dashboard's
+    /// only way to distinguish a PG-fallback storm from a normal
+    /// thunder-herd `miss_load_ok` rebuild — collapsing them would
+    /// hide the actually-bad case behind the benign one.
+    #[tokio::test]
+    async fn test_pg_fallback_emits_fallback_outcome_label() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        // `#[tokio::test]` defaults to current-thread, so the
+        // thread-local guard covers the `await` chain below.
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let cache = FlagDefinitionsCache::new(None, None);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
+        let fallback_loader = move || -> LoaderFuture {
+            Box::pin(async move { Ok::<_, FlagError>((Some(w), CacheSource::Fallback)) })
+        };
+        let (_, src) = cache
+            .get_or_load(1, Some("etag-present".into()), fallback_loader)
+            .await
+            .unwrap();
+        assert!(
+            matches!(src, CacheSource::Fallback),
+            "loader must surface Fallback to the caller"
+        );
+
+        // Find the histogram sample for our metric and confirm the
+        // outcome label. The test asserts we wired the label on the
+        // application-side emit, not that `metrics::histogram` works.
+        let snapshot = snapshotter.snapshot().into_vec();
+        let sample = snapshot
+            .iter()
+            .find(|(ckey, _, _, _)| ckey.key().name() == FLAG_DEFINITIONS_INMEM_LOAD_MS)
+            .expect("flags_definitions_inmem_load_ms not emitted");
+        let (ckey, _, _, value) = sample;
+        let outcome = ckey
+            .key()
+            .labels()
+            .find(|l| l.key() == "outcome")
+            .map(|l| l.value());
+        assert_eq!(
+            outcome,
+            Some("fallback"),
+            "PG fallback path must label histogram as outcome=fallback, got {outcome:?}"
+        );
+        // Sanity: the recording is the histogram type we expect, not a
+        // counter or gauge mistakenly sharing the name.
+        assert!(
+            matches!(value, DebugValue::Histogram(_)),
+            "expected histogram for {FLAG_DEFINITIONS_INMEM_LOAD_MS}, got {value:?}"
         );
     }
 

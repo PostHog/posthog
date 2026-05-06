@@ -269,34 +269,40 @@ pub fn router(
     // 4. ConcurrencyLimitLayer: bounds in-flight requests.
     // 5. record_concurrency_wait: computes elapsed permit-wait immediately
     //    after the layer hands off a permit, before the body shim runs.
-    // 6. record_body_read (innermost): buffers the inbound body to memory
-    //    while timing the operation, then hands the handler an in-memory
-    //    body. Sandwiched between `record_concurrency_wait` and the handler
-    //    so its measurement excludes permit wait but includes the slow-
-    //    upload / large-compressed-body path that would otherwise be
-    //    attributed to the handler with no per-step visibility.
+    // 6. record_body_read (innermost, /flags|/decide only): buffers the
+    //    inbound body to memory while timing the operation, then hands the
+    //    handler an in-memory body. Scoped to the routes that actually
+    //    consume `BodyReadDuration` — the definitions endpoint is GET-only
+    //    and 405s any non-GET method as its first action, so wrapping it
+    //    would buffer payloads to memory before the short-circuit.
     //
-    // Note: this entire chain wraps both `/flags|/decide` AND
-    // `/flags/definitions|/api/feature_flag/local_evaluation`. The shim pair
-    // is harmless on definitions (the handler never extracts the wait
-    // extension), but does add ~one extension-insert + one extension-read
-    // per definitions request. If that overhead ever becomes load-bearing,
-    // scope the shims to `/flags|/decide` via a dedicated sub-router.
-    let mut flags_router = Router::new();
-
+    // Sub-router shape:
+    //   flags_endpoints (/flags|/decide):    inner = record_body_read
+    //   definitions_endpoints (/flags/...):  inner = (no body shim)
+    // Both share the outer concurrency + timeout chain — those layers
+    // measure pod-level permit contention and budget enforcement, which
+    // apply uniformly regardless of endpoint.
+    let mut flags_endpoints: Router<State> = Router::new();
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
-        flags_router = flags_router
+        flags_endpoints = flags_endpoints
             .route("/flags", any(endpoint::flags))
             .route("/flags/", any(endpoint::flags))
             .route("/decide", any(endpoint::flags))
-            .route("/decide/", any(endpoint::flags));
+            .route("/decide/", any(endpoint::flags))
+            // Innermost-on-this-sub-router: applies only to handlers that
+            // actually read the buffered body. `axum::Router::layer` wraps
+            // the routes accumulated *so far*, so attaching it here (before
+            // `.merge()` below) keeps the body shim off the definitions
+            // sub-router.
+            .layer(axum::middleware::from_fn(record_body_read));
     }
 
+    let mut definitions_endpoints: Router<State> = Router::new();
     if matches!(
         config.service_mode,
         ServiceMode::All | ServiceMode::Definitions
     ) {
-        flags_router = flags_router
+        definitions_endpoints = definitions_endpoints
             .route(
                 "/flags/definitions",
                 any(flag_definitions::flags_definitions),
@@ -315,14 +321,11 @@ pub fn router(
                 "/api/feature_flag/local_evaluation/",
                 any(flag_definitions::flags_definitions),
             );
+        // No body-read shim: handler is GET-only and never reads the body.
     }
 
-    let flags_router = flags_router
-        // Innermost: buffers the inbound body to memory while timing
-        // the operation. Sits between `record_concurrency_wait` and the
-        // handler so it captures only body-buffering latency — not the
-        // permit wait, which `record_concurrency_wait` already records.
-        .layer(axum::middleware::from_fn(record_body_read))
+    let flags_router = flags_endpoints
+        .merge(definitions_endpoints)
         // Runs *after* `ConcurrencyLimitLayer` releases a permit, so
         // it can compute the elapsed permit-wait before the body shim.
         .layer(axum::middleware::from_fn(record_concurrency_wait))
