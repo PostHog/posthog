@@ -1904,10 +1904,69 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Feature flag variants must contain a control variant",
+        detail = response.json()["detail"]
+        self.assertIn("must contain a variant with key 'control'", detail)
+        self.assertIn("'test_0'", detail)
+        self.assertIn("'test_1'", detail)
+        self.assertIn("'test_2'", detail)
+
+    def test_creating_experiment_normalizes_capitalized_control_key(self):
+        # LLM callers often emit `Control` or `CONTROL` from natural-language input.
+        # The serializer should rewrite it to lowercase `control` instead of rejecting,
+        # since intent is unambiguous and the runtime treats `control` as a reserved key.
+        ff_key = "case-insensitive-control"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Capitalized control",
+                "description": "",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "Control", "name": "Control", "split_percent": 50},
+                        {"key": "test", "name": "Test", "split_percent": 50},
+                    ]
+                },
+            },
+            format="json",
         )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        variants = response.json()["parameters"]["feature_flag_variants"]
+        self.assertEqual([v["key"] for v in variants], ["control", "test"])
+        # The persisted flag should also use lowercase `control`.
+        flag = FeatureFlag.objects.get(key=ff_key)
+        flag_keys = [v["key"] for v in flag.filters["multivariate"]["variants"]]
+        self.assertEqual(flag_keys, ["control", "test"])
+
+    def test_creating_experiment_does_not_collapse_when_control_already_present(self):
+        # If both `control` and `Control` are passed, leave them alone — normalization
+        # would silently merge two distinct variants into a duplicate key, which
+        # FeatureFlagSerializer would surface as its own error.
+        ff_key = "control-and-Control"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Both controls",
+                "description": "",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "lowercase", "split_percent": 50},
+                        {"key": "Control", "name": "Capitalized", "split_percent": 50},
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        # Either FeatureFlagSerializer rejects the duplicate, or it accepts the second
+        # untouched — either way the normalization path must NOT run when an exact
+        # `control` already exists.
+        if response.status_code == status.HTTP_201_CREATED:
+            variants = response.json()["parameters"]["feature_flag_variants"]
+            keys = [v["key"] for v in variants]
+            self.assertEqual(keys, ["control", "Control"])
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
