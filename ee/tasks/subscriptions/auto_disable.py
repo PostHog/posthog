@@ -7,7 +7,7 @@ from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 
-from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
+from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TYPES
 
 
 class DisableReason(NamedTuple):
@@ -16,7 +16,8 @@ class DisableReason(NamedTuple):
     # Shown in the disabled-subscription email body and the activity's recipient_results.
     description: str
     # Re-enable rejection message surfaced by the API serializer; `{target_type}` is interpolated.
-    user_message: str
+    # None for reasons detected only at delivery time (no inspectable state for the API).
+    user_message: str | None = None
 
 
 SLACK_DISCONNECTED_DISABLE_REASON = DisableReason(
@@ -29,19 +30,19 @@ UNSUPPORTED_TARGET_DISABLE_REASON = DisableReason(
     description="Unsupported delivery channel",
     user_message="Cannot re-enable {target_type} subscription: this delivery channel is not currently supported.",
 )
+# `user_message` left as None: this reason is set only by runtime detection in
+# the delivery activity, never by `get_subscription_disable_reason`. Re-enable
+# round-trips to Slack — if the auth has been re-granted the next delivery
+# succeeds, otherwise the activity auto-disables again.
 SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     key="slack_permission_revoked",
     description="PostHog can no longer post to this Slack channel",
-    user_message="Cannot re-enable Slack subscription: PostHog can no longer post to this channel. Reconnect Slack or pick a different channel.",
 )
 
-# Subset of SLACK_USER_CONFIG_ERRORS (in __init__.py) that won't self-heal
-# without user intervention — auto-disable on these. Excludes `not_in_channel`
-# (admin can re-add the bot) and the transient `internal_error`/`rate_limited`.
-# Keep in sync with SLACK_USER_CONFIG_ERRORS.
-TERMINAL_SLACK_ERROR_CODES = frozenset(
-    {"invalid_auth", "account_inactive", "token_revoked", "is_archived", "channel_not_found"}
-)
+# Subset of SLACK_USER_CONFIG_ERRORS that won't self-heal — auto-disable on
+# these. Excludes `not_in_channel` (admin can re-add the bot). Computed from
+# SLACK_USER_CONFIG_ERRORS so the subset relationship is enforced by code.
+TERMINAL_SLACK_ERROR_CODES = SLACK_USER_CONFIG_ERRORS - frozenset({"not_in_channel"})
 
 logger = structlog.get_logger(__name__)
 
@@ -60,7 +61,7 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
 def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
     """API-serializer wrapper — returns the user-facing rejection message, or None if re-enable is OK."""
     reason = get_subscription_disable_reason(target_type, integration_id)
-    if reason is None:
+    if reason is None or reason.user_message is None:
         return None
     return reason.user_message.format(target_type=target_type)
 

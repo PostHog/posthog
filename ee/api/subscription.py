@@ -238,21 +238,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError({"start_date": [f"{base}."]})
             raise ValidationError(f"{base}.")
 
-        # Re-enabling a Slack subscription whose integration is gone would just trigger
-        # the auto-disable path again on next delivery — surface the precondition
-        # failure here so the user sees an actionable error instead of a confusing
-        # auto-disabled email seconds after they hit "Enable".
-        is_re_enabling_slack = (
-            self.instance is not None
-            and attrs.get("enabled") is True
-            and self.instance.enabled is False
-            and target_type == Subscription.SubscriptionTarget.SLACK
-        )
-        if is_re_enabling_slack and not integration_id:
-            raise ValidationError(
-                {"enabled": ["Cannot re-enable Slack subscription: no integration configured. Reconnect Slack first."]}
-            )
-
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
                 raise ValidationError({"integration_id": ["A Slack integration is required for Slack subscriptions."]})

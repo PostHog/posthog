@@ -565,6 +565,27 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 exc_info=True,
             )
             capture_exception(e)
+            # Terminal user-config error (revoked auth, archived/deleted channel,
+            # etc.) — won't self-heal, so auto-disable to stop the subscription
+            # re-firing every cycle. Use the canonical reason.key/description
+            # shape so error.type stays stable across all auto-disable paths
+            # (matches `_auto_disable_and_return`); the original exception
+            # detail is preserved in the analytics event captured above.
+            if is_terminal_slack_error:
+                recipient_results.append(
+                    RecipientResult(
+                        recipient=subscription.target_value,
+                        status="failed",
+                        error={
+                            "message": SLACK_PERMISSION_REVOKED_DISABLE_REASON.description,
+                            "type": SLACK_PERMISSION_REVOKED_DISABLE_REASON.key,
+                        },
+                    )
+                )
+                await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+                    subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON
+                )
+                return DeliverSubscriptionResult(recipient_results=recipient_results)
             recipient_results.append(
                 RecipientResult(
                     recipient=subscription.target_value,
@@ -572,14 +593,6 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     error={"message": str(e), "type": type(e).__name__},
                 )
             )
-            # Terminal user-config error (revoked auth, archived/deleted channel,
-            # etc.) — won't self-heal, so auto-disable to stop the subscription
-            # re-firing every cycle. Mirrors the missing-integration branch above.
-            if is_terminal_slack_error:
-                await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
-                    subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON
-                )
-                return DeliverSubscriptionResult(recipient_results=recipient_results)
             if not is_user_config_error:
                 raise  # Transient Slack errors — let Temporal retry
 
