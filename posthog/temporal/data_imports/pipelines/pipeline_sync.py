@@ -237,6 +237,15 @@ async def validate_schema_and_update_table(
                 table_for_update = DataWarehouseTable.raw_objects.select_for_update().get(id=table_created.id)
                 existing_columns = table_for_update.columns or {}
                 columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+                # Project to enabled_columns so disabled columns the user already deselected don't
+                # creep back into HogQL via the Delta schema (which still contains them historically).
+                if external_data_schema.enabled_columns is not None:
+                    enabled_set: set[str] = set(external_data_schema.enabled_columns)
+                    for pk in external_data_schema.primary_key_columns or []:
+                        enabled_set.add(pk)
+                    if external_data_schema.incremental_field:
+                        enabled_set.add(external_data_schema.incremental_field)
+                    columns = {name: column for name, column in columns.items() if name in enabled_set}
                 table_for_update.columns = columns
                 table_for_update.save(update_fields=["columns"])
                 # Keep local reference in sync

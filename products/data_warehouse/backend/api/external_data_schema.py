@@ -398,10 +398,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["sync_type_config"]["reset_pipeline"] = True
             trigger_refresh = True
 
+        enabled_columns_changed = "enabled_columns" in validated_data and (
+            validated_data["enabled_columns"] != instance.enabled_columns
+        )
+
         if source.is_direct_postgres:
-            enabled_columns_changed = "enabled_columns" in validated_data and (
-                validated_data["enabled_columns"] != instance.enabled_columns
-            )
             # We use "should_sync" to determine if the table should be exposed or hidden.
             if should_sync is True and instance.should_sync is False:
                 source_catalog, source_schema, source_table_name = get_direct_postgres_location(
@@ -447,6 +448,24 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             if should_sync is False and instance.should_sync is True:
                 hide_direct_postgres_table(instance.table)
+        elif enabled_columns_changed and instance.table is not None and instance.should_sync:
+            # Warehouse mode: filter the existing Delta-derived columns dict so HogQL hides the
+            # disabled column right away. The Delta files still hold the data — re-enabling will
+            # repopulate the column on the next sync via merge_columns.
+            new_enabled = validated_data["enabled_columns"]
+            current_columns = instance.table.columns or {}
+            if new_enabled is None:
+                projected_columns = current_columns
+            else:
+                retained: set[str] = set(new_enabled)
+                for pk in instance.primary_key_columns or []:
+                    retained.add(pk)
+                if instance.incremental_field:
+                    retained.add(instance.incremental_field)
+                projected_columns = {name: column for name, column in current_columns.items() if name in retained}
+            if projected_columns != current_columns:
+                instance.table.columns = projected_columns
+                instance.table.save(update_fields=["columns"])
 
         # CDC publication management: add/remove table when toggling should_sync
         is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
