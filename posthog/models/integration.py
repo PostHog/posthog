@@ -3089,12 +3089,22 @@ class StripeIntegration:
     def is_sandbox(self) -> bool:
         return _stripe_integration_is_sandbox(self.integration)
 
-    def _stripe_client(self) -> StripeClient:
+    def _stripe_client(self) -> StripeClient | None:
         # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
         # Apps Secret Store and account-scoped API calls must authenticate with the matching
-        # developer secret. Reusing oauth_config_for_kind keeps secret selection in one place
-        # and inherits its NotImplementedError when the sandbox env vars are missing.
-        oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
+        # developer secret. Returns None when the required env vars are missing so callers
+        # can skip Stripe API calls without raising past their per-secret error handling.
+        try:
+            oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
+        except NotImplementedError as e:
+            capture_exception(
+                e,
+                {
+                    "stripe_user_id": self.integration.integration_id,
+                    "is_sandbox": self.is_sandbox,
+                },
+            )
+            return None
         return StripeClient(oauth_config.client_secret)
 
     def write_posthog_secrets(self, team_id: int, created_by: "User") -> None:
@@ -3139,6 +3149,8 @@ class StripeIntegration:
         }
 
         client = self._stripe_client()
+        if client is None:
+            return
 
         for name, payload in secrets.items():
             try:
@@ -3167,6 +3179,9 @@ class StripeIntegration:
             raise ValueError("Missing stripe_user_id on integration")
 
         client = self._stripe_client()
+        if client is None:
+            self._destroy_posthog_oauth_tokens()
+            return
 
         for name in (
             "posthog_region",
