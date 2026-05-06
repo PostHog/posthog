@@ -1258,24 +1258,43 @@ ${mapEntries}
 // ------------------------------------------------------------------
 
 /**
- * Resolve a tool description from either an inline `description` string or a
- * `description_file` path (resolved relative to `yamlDir`). Returns the
- * fallback when neither is set.
+ * Resolve a tool description from `description` / `description_file` / `description_appendix_file`,
+ * each resolved relative to `yamlDir`. The appendix is concatenated after the body with a blank-line
+ * separator so the YAML can keep a surface-specific prelude inline and pull a shared recipe from a
+ * markdown file consumed by both the MCP YAML and the corresponding Max tool. Returns the fallback
+ * when none of the three are set.
  */
-function resolveDescription(
-    config: { description?: string | undefined; description_file?: string | undefined },
+export function resolveDescription(
+    config: {
+        description?: string | undefined
+        description_file?: string | undefined
+        description_appendix_file?: string | undefined
+    },
     yamlDir: string,
     fallback: string
 ): string {
-    if (config.description_file) {
-        const filePath = path.resolve(yamlDir, config.description_file)
+    const readRelativeFile = (relPath: string, fieldName: string): string => {
+        const filePath = path.resolve(yamlDir, relPath)
         if (!fs.existsSync(filePath)) {
-            console.error(`description_file not found: ${filePath}`)
+            console.error(`${fieldName} not found: ${filePath}`)
             process.exit(1)
         }
         return fs.readFileSync(filePath, 'utf-8').trim()
     }
-    return config.description?.trim() || fallback
+
+    let body: string
+    if (config.description_file) {
+        body = readRelativeFile(config.description_file, 'description_file')
+    } else {
+        body = config.description?.trim() || fallback
+    }
+
+    if (config.description_appendix_file) {
+        const appendix = readRelativeFile(config.description_appendix_file, 'description_appendix_file')
+        body = body ? `${body}\n\n${appendix}` : appendix
+    }
+
+    return body
 }
 
 function generateDefinitionsJson(

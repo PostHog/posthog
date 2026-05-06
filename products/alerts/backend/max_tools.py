@@ -97,6 +97,12 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - To list existing alerts, use the list_data tool with kind="alerts"
     - To view alerts in the UI, direct the user to /insights?tab=alerts
     - To view alerts for a specific insight, direct the user to /insights/{insightShortId}/alerts
+
+    # Slack / webhook delivery
+    - This tool only attaches an email subscription for the current user. To deliver firings to a
+      Slack channel or webhook URL, also call upsert_hog_function with template_id=template-slack
+      (or template-webhook) and a filter on `$insight_alert_firing` matching this alert's id. See
+      the upsert_hog_function tool description for the canonical recipe.
     """).strip()
 
 

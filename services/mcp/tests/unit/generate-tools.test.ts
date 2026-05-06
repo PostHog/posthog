@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 
 import {
     buildResponseFilter,
@@ -8,6 +12,7 @@ import {
     generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
+    resolveDescription,
 } from '../../scripts/generate-tools'
 import type { OpenApiSpec, ResolvedOperation } from '../../scripts/generate-tools'
 import { QueryWrapperToolConfigSchema, ToolConfigSchema } from '../../scripts/yaml-config-schema'
@@ -1307,5 +1312,65 @@ describe('path parameter encoding', () => {
         // Fallback params use local variable (no params. prefix) but still get encoded
         expect(result.code).toContain('${encodeURIComponent(String(id))}')
         expect(result.code).not.toMatch(/\$\{id\}[^)]/)
+    })
+})
+
+describe('resolveDescription', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-desc-'))
+    })
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+    })
+
+    const writeFile = (name: string, contents: string): string => {
+        const filePath = path.join(tmpDir, name)
+        fs.writeFileSync(filePath, contents)
+        return name
+    }
+
+    it('returns the inline description when no file fields are set', () => {
+        const out = resolveDescription({ description: '  inline body  ' }, tmpDir, 'fallback')
+        expect(out).toBe('inline body')
+    })
+
+    it('falls back when neither description nor description_file is set', () => {
+        expect(resolveDescription({}, tmpDir, 'fb')).toBe('fb')
+    })
+
+    it('reads description_file when set', () => {
+        writeFile('desc.md', '# from file\n\nbody')
+        const out = resolveDescription({ description_file: 'desc.md' }, tmpDir, 'fb')
+        expect(out).toBe('# from file\n\nbody')
+    })
+
+    it('appends description_appendix_file to inline description with a blank-line separator', () => {
+        writeFile('appendix.md', 'recipe content')
+        const out = resolveDescription(
+            { description: 'prelude', description_appendix_file: 'appendix.md' },
+            tmpDir,
+            'fb'
+        )
+        expect(out).toBe('prelude\n\nrecipe content')
+    })
+
+    it('composes description_file with description_appendix_file', () => {
+        writeFile('body.md', 'main body')
+        writeFile('appendix.md', 'shared recipe')
+        const out = resolveDescription(
+            { description_file: 'body.md', description_appendix_file: 'appendix.md' },
+            tmpDir,
+            'fb'
+        )
+        expect(out).toBe('main body\n\nshared recipe')
+    })
+
+    it('returns the appendix alone when no body is set', () => {
+        writeFile('appendix.md', 'just the appendix')
+        const out = resolveDescription({ description_appendix_file: 'appendix.md' }, tmpDir, '')
+        expect(out).toBe('just the appendix')
     })
 })

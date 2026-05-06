@@ -30,6 +30,13 @@ export const ToolConfigSchema = z
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
         /**
+         * Path to a file appended to the resolved description. Use to share substantive recipe content
+         * (e.g. payload templates, event property catalogs) across MCP and Max tool descriptions while
+         * letting each surface keep its own surface-specific prelude inline.
+         * Resolved relative to the YAML file. Composes with either `description` or `description_file`.
+         */
+        description_appendix_file: z.string().optional(),
+        /**
          * One-line selection hint injected into the system prompt catalog.
          * Describes *when to pick this tool*, not what it does. Currently only
          * surfaced for `query-*` tools in the query tool catalog.
@@ -330,6 +337,11 @@ export const QueryWrapperToolConfigSchema = z
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
         description_file: z.string().optional(),
+        /**
+         * Path to a file appended to the resolved description. See ToolConfigSchema.description_appendix_file
+         * for usage notes. Composes with either `description` or `description_file`.
+         */
+        description_appendix_file: z.string().optional(),
         /**
          * One-line selection hint injected into the query tool catalog in the
          * system prompt. Describes *when to pick this tool*, not what it does.

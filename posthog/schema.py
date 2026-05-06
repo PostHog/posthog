@@ -715,6 +715,7 @@ class AssistantTool(StrEnum):
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
     UPSERT_ALERT = "upsert_alert"
+    UPSERT_HOG_FUNCTION = "upsert_hog_function"
     FINALIZE_PLAN = "finalize_plan"
     CALL_MCP_SERVER = "call_mcp_server"
     SEARCH_LLM_TRACES = "search_llm_traces"

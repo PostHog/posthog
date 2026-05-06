@@ -492,6 +492,7 @@ export type AssistantTool =
     | 'create_notebook'
     | 'list_data'
     | 'upsert_alert'
+    | 'upsert_hog_function'
     | 'finalize_plan'
     | 'call_mcp_server'
     | 'search_llm_traces'

@@ -1,10 +1,14 @@
 import re
 import json
-from typing import Optional
+from pathlib import Path
+from textwrap import dedent
+from typing import Any, Literal, Optional, Union
 
+from asgiref.sync import sync_to_async
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
+from rest_framework import serializers as drf_serializers
 
 from posthog.hogql import errors as hogql_errors
 from posthog.hogql.ai import (
@@ -23,7 +27,12 @@ from posthog.hogql.ai import (
 )
 from posthog.hogql.parser import parse_program
 
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.cdp.validation import compile_hog
+from posthog.exceptions_capture import capture_exception
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 
 from products.cdp.backend.prompts import (
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
@@ -331,3 +340,239 @@ class CreateHogFunctionInputsTool(MaxTool):
             )
 
         return HogFunctionInputsOutput(inputs_schema=inputs_schema)
+
+
+# Function types that can produce externally-visible side-effects on every matching event.
+_EXTERNAL_SIDE_EFFECT_TYPES: frozenset[str] = frozenset(
+    {
+        HogFunctionType.DESTINATION,
+        HogFunctionType.SITE_DESTINATION,
+        HogFunctionType.INTERNAL_DESTINATION,
+        HogFunctionType.SOURCE_WEBHOOK,
+    }
+)
+
+# Recipe payload + event property catalog shared with the MCP cdp-functions-create tool. Single
+# source of truth — edit the markdown, not this constant. See `description_appendix_file` in
+# products/cdp/mcp/cdp_functions.yaml for the MCP-side consumer.
+_INSIGHT_ALERT_DESTINATION_RECIPE = (
+    Path(__file__).resolve().parent.parent / "recipes" / "insight_alert_destination.md"
+).read_text()
+
+_UPSERT_HOG_FUNCTION_PRELUDE = dedent(
+    """
+    Use this tool to create or update CDP functions: destinations, transformations, internal
+    destinations (the type used to deliver insight alerts to Slack or webhooks), site destinations,
+    site apps, and source webhooks. Functions can derive their code and inputs from a HogFunctionTemplate
+    or be defined inline as Hog source.
+
+    # Actions
+    - **create**: Create a new function (requires `type`; either `template_id` or `hog` source).
+    - **update**: Edit an existing function by `function_id` (any subset of fields).
+
+    # Common payload shape
+    - `type`: destination | site_destination | internal_destination | source_webhook | site_app | transformation
+    - `template_id`: ID of the HogFunctionTemplate to derive defaults from (code, inputs_schema, icon,
+      name, description). Required if `hog` is not provided on create.
+    - `hog`: Source code for the function (Hog for most types; TypeScript for site_destination/site_app).
+    - `inputs`: Mapping of input keys to {"value": ...} payloads. Must satisfy the template's inputs_schema.
+    - `inputs_schema`: List of input parameter definitions. Defaults to the template's schema on create.
+    - `filters`: Event filter dict with `events` and `properties` lists, e.g.
+      `{"events": [{"id": "$pageview", "type": "events"}], "properties": []}`.
+    - `enabled`: Whether the function is active and processes events (default true on create).
+    - `name`, `description`: Display strings; default to the template's values on create.
+
+    # Routing an insight alert to Slack or a webhook
+
+    The `upsert_alert` tool only attaches an email subscription to the current user. To deliver firings
+    to Slack or a webhook, after creating the alert with `upsert_alert` (to obtain `<alert_id>`):
+
+    1. Pick the integration. For Slack, use list_data with kind="integrations" filtered by kind=slack to
+       find the integration id. For a webhook, the user provides the destination URL directly.
+
+    2. Dedupe before creating. Use list_data with kind="hog_functions" and type="internal_destination" to
+       find any existing function whose filters.properties has an entry with key=alert_id and value equal
+       to <alert_id>. If one exists, call this tool with action=update on that function_id; if not, follow
+       the payload spec below to create a new one.
+    """
+).strip()
+
+UPSERT_HOG_FUNCTION_TOOL_DESCRIPTION = f"{_UPSERT_HOG_FUNCTION_PRELUDE}\n\n{_INSIGHT_ALERT_DESTINATION_RECIPE.strip()}"
+
+
+class CreateHogFunctionAction(BaseModel):
+    action: Literal["create"] = "create"
+    type: HogFunctionType = Field(
+        description="Function type. internal_destination is the right choice for routing alerts to Slack/webhook."
+    )
+    name: str | None = Field(
+        default=None,
+        description="Display name. Defaults to the template's name when a template_id is provided.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Human-readable description. Defaults to the template's description when a template_id is provided.",
+    )
+    template_id: str | None = Field(
+        default=None,
+        description=(
+            "ID of the HogFunctionTemplate to derive code, inputs_schema, icon, name, and description from. "
+            "Use 'template-slack' or 'template-webhook' for alert delivery destinations."
+        ),
+    )
+    hog: str | None = Field(
+        default=None,
+        description="Source code. Required if no template_id is provided. Hog for most types; TypeScript for site_destination/site_app.",
+    )
+    inputs: dict[str, Any] | None = Field(
+        default=None,
+        description='Mapping of input keys to {"value": ...} payloads. Must satisfy the inputs_schema of the function or template.',
+    )
+    inputs_schema: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Optional inputs schema override. When omitted on create with a template_id, the template's schema is used.",
+    )
+    filters: dict[str, Any] | None = Field(
+        default=None,
+        description="Event filter dict with `events` and `properties` lists controlling when the function runs.",
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Whether the function is active and processing events.",
+    )
+
+
+class UpdateHogFunctionAction(BaseModel):
+    action: Literal["update"] = "update"
+    function_id: str = Field(description="The UUID of the function to update.")
+    name: str | None = Field(default=None, description="New display name.")
+    description: str | None = Field(default=None, description="New description.")
+    hog: str | None = Field(default=None, description="New source code.")
+    inputs: dict[str, Any] | None = Field(
+        default=None, description='Replacement inputs mapping. Provide the full set of {"value": ...} payloads.'
+    )
+    inputs_schema: list[dict[str, Any]] | None = Field(default=None, description="Replacement inputs schema.")
+    filters: dict[str, Any] | None = Field(default=None, description="Replacement event filter dict.")
+    enabled: bool | None = Field(default=None, description="Enable or disable the function.")
+
+
+UpsertHogFunctionAction = Union[CreateHogFunctionAction, UpdateHogFunctionAction]
+
+
+class UpsertHogFunctionToolArgs(BaseModel):
+    action: UpsertHogFunctionAction = Field(
+        description="Either create a new HogFunction or update an existing one.",
+        discriminator="action",
+    )
+
+
+class UpsertHogFunctionTool(MaxTool):
+    name: str = "upsert_hog_function"
+    description: str = UPSERT_HOG_FUNCTION_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = UpsertHogFunctionToolArgs
+
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("hog_function", "editor")]
+
+    async def is_dangerous_operation(self, action: UpsertHogFunctionAction, **kwargs) -> bool:
+        if isinstance(action, UpdateHogFunctionAction):
+            return True
+        return action.enabled and action.type in _EXTERNAL_SIDE_EFFECT_TYPES
+
+    async def format_dangerous_operation_preview(self, action: UpsertHogFunctionAction, **kwargs) -> str:
+        if isinstance(action, UpdateHogFunctionAction):
+            fn = await self._resolve_function(action.function_id)
+            label = f"'{fn.name}'" if fn else f"(ID: {action.function_id})"
+            return f"**Update** function {label}"
+
+        name = action.name or action.template_id or action.type
+        return f"**Create** {action.type} '{name}' (enabled — will start processing matching events immediately)"
+
+    async def _arun_impl(self, action: UpsertHogFunctionAction) -> tuple[str, dict[str, Any]]:
+        if isinstance(action, CreateHogFunctionAction):
+            return await self._handle_create(action)
+        return await self._handle_update(action)
+
+    async def _handle_create(self, action: CreateHogFunctionAction) -> tuple[str, dict[str, Any]]:
+        if not action.template_id and not action.hog:
+            return "Either template_id or hog source must be provided to create a function.", {
+                "error": "validation_failed",
+            }
+
+        data = action.model_dump(exclude={"action"}, exclude_unset=True)
+        # `enabled` is omitted by exclude_unset when the caller relies on its True default. Force it
+        # in so HogFunction's own model default (False) doesn't quietly leave the function disabled.
+        data.setdefault("enabled", action.enabled)
+
+        try:
+            function = await sync_to_async(self._save_via_serializer)(data, instance=None)
+        except drf_serializers.ValidationError as e:
+            return f"Validation failed: {e.detail}", {"error": "validation_failed", "details": e.detail}
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            return f"Failed to create function: {str(e)}", {"error": "creation_failed", "details": str(e)}
+
+        status = "enabled" if function.enabled else "disabled"
+        artifact = self._artifact_for(function)
+        message = (
+            f"Function '{function.name}' created successfully and is {status}. "
+            f"[View function]({artifact['function_url']})."
+        )
+        return message, artifact
+
+    async def _handle_update(self, action: UpdateHogFunctionAction) -> tuple[str, dict[str, Any]]:
+        function = await self._resolve_function(action.function_id)
+        if function is None:
+            return f"Function '{action.function_id}' not found.", {"error": "function_not_found"}
+
+        await self.check_object_access(function, "editor", resource="hog_function", action="edit")
+
+        data = action.model_dump(exclude={"action", "function_id"}, exclude_unset=True)
+        if not data:
+            return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
+
+        try:
+            function = await sync_to_async(self._save_via_serializer)(data, instance=function)
+        except drf_serializers.ValidationError as e:
+            return f"Validation failed: {e.detail}", {"error": "validation_failed", "details": e.detail}
+        except Exception as e:
+            capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
+            return f"Failed to update function: {str(e)}", {"error": "update_failed", "details": str(e)}
+
+        artifact = self._artifact_for(function)
+        return (
+            f"Function '{function.name}' updated successfully. [View function]({artifact['function_url']}).",
+            artifact,
+        )
+
+    @staticmethod
+    def _artifact_for(function: HogFunction) -> dict[str, Any]:
+        return {
+            "function_id": str(function.id),
+            "function_name": function.name,
+            "function_url": function.get_file_system_representation().href,
+            "function_type": function.type,
+            "enabled": function.enabled,
+        }
+
+    def _save_via_serializer(self, data: dict[str, Any], *, instance: HogFunction | None) -> HogFunction:
+        """Routing through the serializer (rather than ``HogFunction.objects.create``) is the blessed
+        pattern: it resolves ``template_id`` against the template registry, fills in defaults from the
+        template, compiles bytecode for ``hog`` and ``filters``, and runs all the per-field validators.
+        """
+        team = self._team
+        context: dict[str, Any] = {"get_team": lambda: team, "is_create": instance is None}
+        serializer = HogFunctionSerializer(instance=instance, data=data, partial=instance is not None, context=context)
+        serializer.is_valid(raise_exception=True)
+        return serializer.save(team=team) if instance is None else serializer.save()
+
+    async def _resolve_function(self, function_id: str) -> HogFunction | None:
+        normalized = str(function_id).strip()
+        if not normalized:
+            return None
+        try:
+            return await HogFunction.objects.aget(id=normalized, team_id=self._team.id)
+        except (HogFunction.DoesNotExist, ValueError):
+            return None
