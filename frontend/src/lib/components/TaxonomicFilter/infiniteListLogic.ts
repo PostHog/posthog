@@ -433,17 +433,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.recentFilterItems,
                 s.taxonomicGroupTypes,
                 (_, props: InfiniteListLogicProps) => props.excludedOperators,
+                (_, props: InfiniteListLogicProps) => props.selectingKeyOnly,
             ],
             (
                 recentFilterItems: TaxonomicDefinitionTypes[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
-                excludedOperators: ExcludedOperators | undefined
+                excludedOperators: ExcludedOperators | undefined,
+                selectingKeyOnly: boolean | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!recentFilterItems?.length) {
                     return []
                 }
                 const availableTypes = new Set(taxonomicGroupTypes)
-                return recentFilterItems.filter((item) => {
+                const inScope = recentFilterItems.filter((item) => {
                     if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
                         return false
                     }
@@ -458,6 +460,27 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                     return true
                 })
+                if (!selectingKeyOnly) {
+                    return inScope
+                }
+                const seen = new Set<string>()
+                const dedupedItems: TaxonomicDefinitionTypes[] = []
+                for (const item of inScope) {
+                    if (!hasRecentContext(item)) {
+                        continue
+                    }
+                    // Dedup by the persisted storage key (groupType + value), not by item.name —
+                    // for groups like Cohorts/Actions name is a display label that may be unstable
+                    // or duplicated across distinct ids.
+                    const dedupKey = `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue ?? ''}`
+                    if (seen.has(dedupKey)) {
+                        continue
+                    }
+                    seen.add(dedupKey)
+                    const { propertyFilter: _propertyFilter, ...restContext } = item._recentContext
+                    dedupedItems.push({ ...item, _recentContext: restContext } as unknown as TaxonomicDefinitionTypes)
+                }
+                return dedupedItems
             },
         ],
         contextFilteredPinnedItems: [
