@@ -152,6 +152,17 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
     }
 
+    start(): Promise<void> {
+        // No startup work — caches and metrics initialize in the constructor.
+        return Promise.resolve()
+    }
+
+    stop(): Promise<void> {
+        // The store flushes via the per-batch flush step (createFlushBatchStoresStep);
+        // shutdown has no additional state to drain.
+        return Promise.resolve()
+    }
+
     /**
      * Check if a person update should trigger a database write.
      * Returns the outcome: 'changed' (should write), 'ignored' (filtered properties only), or 'no_change' (no properties changed)
