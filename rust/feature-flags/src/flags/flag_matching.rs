@@ -1710,12 +1710,6 @@ impl FeatureFlagMatcher {
             merged_properties.extend(overrides.iter_owned());
         }
 
-        // Match Python local evaluation behavior by always exposing the request
-        // distinct_id as a person property unless DB/request data already set it.
-        merged_properties
-            .entry("distinct_id".to_string())
-            .or_insert_with(|| Value::String(self.distinct_id.clone()));
-
         // Populate missing $initial_ properties from their non-initial counterparts.
         // DB $initial_ values are preserved; this only fills in missing ones from
         // the merged properties (which may come from DB or request overrides).

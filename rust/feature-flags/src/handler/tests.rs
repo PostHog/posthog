@@ -20,6 +20,7 @@ use crate::{
             EvaluationMetadata, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
             HypercacheFlagsWrapper,
         },
+        flag_operations::flags_require_db_preparation,
         flag_service::FlagService,
     },
     handler::{
@@ -27,7 +28,7 @@ use crate::{
         FeatureFlagEvaluationContext,
     },
     mock,
-    properties::property_models::PropertyType,
+    properties::property_models::{OperatorType, PropertyType},
     utils::{
         mock::MockInto,
         test_utils::{
@@ -48,7 +49,11 @@ use reqwest::header::CONTENT_TYPE;
 use serde_json::{json, Value};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::{collections::HashMap, net::IpAddr, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+    sync::Arc,
+};
 use uuid::Uuid;
 
 #[derive(Debug, Default)]
@@ -162,6 +167,37 @@ fn test_geoip_disabled_without_person_properties() {
     );
 
     assert!(result.is_none());
+}
+
+#[test]
+fn test_distinct_id_override_skips_db_preparation_for_distinct_id_flag() {
+    let geoip_service = create_test_geoip_service();
+    let distinct_id = "request_only_user";
+    let overrides = properties::get_person_property_overrides(
+        true,
+        Some(distinct_id),
+        None,
+        &IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        &geoip_service,
+    )
+    .expect("top-level distinct_id should create person overrides");
+
+    let flag = mock!(FeatureFlag,
+        filters: mock!(crate::properties::property_models::PropertyFilter,
+            key: "distinct_id".mock_into(),
+            value: Some(json!(distinct_id)),
+            operator: Some(OperatorType::Exact),
+            prop_type: PropertyType::Person
+        ).mock_into()
+    );
+    let flags = vec![&flag];
+
+    let flags_requiring_db = flags_require_db_preparation(&flags, &overrides, &HashSet::new());
+
+    assert!(
+        flags_requiring_db.is_empty(),
+        "request-time distinct_id overrides should keep distinct_id flags on the local path"
+    );
 }
 
 #[test]
