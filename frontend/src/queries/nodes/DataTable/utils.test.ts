@@ -202,29 +202,30 @@ describe('DataTable utils', () => {
         const userExpression = `formatDateTime(toTimeZone(timestamp, 'Europe/Berlin'), '%b %d, %H:%i:%s') as "Absolute Time"`
         const userExpressionBare = `formatDateTime(toTimeZone(timestamp, 'Europe/Berlin'), '%b %d, %H:%i:%s')`
 
-        it('resolves a key matching a raw select entry directly (bare identifier path)', () => {
-            expect(orderByForSelectKey('properties.$lib', ['*', 'event', 'properties.$lib', 'timestamp'])).toBe(
-                'properties.$lib'
-            )
-        })
-
-        it('resolves a key that is the resolved alias name to the underlying expression (the reported bug)', () => {
-            expect(orderByForSelectKey('Absolute Time', ['*', 'event', userExpression, 'timestamp'])).toBe(
-                userExpressionBare
-            )
-        })
-
-        it('resolves a key matching a backtick-aliased expression', () => {
-            expect(orderByForSelectKey('City Name', ['properties.$city AS `City Name`'])).toBe('properties.$city')
-        })
-
-        it('falls back to the key (with AS stripped) when no select entry matches', () => {
-            expect(orderByForSelectKey('event', [])).toBe('event')
-            expect(orderByForSelectKey('Absolute Time', [])).toBe('Absolute Time')
-        })
-
-        it('returns the raw key when select contains the same string (no AS clause)', () => {
-            expect(orderByForSelectKey('timestamp', ['timestamp', 'event'])).toBe('timestamp')
+        it.each<[string, string, readonly string[], string]>([
+            // Direct match against a raw select entry (bare identifier path)
+            [
+                'direct match — bare identifier in select',
+                'properties.$lib',
+                ['*', 'event', 'properties.$lib', 'timestamp'],
+                'properties.$lib',
+            ],
+            // Key is the resolved alias name — look up by extractAsAlias and return the bare expression (the reported bug)
+            [
+                'alias lookup — double-quoted alias resolves to underlying expression',
+                'Absolute Time',
+                ['*', 'event', userExpression, 'timestamp'],
+                userExpressionBare,
+            ],
+            // Backtick-aliased expression
+            ['alias lookup — backtick alias', 'City Name', ['properties.$city AS `City Name`'], 'properties.$city'],
+            // Fallback — no match in select, return the key with any AS stripped
+            ['fallback — empty select returns key as-is', 'event', [], 'event'],
+            ['fallback — empty select returns alias-name key as-is', 'Absolute Time', [], 'Absolute Time'],
+            // Direct match for a bare identifier present in select (no AS clause to strip)
+            ['direct match — bare timestamp', 'timestamp', ['timestamp', 'event'], 'timestamp'],
+        ])('%s', (_label, key, select, expected) => {
+            expect(orderByForSelectKey(key, select)).toBe(expected)
         })
     })
 })

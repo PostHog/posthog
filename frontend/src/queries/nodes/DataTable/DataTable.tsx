@@ -45,6 +45,7 @@ import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
     orderByForSelectKey,
+    removeAsAlias,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -380,7 +381,11 @@ export function DataTable({
                                                             ),
                                                         orderBy:
                                                             isOrderBy || isDescOrderBy
-                                                                ? [isDescOrderBy ? `${hogQl} DESC` : hogQl]
+                                                                ? [
+                                                                      isDescOrderBy
+                                                                          ? `${removeAsAlias(hogQl)}\n DESC`
+                                                                          : removeAsAlias(hogQl),
+                                                                  ]
                                                                 : source.orderBy,
                                                     },
                                                 })
