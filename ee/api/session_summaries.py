@@ -80,6 +80,7 @@ def _sanitize_custom_tag_description(value: str) -> str:
     collapsed = _WHITESPACE_RUN_RE.sub(" ", value or "").strip()
     return collapsed.replace("<", "").replace(">", "")
 
+
 # Substring used by ``execute_summarize_session`` (via the Temporal workflow) when the workflow
 # finished successfully but produced no summary row — typically because ``fetch_session_data_activity``
 # returned False (no events / recording too short). Kept here as a module-level constant so the coupling
