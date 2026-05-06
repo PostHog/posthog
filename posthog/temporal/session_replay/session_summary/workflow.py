@@ -26,6 +26,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.session_recordings.ai_summary_cap import consume_summary_quota
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -838,6 +839,22 @@ async def execute_summarize_session_video_stream(
         handle = await _start_video_summary_workflow(
             inputs=session_input, workflow_id=workflow_id, force_restart=force_restart
         )
+        # We've committed to a new workflow run (or `force_restart` swapped in
+        # one over a terminated/completed run) — charge the per-team monthly
+        # cost backstop. Skipped here in the `WorkflowAlreadyStartedError`
+        # branch because that path attaches to an in-flight run someone else
+        # already paid for. Wrapped in try/except so a Redis blip can't fail
+        # a user request that's already going to LLM.
+        try:
+            await database_sync_to_async(consume_summary_quota, thread_sensitive=False)(team.id, 1)
+        except Exception as e:
+            logger.warning(
+                "video summary cap consume failed (best-effort)",
+                team_id=team.id,
+                session_id=session_id,
+                error=str(e),
+                signals_type="session-summaries",
+            )
     except WorkflowAlreadyStartedError:
         handle = client.get_workflow_handle(workflow_id)
 

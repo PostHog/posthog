@@ -153,22 +153,43 @@ def consume_summary_quota(team_id: int, n: int = 1, *, now: datetime | None = No
     return int(new_value)
 
 
-def check_and_consume(team_id: int, *, requested: int = 1, now: datetime | None = None) -> CapDecision:
-    """GET-then-conditional-INCRBY. The race window between read and write
-    allows ~maxConcurrentCalls overshoot (sub-cap concurrent requests can all
-    pass the read, then all increment past the cap). Acceptable for a backstop;
-    do not use this for billing.
+def check_only(team_id: int, *, requested: int = 1, now: datetime | None = None) -> CapDecision:
+    """Read the cap and current usage, return a decision, but do NOT increment.
 
-    `requested` must be non-negative. A negative value would silently "refund"
-    quota under the previous implementation, which is almost never what a
-    caller wants — surface it loudly instead.
+    Use at request entry (DRF) when you want to fail fast without burning quota
+    on no-op paths (cache hits, dedup branches that won't issue LLM calls). Pair
+    with a later `consume_summary_quota(team_id, n)` once the caller has
+    committed to actual LLM work.
+
+    `requested` must be non-negative — a negative value here would mean "give
+    me a refund preview", which is almost never what a caller wants; surface
+    it loudly.
     """
     if requested < 0:
         raise ValueError(f"requested must be >= 0, got {requested}")
     now = now or datetime.now(UTC)
     cap = get_cap_for_team(team_id)
     used = current_usage(team_id, now=now)
-    if used + requested > cap:
-        return CapDecision(allowed=False, used=used, cap=cap)
+    return CapDecision(allowed=used + requested <= cap, used=used, cap=cap)
+
+
+def check_and_consume(team_id: int, *, requested: int = 1, now: datetime | None = None) -> CapDecision:
+    """GET-then-conditional-INCRBY. The race window between read and write
+    allows ~maxConcurrentCalls overshoot (sub-cap concurrent requests can all
+    pass the read, then all increment past the cap). Acceptable for a backstop;
+    do not use this for billing.
+
+    Prefer `check_only` + a later `consume_summary_quota` when the caller has
+    no-op short-circuits between entry and LLM dispatch — `check_and_consume`
+    will burn quota on those.
+
+    `requested` must be non-negative. A negative value would silently "refund"
+    quota under the previous implementation, which is almost never what a
+    caller wants — surface it loudly instead.
+    """
+    now = now or datetime.now(UTC)
+    decision = check_only(team_id, requested=requested, now=now)
+    if not decision.allowed:
+        return decision
     new_used = consume_summary_quota(team_id, requested, now=now)
-    return CapDecision(allowed=True, used=new_used, cap=cap)
+    return CapDecision(allowed=True, used=new_used, cap=decision.cap)

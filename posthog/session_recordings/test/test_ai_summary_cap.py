@@ -16,6 +16,7 @@ from posthog.session_recordings.ai_summary_cap import (
     CapDecision,
     _redis_key,
     check_and_consume,
+    check_only,
     coerce_max_summaries_per_period,
     consume_summary_quota,
     current_usage,
@@ -263,6 +264,82 @@ class TestCheckAndConsume(BaseTest):
         consume_summary_quota(self.team.pk, 3)
         assert check_and_consume(self.team.pk).allowed is False
         assert check_and_consume(other_team.pk).allowed is True
+
+
+class TestCheckOnly(BaseTest):
+    """`check_only` is the entrypoint primitive used at DRF-level cost-backstop
+    checks. The defining invariant vs. `check_and_consume`: it MUST NEVER
+    advance the counter, no matter the decision. Pair with a later
+    `consume_summary_quota` once the caller commits to actual LLM work.
+    """
+
+    def setUp(self):
+        super().setUp()
+        _create_cluster_config(self.team, max_summaries_per_period=3)
+
+    def test_allows_under_cap_without_incrementing(self):
+        # Repeated check_only must not move the counter — that's the whole point.
+        for _ in range(5):
+            decision = check_only(self.team.pk)
+            assert decision == CapDecision(allowed=True, used=0, cap=3)
+        assert current_usage(self.team.pk) == 0
+
+    def test_blocks_at_cap_without_incrementing(self):
+        consume_summary_quota(self.team.pk, 3)
+        decision = check_only(self.team.pk)
+        assert decision == CapDecision(allowed=False, used=3, cap=3)
+        assert current_usage(self.team.pk) == 3
+
+    def test_reflects_existing_usage(self):
+        consume_summary_quota(self.team.pk, 2)
+        assert check_only(self.team.pk) == CapDecision(allowed=True, used=2, cap=3)
+        assert current_usage(self.team.pk) == 2  # unchanged
+
+    def test_requested_more_than_headroom_blocks(self):
+        consume_summary_quota(self.team.pk, 2)
+        assert check_only(self.team.pk, requested=2) == CapDecision(allowed=False, used=2, cap=3)
+        assert current_usage(self.team.pk) == 2
+
+    def test_requested_equal_to_headroom_allowed(self):
+        consume_summary_quota(self.team.pk, 1)
+        assert check_only(self.team.pk, requested=2) == CapDecision(allowed=True, used=1, cap=3)
+        assert current_usage(self.team.pk) == 1  # NOT advanced — we only checked
+
+    def test_exactly_at_cap_then_blocks(self):
+        # Boundary regression: off-by-one in the `<=` comparator would flip these.
+        consume_summary_quota(self.team.pk, 2)
+        assert check_only(self.team.pk).allowed is True
+        consume_summary_quota(self.team.pk, 1)  # caller commits to the work
+        assert check_only(self.team.pk).allowed is False
+
+    def test_requested_zero_is_allowed_noop(self):
+        decision = check_only(self.team.pk, requested=0)
+        assert decision.allowed is True
+        assert current_usage(self.team.pk) == 0
+
+    def test_requested_negative_raises(self):
+        with pytest.raises(ValueError, match="requested must be >= 0"):
+            check_only(self.team.pk, requested=-1)
+
+    def test_check_only_then_consume_matches_check_and_consume(self):
+        # The split (check_only + consume) must be observationally equivalent to
+        # the atomic check_and_consume when the caller always commits.
+        for _ in range(3):
+            decision = check_only(self.team.pk)
+            if decision.allowed:
+                consume_summary_quota(self.team.pk, 1)
+        assert current_usage(self.team.pk) == 3
+        assert check_only(self.team.pk).allowed is False
+
+    def test_no_consume_on_short_circuit(self):
+        # The motivating case for the split: a caller that bails out of LLM work
+        # after `check_only` (cache hit, in-flight workflow dedup) must NOT have
+        # burned quota.
+        for _ in range(10):
+            decision = check_only(self.team.pk)
+            assert decision.allowed is True
+            # Caller short-circuits — no consume call.
+        assert current_usage(self.team.pk) == 0
 
 
 class TestHeadroom(BaseTest):
