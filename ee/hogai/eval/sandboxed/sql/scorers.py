@@ -33,28 +33,49 @@ from ee.hogai.eval.sandboxed.product_analytics.scorers import (
     _JUDGE_MODEL,
     GRADED_ALIGNMENT_CHOICE_SCORES,
     GRADED_ALIGNMENT_RUBRIC,
-    _extract_last_successful_input,
     _JudgedScorer,
     _parser_for,
     _user_prompt,
 )
 
 QUERY_SQL_TOOL_NAME = "execute-sql"
+_MAX_RESULT_CHARS_FOR_JUDGE = 12_000
 
 
-def extract_last_execute_sql_query(output: dict[str, Any] | None) -> str | None:
-    """Return the ``query`` string from the most recent successful ``execute-sql`` call.
+def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, str] | None:
+    """Return the query and result from the most recent successful ``execute-sql`` call.
 
     Returns ``None`` when the agent never ran the tool successfully — scorers
     should short-circuit in that case rather than count it as an incorrect
     answer.
     """
-    raw = _extract_last_successful_input(_parser_for(output), QUERY_SQL_TOOL_NAME, schema=None)
-    if isinstance(raw, dict):
-        query = raw.get("query")
-        if isinstance(query, str):
-            return query
+    parser = _parser_for(output)
+    if parser is None:
+        return None
+
+    successful = [call for call in parser.get_tool_calls(QUERY_SQL_TOOL_NAME) if not call.is_error]
+    if not successful:
+        return None
+
+    call = successful[-1]
+    query = call.input.get("query")
+    if not isinstance(query, str) or not query.strip():
+        return None
+    return {"query": query, "result": call.output}
+
+
+def extract_last_execute_sql_query(output: dict[str, Any] | None) -> str | None:
+    """Return the query string from the most recent successful ``execute-sql`` call."""
+    call = extract_last_execute_sql_call(output)
+    if call is not None:
+        return call["query"]
     return None
+
+
+def _truncate_result_for_judge(result: str) -> str:
+    if len(result) <= _MAX_RESULT_CHARS_FOR_JUDGE:
+        return result
+    return f"{result[:_MAX_RESULT_CHARS_FOR_JUDGE]}\n\n...[truncated for judge]..."
 
 
 SQL_SCHEMA_ALIGNMENT_PROMPT = """
@@ -135,6 +156,101 @@ class SQLSchemaAlignment(_JudgedScorer):
         super().__init__(
             name="sql_schema_alignment",
             prompt_template=SQL_SCHEMA_ALIGNMENT_PROMPT + "\n\n" + GRADED_ALIGNMENT_RUBRIC,
+            choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
+            model=_JUDGE_MODEL,
+            max_completion_tokens=512,
+            **kwargs,
+        )
+
+
+SQL_RESULT_MESSAGE_ALIGNMENT_RUBRIC = """
+How would you rate the assistant's final answer? Choose one:
+- perfect: Directly answers the user, faithfully summarizes the executed SQL result, and includes the important values or conclusion.
+- near_perfect: Answers the user and is faithful to the result, with only small omissions or extra detail.
+- slightly_off: Mostly answers the user, but misses a minor result detail or includes slightly confusing framing.
+- somewhat_misaligned: Partly related, but omits important result information, over-focuses on SQL rather than the answer, or is hard for the user to act on.
+- strongly_misaligned: Substantially contradicts the executed result, answers a different question, or only provides a query with no useful result interpretation.
+- useless: No meaningful final answer, fabricated answer, or impossible to evaluate.
+
+Be strict about factual faithfulness. Do not reward a fluent answer that invents values not present in the SQL result.
+""".strip()
+
+
+SQL_RESULT_MESSAGE_ALIGNMENT_PROMPT = """
+You are an expert analytics QA reviewer judging whether an agent's final response correctly answers the user's question after running HogQL.
+
+The agent was required to execute SQL and then answer the user from the SQL result.
+Judge only the final assistant message, using the user prompt, executed query, and SQL result as evidence.
+
+Accept:
+- A concise natural-language answer.
+- A short table or bullet list when the user asked for grouped or ranked results.
+- Including the executed SQL, as long as the message also answers the user.
+
+Penalize:
+- Only returning SQL or implementation details without interpreting the result.
+- Omitting the key values or conclusion from the SQL result.
+- Copying a large raw result table without a useful answer.
+- Contradicting the SQL result or inventing values that are not supported by it.
+- Saying the data is unavailable when the executed result contains relevant rows.
+
+User prompt:
+<user_prompt>
+{{output.prompt}}
+</user_prompt>
+
+Executed HogQL:
+<executed_query>
+{{output.sql_query}}
+</executed_query>
+
+SQL result:
+<sql_result>
+{{output.sql_result}}
+</sql_result>
+
+Final assistant message:
+<final_message>
+{{output.final_message}}
+</final_message>
+""".strip()
+
+
+class SQLResultMessageAlignment(_JudgedScorer):
+    """Graded score: did the final message answer the user from the SQL result?"""
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:  # noqa: ARG002
+        executed = extract_last_execute_sql_call(output)
+        if executed is None:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "Agent never ran execute-sql successfully"},
+            )
+
+        parser = _parser_for(output)
+        final_message = parser.get_final_agent_message() if parser is not None else None
+        if not isinstance(final_message, str) or not final_message.strip():
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "No final assistant message found"},
+            )
+
+        return {
+            "output": {
+                "prompt": _user_prompt(output),
+                "sql_query": executed["query"],
+                "sql_result": _truncate_result_for_judge(executed["result"]),
+                "final_message": final_message,
+            },
+            "expected": {},
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="sql_result_message_alignment",
+            prompt_template=SQL_RESULT_MESSAGE_ALIGNMENT_PROMPT + "\n\n" + SQL_RESULT_MESSAGE_ALIGNMENT_RUBRIC,
             choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
             model=_JUDGE_MODEL,
             max_completion_tokens=512,

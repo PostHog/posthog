@@ -49,7 +49,9 @@ def _funnel_case(
 
 @pytest.mark.django_db(transaction=True, databases="__all__")
 async def eval_funnel(sandboxed_demo_data, pytestconfig, posthog_client):
-    this_year = datetime.now().year
+    now = datetime.now()
+    this_year = now.year
+    this_month_start = f"{now.year}-{now.month:02d}-01"
 
     cases = [
         _funnel_case(
@@ -216,6 +218,40 @@ async def eval_funnel(sandboxed_demo_data, pytestconfig, posthog_client):
                         math=None,
                         properties=[{"key": "plan", "value": "personal/pro", "operator": "exact", "type": "event"}],
                     ),
+                ],
+            ),
+        ),
+        _funnel_case(
+            name="funnel_pricing_page_to_paid_bill_this_month",
+            prompt="what percentage of users who visited the pricing page completed the paid_bill event this month?",
+            query=AssistantFunnelsQuery(
+                aggregation_group_type_index=None,
+                breakdownFilter=None,
+                dateRange={"date_from": this_month_start, "date_to": None},
+                filterTestAccounts=True,
+                funnelsFilter=AssistantFunnelsFilter(
+                    binCount=None,
+                    exclusions=[],
+                    funnelOrderType="ordered",
+                    funnelStepReference="total",
+                    funnelVizType="steps",
+                    funnelWindowInterval=14,
+                    funnelWindowIntervalUnit="day",
+                ),
+                series=[
+                    AssistantFunnelsEventsNode(
+                        event="$pageview",
+                        math=None,
+                        properties=[
+                            {
+                                "key": "$pathname",
+                                "value": "/pricing/",
+                                "operator": "exact",
+                                "type": "event",
+                            }
+                        ],
+                    ),
+                    AssistantFunnelsEventsNode(event="paid_bill", math=None, properties=None),
                 ],
             ),
         ),

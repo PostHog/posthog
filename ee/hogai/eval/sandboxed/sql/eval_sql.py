@@ -27,7 +27,7 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from ee.hogai.eval.sandboxed.retrieval.scorers import SkillLoaded
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall, RequiredToolCall
-from ee.hogai.eval.sandboxed.sql.scorers import SQLSchemaAlignment
+from ee.hogai.eval.sandboxed.sql.scorers import SQLResultMessageAlignment, SQLSchemaAlignment
 
 
 def _sql_case(*, name: str, prompt: str, expected_sql: str) -> SandboxedEvalCase:
@@ -44,7 +44,7 @@ async def eval_sql(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
         # Straightforward breakdowns
         _sql_case(
             name="sql_pageviews_by_browser",
-            prompt="Write a HogQL query that counts pageviews grouped by browser, ordered by count descending.",
+            prompt="How many pageviews did each browser have?",
             expected_sql="""
 SELECT properties.$browser as browser, count(*) as pageview_count
 FROM events
@@ -56,7 +56,7 @@ LIMIT 100
         ),
         _sql_case(
             name="sql_top_countries_by_users_7d",
-            prompt="Write a HogQL query that returns the top 10 countries by number of unique users in the last 7 days.",
+            prompt="What are the top 10 countries by unique users in the last 7 days?",
             expected_sql="""
 SELECT properties.$geoip_country_name as country, count(distinct person_id) as user_count
 FROM events
@@ -69,7 +69,7 @@ LIMIT 10
         # Session duration
         _sql_case(
             name="sql_avg_session_duration_by_dow",
-            prompt="Using HogQL, give me the average session duration broken down by day of week.",
+            prompt="give me the average session duration broken down by day of week",
             expected_sql="""
 SELECT toDayOfWeek(timestamp) as day_of_week,
        avg(session.$session_duration) as avg_session_duration
@@ -78,98 +78,10 @@ GROUP BY day_of_week
 ORDER BY day_of_week
 """,
         ),
-        _sql_case(
-            name="sql_pricing_to_purchase_pct_this_month",
-            prompt=(
-                "Write a HogQL query that returns what percentage of users who visited the pricing page "
-                "made a purchase in this month."
-            ),
-            expected_sql="""
-WITH pricing_visitors AS (
-    SELECT distinct person_id
-    FROM events
-    WHERE event = 'viewed_pricing_page'
-    AND date_trunc('month', timestamp) = date_trunc('month', now())
-),
-purchasers AS (
-    SELECT distinct person_id
-    FROM events
-    WHERE event = 'purchase'
-    AND date_trunc('month', timestamp) = date_trunc('month', now())
-)
-SELECT
-    count(DISTINCT pv.person_id) AS pricing_visitors_count,
-    count(DISTINCT p.person_id) AS purchasers_count,
-    (count(DISTINCT p.person_id) * 100.0 / nullIf(count(DISTINCT pv.person_id), 0)) AS conversion_percentage
-FROM pricing_visitors pv
-LEFT JOIN purchasers p ON pv.person_id = p.person_id
-""",
-        ),
-        # Conversion (ordered)
-        _sql_case(
-            name="sql_onboarding_flow_in_sequence",
-            prompt=(
-                "Write a HogQL query that counts how many users completed the onboarding flow "
-                "(viewed welcome page, created profile, and completed tutorial) in that sequence."
-            ),
-            expected_sql="""
-WITH occurences AS (
-    SELECT
-        person_id,
-        event,
-        timestamp,
-        ROW_NUMBER() OVER (PARTITION BY person_id, event ORDER BY timestamp) as occurrence
-    FROM events
-    WHERE event IN ('viewed_welcome_page', 'created_profile', 'completed_tutorial')
-),
-user_funnel AS (
-    SELECT
-        person_id,
-        maxIf(timestamp, event = 'viewed_welcome_page') as welcome_time,
-        maxIf(timestamp, event = 'created_profile') as profile_time,
-        maxIf(timestamp, event = 'completed_tutorial') as tutorial_time
-    FROM occurences
-    WHERE occurrence = 1
-    GROUP BY person_id
-    HAVING count(distinct event) = 3
-)
-SELECT count(*) as users_completed_onboarding
-FROM user_funnel
-WHERE welcome_time < profile_time AND profile_time < tutorial_time
-""",
-        ),
-        # Conversion (unordered)
-        _sql_case(
-            name="sql_onboarding_flow_any_order",
-            prompt=(
-                "Write a HogQL query that counts how many users completed the onboarding flow "
-                "(viewed welcome page, created profile, and completed tutorial) regardless of sequence."
-            ),
-            expected_sql="""
-WITH occurences AS (
-    SELECT person_id, event
-    FROM events
-    WHERE event IN ('viewed_welcome_page', 'created_profile', 'completed_tutorial')
-),
-user_funnel AS (
-    SELECT
-        person_id,
-        count(distinct event) as event_count
-    FROM occurences
-    GROUP BY person_id
-)
-SELECT count(*) as users_completed_onboarding
-FROM user_funnel
-WHERE event_count = 3
-""",
-        ),
         # Property math
         _sql_case(
             name="sql_distinct_browsers_per_day_14d",
-            prompt=(
-                "Using HogQL, give me the number of distinct values of property $browser seen "
-                "in each of the last 14 days."
-            ),
+            prompt=("give me the number of distinct values of property $browser seen in each of the last 14 days"),
             expected_sql="""
 SELECT date_trunc('day', timestamp) as day, count(distinct properties.$browser) as distinct_browser_count
 FROM events
@@ -181,10 +93,7 @@ ORDER BY day
         ),
         _sql_case(
             name="sql_paid_bill_total_hedgebox_30d",
-            prompt=(
-                "Write a HogQL query that sums up the total amounts paid for the 'paid_bill' event "
-                "over the past month for Hedgebox Inc."
-            ),
+            prompt=("sum up the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc."),
             expected_sql="""
 SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid
 FROM events
@@ -196,10 +105,7 @@ WHERE event = 'paid_bill'
         # Open questions to list persons
         _sql_case(
             name="sql_5_users_to_interview_file_downloads",
-            prompt=(
-                "Write a HogQL query that returns the 5 users I should interview around file download usage, "
-                "with their email and name."
-            ),
+            prompt=("return the 5 users I should interview around file download usage with their email and name"),
             expected_sql="""
 SELECT
     person_id,
@@ -216,10 +122,7 @@ LIMIT 5
         ),
         _sql_case(
             name="sql_top_5_file_downloaders_recent",
-            prompt=(
-                "Write a HogQL query that returns the 5 users that have downloaded the most files in the past few weeks, "
-                "with their email and name."
-            ),
+            prompt=("the 5 users that have downloaded the most files in the past few weeks with their email and name"),
             expected_sql="""
 SELECT
     person_id,
@@ -238,8 +141,7 @@ LIMIT 5
         _sql_case(
             name="sql_10_file_downloader_profiles",
             prompt=(
-                "Using HogQL, show me 10 example person profiles of file download users, including email, name, "
-                "company, role, created_at, and number of downloads."
+                "show me 10 example person profiles of file download users including email, name, company, role, created_at, and number of downloads"
             ),
             expected_sql="""
 SELECT DISTINCT
@@ -260,10 +162,7 @@ LIMIT 10
         # Funnel trends
         _sql_case(
             name="sql_trial_to_paid_conversion_by_cohort_month",
-            prompt=(
-                "Write a HogQL query that returns the conversion rate from trial signup to paid subscription "
-                "by cohort month."
-            ),
+            prompt=("the conversion rate from trial signup to paid subscription by cohort month"),
             expected_sql="""
 WITH trial_signups AS (
     SELECT
@@ -291,10 +190,7 @@ ORDER BY cohort_month
         ),
         _sql_case(
             name="sql_median_time_between_pageviews_by_browser",
-            prompt=(
-                "Write a HogQL query that returns the median time between page views for each browser type, "
-                "excluding users with only 1 page view."
-            ),
+            prompt=("the median time between page views for each browser type excluding users with only 1 page view"),
             expected_sql="""
 WITH pageview_times AS (
     SELECT
@@ -332,13 +228,7 @@ ORDER BY median_seconds_between_views DESC
         # Correlation — CI version had a tuple-with-extra-context retry; inlined into a single prompt here.
         _sql_case(
             name="sql_feature_churn_correlation_120d",
-            prompt=(
-                "Write a HogQL query that shows which features are most predictive of churn. "
-                "Compute the correlation between feature usage in the first 30 days and churn in the next 60 days. "
-                "Use events uploaded_file, downloaded_file, shared_file_link, invited_team_member, "
-                "upgraded_plan, downgraded_plan. Use lack of activity as the churn signal. "
-                "Analyze the last 120 days of data."
-            ),
+            prompt=("shows which features are most predictive of churn"),
             expected_sql="""
 WITH user_metrics AS (
     SELECT
@@ -457,10 +347,7 @@ ORDER BY ABS(corr(toFloat(uploads_30d), toFloat(churned))) DESC
         ),
         _sql_case(
             name="sql_weekly_pageviews_monday_start_4w",
-            prompt=(
-                "Write a HogQL query that shows weekly pageview counts with Monday as the start of week "
-                "for the last 4 weeks."
-            ),
+            prompt=("shows weekly pageview counts with Monday as the start of week for the last 4 weeks"),
             expected_sql="""
 SELECT toStartOfWeek(timestamp, 1) as week_start, count(*) as pageview_count
 FROM events
@@ -472,7 +359,7 @@ ORDER BY week_start
         ),
         _sql_case(
             name="sql_earliest_session_per_user_30d",
-            prompt="Write a HogQL query that returns the earliest session date for each user in the last month.",
+            prompt="what isthe earliest session date for each user in the last month",
             expected_sql="""
 SELECT person_id, toDate(min(timestamp)) as first_session_date
 FROM events
@@ -484,8 +371,7 @@ ORDER BY first_session_date
         _sql_case(
             name="sql_split_interests_count_users",
             prompt=(
-                "Write a HogQL query that splits a comma-separated `interests` property and counts unique users "
-                "who have at least one interest set."
+                "How many unique users have at least one interest set in the comma-separated `interests` property?"
             ),
             expected_sql="""
 SELECT count(distinct person_id) as users_with_interests
@@ -509,6 +395,7 @@ WHERE properties.interests IS NOT NULL
             ),
             SkillLoaded("querying-posthog-data", name="querying_posthog_data_skill_loaded"),
             SQLSchemaAlignment(),
+            SQLResultMessageAlignment(),
         ],
         pytestconfig=pytestconfig,
         sandboxed_demo_data=sandboxed_demo_data,
