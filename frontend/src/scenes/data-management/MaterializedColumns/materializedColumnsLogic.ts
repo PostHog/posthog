@@ -40,7 +40,6 @@ export interface MaterializedColumnSlot {
 export interface SlotUsageSummary {
     team_id: number
     team_name: string
-    /** Team-wide cap on materialized columns (matches MAX_SLOTS_PER_TEAM in the backend). */
     max_slots_per_team: number
     used_total: number
     available: number
@@ -134,7 +133,6 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                 if (!slotUsage) {
                     return false
                 }
-                // The cap is team-wide, not per-type — read `available` directly.
                 return slotUsage.available > 0
             },
         ],
