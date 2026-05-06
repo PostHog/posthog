@@ -160,8 +160,9 @@ class LinkedinAdsClient:
     ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
         """Get data by resource, yielding each page and its nextPageToken (if any).
 
-        starting_page_token applies only to paginated endpoints (campaigns, campaign_groups)
-        and is ignored for single-shot endpoints (accounts, analytics).
+        `starting_page_token` applies to the paginated entity endpoints (campaigns,
+        campaign_groups, creatives) and is ignored for single-shot endpoints
+        (accounts, analytics — analytics paginates by date-range chunking instead).
         """
         if resource == LinkedinAdsResource.Accounts:
             yield self.get_accounts(), None

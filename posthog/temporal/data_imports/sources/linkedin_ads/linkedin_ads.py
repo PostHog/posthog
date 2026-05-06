@@ -56,16 +56,16 @@ def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]
 
 
 def _extract_type_and_id_from_urn(urn: str) -> tuple[str, int] | None:
-    """Extract ID from LinkedIn URN.
-
-    Args:
-        urn: LinkedIn URN like "urn:li:sponsoredCampaign:12345678"
-
-    Returns:
-        Tuple of type and integer ID or None if not found
+    """Extract (type, integer ID) from a LinkedIn URN like
+    "urn:li:sponsoredCampaign:12345678". Returns None if the URN doesn't have the
+    expected `urn:li:<type>:<int>` shape — callers already guard on None and the
+    alternative is crashing the whole record flatten on a single malformed URN.
     """
-    _, _, urn_type, id_str = urn.split(":")
-    return urn_type, int(id_str)
+    try:
+        _, _, urn_type, id_str = urn.split(":")
+        return urn_type, int(id_str)
+    except (ValueError, AttributeError):
+        return None
 
 
 def get_schemas() -> dict[str, LinkedinAdsSchema]:

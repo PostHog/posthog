@@ -103,6 +103,32 @@ class TestLinkedinAdsClient:
         assert call_params["pageToken"] == "resume-token-abc"
 
     @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_creatives_uses_criteria_finder_and_reduced_page_size(self, mock_restli_client):
+        """Creatives use the `criteria` finder (not `search`) and a reduced pageSize
+        — the larger 1000 default has been observed to trigger transient 500s."""
+        from posthog.temporal.data_imports.sources.linkedin_ads.client import CREATIVES_PAGE_SIZE
+
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.elements = [{"id": "urn:li:sponsoredCreative:1", "name": "Creative 1"}]
+        mock_response.response.text = json.dumps({"metadata": {}})
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+        pages = list(client.get_creatives(self.account_id))
+
+        assert len(pages) == 1
+        assert pages[0] == ([{"id": "urn:li:sponsoredCreative:1", "name": "Creative 1"}], None)
+        assert mock_client_instance.finder.call_count == 1
+
+        call_kwargs = mock_client_instance.finder.call_args[1]
+        assert call_kwargs["finder_name"] == "criteria"
+        assert call_kwargs["resource_path"] == f"/adAccounts/{self.account_id}/creatives"
+        assert call_kwargs["query_params"]["pageSize"] == CREATIVES_PAGE_SIZE
+
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_analytics_success(self, mock_restli_client):
         """Single weekly chunk yields the API's elements unchanged."""
         mock_response = mock.MagicMock()
