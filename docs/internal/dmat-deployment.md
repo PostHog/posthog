@@ -150,27 +150,72 @@ The on-call's pre-firing check ("no other large mutation queued on `sharded_even
 should sit on the same Grafana dashboard — query `system.mutations WHERE
 table='sharded_events' AND is_done=0` against both cron firing times.
 
-## Emergency kill switch (plugin-server ingestion)
+## Emergency kill — bulk-transition slots back to PENDING
 
-If a bug is detected in the dmat ingestion path (wrong values, divergence from JSON,
-plugin-server panicking), oncall can stop _all_ dmat-column writes globally without a
-redeploy:
+There is no dedicated kill switch. To stop dmat ingestion in an emergency, an operator
+transitions affected slots back to `PENDING` with `slot_index` NULLed. Both the slot
+manager and HogQL printer filter by state, so a single Postgres update disengages reads
+and writes simultaneously.
 
-```sh
-redis-cli set dmat_kill_switch 1     # disable; takes effect within ~60s
-redis-cli del dmat_kill_switch       # re-enable
+```python
+# Django shell — kill all dmat slots globally
+MaterializedColumnSlot.objects.update(
+    state="PENDING", slot_index=None, compaction_target_slot_index=None
+)
+
+# Or scoped to a single team you've identified as bad
+MaterializedColumnSlot.objects.filter(team_id=12345).update(
+    state="PENDING", slot_index=None, compaction_target_slot_index=None
+)
 ```
 
-Every plugin-server process polls this key (`nodejs/src/utils/dmat-kill-switch.ts`) on a
-60s background refresher. When set, `MaterializedColumnSlotManager.getSlots()` short-
-circuits to `[]` for every team → `extractDynamicMaterializedColumns` writes nothing →
-`dmat_string_*` columns stop receiving new data. Existing column data is unchanged;
-HogQL keeps reading whatever's there (no read-side disruption).
+For a known single-slot bad-data incident, prefer `DELETE` via the staff API — frees the
+column for compaction and removes the row entirely. The PENDING transition is for
+"multiple slots involved" or "I don't yet know which slot is bad."
 
-For a single-slot bad-data incident (one team's column has wrong values), prefer the
-per-slot fix: `DELETE` the slot via the staff API. HogQL falls back to JSON for that
-property, ingestion stops dual-writing on the next cache refresh, and the column is
-freed for the next workflow run.
+### Why it works
+
+- **Writes stop within ~2.5 min.** `MaterializedColumnSlotManager` (cache TTL `2 min ± 30s`)
+  filters `state IN ('READY', 'BACKFILL') AND slot_index IS NOT NULL`. PENDING slots with
+  null `slot_index` don't load → `extractDynamicMaterializedColumns` is a no-op for the
+  affected teams.
+- **Reads stop immediately.** The HogQL printer (`posthog/hogql/transforms/property_types.py`)
+  only attaches `dmat_string_<n>` for slots with `state=READY`. PENDING slots are skipped, so
+  the printer falls through to JSON extraction — same path properties without a slot already
+  take. No per-event branch, no NULL-coalesce overhead.
+- **`slot_index` AND `compaction_target_slot_index` must both be NULL.** The Sunday
+  allocation activity at `posthog/temporal/backfill_materialized_property/activities.py:252-254`
+  builds `global_used` from both fields regardless of state. Leaving either set counts that
+  column as "occupied," and the planner trips its
+  `free_count < COMPACTION_FREE_COLUMN_THRESHOLD` safety guard, refusing to allocate fresh
+  PENDING slots — bricks recovery until columns are manually freed.
+
+### Recovery
+
+Do nothing. Sunday's PENDING-allocation workflow picks up the slots, allocates a fresh
+column from the free pool, transitions to BACKFILL, runs the `sharded_events` mutation to
+populate from JSON, and transitions to READY. Property mapping (`team_id` +
+`property_definition_id`) is preserved on the row, so no manual reconfiguration is
+needed.
+
+The old `dmat_string_<n>` columns the slots used to point to are orphaned — they still
+contain the pre-emergency data, but no slot points at them. Compaction reclaims them on
+its next cycle (Saturday before allocation). Until then they consume space but are
+otherwise inert.
+
+### Caveats
+
+- **Recovery latency is up to a week.** If you transition Monday morning, recovery doesn't
+  fire until the following Sunday. For faster recovery, run the
+  `BackfillMaterializedPropertiesBatchWorkflow` manually — same workflow, just executed
+  on demand instead of waiting for the cron.
+- **The mutation is heavy.** Same `ALTER TABLE sharded_events UPDATE` that any
+  PENDING → READY transition runs. Fits in the existing weekly mutation budget if you
+  let the cron handle it.
+- **Re-allocation likely picks a different column.** The old column index is in the free
+  pool by the time recovery fires; the planner picks the smallest available, which may
+  or may not be the same one. HogQL reads from the new index post-READY, so this is
+  transparent to consumers.
 
 ## Known gaps & cut corners
 

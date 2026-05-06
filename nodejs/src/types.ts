@@ -372,9 +372,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
     historical_migration?: boolean
-    /** dmat column values (e.g. `dmat_string_3`) spread into the payload by `serializeEvent`
-     * for any team with READY/BACKFILL slots. Permissive signature because the column set
-     * is data-driven. */
+    /** dmat columns spread into the Kafka payload. Index signature because the set is data-driven. */
     [dmatColumn: `dmat_${string}_${number}`]: string | number | null | undefined
 }
 
@@ -403,17 +401,13 @@ export interface ProcessedEvent {
     person_created_at: DateTime | null
     person_mode: PersonMode
     historical_migration?: boolean
-    /** dmat column values keyed by ClickHouse column name (e.g. `dmat_string_3`) — populated
-     * only for properties whose slot is READY or BACKFILL. Spread into the Kafka payload so
-     * the events_json MV lands them in the right columns. */
+    /** dmat columns keyed by ClickHouse column name (e.g. `dmat_string_3`). */
     dmat_columns?: Record<string, string>
 }
 
 /**
- * One row of a team's dmat slot configuration. Only loaded for slots with a non-null
- * `slot_index` (PENDING slots are skipped — they have no column yet). When
- * `compaction_target_slot_index` is set, ingestion dual-writes to both columns until the
- * weekly mutation backfills the new one and the workflow swaps them.
+ * One row of a team's dmat slot config. `compaction_target_slot_index` set = ingestion
+ * dual-writes to both columns until the workflow swaps them post-mutation.
  */
 export interface MaterializedColumnSlot {
     property_name: string

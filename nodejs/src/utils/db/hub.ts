@@ -14,7 +14,6 @@ import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
-import { DmatKillSwitch } from '../dmat-kill-switch'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
@@ -69,8 +68,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     logger.info('👍', `Cookieless Redis ready`)
 
     const teamManager = new TeamManager(postgres)
-    const dmatKillSwitch = new DmatKillSwitch(redisPool)
-    const materializedColumnSlotManager = new MaterializedColumnSlotManager(postgres, dmatKillSwitch)
+    const materializedColumnSlotManager = new MaterializedColumnSlotManager(postgres)
     logger.info('🤔', `Connecting to PostHog Redis...`)
     const posthogRedisPool = createRedisPoolFromConfig({
         connection: createPosthogRedisConnectionConfig(serverConfig),

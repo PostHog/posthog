@@ -244,19 +244,14 @@ Loads only `state IN ('READY','BACKFILL')` and `slot_index IS NOT NULL` rows. Jo
 `posthog_propertydefinition` to pick up `property_name` (the slot table only stores
 the FK).
 
-If a `DmatKillSwitch` is wired in, every `getSlots*` call short-circuits to `[]`
-when the switch is on — the rest of the pipeline already does nothing when the slot
-list is empty, so the kill switch cascades through with no per-event branch.
+There is no dedicated kill switch. To stop dmat ingestion in an emergency, an operator
+bulk-transitions slots back to `PENDING` with `slot_index = NULL`. The slot manager's
+`state IN ('READY','BACKFILL')` filter naturally excludes them within ~2.5 min, and
+HogQL's READY-only filter excludes them immediately on the read side. Recovery is the
+existing Sunday allocation workflow — no extra machinery. Runbook in
+`docs/internal/dmat-deployment.md`.
 
-### 6.2 Kill switch (`utils/dmat-kill-switch.ts`)
-
-Mirrors the existing `EventIngestionRestrictionManager` pattern. A
-`BackgroundRefresher<boolean>` polls Redis (key `dmat_kill_switch`, anything
-non-empty = disabled) every 60 s. `isDisabled()` is sync and hot-path-safe. Default
-on Redis failure is **enabled** (fail-open) — the alternative would silently kill
-all dmat ingestion every time Redis hiccups.
-
-### 6.3 Pipeline wiring
+### 6.2 Pipeline wiring
 
 Three pieces:
 
@@ -283,7 +278,7 @@ The slot manager is added to `Hub` and constructed in `utils/db/hub.ts`. Every
 analytics pipeline (event subpipeline, joined pipeline, per-distinct-id pipeline,
 error tracking pipeline + their `testing-` variants) plumbs it through.
 
-### 6.4 The cross-language coercion contract — load-bearing
+### 6.3 The cross-language coercion contract — load-bearing
 
 Three code paths must produce byte-identical strings for the same input:
 
@@ -424,8 +419,7 @@ Where to look for behavior:
 - `test_coercion_parity.py` — runs real CH mutations against the fixture.
 - `nodejs/src/worker/ingestion/create-event.dmat.test.ts` — TS-side coercion
   parity, dual-write during compaction.
-- `nodejs/src/utils/materialized-column-slot-manager.test.ts` — kill-switch + team
-  isolation.
-- `nodejs/src/utils/dmat-kill-switch.test.ts` — fail-open default + Redis flip.
+- `nodejs/src/utils/materialized-column-slot-manager.test.ts` — team isolation +
+  state-filter SQL.
 - `posthog/hogql/transforms/test/test_property_types_dmat.py` — dmat-vs-JSON
   read-path parity for every property type.
