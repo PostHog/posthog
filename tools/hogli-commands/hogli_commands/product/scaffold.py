@@ -27,9 +27,32 @@ def flatten_structure(files: dict, prefix: str = "", result: dict | None = None)
     return result
 
 
-def _render_template(template: str, product_name: str) -> str:
+def _team_scope_template_vars(*, separate_db: bool) -> dict[str, str]:
+    """Pick the right team-scoped base class for the chosen DB layout.
+
+    Separate-DB products can't FK to Team across databases, so they use
+    `ProductTeamModel` (team_id as BigIntegerField). Main-DB products use
+    `TeamScopedRootMixin` and declare a regular FK on the subclass. Both
+    bundle `TeamScopedManager` so models start fail-closed.
+    """
+    if separate_db:
+        return {
+            "team_base_mixin": "ProductTeamModel",
+            "team_base_import": "from posthog.models.scoping.product_mixin import ProductTeamModel",
+        }
+    return {
+        "team_base_mixin": "TeamScopedRootMixin",
+        "team_base_import": "from posthog.models.scoping.root_mixin import TeamScopedRootMixin",
+    }
+
+
+def _render_template(template: str, product_name: str, *, separate_db: bool) -> str:
     pascal_name = "".join(word.capitalize() for word in product_name.split("_"))
-    return template.format(product=product_name, Product=pascal_name)
+    return template.format(
+        product=product_name,
+        Product=pascal_name,
+        **_team_scope_template_vars(separate_db=separate_db),
+    )
 
 
 def _register_in_file(
@@ -148,6 +171,38 @@ def _write_product_yaml(product_dir: Path, display_name: str, owners: list[str],
     click.echo(f"\n  Created product.yaml (name={display_name!r}, owners={owners})")
 
 
+def _prompt_for_separate_db(name: str) -> tuple[bool, str | None]:
+    """Ask the operator whether the new product gets its own database.
+
+    Returns (separate_db, db_name). `db_name` is None when the operator
+    opts to share the main DB. Asked up front (before file generation)
+    so the model template can branch on the answer — separate-DB needs
+    `ProductTeamModel`, main-DB needs `TeamScopedRootMixin`.
+    """
+    click.echo(
+        "\n  Products get their own database by default — this isolates locks, "
+        "connections, and migrations so one product can't bring down the app. "
+        "This is new but fully working. Reach out in #team-devex with questions."
+    )
+    click.secho(
+        "  ⚠ Adding a route here is only the Django side. The database must also "
+        "be provisioned by #team-infrastructure (Terraform + charts).",
+        fg="yellow",
+    )
+    existing_dbs = _get_existing_databases()
+    if existing_dbs:
+        click.echo(f"  Existing databases: {', '.join(existing_dbs)}")
+        click.echo("  You can share a database with another product from the same team.")
+
+    if click.confirm("  Skip separate database?", default=False):
+        click.echo("  Using the main database. Models will inherit TeamScopedRootMixin.")
+        return False, None
+
+    db_name = click.prompt("  Database name", default=name, show_default=True)
+    click.echo(f"  Using separate database '{db_name}'. Models will inherit ProductTeamModel.")
+    return True, db_name
+
+
 def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
     if not _VALID_PRODUCT_NAME_RE.match(name):
         raise click.ClickException(
@@ -157,6 +212,13 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
 
     if product_dir.exists() and not force:
         raise click.ClickException(f"Product '{name}' already exists at {product_dir}. Use --force to overwrite.")
+
+    # Resolve the DB layout up front so file rendering can branch on it.
+    # Dry-run defaults to separate-DB to mirror the previous preview output.
+    if dry_run:
+        separate_db, db_name = True, name
+    else:
+        separate_db, db_name = _prompt_for_separate_db(name)
 
     structure = load_structure()
     created: list[str] = []
@@ -171,7 +233,7 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
         if file_path.exists() and not force:
             skipped.append(path)
             continue
-        file_path.write_text(_render_template(config.get("template", ""), name))
+        file_path.write_text(_render_template(config.get("template", ""), name, separate_db=separate_db))
         created.append(path)
 
     for path, config in flatten_structure(structure.get("backend_files", {})).items():
@@ -184,7 +246,7 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
         if file_path.exists() and not force:
             skipped.append(label)
             continue
-        file_path.write_text(_render_template(config.get("template", ""), name))
+        file_path.write_text(_render_template(config.get("template", ""), name, separate_db=separate_db))
         created.append(label)
 
     for folder_name in structure.get("frontend_files", {}).keys():
@@ -225,30 +287,7 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
     _add_to_frontend_package_json(name, dry_run=dry_run)
     _add_to_django_settings(name, dry_run=dry_run)
 
-    if dry_run:
-        _add_to_db_routing(name, name, dry_run=True)
-    else:
-        click.echo(
-            "\n  Products get their own database by default — this isolates locks, "
-            "connections, and migrations so one product can't bring down the app. "
-            "This is new but fully working. Reach out in #team-devex with questions."
-        )
-        click.secho(
-            "  ⚠ Adding a route here is only the Django side. The database must also "
-            "be provisioned by #team-infrastructure (Terraform + charts).",
-            fg="yellow",
-        )
-        existing_dbs = _get_existing_databases()
-        if existing_dbs:
-            click.echo(f"  Existing databases: {', '.join(existing_dbs)}")
-            click.echo("  You can share a database with another product from the same team.")
-
-        if click.confirm("  Skip separate database?", default=False):
-            click.echo("  Skipped. You can add it later in products/db_routing.yaml.")
-        else:
-            db_name = click.prompt(
-                "  Database name",
-                default=name,
-                show_default=True,
-            )
-            _add_to_db_routing(name, db_name, dry_run=False)
+    if separate_db and db_name is not None:
+        _add_to_db_routing(name, db_name, dry_run=dry_run)
+    elif not dry_run:
+        click.echo("  Skipped db_routing entry. Models live in the main database.")

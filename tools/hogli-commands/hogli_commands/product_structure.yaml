@@ -109,9 +109,13 @@ backend_files:
             from django.db import models
 
             from posthog.models.utils import UUIDModel
+            {team_base_import}
 
-            # Define your models here
-            # Important: 
+            # Define your models here.
+            # Important:
+            # - Inherit from {team_base_mixin} so models opt into fail-closed team scoping.
+            #   Queries without team context raise TeamScopeError instead of silently returning
+            #   every team's rows. See posthog/models/scoping/README.md for the contract.
             # - Keep models thin, no business logic, use logic.py instead
             # - Use types from facade/contracts.py or facade/enums.py where applicable
             # - Do not use ForeignKeys to models outside this app unless allowed, as you will make implicit dependencies.

@@ -56,6 +56,20 @@ def my_task(team_id: int):
 
 ## Adoption
 
+### New main-DB model
+
+Use `TeamScopedRootMixin` as the abstract base. It bundles `RootTeamMixin` (canonical-team save() rewrite) with `objects = TeamScopedManager()`. Subclasses still declare their own `team` FK so cascade behavior stays per-model.
+
+```python
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+
+class Campaign(TeamScopedRootMixin):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+```
+
+`hogli product:bootstrap` scaffolds new products with this base by default. CI enforces it: any new team-scoped model on a non-fail-closed manager (i.e., not in `posthog/models/scoping/baseline_unmigrated.txt`) fails `check-idor-model-coverage.py`.
+
 ### New product on a separate database
 
 Use `ProductTeamModel` as the abstract base. It declares `team_id` as a `BigIntegerField` (no FK, since cross-DB FKs aren't supported), wires `objects = TeamScopedManager()`, and overrides `save()` to rewrite to canonical.
@@ -68,16 +82,22 @@ class Repo(ProductTeamModel):
     # team_id inherited — BigIntegerField, indexed, no FK
 ```
 
-### Existing main-DB model
+### Migrating an existing main-DB model
 
-Keep your `RootTeamMixin` (it already declares `team` as `ForeignKey("Team", ...)` and rewrites on save). Swap the manager:
+Existing models on plain `RootTeamMixin` are tracked in `baseline_unmigrated.txt`. To migrate one:
 
 ```python
-class FeatureFlag(RootTeamMixin):                # unchanged — handles save() + FK
-    objects = TeamScopedManager()                # was RootTeamManager() — adds enforcement
+class FeatureFlag(TeamScopedRootMixin):          # was RootTeamMixin — adds enforcement
+    team = models.ForeignKey("posthog.Team", ...)
 ```
 
-The manager is the same class for both worlds — `ProductTeamModel` and `RootTeamMixin` differ only in how `team_id` is stored (FK vs BigInt). Migrating any existing model means swapping its manager and auditing every call site to either be inside team scope or use `.unscoped()`.
+Then audit every call site to either be inside team scope or use `.unscoped()`, and regenerate the baseline:
+
+```bash
+python .github/scripts/check-idor-model-coverage.py --regenerate-baseline
+```
+
+The migrated model drops out of `baseline_unmigrated.txt` automatically (introspection sees the new manager). The manager class is the same for both worlds — `TeamScopedRootMixin`, `ProductTeamModel`, and ad-hoc `objects = TeamScopedManager()` declarations all read the same ContextVar.
 
 ### Celery tasks against models still on RootTeamManager
 
