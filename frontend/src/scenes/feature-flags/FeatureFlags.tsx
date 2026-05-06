@@ -412,7 +412,13 @@ export function OverViewTab({
                                 )}
                             </>
                         }
-                        description={featureFlag.name}
+                        description={
+                            featureFlag.name ? (
+                                <Tooltip title={featureFlag.name} delayMs={500}>
+                                    <div className="line-clamp-2 max-w-[30rem]">{featureFlag.name}</div>
+                                </Tooltip>
+                            ) : undefined
+                        }
                     />
                 )
             },
@@ -433,15 +439,15 @@ export function OverViewTab({
         updatedAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         {
             title: 'Release conditions',
-            width: 100,
+            width: 280,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 const releaseText = groupFilters(featureFlag.filters, undefined, aggregationLabel)
                 const variants = featureFlag.filters?.multivariate?.variants
                 const isMultivariate = variants && variants.length > 0
 
                 return (
-                    <div className="space-y-1">
-                        <div>
+                    <div className="max-w-[280px] space-y-1 overflow-x-auto">
+                        <div className="whitespace-nowrap">
                             {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
                                 <LemonTag type="highlight">{releaseText}</LemonTag>
                             ) : (
@@ -449,7 +455,7 @@ export function OverViewTab({
                             )}
                         </div>
                         {isMultivariate && (
-                            <div className="flex flex-wrap gap-1">
+                            <div className="flex gap-1">
                                 {variants.map((variant) => (
                                     <span key={variant.key}>
                                         <LemonTag type="muted" size="small">
