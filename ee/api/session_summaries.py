@@ -1,12 +1,15 @@
 import os
 import re
+import json
 import asyncio
+from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Func, IntegerField, QuerySet
+from django.http import StreamingHttpResponse
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -30,6 +33,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.renderers import ServerSentEventRenderer
 from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
 from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
 from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
@@ -49,6 +53,7 @@ from ee.hogai.session_summaries.tracking import (
     generate_tracking_id,
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.hogai.utils.aio import async_to_sync as async_generator_to_sync
 from ee.models.session_summaries import SessionGroupSummary
 from ee.models.team_session_summaries_config import PRODUCT_CONTEXT_MAX_LENGTH, TeamSessionSummariesConfig
 
@@ -74,6 +79,12 @@ _PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", r
 # returned False (no events / recording too short). Kept here as a module-level constant so the coupling
 # between the workflow's exception text and the API-layer classification is explicit and grep-able.
 _NO_READY_SUMMARY_ERROR_SUBSTRING = "No ready summary found in DB"
+
+# Cap on concurrent in-flight per-session summary tasks within a single streaming request.
+# Each task triggers a Temporal workflow that issues ClickHouse + LLM provider calls, so an
+# unbounded fan-out (e.g. 300 sessions in one batch) can spike both. 10 keeps backpressure
+# reasonable while still amortizing latency for typical batch sizes.
+_STREAM_BATCH_CONCURRENCY = 10
 
 
 class SessionSummariesConfigSerializer(serializers.ModelSerializer):
@@ -399,6 +410,120 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.APIException(
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
             )
+
+    @extend_schema(exclude=True)
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="stream_batch",
+        required_scopes=["session_recording:read"],
+        renderer_classes=[ServerSentEventRenderer],
+    )
+    def stream_batch_session_summaries(self, request: Request, **kwargs) -> StreamingHttpResponse:
+        user = self._validate_user(request)
+        # Use _parse_input (not _validate_input) — the individual flow must surface bad
+        # session IDs as per-session error events, not fail the whole batch up front.
+        session_ids, extra_summary_context = self._parse_input(request)
+        tracking_id = generate_tracking_id()
+        team = self.team
+
+        capture_session_summary_started(
+            user=user,
+            team=team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            session_ids=session_ids,
+        )
+
+        async def async_stream() -> AsyncGenerator[bytes, None]:
+            SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
+            SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
+
+            sem = asyncio.Semaphore(_STREAM_BATCH_CONCURRENCY)
+            pending: set[asyncio.Task[tuple[str, SessionSummarySerializer | Exception]]] = set()
+            for session_id in session_ids:
+
+                async def _run(sid: str = session_id) -> tuple[str, SessionSummarySerializer | Exception]:
+                    async with sem:
+                        result = await self._summarize_session(
+                            session_id=sid,
+                            user=user,
+                            team=team,
+                            extra_summary_context=extra_summary_context,
+                        )
+                    return sid, result
+
+                pending.add(asyncio.create_task(_run()))
+
+            completed_ids: list[str] = []
+            failed_ids: list[str] = []
+
+            try:
+                while pending:
+                    done, pending = await asyncio.wait(
+                        pending, timeout=SSE_KEEPALIVE_INTERVAL, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if not done:
+                        yield SSE_KEEPALIVE_COMMENT
+                        continue
+
+                    for task in done:
+                        sid, result = task.result()
+                        if isinstance(result, Exception):
+                            error_type, error_message = self._classify_summary_error(result)
+                            # _summarize_session returns exceptions as values, so we're not in an except
+                            # block here — sys.exc_info() is empty. Pass exc_info=result explicitly so
+                            # the traceback isn't dropped.
+                            logger.error(
+                                f"Failed to generate streaming session summary for session {sid} from team {team.pk} by user {user.id}: {result}",
+                                team_id=team.pk,
+                                user_id=user.id,
+                                error_type=error_type,
+                                exc_info=result,
+                            )
+                            failed_ids.append(sid)
+                            event_data = json.dumps(
+                                {
+                                    "session_id": sid,
+                                    "error": error_type,
+                                    "error_message": error_message,
+                                }
+                            )
+                            yield f"event: error\ndata: {event_data}\n\n".encode()
+                        else:
+                            completed_ids.append(sid)
+                            event_data = json.dumps({"session_id": sid, "summary": result.data})
+                            yield f"event: summary\ndata: {event_data}\n\n".encode()
+            finally:
+                # Cancel still-running tasks on client disconnect or any other early exit
+                # to avoid wasting Temporal workflow + LLM calls.
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+
+            capture_session_summary_generated(
+                user=user,
+                team=team,
+                tracking_id=tracking_id,
+                summary_source="api",
+                summary_type="single",
+                session_ids=session_ids,
+                success=len(failed_ids) == 0,
+            )
+
+            done_data = json.dumps({"completed": completed_ids, "failed": failed_ids})
+            yield f"event: done\ndata: {done_data}\n\n".encode()
+
+        return StreamingHttpResponse(
+            (async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)),
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @extend_schema(
         methods=["GET"],
