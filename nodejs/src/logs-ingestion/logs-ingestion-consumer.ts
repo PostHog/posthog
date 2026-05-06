@@ -11,7 +11,7 @@ import { AppMetricsOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import type { LogsSettings } from '~/types'
 
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { HealthCheckResult, PluginServerService } from '../types'
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
@@ -120,7 +120,7 @@ export const logsSamplingRecordsDroppedCounter = new Counter({
 
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
@@ -142,7 +142,7 @@ export class LogsIngestionConsumer {
 
         this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs)
 
-        this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
+        this.kafkaConsumer = createKafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support
         this.redis = createRedisV2PoolFromConfig({
             connection:

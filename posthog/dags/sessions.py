@@ -340,7 +340,7 @@ def _do_backfill(
                     if team_id_chunks > 1:
                         chunk_where_clause = f"({where_clause}) AND team_id % {team_id_chunks} = {chunk_i}"
                         context.log.info(
-                            f"Processing chunk {chunk_i + 1}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
+                            f"Processing chunk {chunk_i}/{team_id_chunks} (team_id % {team_id_chunks} = {chunk_i})"
                         )
                     else:
                         chunk_where_clause = where_clause
@@ -356,7 +356,7 @@ def _do_backfill(
                     sync_execute(backfill_sql, settings=merged_settings, sync_client=client)
 
                     if team_id_chunks > 1:
-                        context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+                        context.log.info(f"Completed chunk {chunk_i}/{team_id_chunks}")
 
             context.log.info(f"Completed backfill on shard {shard_num}")
 
@@ -617,11 +617,9 @@ def _raise_failure(
 ) -> NoReturn:
     """Re-raise an exception as dagster.Failure with progress metadata."""
     if sub_chunk_i is not None:
-        description = (
-            f"Failed on sub-chunk {sub_chunk_i + 1}/{total_sub_chunks} of chunk {chunk_i + 1}/{num_chunks}: {exc}"
-        )
+        description = f"Failed on sub-chunk {sub_chunk_i}/{total_sub_chunks} of chunk {chunk_i}/{num_chunks}: {exc}"
     else:
-        description = f"Failed on chunk {chunk_i + 1}/{num_chunks}: {exc}"
+        description = f"Failed on chunk {chunk_i}/{num_chunks}: {exc}"
 
     metadata: dict[str, dagster.MetadataValue] = {
         "failed_chunk_index": dagster.MetadataValue.int(chunk_i),
@@ -708,7 +706,7 @@ def _do_experimental_backfill(
                 if num_chunks > 1:
                     chunk_condition = chunk_where_fn(chunk_i)
                     chunk_where_clause = f"({where_clause}) AND {chunk_condition}"
-                    context.log.info(f"Processing chunk {chunk_i + 1}/{num_chunks} ({chunk_condition})")
+                    context.log.info(f"Processing chunk {chunk_i}/{num_chunks} ({chunk_condition})")
                 else:
                     chunk_where_clause = where_clause
 
@@ -728,14 +726,14 @@ def _do_experimental_backfill(
                         merged_settings,
                         target_table,
                         parts_retry_state,
-                        f"chunk {chunk_i + 1}/{num_chunks}",
+                        f"chunk {chunk_i}/{num_chunks}",
                     )
                 except Exception as e:
                     if not _is_oom_error(e):
                         _raise_failure(context, chunk_i, num_chunks, partition_range_str, e)
 
                     context.log.warning(
-                        f"OOM error on chunk {chunk_i + 1}/{num_chunks}, "
+                        f"OOM error on chunk {chunk_i}/{num_chunks}, "
                         f"retrying by splitting into {OOM_RETRY_SUB_CHUNKS} sub-chunks: {e}"
                     )
 
@@ -763,7 +761,7 @@ def _do_experimental_backfill(
                             include_session_timestamp=True,
                         )
                         context.log.info(
-                            f"Running sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i + 1}/{num_chunks}"
+                            f"Running sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i}/{num_chunks}"
                         )
                         context.log.info(sub_sql)
                         try:
@@ -775,7 +773,7 @@ def _do_experimental_backfill(
                                 merged_settings,
                                 target_table,
                                 parts_retry_state,
-                                f"chunk {chunk_i + 1}/{num_chunks} sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS}",
+                                f"chunk {chunk_i}/{num_chunks} sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS}",
                             )
                         except Exception as sub_e:
                             _raise_failure(
@@ -788,11 +786,11 @@ def _do_experimental_backfill(
                                 total_sub_chunks=OOM_RETRY_SUB_CHUNKS,
                             )
                         context.log.info(
-                            f"Completed sub-chunk {sub_i + 1}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i + 1}/{num_chunks}"
+                            f"Completed sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i}/{num_chunks}"
                         )
 
                 if num_chunks > 1:
-                    context.log.info(f"Completed chunk {chunk_i + 1}/{num_chunks}")
+                    context.log.info(f"Completed chunk {chunk_i}/{num_chunks}")
 
                 _save_completed_chunk(asset_name, partition_key, chunk_i)
 

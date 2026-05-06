@@ -248,6 +248,23 @@ class DataDeletionRequest(UUIDModel):
         "scheduled deletes_job drains them. Only honored for event_removal.",
     )
 
+    # Execution tracking
+    attempt_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of times execution has been attempted. "
+        "Incremented when a load_* op transitions the request to IN_PROGRESS.",
+    )
+    first_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When execution was first attempted (set on the first APPROVED → IN_PROGRESS transition).",
+    )
+    last_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
+    )
+
     class Meta:
         ordering = ["-created_at"]
 

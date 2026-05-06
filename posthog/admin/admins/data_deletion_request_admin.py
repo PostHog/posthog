@@ -349,6 +349,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "end_time",
         "created_by",
         "approved",
+        "attempt_count",
+        "last_executed_at",
         "created_at",
     )
     list_filter = ("request_type", "status", "requires_approval", "approved")
@@ -371,6 +373,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "approved_by",
         "approved_at",
         "execution_mode",
+        "attempt_count",
+        "first_executed_at",
+        "last_executed_at",
         "rendered_count_query",
     )
     ordering = ("-created_at",)
@@ -438,6 +443,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "approved_by",
                     "approved_at",
                     "execution_mode",
+                    "attempt_count",
+                    "first_executed_at",
+                    "last_executed_at",
                 ),
             },
         ),
@@ -530,6 +538,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             extra_context["revert_to_draft_url"] = reverse(
                 "admin:posthog_datadeletionrequest_revert_to_draft", args=[obj.pk]
             )
+            extra_context["can_retry"] = (
+                obj.status == RequestStatus.FAILED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+            )
+            extra_context["retry_url"] = reverse("admin:posthog_datadeletionrequest_retry", args=[obj.pk])
         return super().change_view(request, object_id, form_url, extra_context)
 
     def get_urls(self):
@@ -554,6 +566,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "<path:object_id>/revert-to-draft/",
                 self.admin_site.admin_view(self.revert_to_draft_view),
                 name="posthog_datadeletionrequest_revert_to_draft",
+            ),
+            path(
+                "<path:object_id>/retry/",
+                self.admin_site.admin_view(self.retry_view),
+                name="posthog_datadeletionrequest_retry",
             ),
         ]
         return custom_urls + urls
@@ -752,4 +769,37 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         obj.refresh_from_db()
         self.log_change(request, obj, "Reverted to draft: cleared approval.")
         messages.success(request, "Request moved back to draft.")
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+    def retry_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
+            messages.error(request, "Only ClickHouse Team members can retry deletion requests.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        # Re-promote FAILED → APPROVED so the pickup sensor relaunches the job.
+        # approved_by / approved_at are preserved — the retry re-executes the same approval.
+        # attempt_count and last_executed_at are bumped by the load_* op when execution actually starts.
+        updated = DataDeletionRequest.objects.filter(
+            pk=obj.pk,
+            status=RequestStatus.FAILED,
+        ).update(status=RequestStatus.APPROVED, updated_at=timezone.now())
+
+        if not updated:
+            messages.error(request, "Only failed requests can be retried.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        obj.refresh_from_db()
+        next_attempt = obj.attempt_count + 1
+        self.log_change(request, obj, f"Retry triggered (attempt #{next_attempt}): status FAILED → APPROVED.")
+        messages.success(
+            request,
+            "Request requeued. The pickup sensor will launch a new run on its next tick.",
+        )
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))

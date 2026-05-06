@@ -25,15 +25,31 @@ def _gen_input(generation_id: str = "gen-1", **kwargs) -> ClassifySentimentInput
     return ClassifySentimentInput(team_id=1, ids=[generation_id], analysis_level="generation", **kwargs)
 
 
-_PATCH_HOGQL = "posthog.hogql.query.execute_hogql_query"
+# `ai_table_resolver` imports `execute_hogql_query` at module top, so patching
+# the source module wouldn't reach its local binding. Patch where it's used.
+_PATCH_HOGQL = "posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query"
 _PATCH_TEAM = "posthog.models.team.Team.objects"
 _PATCH_CLASSIFY = "posthog.temporal.llm_analytics.sentiment.model.classify"
+# `fetch_generations_by_uuid` does a uuid → trace_id preflight via the
+# resolver helper before the heavy fetch. Patch the source-module symbol so
+# the inline `from posthog.hogql.query import execute_hogql_query` inside
+# the resolver picks up the mock.
+_PATCH_RESOLVE = "posthog.hogql_queries.ai.trace_id_resolver.resolve_trace_ids_for_generation_uuids"
 
 
 @pytest.fixture(autouse=True)
 def _mock_team():
     with patch(_PATCH_TEAM) as mock_objects:
         mock_objects.get.return_value = MagicMock(id=1)
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _mock_trace_id_resolver():
+    """Resolver returns a synthetic trace_id per input uuid so the heavy fetch
+    isn't short-circuited as 'no generations found in window'."""
+    with patch(_PATCH_RESOLVE) as mock:
+        mock.side_effect = lambda team, generation_uuids, **kw: {u: f"trace-{u}" for u in generation_uuids}
         yield
 
 

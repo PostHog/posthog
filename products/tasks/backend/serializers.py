@@ -790,6 +790,39 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
+TASK_SUMMARIES_MAX_IDS = 5000
+
+
+class TaskSummariesRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=TASK_SUMMARIES_MAX_IDS,
+        help_text=(
+            f"Task IDs to fetch summaries for (max {TASK_SUMMARIES_MAX_IDS}). Response is paginated; "
+            f"follow the `next` cursor to retrieve all results."
+        ),
+    )
+
+
+class TaskRunSummarySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=TaskRun.Status.choices, allow_null=True)
+    environment = serializers.ChoiceField(choices=TaskRun.Environment.choices, allow_null=True)
+
+
+class TaskSummarySerializer(serializers.ModelSerializer):
+    latest_run = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Task
+        fields = ["id", "title", "repository", "created_at", "updated_at", "latest_run"]
+        read_only_fields = fields
+
+    @extend_schema_field(TaskRunSummarySerializer(allow_null=True))
+    def get_latest_run(self, obj):
+        return getattr(obj, "_latest_run", None)
+
+
 class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 
@@ -812,7 +845,7 @@ class TaskListQuerySerializer(serializers.Serializer):
     )
     internal = serializers.BooleanField(
         required=False,
-        help_text="When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.",
+        help_text="When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.",
     )
 
 

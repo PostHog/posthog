@@ -327,6 +327,7 @@ export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    active_realtime_notification_types?: readonly string[]
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -414,6 +415,7 @@ export interface NotificationSettings {
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
+    realtime_notifications_disabled?: Record<string, Record<string, boolean>>
 }
 
 export interface InAppNotification {
@@ -4590,6 +4592,10 @@ export interface Experiment {
         frequentist?: {
             alpha?: number
         }
+        cuped?: {
+            enabled?: boolean
+            lookback_days?: number
+        }
     }
     scheduling_config?: {
         timeseries?: boolean
@@ -5545,6 +5551,9 @@ export type CommentType = {
     item_context: Record<string, any> | null
     /** only on the type to support patching for soft delete */
     deleted?: boolean
+    is_task: boolean
+    completed_at: string | null
+    completed_by: UserBasicType | null
 }
 
 export type CommentCreationParams = { mentions?: number[]; slug?: string }

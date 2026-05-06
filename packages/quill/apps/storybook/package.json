@@ -25,6 +25,7 @@
         "@storybook/react": "catalog:",
         "@storybook/react-vite": "^7.6.4",
         "@storybook/test-runner": "^0.16.0",
+        "@storybook/theming": "^7.6.20",
         "@tailwindcss/vite": "^4.1.17",
         "@types/jest-image-snapshot": "^6.4.0",
         "@types/react": "^19.2.14",
@@ -33,6 +34,7 @@
         "jest-image-snapshot": "^6.4.0",
         "storybook": "^7.6.4",
         "storybook-addon-pseudo-states": "2.1.2",
+        "storybook-dark-mode": "3.0.3",
         "typescript": "catalog:",
         "vite": "^5.4.21"
     }

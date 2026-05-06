@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -20,7 +19,6 @@ const meta: Meta = {
         testOptions: {
             includeNavigationInSnapshot: true,
         },
-        featureFlags: [FEATURE_FLAGS.WEB_EXPERIMENTS],
         viewMode: 'story',
         mockDate: '2024-01-01',
     },

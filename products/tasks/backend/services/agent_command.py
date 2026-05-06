@@ -18,6 +18,11 @@ CANCEL_TIMEOUT_SECONDS = 10
 # Refresh triggers a query.interrupt() + resume with a 30s SDK timeout on the
 # agent-server, so we need more headroom than a plain command.
 REFRESH_TIMEOUT_SECONDS = 45
+# Follow-up delivery blocks until the agent has fully ingested the new turn,
+# which can take a while. Must stay below the activity's start_to_close_timeout
+# so a hung socket doesn't keep a worker thread blocked after Temporal has
+# already abandoned the activity.
+FOLLOWUP_TIMEOUT_SECONDS = 30 * 60  # 30 min
 
 REFRESH_SESSION_METHOD = "_posthog/refresh_session"
 

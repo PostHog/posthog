@@ -75,6 +75,8 @@ def _make_compare_result(thumbnail: bytes = b"fake-webp") -> CompareResult:
         height=600,
         thumbnail=thumbnail,
         thumbnail_hash="thumb_hash_auto",
+        size_mismatch=False,
+        cluster_summary=None,
     )
 
 

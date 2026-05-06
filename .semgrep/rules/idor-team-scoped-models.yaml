@@ -63,6 +63,7 @@ rules:
                               |ApprovalPolicy
                               |BatchExport
                               |BatchExportBackfill
+                              |BatchExportFileDownload
                               |BatchImport
                               |ButtonTile
                               |ChangeRequest
@@ -105,6 +106,7 @@ rules:
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
+                              |ErrorTrackingSettings
                               |ErrorTrackingSpikeDetectionConfig
                               |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
@@ -272,6 +274,7 @@ rules:
                         |ApprovalPolicy
                         |BatchExport
                         |BatchExportBackfill
+                        |BatchExportFileDownload
                         |BatchImport
                         |ButtonTile
                         |ChangeRequest
@@ -314,6 +317,7 @@ rules:
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
+                        |ErrorTrackingSettings
                         |ErrorTrackingSpikeDetectionConfig
                         |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
