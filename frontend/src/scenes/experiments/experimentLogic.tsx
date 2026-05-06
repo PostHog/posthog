@@ -1503,12 +1503,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
-                    // Make experiment eligible for timeseries
-                    const schedulingConfig = {
-                        ...values.experiment?.scheduling_config,
-                        timeseries: true,
-                    }
-
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -1527,7 +1521,6 @@ export const experimentLogic = kea<experimentLogicType>([
                                 : values.experiment?.parameters,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
-                        scheduling_config: schedulingConfig,
                     })
 
                     if (response) {

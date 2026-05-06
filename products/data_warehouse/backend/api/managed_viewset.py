@@ -17,7 +17,9 @@ class DataWarehouseManagedViewSetSerializer(serializers.Serializer):
 
 
 class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    scope_object = "INTERNAL"
+    # warehouse_view inherits from warehouse_objects; `update` (enable/disable) creates or
+    # deletes saved queries project-wide, so it must require warehouse editor rights.
+    scope_object = "warehouse_view"
     serializer_class = _FallbackSerializer
     lookup_field = "kind"
     lookup_url_kwarg = "kind"

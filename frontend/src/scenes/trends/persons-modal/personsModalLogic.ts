@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { assignField, isGroupType, isSessionType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -458,6 +459,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 if (!query) {
                     return null
                 }
+                const sourceTags = { ...query.source?.tags, ...query.tags }
+                const activeScene = sceneLogic.findMounted()?.values.activeSceneId
+                const tags = {
+                    ...sourceTags,
+                    ...(activeScene && !sourceTags.scene ? { scene: activeScene } : {}),
+                }
                 return setLatestVersionsOnQuery(
                     {
                         kind: NodeKind.ActorsQuery,
@@ -465,6 +472,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         select: selectFields,
                         orderBy: orderBy || [],
                         search: searchTerm,
+                        ...(Object.keys(tags).length > 0 ? { tags } : {}),
                     },
                     { recursion: false }
                 )

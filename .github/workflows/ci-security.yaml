@@ -131,6 +131,29 @@ jobs:
                     --verbose \
                     frontend/ nodejs/ services/mcp/ services/oauth-proxy/ services/stripe-app/
 
+    semgrep-products-frontend:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        container:
+            image: semgrep/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            # Single-rule scan — keeps the failure surface here aligned with the
+            # job name. Other custom TS rules (no-direct-fuse-instantiation,
+            # require-iframe-sandbox, ...) live in semgrep-js. When more
+            # product-specific rules land, extend the --config list explicitly.
+            - name: Run Semgrep
+              run: |
+                  semgrep \
+                    --config ".semgrep/rules/prefer-codegen-api.yaml" \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    products/
+
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
         runs-on: ubuntu-latest
@@ -185,7 +208,14 @@ jobs:
                   semgrep --test .semgrep/
 
     semgrep_checks:
-        needs: [semgrep-python, semgrep-go, semgrep-rust, semgrep-js, semgrep-general, semgrep-test-rules]
+        needs:
+            - semgrep-python
+            - semgrep-go
+            - semgrep-rust
+            - semgrep-js
+            - semgrep-products-frontend
+            - semgrep-general
+            - semgrep-test-rules
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -207,6 +237,10 @@ jobs:
                   fi
                   if [[ "${{ needs.semgrep-js.result }}" != "success" && "${{ needs.semgrep-js.result }}" != "skipped" ]]; then
                     echo "semgrep-js did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-products-frontend.result }}" != "success" && "${{ needs.semgrep-products-frontend.result }}" != "skipped" ]]; then
+                    echo "semgrep-products-frontend did not complete successfully."
                     exit 1
                   fi
                   if [[ "${{ needs.semgrep-general.result }}" != "success" && "${{ needs.semgrep-general.result }}" != "skipped" ]]; then

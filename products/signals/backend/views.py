@@ -62,6 +62,8 @@ from products.signals.backend.models import (
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
     get_org_member_github_logins_by_user_uuid,
+    normalized_github_logins_from_suggested_reviewer_artefacts,
+    resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
@@ -522,6 +524,7 @@ class SignalReportViewSet(
         # and checking jsonb containment on the artefact content list. This stays fresh
         # even when a user connects their GitHub account after the report was generated.
         # Never true for ready + not_actionable — there is nothing actionable to review.
+        # Failed reports are excluded too — pipelines that errored should not bubble as "needs your review".
         github_login = self._get_github_login(self.request.user)
         if not github_login:
             return queryset.annotate(is_suggested_reviewer=Value(False))
@@ -540,6 +543,7 @@ class SignalReportViewSet(
         return queryset.annotate(
             is_suggested_reviewer=Case(
                 When(self._Q_READY_NOT_ACTIONABLE, then=Value(False)),
+                When(status=SignalReport.Status.FAILED, then=Value(False)),
                 default=suggested_exists,
                 output_field=BooleanField(),
             ),
@@ -771,14 +775,19 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
-        artefacts = report.artefacts.all().order_by("-created_at")
-        serializer = SignalReportArtefactSerializer(artefacts, many=True)
-        return Response(
-            {
-                "results": serializer.data,
-                "count": len(serializer.data),
-            }
+        artefacts = list(report.artefacts.all().order_by("-created_at"))
+        logins_union = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
+        login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
+        serializer = SignalReportArtefactSerializer(
+            artefacts,
+            many=True,
+            context={
+                **self.get_serializer_context(),
+                "signals_github_login_to_user_map": login_map,
+            },
         )
+        results = serializer.data
+        return Response({"results": results, "count": len(results)})
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])

@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { LineChart, ReferenceLine, ValueLabels } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, LineChart, ReferenceLine, ValueLabels } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
 import { ciRanges, trendLine } from 'lib/statistics'
 
@@ -147,7 +147,7 @@ export const HoveringInterior: Story = {
     },
 }
 
-/** Multi-series hover with one series hidden from the tooltip via `fromTooltip`. */
+/** Multi-series hover with one series hidden from the tooltip via `tooltip: false`. */
 export const HoveringMultiSeries: Story = {
     parameters: { layout: 'fullscreen' },
     render: () => {
@@ -160,7 +160,8 @@ export const HoveringMultiSeries: Story = {
                 color: theme.colors[6],
                 data: DAYS.map(() => 30),
                 stroke: { pattern: [4, 4] },
-                visibility: { fromTooltip: true, fromStack: true },
+                overlay: true,
+                visibility: { tooltip: false },
             },
         ]
         return (
@@ -189,11 +190,11 @@ export const VisibilityFlags: Story = {
         const cases: { title: string; series: Series[] }[] = [
             { title: 'excluded', series: [base[0], { ...base[1], visibility: { excluded: true } }, base[2]] },
             {
-                title: 'fromValueLabels',
-                series: [base[0], { ...base[1], visibility: { fromValueLabels: true } }, base[2]],
+                title: 'valueLabel: false',
+                series: [base[0], { ...base[1], visibility: { valueLabel: false } }, base[2]],
             },
             {
-                title: 'fromStack (auxiliary)',
+                title: 'overlay (auxiliary)',
                 series: [
                     { ...base[0], fill: { opacity: 0.5 } },
                     { ...base[1], fill: { opacity: 0.5 } },
@@ -203,7 +204,7 @@ export const VisibilityFlags: Story = {
                         color: theme.colors[6],
                         data: [12, 18, 17, 25, 24, 33, 27],
                         stroke: { pattern: [4, 4] },
-                        visibility: { fromStack: true },
+                        overlay: true,
                     },
                 ],
             },
@@ -240,7 +241,7 @@ export const CombinedOverlays: Story = {
                 color,
                 data: upper,
                 fill: { opacity: 0.2, lowerData: lower },
-                visibility: { fromTooltip: true, fromValueLabels: true },
+                visibility: { tooltip: false, valueLabel: false },
             },
             {
                 key: 'visits__trend',
@@ -248,7 +249,8 @@ export const CombinedOverlays: Story = {
                 color,
                 data: trendLine(data),
                 stroke: { pattern: [1, 3] },
-                visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
+                overlay: true,
+                visibility: { tooltip: false, valueLabel: false },
             },
         ]
         return (
@@ -260,6 +262,128 @@ export const CombinedOverlays: Story = {
                 </LineChart>
             </Stage>
         )
+    },
+}
+
+/** Single series spanning a few orders of magnitude — locks in log-axis tick generation. */
+export const LogScale: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'lat', label: 'Latency', color: '', data: [1, 10, 100, 1000, 100, 10, 1] }]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={{ ...BASIC, yScaleType: 'log' }} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Two series with very different magnitudes plotted against independent y-axes. */
+export const DualYAxis: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            {
+                key: 'revenue',
+                label: 'Revenue',
+                color: '',
+                data: [1100, 1300, 1250, 1700, 1500, 1900, 1800],
+                yAxisId: DEFAULT_Y_AXIS_ID,
+            },
+            {
+                key: 'conversion',
+                label: 'Conversion',
+                color: '',
+                data: [0.022, 0.028, 0.025, 0.034, 0.031, 0.038, 0.036],
+                yAxisId: 'y1',
+            },
+        ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Plain line with the trailing segment dashed via stroke.partial — the in-progress tail. */
+export const InProgressTail: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const data = [20, 35, 28, 60, 45, 70, 52]
+        const series: Series[] = [
+            {
+                key: 'visits',
+                label: 'Visits',
+                color: '',
+                data,
+                points: { radius: 3 },
+                stroke: { partial: { fromIndex: data.length - 2 } },
+            },
+        ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** Hovers over the same composition as `CombinedOverlays`. Verifies the tooltip excludes
+ *  the banded fill and the dashed trend overlay (both `tooltip: false`) while the
+ *  crosshair / highlight ring still fire on the main series. */
+export const HoveringOverAuxSeries: Story = {
+    parameters: { layout: 'fullscreen' },
+    render: () => {
+        const theme = useReactiveTheme()
+        const color = theme.colors[0]
+        const data = [20, 35, 28, 60, 45, 70, 52]
+        const [lower, upper] = ciRanges(data, 0.95)
+        const series: Series[] = [
+            { key: 'visits', label: 'Visits', color, data, points: { radius: 3 } },
+            {
+                key: 'visits__ci',
+                label: 'Visits (CI)',
+                color,
+                data: upper,
+                fill: { opacity: 0.2, lowerData: lower },
+                visibility: { tooltip: false, valueLabel: false },
+            },
+            {
+                key: 'visits__trend',
+                label: 'Visits (trend)',
+                color,
+                data: trendLine(data),
+                stroke: { pattern: [1, 3] },
+                overlay: true,
+                visibility: { tooltip: false, valueLabel: false },
+            },
+        ]
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+                <Stage width={560} height={320}>
+                    <LineChart series={series} labels={DAYS} config={HOVER} theme={theme}>
+                        <ReferenceLine value={50} label="Target" variant="goal" />
+                        <ValueLabels />
+                    </LineChart>
+                </Stage>
+            </div>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.5)
+        const tooltip = document.querySelector('[data-hog-charts-tooltip]')
+        if (!tooltip) {
+            throw new Error('tooltip not rendered')
+        }
+        const text = tooltip.textContent ?? ''
+        if (!text.includes('Visits')) {
+            throw new Error(`expected main series in tooltip, got: ${text}`)
+        }
+        if (text.includes('(CI)') || text.includes('(trend)')) {
+            throw new Error(`aux series leaked into tooltip: ${text}`)
+        }
     },
 }
 
