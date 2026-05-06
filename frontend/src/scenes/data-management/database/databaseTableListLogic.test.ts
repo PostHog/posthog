@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
@@ -83,11 +85,12 @@ describe('databaseTableListLogic', () => {
 
         localLogic.unmount()
         resolveQuery?.({ tables: {}, joins: [] })
-
-        // Without the unmount guard, the loader reads `values` post-await on an unmounted
-        // logic and throws `[KEA] Can not find path "..." in the store.`, which would
-        // reject this promise and fail the test.
         await request
+
+        // kea-loaders catches loader exceptions and routes them through posthog.captureException
+        // (see initKea.ts onFailure). Awaiting the asyncAction therefore won't reject — assert on
+        // the production error sink instead.
+        expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
     it('does not let a stale schema response overwrite the selected connection schema', async () => {
