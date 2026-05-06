@@ -316,7 +316,7 @@ class SalesforceStripeEnrichmentWorkflow(PostHogWorkflow):
                 cursor_last_changed_at=state.cursor_last_changed_at,
                 cursor_org_id=state.cursor_org_id,
             ),
-            start_to_close_timeout=dt.timedelta(minutes=30),
+            start_to_close_timeout=dt.timedelta(minutes=90),
             heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3),
         )
