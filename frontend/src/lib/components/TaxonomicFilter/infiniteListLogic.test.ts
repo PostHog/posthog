@@ -10,11 +10,12 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { AppContext, PropertyDefinition, PropertyType } from '~/types'
+import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { infiniteListLogic } from './infiniteListLogic'
+import { hasRecentContext, recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 window.POSTHOG_APP_CONTEXT = {
@@ -870,6 +871,109 @@ describe('infiniteListLogic', () => {
             } else {
                 expect(emptyCalls).toHaveLength(0)
             }
+        })
+    })
+
+    describe('contextFilteredRecentItems with selectingKeyOnly mode', () => {
+        beforeEach(() => {
+            localStorage.clear()
+            recentTaxonomicFiltersLogic.mount()
+        })
+
+        afterEach(() => {
+            recentTaxonomicFiltersLogic.unmount()
+        })
+
+        const recordKeyOnly = (key: string, item: Record<string, any> = { name: key }): void => {
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: key,
+                item: item,
+                selectingKeyOnly: true,
+            })
+        }
+
+        const recordComplete = (key: string, value: string): void => {
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: key,
+                item: { name: key },
+                propertyFilter: {
+                    type: PropertyFilterType.Event,
+                    key,
+                    operator: PropertyOperator.Exact,
+                    value,
+                },
+            })
+        }
+
+        it('strips propertyFilter from recents and dedups by key when selectingKeyOnly is set', () => {
+            recordComplete('$browser', 'Chrome')
+            recordComplete('$browser', 'Safari')
+            recordKeyOnly('$os')
+
+            const listLogic = logicWith({
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                selectingKeyOnly: true,
+            })
+
+            const items = listLogic.values.contextFilteredRecentItems
+            expect(items).toHaveLength(2)
+            for (const item of items) {
+                expect(hasRecentContext(item)).toBe(true)
+                if (hasRecentContext(item)) {
+                    expect(item._recentContext.propertyFilter).toBeUndefined()
+                }
+            }
+            expect(items.map((i) => ('name' in i ? i.name : null))).toEqual(['$os', '$browser'])
+        })
+
+        it('preserves complete recents (with their propertyFilter) when selectingKeyOnly is not set', () => {
+            recordComplete('$browser', 'Chrome')
+
+            const listLogic = logicWith({
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            })
+
+            const items = listLogic.values.contextFilteredRecentItems
+            expect(items).toHaveLength(1)
+            const [item] = items
+            expect(hasRecentContext(item) && item._recentContext.propertyFilter).toBeTruthy()
+        })
+
+        it('dedups by storage value, not by display name (cohorts/actions style)', () => {
+            // Two cohorts have been recorded with the same display name ("Power users") but
+            // distinct ids — they are genuinely different recents. A name-based dedup would
+            // collapse them into one row; sourceValue-based dedup keeps them apart.
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 42,
+                item: { name: 'Power users' },
+                selectingKeyOnly: true,
+            })
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 43,
+                item: { name: 'Power users' },
+                selectingKeyOnly: true,
+            })
+
+            const listLogic = logicWith({
+                listGroupType: TaxonomicFilterGroupType.Cohorts,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+                selectingKeyOnly: true,
+            })
+
+            const items = listLogic.values.contextFilteredRecentItems
+            expect(items).toHaveLength(2)
+            const sourceValues = items.map((i) => hasRecentContext(i) && i._recentContext.sourceValue)
+            expect(new Set(sourceValues)).toEqual(new Set([42, 43]))
         })
     })
 })

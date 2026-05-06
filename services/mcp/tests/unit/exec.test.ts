@@ -6,10 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
-import { buildInstructionsV2 } from '@/lib/instructions'
+import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
-import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
-import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
 import { getToolsFromContext } from '@/tools'
 import { createExecTool, type ExecInnerCallProperties } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -311,23 +309,26 @@ describe('exec tool', () => {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     }
                 })
-            const commandReference = buildInstructionsV2(
-                CLI_PROXY_COMMAND,
-                guidelines,
-                undefined,
-                undefined,
-                toolInfos,
-                queryToolInfos
+            const formatter = new InstructionsFormatter()
+            const commandReference = formatter.buildExecCommandReference(
+                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
+                { stripEnvContext: false }
             )
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
+            const execTool = createExecTool(
+                v2Tools,
+                context,
+                formatter.buildExecToolDescription(),
+                commandReference,
+                undefined
+            )
 
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
         })
 
         // Snapshots the full exec tool definition built from the real v2 tool set:
-        // description (CLI_PROXY_TOOL), annotations, and input schema including the
-        // `command` field description — which embeds the generated `tool_domains`
-        // block. Because `buildToolDomainsBlock` relies on tool-name conventions
+        // description (the `exec-tool-blurb` subprompt), annotations, and input schema
+        // including the `command` field description — which embeds the generated
+        // `tool_domains` block. Because `buildToolDomainsBlock` relies on tool-name conventions
         // (CRUD suffixes, prefix actions, plural collapsing), this snapshot is the
         // canary for any drift in naming or in the domain-extraction logic.
         //
@@ -354,15 +355,18 @@ describe('exec tool', () => {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     }
                 })
-            const commandReference = buildInstructionsV2(
-                CLI_PROXY_COMMAND,
-                guidelines,
-                undefined,
-                undefined,
-                toolInfos,
-                queryToolInfos
+            const formatter = new InstructionsFormatter()
+            const commandReference = formatter.buildExecCommandReference(
+                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
+                { stripEnvContext: false }
             )
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
+            const execTool = createExecTool(
+                v2Tools,
+                context,
+                formatter.buildExecToolDescription(),
+                commandReference,
+                undefined
+            )
 
             const snapshot = {
                 name: execTool.name,

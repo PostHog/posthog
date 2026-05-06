@@ -530,30 +530,43 @@ db:
     db:prime-test-db:
         steps:
             - db:download-schema
-            - db:restore-test-db
+            - db:restore-schema-fresh
         description: Download pre-migrated schema and prime the test_posthog database for
             pytest --reuse-db
         services:
             - postgresql
             - docker
-    db:restore-test-db:
+    db:restore-schema-fresh:
         cmd: |
             set -e
+            TARGET_DB="${TARGET_DB:-test_posthog}"
+            # Validate before interpolating into psql -c. Postgres unquoted identifiers
+            # must start with a letter or underscore, contain only [A-Za-z0-9_], and
+            # fit in NAMEDATALEN-1 (63 chars). Reject anything else outright rather
+            # than trying to escape — callers always pass static names like
+            # `test_posthog` or `posthog_e2e_test`. POSIX-only (no bash `[[ =~ ]]`)
+            # since hogli runs cmd blocks via /bin/sh.
+            if ! printf '%s' "$TARGET_DB" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]{0,62}$'; then
+                echo "❌ TARGET_DB must be a simple SQL identifier (got: $TARGET_DB)"
+                exit 1
+            fi
             if [ ! -f .postgres-backups/schema-latest.sql.gz ]; then
                 echo "❌ No schema at .postgres-backups/schema-latest.sql.gz — run db:download-schema first"
                 exit 1
             fi
             # Validate up front; substitutes for `set -o pipefail` (dash doesn't support it).
             gunzip -t .postgres-backups/schema-latest.sql.gz
-            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
-            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
-            gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS $TARGET_DB;"
+            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE $TARGET_DB;"
+            gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog "$TARGET_DB"
             # Schema-only dumps skip RunPython data migrations (e.g. the Default Theme row from 0537).
             # Reseed defaults so tests don't hit empty tables. Idempotent.
-            DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog python manage.py ensure_migration_defaults
-            echo "✅ Restored test_posthog from .postgres-backups/schema-latest.sql.gz"
-        description: Restore test_posthog from a local schema dump (no download). Used by
-            CI after restoring the schema from Actions cache.
+            DATABASE_URL="postgres://posthog:posthog@localhost:5432/$TARGET_DB" python manage.py ensure_migration_defaults
+            echo "✅ Restored $TARGET_DB from .postgres-backups/schema-latest.sql.gz"
+        description: 'Restore a fresh DB from a local schema dump (no download). Drops and
+            recreates the target DB then loads schema-latest.sql.gz into it. Target DB
+            defaults to test_posthog; override via TARGET_DB env var. Used by CI after
+            restoring the schema from Actions cache.'
         services:
             - postgresql
             - docker
