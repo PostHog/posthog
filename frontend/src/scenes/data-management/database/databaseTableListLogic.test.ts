@@ -69,14 +69,10 @@ describe('databaseTableListLogic', () => {
         expect(performQuery).toHaveBeenCalledTimes(1)
     })
 
-    // kea-loaders swallows loader throws and routes them via initKea's onFailure ->
-    // posthog.captureException, so awaiting the asyncAction won't reject — assert on the sink.
-    const captureException = jest.mocked(posthog.captureException)
-
     it.each([
         { name: 'main path', concurrentLoads: 1 },
         { name: 'dedup branch', concurrentLoads: 2 },
-    ])('does not crash with a kea path error when unmounted mid-load ($name)', async ({ concurrentLoads }) => {
+    ])('does not crash when unmounted mid-load ($name)', async ({ concurrentLoads }) => {
         let resolveQuery: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
         ;(performQuery as jest.Mock).mockImplementation(
             () =>
@@ -95,7 +91,7 @@ describe('databaseTableListLogic', () => {
         resolveQuery?.({ tables: {}, joins: [] })
         await Promise.all(requests)
 
-        expect(captureException).not.toHaveBeenCalled()
+        expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
     it('does not let a stale schema response overwrite the selected connection schema', async () => {
