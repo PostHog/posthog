@@ -218,12 +218,10 @@ class ScoreDefinitionViewSet(
             queryset.filter(team_id=self.team_id).select_related("current_version", "created_by").order_by("name", "id")
         )
 
-        # Default the list view to active scorers only — callers must opt in to archived rows
-        # by passing `?archived=true` (only archived) or `?archived=false` (only active, the default).
-        # Treat empty / whitespace `?archived=` the same as omitted to avoid silently bypassing the default.
+        # List defaults to active scorers to mirror the UI; non-boolean `?archived=` values keep that default.
         if self.action == "list":
-            archived_param = (self.request.query_params.get("archived") or "").strip()
-            if not archived_param:
+            archived_param = (self.request.query_params.get("archived") or "").strip().lower()
+            if archived_param not in {"true", "false", "1", "0"}:
                 queryset = queryset.filter(archived=False)
 
         return queryset

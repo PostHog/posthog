@@ -48,12 +48,10 @@ class ScoreDefinition(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         created_by: User | None,
         base_version: int | None = None,
     ) -> ScoreDefinitionVersion:
-        definition = ScoreDefinition.objects.select_for_update().get(pk=self.pk)
-        current_version_number = (
-            ScoreDefinitionVersion.objects.only("version").get(pk=definition.current_version_id).version
-            if definition.current_version_id is not None
-            else 0
+        definition = (
+            ScoreDefinition.objects.select_for_update(of=("self",)).select_related("current_version").get(pk=self.pk)
         )
+        current_version_number = definition.current_version.version if definition.current_version is not None else 0
 
         # Optimistic concurrency check inside the row lock — two writers seeing the same `base_version`
         # before the lock would otherwise both pass; one must lose here once the lock serializes them.

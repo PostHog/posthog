@@ -187,6 +187,11 @@ class ScoreDefinitionConfigField(serializers.Field):
         return value
 
     def _get_score_definition_kind(self) -> str:
+        # Context wins over body to prevent a smuggled `kind` from validating `config` against the wrong schema.
+        kind = self.context.get("score_definition_kind")
+        if isinstance(kind, str) and kind:
+            return kind
+
         initial_data = getattr(self.parent, "initial_data", None)
         if isinstance(initial_data, dict):
             kind = initial_data.get("kind")
@@ -198,9 +203,5 @@ class ScoreDefinitionConfigField(serializers.Field):
             kind = instance.kind
             if isinstance(kind, str) and kind:
                 return kind
-
-        kind = self.context.get("score_definition_kind")
-        if isinstance(kind, str) and kind:
-            return kind
 
         raise serializers.ValidationError({"kind": "Set `kind` before validating `config`."})

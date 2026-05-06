@@ -694,8 +694,7 @@ tools:
         title: Get scorer
         description: >
             Retrieve a scorer by ID, including its current immutable `config` payload, `current_version` number, kind,
-            archived state, and timestamps. Use this when you need the full config — `system.score_definitions` HogQL
-            only exposes metadata (no `config` column).
+            archived state, and timestamps.
     llma-score-definition-list:
         operation: llm_analytics_score_definitions_list
         enabled: true
@@ -710,8 +709,7 @@ tools:
         description: >
             List active scorers for the current project. By default only active rows are returned — pass `archived=true`
             to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over
-            name/description. Returns metadata plus the current config snapshot. For raw HogQL access use
-            `system.score_definitions`.
+            name/description. Returns metadata plus the current config snapshot.
         mcp_version: 1
     llma-score-definition-new-version:
         operation: llm_analytics_score_definitions_new_version_create

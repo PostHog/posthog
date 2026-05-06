@@ -347,6 +347,35 @@ class TestScoreDefinitionsApi(APIBaseTest):
         # Scorer still at v2 — the stale request did not bump it.
         self.assertEqual(self._current_version(definition).version, 2)
 
+    @parameterized.expand(
+        [
+            ("smuggle_boolean_kind_with_boolean_config", "categorical", "boolean", {"true_label": "Yes"}),
+            ("smuggle_numeric_kind_with_numeric_config", "categorical", "numeric", {"min": 0, "max": 1}),
+            (
+                "smuggle_categorical_kind_with_categorical_config",
+                "boolean",
+                "categorical",
+                {"options": [{"key": "a", "label": "A"}]},
+            ),
+        ]
+    )
+    def test_new_version_ignores_kind_smuggled_in_body(
+        self, _name: str, scorer_kind: str, smuggled_kind: str, config: dict
+    ):
+        definition = self._create_definition(kind=scorer_kind)
+
+        response = self.client.post(
+            f"{self._endpoint()}{definition.id}/new_version/",
+            {"kind": smuggled_kind, "config": config},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "config")
+        self.assertIn("Unsupported keys", response.data["detail"])
+        definition.refresh_from_db()
+        self.assertEqual(self._current_version(definition).version, 1)
+
     # The /new_version/ custom @action has to declare required_scopes explicitly;
     # without it the default scope resolver returns None for non-CRUD action names and PAK
     # requests are rejected with "This action does not support personal API key access".
@@ -400,9 +429,8 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertNotIn(str(active.id), ids)
         self.assertIn(str(archived.id), ids)
 
-    @parameterized.expand([("empty", ""), ("whitespace", "   ")])
-    def test_list_treats_empty_archived_param_as_default_active_only(self, _name: str, value: str):
-        # Regression for `?archived=` (empty) silently bypassing the active-only default.
+    @parameterized.expand([("empty", ""), ("whitespace", "   "), ("unparseable", "invalid")])
+    def test_list_treats_non_boolean_archived_param_as_default_active_only(self, _name: str, value: str):
         active = self._create_definition(name="Active scorer", kind="categorical")
         archived = self._create_definition(name="Archived scorer", kind="categorical", archived=True)
 
