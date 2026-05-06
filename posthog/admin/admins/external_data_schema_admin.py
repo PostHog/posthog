@@ -86,11 +86,14 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         if stats is None:
             return format_html("<em>no Delta target found</em>")
 
+        # Pre-format the float; `format_html` wraps args as SafeString and
+        # SafeString rejects numeric format codes like `{:.1f}` at format time.
+        fpp = f"{stats['files_per_partition_avg']:.1f}"
         return format_html(
-            "total_files={} | partition_count={} | files_per_partition_avg={:.1f} | total_size_bytes={}",
+            "total_files={} | partition_count={} | files_per_partition_avg={} | total_size_bytes={}",
             stats["total_files"],
             stats["partition_count"],
-            stats["files_per_partition_avg"],
+            fpp,
             stats["total_size_bytes"],
         )
 
