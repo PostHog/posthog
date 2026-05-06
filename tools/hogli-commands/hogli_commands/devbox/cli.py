@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import click
-from hogli.cli import cli
+from hogli.manifest import get_manifest
 
 from . import keychain
 from .coder import (
@@ -370,13 +370,14 @@ def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
         click.echo("No dotfiles repo configured.")
 
 
-@cli.command(name="devbox", help="Show available devbox commands")
+@click.command(name="devbox", help="Show available devbox commands")
 def devbox_help() -> None:
     """Show the available `hogli devbox:*` commands."""
+    manifest_obj = get_manifest()
     commands = sorted(
-        (name, cmd.get_short_help_str() or "")
-        for name, cmd in cli.commands.items()
-        if name.startswith("devbox:") and not getattr(cmd, "hidden", False)
+        (name, (manifest_obj.get_command_config(name) or {}).get("description", ""))
+        for name in manifest_obj.get_all_commands()
+        if name.startswith("devbox:") and not manifest_obj.is_command_hidden(name)
     )
     click.echo("Available devbox commands:")
     click.echo()
@@ -413,7 +414,7 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
         click.echo("No token provided. Skipping.")
 
 
-@cli.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
+@click.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
 @click.option(
     "--configure-ssh/--skip-configure-ssh",
     default=None,
@@ -456,7 +457,7 @@ def devbox_setup(
     print_setup_summary()
 
 
-@cli.command(name="devbox:list", help="List your devboxes")
+@click.command(name="devbox:list", help="List your devboxes")
 def devbox_list() -> None:
     """List all workspaces belonging to the current user, plus shared workspaces."""
     ensure_runtime_ready()
@@ -496,7 +497,7 @@ def devbox_list() -> None:
             click.echo(f"  {label:<16} {', '.join(users)}")
 
 
-@cli.command(name="devbox:users", help="List Coder users (for devbox sharing)")
+@click.command(name="devbox:users", help="List Coder users (for devbox sharing)")
 def devbox_users() -> None:
     """List all active Coder users so you know who to share with."""
     ensure_runtime_ready()
@@ -538,7 +539,7 @@ def _hint_if_positional_looks_like_username(
         )
 
 
-@cli.command(name="devbox:share", help="Share your devbox with other users")
+@click.command(name="devbox:share", help="Share your devbox with other users")
 @workspace_argument
 @click.option("--user", "users", multiple=True, help="Coder username(s) to share with")
 @click.option("--role", type=click.Choice(["use", "admin"]), default="use", help="Access role to grant")
@@ -570,7 +571,7 @@ def devbox_share(
     click.echo(f"Shared '{name}' with {', '.join(users)} (role: {role}).")
 
 
-@cli.command(name="devbox:unshare", help="Revoke access to your devbox from other users")
+@click.command(name="devbox:unshare", help="Revoke access to your devbox from other users")
 @workspace_argument
 @click.option("--user", "users", multiple=True, help="Coder username(s) to revoke access from")
 def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
@@ -590,7 +591,7 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     click.echo(click.style("Restart your devbox for this to take effect.", fg="yellow"))
 
 
-@cli.command(name="devbox:start", help="Start or create your remote devbox")
+@click.command(name="devbox:start", help="Start or create your remote devbox")
 @workspace_argument
 @click.option(
     "--disk",
@@ -642,7 +643,7 @@ def devbox_start(
     _print_connection_info(name)
 
 
-@cli.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")
+@click.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")
 @workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_stop(workspace: str | None, verbose: bool) -> None:
@@ -661,7 +662,7 @@ def devbox_stop(workspace: str | None, verbose: bool) -> None:
     click.echo("Stopped. Disk preserved. Run 'hogli devbox:start' to resume.")
 
 
-@cli.command(name="devbox:restart", help="Restart your devbox")
+@click.command(name="devbox:restart", help="Restart your devbox")
 @workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_restart(workspace: str | None, verbose: bool) -> None:
@@ -675,7 +676,7 @@ def devbox_restart(workspace: str | None, verbose: bool) -> None:
     _print_connection_info(name)
 
 
-@cli.command(name="devbox:update", help="Update devbox to the latest template")
+@click.command(name="devbox:update", help="Update devbox to the latest template")
 @workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_update(workspace: str | None, verbose: bool) -> None:
@@ -696,7 +697,7 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
     _print_connection_info(name)
 
 
-@cli.command(name="devbox:ssh", help="SSH into your devbox")
+@click.command(name="devbox:ssh", help="SSH into your devbox")
 @workspace_argument
 def devbox_ssh(workspace: str | None) -> None:
     """Open an SSH session to the devbox."""
@@ -705,7 +706,7 @@ def devbox_ssh(workspace: str | None) -> None:
     ssh_replace(name)
 
 
-@cli.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
+@click.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
 @workspace_argument
 @click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
 @click.option("--cursor", is_flag=True, help="Open in Cursor via SSH")
@@ -733,7 +734,7 @@ def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) ->
         open_in_browser(name)
 
 
-@cli.command(name="devbox:logs", help="Tail devbox build and agent logs")
+@click.command(name="devbox:logs", help="Tail devbox build and agent logs")
 @workspace_argument
 @click.option("-f", "--follow", is_flag=True, help="Follow log output")
 def devbox_logs(workspace: str | None, follow: bool) -> None:
@@ -743,7 +744,7 @@ def devbox_logs(workspace: str | None, follow: bool) -> None:
     logs_replace(name, follow)
 
 
-@cli.command(name="devbox:task", short_help="Run a background agent task on a fresh devbox")
+@click.command(name="devbox:task", short_help="Run a background agent task on a fresh devbox")
 @click.argument("prompt", required=False)
 @click.option("--name", "task_name", default=None, help="Task name (auto-generated if omitted)")
 @click.option("-q", "--quiet", is_flag=True, help="Only print the created task's ID")
@@ -768,7 +769,7 @@ def devbox_task(prompt: str | None, task_name: str | None, quiet: bool) -> None:
     create_task(prompt, task_name=task_name, quiet=quiet)
 
 
-@cli.command(name="devbox:destroy", help="Destroy your devbox and its data")
+@click.command(name="devbox:destroy", help="Destroy your devbox and its data")
 @workspace_argument
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_destroy(workspace: str | None, verbose: bool) -> None:
@@ -789,7 +790,7 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
     click.echo("Destroyed.")
 
 
-@cli.command(name="devbox:status", help="Show devbox status")
+@click.command(name="devbox:status", help="Show devbox status")
 @workspace_argument
 def devbox_status(workspace: str | None) -> None:
     """Show the current state of the devbox."""
@@ -821,7 +822,7 @@ def devbox_status(workspace: str | None) -> None:
         _print_connection_info(name)
 
 
-@cli.command(name="devbox:forward", help="Forward PostHog UI to localhost")
+@click.command(name="devbox:forward", help="Forward PostHog UI to localhost")
 @workspace_argument
 @click.option("--port", default=8010, type=int, help="Local port to forward to")
 def devbox_forward(workspace: str | None, port: int) -> None:
@@ -888,7 +889,7 @@ def _rm_dir(label: str, path: Path) -> None:
         click.echo(f" warning: partial deletion ({e})")
 
 
-@cli.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
+@click.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
 @click.option("--docker", "prune_docker", is_flag=True, help="Also prune stopped Docker containers")
 @click.option(
     "--cargo",

@@ -2,11 +2,13 @@ import structlog
 from celery import shared_task
 
 from posthog.ph_client import get_client
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
     from products.data_warehouse.backend.models import DataWarehouseTable
 

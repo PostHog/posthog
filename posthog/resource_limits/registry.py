@@ -45,12 +45,12 @@ REGISTRY: dict[str, LimitDefinition] = {
     LimitKey.MAX_DASHBOARDS_PER_TEAM: LimitDefinition(
         key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
         description="Saved dashboards in a project",
-        default=500,
+        default=5000,
     ),
     LimitKey.MAX_INSIGHTS_PER_DASHBOARD: LimitDefinition(
         key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
         description="Insight tiles attached to a single dashboard",
-        default=5000,
+        default=100,
     ),
     LimitKey.MAX_ALERTS_PER_TEAM: LimitDefinition(
         key=LimitKey.MAX_ALERTS_PER_TEAM,
@@ -70,8 +70,8 @@ REGISTRY: dict[str, LimitDefinition] = {
     LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG: LimitDefinition(
         key=LimitKey.MAX_ACTIVE_AI_SUMMARIES_PER_ORG,
         description="Subscriptions with summary_enabled=True per organization",
-        default=10,
-        by_plan_tier={"free": 10, "paid": 20, "enterprise": 100},
+        default=20,
+        by_plan_tier={"free": 20, "paid": 40, "enterprise": 200},
     ),
 }
 

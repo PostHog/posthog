@@ -19,6 +19,7 @@ pub struct Person {
 pub struct DistinctIdMapping {
     pub person_id: i64,
     pub distinct_id: String,
+    pub version: Option<i64>,
 }
 
 #[derive(Debug, Clone)]

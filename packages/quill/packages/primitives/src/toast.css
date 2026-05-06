@@ -4,13 +4,14 @@
         box-sizing: border-box;
         padding-block: 0.5rem;
         padding-inline: 0.75rem;
-        color: var(--popover-foreground);
+        color: var(--foreground);
         cursor: default;
         user-select: none;
-        background-color: var(--popover);
+        background-color: var(--card);
         background-clip: padding-box;
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
+        box-shadow: var(--shadow-md);
     }
 
     .quill-toast-card__title {
@@ -30,14 +31,14 @@
         padding-inline: 0.5rem;
         font-size: var(--text-xs, 0.75rem);
         font-weight: 500;
-        background-color: var(--popover);
+        background-color: var(--card);
         border: 1px solid var(--border);
         border-radius: var(--radius-sm);
         transition: background-color 0.15s ease;
     }
 
     .quill-toast-card__action:hover {
-        background-color: var(--accent);
+        background-color: var(--fill-hover);
     }
 
     /* Toast icon tiles by type */
