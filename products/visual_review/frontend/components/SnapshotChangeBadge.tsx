@@ -94,7 +94,7 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
     let kindChip: JSX.Element | null = null
 
     if (kind === 'structural') {
-        const hasPct = pct != null && pct >= PCT_DISPLAY_FLOOR
+        const hasPct = pct != null
         const tooltip = hasPct
             ? `${pct.toFixed(2)}% of pixels differ, but the change is perceptually significant. Structural similarity analysis confirmed this is a real visual change.`
             : 'Few pixels differ, but the change is perceptually significant. Structural similarity analysis confirmed this is a real visual change.'
