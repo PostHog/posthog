@@ -165,16 +165,6 @@ async def test_pointer_raises_when_send_returns_none(activity_environment) -> No
 
 
 def test_v2_queue_is_configured_in_settings() -> None:
-    """Regression test for the misconfiguration Pawel flagged: the
-    activity routes to ``usage_reports_v2``, but if that queue is not
-    declared in ``settings.SQS_QUEUES``, ``get_sqs_producer`` silently
-    returns ``None`` and the activity raises *after* the S3 artifacts
-    are already written.
-
-    Asserts the queue name the activity targets is registered in
-    settings, regardless of whether the URL env var is populated in
-    this environment.
-    """
     queues = getattr(settings, "SQS_QUEUES", {})
     assert SQS_QUEUE_NAME in queues, (
         f"Queue {SQS_QUEUE_NAME!r} must be declared in settings.SQS_QUEUES — "
