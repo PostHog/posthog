@@ -134,8 +134,8 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
                         ]}
                     />
                     <Markdown>
-                        Logs appear in PostHog within a few seconds. Use the [Logs page](/logs) to search and filter by
-                        service name, severity, or any attribute you attach.
+                        Logs appear in PostHog within a few seconds. Use the [Logs page](https://app.posthog.com/logs)
+                        to search and filter by service name, severity, or any attribute you attach.
                     </Markdown>
                 </>
             ),

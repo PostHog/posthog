@@ -1084,10 +1084,14 @@ class TestSharedInsightsExecutionMode(BaseTest):
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             ),
             (
-                "unlisted_blocking_if_stale_falls_back_to_extended_async",
+                "blocking_if_stale_passes_through",
+                # Used by the shared-notebook inline query payload builder. Must pass through so
+                # cold-cache loads block and return real results — falling back to async would
+                # ship a CacheMissResponse to the frontend, which renders the "unsupported node"
+                # placeholder until a later reload picks up the warmed cache.
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 None,
-                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             ),
         ]
     )
@@ -1105,7 +1109,7 @@ class TestSharedInsightsExecutionMode(BaseTest):
     def test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval(self) -> None:
         """Backend throttle must match frontend auto-refresh interval — drift would silently throttle periodic refreshes."""
         frontend_file = (
-            Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardConstants.ts"
+            Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardUtils.ts"
         )
         source = frontend_file.read_text()
 

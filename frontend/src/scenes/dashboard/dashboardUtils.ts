@@ -4,12 +4,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import type { Dayjs } from 'lib/dayjs'
-
-import {
-    AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
-    SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
-} from './dashboardConstants'
-export { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS, SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES }
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -121,7 +115,15 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
+export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 export const QUICK_FILTER_DEBOUNCE_MS = 1500
+
+/**
+ * Cold-start one-shot threshold: if data is older than this when a shared dashboard loads,
+ * trigger one immediate force_blocking refresh. Aligned with the periodic interval and the
+ * backend throttle (`SHARED_FORCE_BLOCKING_MIN_AGE`).
+ */
+export const SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES = AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {
