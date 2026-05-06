@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, IntervalType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 export interface InsightQueryFilters {
@@ -43,6 +43,7 @@ export function buildExceptionVolumeQuery(
             trendsFilter: { display: ChartDisplayType.ActionsBar },
             filterTestAccounts,
             properties: filterGroup as PropertyGroupFilter,
+            tags: { productKey: ProductKey.ERROR_TRACKING },
         },
         showHeader: false,
         showTable: false,
@@ -72,6 +73,7 @@ export function buildAffectedUsersQuery(
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
             filterTestAccounts,
             properties: filterGroup as PropertyGroupFilter,
+            tags: { productKey: ProductKey.ERROR_TRACKING },
         },
         showHeader: false,
         showTable: false,
@@ -111,6 +113,7 @@ export function buildCrashFreeSessionsQuery(
             },
             filterTestAccounts,
             properties: filterGroup as PropertyGroupFilter,
+            tags: { productKey: ProductKey.ERROR_TRACKING },
         },
         showHeader: false,
         showTable: false,
