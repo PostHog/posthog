@@ -8,7 +8,7 @@ export const SessionReplayFinalSteps = (): React.ReactElement => {
                 between pages, click buttons, and fill out forms to capture meaningful interactions.
             </p>
             <p>
-                <a href="/replay/home">Watch your first recording →</a>
+                <a href="https://app.posthog.com/replay/home">Watch your first recording →</a>
             </p>
         </>
     )
