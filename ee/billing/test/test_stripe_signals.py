@@ -9,6 +9,27 @@ from ee.billing.salesforce_enrichment.duckgres_client import DuckgresNotConfigur
 from ee.billing.salesforce_enrichment.stripe_signals import _FETCH_QUERY, StripeSignals, fetch_stripe_signals
 
 
+def _candidate_cte_body(query: str) -> str:
+    """Return the SQL body of the ``changed_billing_customer_ids`` CTE.
+
+    Located by name and bracket-matched so assertions about the candidate
+    set don't accidentally match predicates lifted from elsewhere in the
+    query (e.g. the keyset filter at the bottom).
+    """
+    marker = "changed_billing_customer_ids AS ("
+    start = query.index(marker) + len(marker)
+    depth = 1
+    i = start
+    while depth > 0:
+        ch = query[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        i += 1
+    return query[start : i - 1]
+
+
 def _row(
     org_id: str = "org-1",
     stripe_id: str | None = "cus_1",
@@ -55,6 +76,33 @@ class TestFetchQueryFilters(TestCase):
         assert "sc._fivetran_synced" in _FETCH_QUERY
         assert "pc.billing_customer_synced_at" in _FETCH_QUERY
         assert "pc.mapping_synced_at" in _FETCH_QUERY
+
+    def test_candidate_cte_pushes_cursor_into_each_source_table(self):
+        # The candidate CTE is what makes the query incremental: each source's
+        # ``_fivetran_synced`` is compared against the cursor directly inside
+        # the candidate CTE, so DuckLake can prune parquet files older than
+        # the cursor instead of scanning the full join and filtering after
+        # the fact. Asserting against the CTE body (not the whole query)
+        # guards against regressions that move the predicate elsewhere — for
+        # example, hoisting it into the keyset filter would still match a
+        # whole-query substring check but would not enable file pruning.
+        cte = _candidate_cte_body(_FETCH_QUERY)
+
+        assert "billing_public.billing_customer bc" in cte
+        assert "bc._fivetran_synced >= %(cursor_ts)s" in cte
+
+        assert "billing_public.billing_customertostripecustomer cts" in cte
+        assert "cts._fivetran_synced >= %(cursor_ts)s" in cte
+
+        assert "ducklake.stripe.customer sc" in cte
+        assert "sc._fivetran_synced >= %(cursor_ts)s" in cte
+
+    def test_candidate_cte_falls_back_to_full_scan_when_cursor_is_null(self):
+        # First-run / force-full-refresh paths pass ``cursor_ts=NULL``. Each
+        # source predicate has to short-circuit so the union returns every
+        # eligible row, not zero rows.
+        cte = _candidate_cte_body(_FETCH_QUERY)
+        assert cte.count("%(cursor_ts)s::timestamptz IS NULL") == 3
 
 
 class TestStripeSignalsDataClass(TestCase):

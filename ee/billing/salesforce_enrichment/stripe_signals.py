@@ -27,18 +27,57 @@ class StripeSignals:
     last_changed_at: dt.datetime
 
 
-# The query walks three tables, in order:
-#   1. posthog_customer — link each PostHog organization to its active Stripe
-#                         customer via the billing_customertostripecustomer
-#                         mapping table.
-#   2. enriched         — join in the Stripe customer row and compute a single
-#                         last_changed_at watermark
+# The query walks three CTEs, in order:
+#   1. changed_billing_customer_ids — narrow each source table down to rows
+#                         whose ``_fivetran_synced`` is at or past the cursor.
+#                         The union of the resulting ``billing_customer.id``
+#                         values is the candidate set for this page.
+#   2. posthog_customer — link each candidate billing_customer to its active
+#                         Stripe customer via the
+#                         billing_customertostripecustomer mapping table.
+#   3. enriched         — join in the Stripe customer row and compute a
+#                         single ``last_changed_at`` watermark.
 # Pagination uses a keyset cursor on ``(last_changed_at, posthog_organization_id)``.
 # The same cursor is used to resume the next incremental run — the caller seeds
-# it from the stored high-water mark.
+# it from the stored high-water mark. The candidate set uses ``>=`` so a row
+# whose ``_fivetran_synced`` exactly equals the cursor is still considered;
+# the final keyset predicate (``> cursor`` or ``= cursor AND org_id > cursor_org_id``)
+# handles the tiebreaker so already-processed rows are not re-emitted.
 
 _FETCH_QUERY = """
-WITH posthog_customer AS (
+WITH changed_billing_customer_ids AS (
+    SELECT bc.id AS billing_customer_id
+    FROM ducklake.billing_public.billing_customer bc
+    WHERE bc.organization_id IS NOT NULL
+      AND (
+            %(cursor_ts)s::timestamptz IS NULL
+         OR bc._fivetran_synced >= %(cursor_ts)s::timestamptz
+      )
+
+    UNION
+
+    SELECT cts.customer_id AS billing_customer_id
+    FROM ducklake.billing_public.billing_customertostripecustomer cts
+    WHERE cts.primary = TRUE
+      AND (
+            %(cursor_ts)s::timestamptz IS NULL
+         OR cts._fivetran_synced >= %(cursor_ts)s::timestamptz
+      )
+
+    UNION
+
+    SELECT cts.customer_id AS billing_customer_id
+    FROM ducklake.stripe.customer sc
+    JOIN ducklake.billing_public.billing_customertostripecustomer cts
+      ON cts.stripe_customer_id = sc.id
+    WHERE cts.primary = TRUE
+      AND COALESCE(sc.is_deleted, FALSE) = FALSE
+      AND (
+            %(cursor_ts)s::timestamptz IS NULL
+         OR sc._fivetran_synced >= %(cursor_ts)s::timestamptz
+      )
+),
+posthog_customer AS (
     SELECT
         cts.stripe_customer_id,
         cts._fivetran_synced AS mapping_synced_at,
@@ -49,6 +88,8 @@ WITH posthog_customer AS (
     FROM ducklake.billing_public.billing_customertostripecustomer cts
     JOIN ducklake.billing_public.billing_customer bc
       ON bc.id = cts.customer_id
+    JOIN changed_billing_customer_ids c
+      ON c.billing_customer_id = bc.id
     WHERE cts.primary = TRUE
       AND bc.organization_id IS NOT NULL
 ),
