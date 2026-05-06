@@ -1015,7 +1015,8 @@ function generateCategoryFile(
     const enabledTools: [string, EnabledToolConfig, ResolvedOperation][] = []
 
     for (const [name, config] of Object.entries(category.tools)) {
-        if (!config.enabled) {
+        // `custom: true` means the handler is hand-written in TOOL_MAP, so codegen skips it.
+        if (!config.enabled || config.custom) {
             continue
         }
         if (!config.scopes?.length) {
@@ -1041,7 +1042,7 @@ function generateCategoryFile(
     if (category.wrappers) {
         const querySchema = getQuerySchema()
         for (const [name, wrapperConfig] of Object.entries(category.wrappers)) {
-            if (!wrapperConfig.enabled) {
+            if (!wrapperConfig.enabled || wrapperConfig.custom) {
                 continue
             }
             if (!wrapperConfig.scopes?.length) {

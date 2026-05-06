@@ -11,6 +11,8 @@ export const ToolConfigSchema = z
     .object({
         operation: z.string(),
         enabled: z.boolean(),
+        /** When true, codegen skips this tool — handler is hand-written in `TOOL_MAP`. Requires `enabled: true`. */
+        custom: z.boolean().optional(),
         scopes: z.array(z.string()).optional(),
         annotations: z
             .object({
@@ -152,13 +154,18 @@ export const ToolConfigSchema = z
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
     })
+    .refine((data) => !(data.enabled === false && data.custom === true), {
+        message:
+            'custom: true requires enabled: true — a hand-written override must be exposed. To hide a tool, omit custom or set custom: false.',
+    })
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>
 
 /** Narrowed type for enabled tools — scopes and annotations are guaranteed present. */
-export type EnabledToolConfig = Omit<ToolConfig, 'scopes' | 'annotations'> & {
+export type EnabledToolConfig = Omit<ToolConfig, 'scopes' | 'annotations' | 'custom'> & {
     scopes: string[]
     annotations: { readOnly: boolean; destructive: boolean; idempotent: boolean }
+    custom?: boolean
 }
 
 // --- UI App schemas ---
@@ -316,6 +323,8 @@ export const QueryWrapperToolConfigSchema = z
         /** Name of the definition in schema.json (e.g. "AssistantTrendsQuery") */
         schema_ref: z.string(),
         enabled: z.boolean(),
+        /** When true, codegen skips this wrapper — handler is hand-written in `TOOL_MAP`. Requires `enabled: true`. */
+        custom: z.boolean().optional(),
         scopes: z.array(z.string()).optional(),
         annotations: z
             .object({
@@ -376,12 +385,17 @@ export const QueryWrapperToolConfigSchema = z
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
     })
+    .refine((data) => !(data.enabled === false && data.custom === true), {
+        message:
+            'custom: true requires enabled: true — a hand-written override must be exposed. To hide a wrapper, omit custom or set custom: false.',
+    })
 
 export type QueryWrapperToolConfig = z.infer<typeof QueryWrapperToolConfigSchema>
 
-export type EnabledQueryWrapperToolConfig = Omit<QueryWrapperToolConfig, 'scopes' | 'annotations'> & {
+export type EnabledQueryWrapperToolConfig = Omit<QueryWrapperToolConfig, 'scopes' | 'annotations' | 'custom'> & {
     scopes: string[]
     annotations: { readOnly: boolean; destructive: boolean; idempotent: boolean }
+    custom?: boolean
 }
 
 export const QueryWrappersConfigSchema = z

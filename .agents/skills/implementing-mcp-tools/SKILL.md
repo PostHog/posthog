@@ -123,6 +123,7 @@ tools:
   your-tool-name: # kebab-case
     operation: operationId_from_openapi
     enabled: true
+    # custom: true # set when codegen should skip this tool because the handler is hand-written in TOOL_MAP. Requires enabled: true.
     scopes:
       - your_product:read
     annotations:
@@ -159,6 +160,23 @@ Add `feature_flag` to any tool (standard or query wrapper) to gate its exposure 
 Reusing the same flag key with both behaviors performs an atomic swap: flag on → new tool visible, old tool hidden; flag off → old tool visible, new tool hidden. Useful for A/B testing tool variations.
 
 Flags are evaluated in parallel at init via `evaluateFeatureFlags`. If a flag can't be evaluated (service error, missing flag), `enable`-gated tools are excluded and `disable`-gated tools are included — fail-closed for new tools, fail-open for existing ones.
+
+### Hand-written overrides (`custom: true`)
+
+When the generated REST handler can't satisfy the tool's needs (SSE streaming, custom request/response shapes, multi-step orchestration), keep the YAML entry as the contract and write the handler by hand:
+
+1. Add `custom: true` to the YAML entry (alongside `enabled: true`). Codegen will skip emitting a generated handler.
+2. Register the hand-written factory in `TOOL_MAP` at `services/mcp/src/tools/index.ts` under the appropriate section comment.
+
+States:
+
+| `enabled` | `custom`             | Meaning                                                                   |
+| --------- | -------------------- | ------------------------------------------------------------------------- |
+| `true`    | `false` (or omitted) | Generated and exposed (default).                                          |
+| `true`    | `true`               | Hand-written; YAML defines the contract, `TOOL_MAP` provides the handler. |
+| `false`   | any                  | Not exposed.                                                              |
+
+`enabled: false` + `custom: true` is rejected at YAML validation. Do **not** use `enabled: false` to "hide" a generated tool while exposing a hand-written replacement — use `custom: true` instead.
 
 ### Syncing after endpoint changes
 

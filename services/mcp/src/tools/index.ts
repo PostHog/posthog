@@ -101,7 +101,9 @@ export const getToolsFromContext = async (
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
-    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+    // TOOL_MAP wins on key collisions: hand-written overrides (YAML `custom: true`)
+    // must shadow any generated entry that slips through, not the other way around.
+    const effectiveMap = { ...GENERATED_TOOL_MAP, ...TOOL_MAP }
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []

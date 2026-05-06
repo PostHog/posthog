@@ -218,6 +218,7 @@ Product teams own their definitions and control which operations are exposed as 
      domain-action: # e.g. feature-flags-list, experiments-create
        operation: your_product_endpoint_list # must match an OpenAPI operationId
        enabled: true # false excludes from generation
+       custom: false # set to true to skip codegen and register a hand-written handler in TOOL_MAP. Requires enabled: true.
        # --- required when enabled: ---
        scopes: # API scopes
          - your_product:read
@@ -269,6 +270,28 @@ Product teams own their definitions and control which operations are exposed as 
    ```sh
    hogli build:openapi
    ```
+
+### Hand-written overrides (`custom: true`)
+
+Most tools should be fully generated. When the generated REST handler isn't a fit
+(e.g. SSE streaming, custom request/response shapes, multi-step orchestration),
+write the handler by hand and register it in `TOOL_MAP` (`services/mcp/src/tools/index.ts`).
+
+Mark the YAML entry with `custom: true` so codegen skips it but the YAML still
+defines the contract (operation id, scopes, annotations, description).
+
+The three valid states are:
+
+| `enabled` | `custom`             | Meaning                                                           |
+| --------- | -------------------- | ----------------------------------------------------------------- |
+| `true`    | `false` (or omitted) | Tool is generated and exposed (default).                          |
+| `true`    | `true`               | YAML defines the contract; handler is hand-written in `TOOL_MAP`. |
+| `false`   | `false` (or omitted) | Tool is not exposed (not built yet, or intentionally hidden).     |
+
+`enabled: false` + `custom: true` is rejected at build time — a hand-written override must be exposed.
+
+`TOOL_MAP` wins over `GENERATED_TOOL_MAP` on key collisions, so a hand-written entry
+is never silently shadowed by a generated one.
 
 ### Keeping definitions in sync
 
