@@ -1543,16 +1543,18 @@ class FeatureFlagSerializer(
             filters = validated_data.get("filters")
             new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
 
-            if new_true_payload is None or new_true_payload == REDACTED_PAYLOAD_VALUE:
+            if not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
                 # Preserve the existing encrypted payload when the request didn't
                 # supply a fresh one — either because `filters.payloads` was
-                # omitted (partial PATCH from the V2 form) or because the
-                # redacted placeholder was echoed back. Only re-inject when
-                # `filters` is being sent, so a filters-less PATCH stays a
-                # partial update.
+                # omitted (partial PATCH from the V2 form), the redacted
+                # placeholder was echoed back, or an empty string slipped past
+                # `validate_filters` (defense in depth: the public API rejects
+                # `""` as invalid JSON upstream, but direct serializer callers
+                # could still land here). Only re-inject when `filters` is
+                # being sent, so a filters-less PATCH stays a partial update.
                 if filters is not None:
                     existing_true_payload = (instance.filters or {}).get("payloads", {}).get("true")
-                    if existing_true_payload is None:
+                    if not existing_true_payload:
                         raise exceptions.ValidationError(
                             "An encrypted payload is required when has_encrypted_payloads is true."
                         )
