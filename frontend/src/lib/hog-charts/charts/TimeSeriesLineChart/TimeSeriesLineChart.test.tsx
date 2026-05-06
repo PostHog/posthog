@@ -1,5 +1,6 @@
 import { cleanup } from '@testing-library/react'
 
+import { useChartLayout } from '../../core/chart-context'
 import type { ChartTheme, Series } from '../../core/types'
 import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
 import { TimeSeriesLineChart } from './TimeSeriesLineChart'
@@ -42,6 +43,57 @@ describe('TimeSeriesLineChart', () => {
                 />
             )
             expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
+        })
+
+        it('builds an auto date formatter from xAxis.timezone + xAxis.interval', () => {
+            const labels = ['2024-06-10', '2024-06-11', '2024-06-12']
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
+                    labels={labels}
+                    theme={THEME}
+                    config={{ xAxis: { timezone: 'UTC', interval: 'day' } }}
+                />
+            )
+            const ticks = chart.xTicks()
+            expect(ticks.length).toBeGreaterThan(0)
+            // The auto formatter renders day-mode labels as "MMM D" (or month name on the 1st).
+            expect(ticks.some((t) => /Jun \d+/.test(t))).toBe(true)
+        })
+
+        it('explicit xAxis.tickFormatter wins over the auto date formatter', () => {
+            const explicit = (_v: string, i: number): string => `tick-${i}`
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
+                    labels={['2024-06-10', '2024-06-11', '2024-06-12']}
+                    theme={THEME}
+                    config={{
+                        xAxis: { tickFormatter: explicit, timezone: 'UTC', interval: 'day' },
+                    }}
+                />
+            )
+            expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
+        })
+
+        it('exposes the resolved formatter to children via ChartLayoutContext', () => {
+            let observed: ((value: string, index: number) => string | null) | undefined
+            function Probe(): null {
+                observed = useChartLayout().axis.xTickFormatter
+                return null
+            }
+            renderHogChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
+                    labels={['2024-06-10', '2024-06-11', '2024-06-12']}
+                    theme={THEME}
+                    config={{ xAxis: { timezone: 'UTC', interval: 'day' } }}
+                >
+                    <Probe />
+                </TimeSeriesLineChart>
+            )
+            expect(observed).not.toBeUndefined()
+            expect(observed?.('2024-06-10', 0)).toMatch(/Jun \d+|June/)
         })
     })
 
