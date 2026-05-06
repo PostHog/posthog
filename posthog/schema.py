@@ -2901,6 +2901,10 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     ID = "ID"
     CAMPAIGN = "Campaign"
     SOURCE = "Source"
+    AD_GROUP = "Ad group"
+    AD_GROUP_ID = "Ad group ID"
+    AD = "Ad"
+    AD_ID = "Ad ID"
     COST = "Cost"
     CLICKS = "Clicks"
     IMPRESSIONS = "Impressions"
@@ -2923,6 +2927,10 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     SOURCE = "source"
     REPORTED_CONVERSION = "reported_conversion"
     REPORTED_CONVERSION_VALUE = "reported_conversion_value"
+    AD_GROUP_ID = "ad_group_id"
+    AD_GROUP_NAME = "ad_group_name"
+    AD_ID = "ad_id"
+    AD_NAME = "ad_name"
 
 
 class MarketingAnalyticsConstants(StrEnum):
@@ -2937,12 +2945,15 @@ class MarketingAnalyticsDrillDownConfig(BaseModel):
     )
     columnAlias: str
     excludedBaseColumns: list[MarketingAnalyticsBaseColumns]
+    excludesConversionGoals: bool | None = None
 
 
 class MarketingAnalyticsDrillDownLevel(StrEnum):
     CHANNEL = "channel"
     SOURCE = "source"
     CAMPAIGN = "campaign"
+    AD_GROUP = "ad_group"
+    AD = "ad"
     MEDIUM = "medium"
     CONTENT = "content"
     TERM = "term"
@@ -4115,6 +4126,12 @@ class RetentionEntityKind(StrEnum):
     EVENTS_NODE = "EventsNode"
 
 
+class AggregationPropertyType1(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    DATA_WAREHOUSE = "data_warehouse"
+
+
 class RetentionPeriod(StrEnum):
     HOUR = "Hour"
     DAY = "Day"
@@ -4557,6 +4574,10 @@ class SourceMap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ad_group_id: str | None = None
+    ad_group_name: str | None = None
+    ad_id: str | None = None
+    ad_name: str | None = None
     campaign: str | None = None
     clicks: str | None = None
     cost: str | None = None
@@ -5165,6 +5186,17 @@ class ZendeskTicketSignalInput(BaseModel):
     source_product: Literal["zendesk"] = "zendesk"
     source_type: Literal["ticket"] = "ticket"
     weight: float
+
+
+class NamedArgs(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    level: MarketingAnalyticsDrillDownLevel
+
+
+class GetEffectiveExcludedColumns(BaseModel):
+    namedArgs: NamedArgs | None = None
 
 
 class Integer(RootModel[int]):
@@ -17530,9 +17562,9 @@ class RetentionFilter(BaseModel):
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
     )
-    aggregationPropertyType: AggregationPropertyType | None = Field(
-        default=AggregationPropertyType.EVENT,
-        description=("The type of property to aggregate on (event or person). Defaults to event."),
+    aggregationPropertyType: AggregationPropertyType1 | None = Field(
+        default=AggregationPropertyType1.EVENT,
+        description=("The type of property to aggregate on (event, person or data_warehouse). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
@@ -21193,7 +21225,7 @@ class TrendsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class NamedArgs(BaseModel):
+class NamedArgs1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21201,19 +21233,19 @@ class NamedArgs(BaseModel):
 
 
 class IsExperimentFunnelMetric(BaseModel):
-    namedArgs: NamedArgs | None = None
+    namedArgs: NamedArgs1 | None = None
 
 
 class IsExperimentMeanMetric(BaseModel):
-    namedArgs: NamedArgs | None = None
+    namedArgs: NamedArgs1 | None = None
 
 
 class IsExperimentRatioMetric(BaseModel):
-    namedArgs: NamedArgs | None = None
+    namedArgs: NamedArgs1 | None = None
 
 
 class IsExperimentRetentionMetric(BaseModel):
-    namedArgs: NamedArgs | None = None
+    namedArgs: NamedArgs1 | None = None
 
 
 class CachedExperimentQueryResponse(BaseModel):
@@ -21755,6 +21787,7 @@ class VisualizationBlock(BaseModel):
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
@@ -22037,6 +22070,7 @@ class VisualizationItem(BaseModel):
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
@@ -22066,6 +22100,7 @@ class VisualizationMessage(BaseModel):
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
@@ -22228,7 +22263,7 @@ class WebVitalsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class NamedArgs1(BaseModel):
+class NamedArgs2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22236,11 +22271,11 @@ class NamedArgs1(BaseModel):
 
 
 class IsExperimentFunnelsQuery(BaseModel):
-    namedArgs: NamedArgs1 | None = None
+    namedArgs: NamedArgs2 | None = None
 
 
 class IsExperimentTrendsQuery(BaseModel):
-    namedArgs: NamedArgs1 | None = None
+    namedArgs: NamedArgs2 | None = None
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
@@ -23636,7 +23671,8 @@ class VisualizationArtifactContent(BaseModel):
     name: str | None = None
     plan: str | None = None
     query: (
-        AssistantTrendsQuery
+        DataVisualizationNode
+        | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
         | AssistantStickinessQuery

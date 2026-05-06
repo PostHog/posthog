@@ -4,11 +4,13 @@ import structlog
 from celery import shared_task
 
 from posthog.models import Person
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True, max_retries=1)
+@skip_team_scope_audit
 def split_person(
     person_id: int,
     team_id: Union[int, str, None] = None,

@@ -24,6 +24,7 @@ from posthog.schema import (
     AssistantTrendsQuery,
     ChartDisplayType,
     CurrencyCode,
+    DataVisualizationNode,
     FunnelsQuery,
     FunnelVizType,
     HogQLQuery,
@@ -120,6 +121,7 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | RetentionQuery
         | AssistantHogQLQuery
         | HogQLQuery
+        | DataVisualizationNode
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
@@ -506,6 +508,12 @@ class AssistantQueryExecutor:
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
+            elif isinstance(query, DataVisualizationNode):
+                formatter_name = "SQLResultsFormatter"
+                max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
+                result = SQLResultsFormatter(
+                    query.source, response["results"], response["columns"], max_cell_length=max_cell_length
+                ).format()
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
                 max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
@@ -582,7 +590,7 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         return STICKINESS_EXAMPLE_PROMPT
     if isinstance(query, AssistantRetentionQuery | RetentionQuery):
         return RETENTION_EXAMPLE_PROMPT
-    if isinstance(query, AssistantHogQLQuery | HogQLQuery):
+    if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
         return SQL_EXAMPLE_PROMPT
     if isinstance(query, RevenueAnalyticsGrossRevenueQuery):
         return REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT
@@ -635,8 +643,8 @@ async def execute_and_format_query(
         insight_schema = query.model_dump_json(exclude_none=True)
 
     # Check if SQL results contain truncated values
-    has_truncated_values = (
-        isinstance(query, AssistantHogQLQuery | HogQLQuery) and TRUNCATED_MARKER in results and not used_fallback
+    has_truncated_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
+        TRUNCATED_MARKER in results and not used_fallback
     )
 
     query_result = format_prompt_string(
@@ -649,7 +657,7 @@ async def execute_and_format_query(
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
         currency=currency if is_revenue_analytics_query(query) else None,
         has_truncated_values=has_truncated_values,
-        sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery) else None,
+        sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) else None,
     )
 
     return f"{example_prompt}\n\n{query_result}"

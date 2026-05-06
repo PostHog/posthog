@@ -248,6 +248,7 @@ export const Table = (props: TableProps): JSX.Element => {
             footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
             rowClassName="DataVizRow"
             embedded={props.embedded}
+            allowContentScroll={!!props.embedded}
         />
     )
 }

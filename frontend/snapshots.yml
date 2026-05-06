@@ -572,10 +572,6 @@ snapshots:
         hash: v1.k794b7964.8f27aa8ee4161d4041693a5549046f0e348aab5fdccc466ea461d6a0f5cf97e2.KEpUtlvBURMPzv1Vyq9Pvf8i_sDKoF3t7fZO8Ed1yPs
     components-hogcharts-referenceline--vertical-reference-lines--light:
         hash: v1.k794b7964.c5c09ab055b1b0fde7a5d73279e6a1adba9cc4165d0883ea8c641d4cd68ebf2b.hb7hZ9GBhWL6oRE5jtOZuUEer6xZ5dTyjpH0qB4Dfpk
-    components-hogcharts-timeserieslinechart--anomalies--dark:
-        hash: v1.k794b7964.fc7e9b233a0ff0847a5dcade2aaa7004f453c1af65a443adeecb526540ffa0a8.h18dCehQgzalv7JwGX-pqrA-zgiB0WsMqioFp0lX5EY
-    components-hogcharts-timeserieslinechart--anomalies--light:
-        hash: v1.k794b7964.ec037285360c27f8362e5476fbb5eb9c02eff034c83c40d91915b2456adafa85.Ls5QZuxtjPy-4OamK69F1DVapsxQ6sKdNf9dGJdzMCg
     components-hogcharts-timeserieslinechart--basic--dark:
         hash: v1.k794b7964.529535e435c93c8f004cdba8f2ba29681dd679eb9bfbaff745a5f00c3b424ffd.2Kq3-2B9F2VNlkrFY-dge3vntnfrudonJ-Lle1s8m5E
     components-hogcharts-timeserieslinechart--basic--light:
@@ -3263,15 +3259,15 @@ snapshots:
     lemon-ui-visual-image-diff-viewer--changed-snapshot--dark:
         hash: v1.k794b7964.0f8650ee61bfe5a53ac0cafd544db33ae724e8a470707a3a9cd4848576ecfab8.I1OHmY6oDliifw_Miwe4wCAtWGmgMCmWmZjycUErVrQ
     lemon-ui-visual-image-diff-viewer--changed-snapshot--light:
-        hash: v1.k794b7964.1edde6def7ddc09fae37740edfc5610b7f8fb1bc49dfccbb732de864b24ab76c.NEpNa4596dWklW6q_mksidX5Fj8oHiCExpD9Smkdn4w
+        hash: v1.k794b7964.78a2dc393e6cadbff95e17265942865b9493707226331d451547293548e89e6d.kR_9KW862PEOmcPEo3sD7XuQPbStEU5xUakYPa4Laec
     lemon-ui-visual-image-diff-viewer--new-snapshot--dark:
-        hash: v1.k794b7964.d7cf0011eac7312939314dc6d9f2afc84894da71a5680ae456e5af7d663b7aa3.EuOUwGAHE_FCzySQsteEyWqkineGs1ybMeI9ODksECI
+        hash: v1.k794b7964.f234d8bba15a289ddcb3f7344727caa2ec9359787701b7a4aed7e9956b2d21cd.8wKBjxsi-RYHaS6deJvY80dmc3qK40nOhl8ln1ZF-dU
     lemon-ui-visual-image-diff-viewer--new-snapshot--light:
-        hash: v1.k794b7964.539502d9c12bc218a17557e69dc7ef2960d44bc3db608b65056b2a149dceeaf2.nV3KWY5nmgN6rUg87FGNYtVm0Pyw9xvXsFxiGtU_gFU
+        hash: v1.k794b7964.8eaf961359bfd2691a63ba1e0f98bad8da5d1d2f7598ce140a5cc361f656fdea.nVw_NtDUWN8hjco2koeQvjHQ6MPktn54QYMj-_6kzOA
     lemon-ui-visual-image-diff-viewer--small-image--dark:
         hash: v1.k794b7964.13781e9369ccfad5542a85edfbd547e4d6d770df8b5e5d0d8ec540e50608d453.RPeQpda22EpHoIa5b4UePdKIimFuTS9NAwcGP9ccfpM
     lemon-ui-visual-image-diff-viewer--small-image--light:
-        hash: v1.k794b7964.7b70b3e558ee6423735df0ab00f9c0d1d8ec0d4556483ae8db5edce6b3602fb3.UWi5QxvA5OPlUYmD5ERLCxVUyuFuFaAVDykiWktxv2Q
+        hash: v1.k794b7964.ed31587820d0216f2281ec8e610da8cb9fe8cb45f9c13e0280f17771cf84994a.spusB2C8AKwu5Tv0KOr8pkjDxgEZw5jcOlEikYAzKWI
     mcp-apps-actions--list--light:
         hash: v1.k794b7964.24244bf73bd4914893a2811f39274aaa957ad7792e52f5b2d90c662e8deeaed6.g0Ag3Rdrj7Bb1pHIE8oQsqzY8mkA7yb_vFEe-iDM-b0
     mcp-apps-actions--multi-step--light:
@@ -5431,9 +5427,9 @@ snapshots:
     scenes-app-subscriptions-subscription-summary--insight-many-destinations--light:
         hash: v1.k794b7964.59ff0d065a88a7f72aff6dca77c0888db8de9af22857a410e57530ce29346882.Hrri0ZKo9ewTXLYX9bnyEgGUN5Xx6tQhQFoWMO2q7mY
     scenes-app-subscriptions-subscriptionstable--default--dark:
-        hash: v1.k794b7964.8469e1367634e150f7bc8b6b95e345ad0e045efbb5ed87500477b08bc0903f30.FRKqhIQ09KIxmv0ff9FX_OqdYH1_z1LUOuX0y7qL3Aw
+        hash: v1.k794b7964.3163a047c7c1198e10defcd2456a545372bc36197f6952f4e1e08c77f9521e9e.bONzOBqskEpXpIBStM-fOkBY_U1FXVLdc-Gef0Gk9cQ
     scenes-app-subscriptions-subscriptionstable--default--light:
-        hash: v1.k794b7964.7d56cc77e7f8de3e9426a05cc312d88793c06ad27b4f92621bf611b62ae77311.HEW_ANuoQiXdg3T9xXmsiyi83fx9Wgk1lLVklpK7vIk
+        hash: v1.k794b7964.4ddff4e3e1a7220517d18cd3093a359455f65e212cacefceee7ea7f642ba8410.A5wEai5mQdHMkicpZucYr1kfYnvuZ7O8Ds_4FgOVVzU
     scenes-app-subscriptions-subscriptionstable--with-pagination--dark:
         hash: v1.k794b7964.3ba31fd1483577c6ef3c0a0a1a2b0298558b78c6bb151212399ecd9e64ef1f67.nEl4q1IQmch73ABvZK7q1OSGzmB5ku2C0DGq96R5NQI
     scenes-app-subscriptions-subscriptionstable--with-pagination--light:

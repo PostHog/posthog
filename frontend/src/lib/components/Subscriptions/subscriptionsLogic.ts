@@ -9,6 +9,7 @@ import { SubscriptionType } from '~/types'
 
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
+import { toggleSubscriptionEnabled } from './toggleSubscriptionEnabled'
 import { SubscriptionBaseProps } from './utils'
 
 export const subscriptionsLogic = kea<subscriptionsLogicType>([
@@ -22,6 +23,9 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
+        setSubscriptionEnabled: (id: number, enabled: boolean) => ({ id, enabled }),
+        setSubscriptionEnabledSuccess: true,
+        setSubscriptionEnabledFailure: true,
     }),
 
     loaders(({ props }) => ({
@@ -57,6 +61,14 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 deliverSubscriptionFailure: () => null,
             },
         ],
+        togglingEnabledId: [
+            null as number | null,
+            {
+                setSubscriptionEnabled: (_, { id }) => id,
+                setSubscriptionEnabledSuccess: () => null,
+                setSubscriptionEnabledFailure: () => null,
+            },
+        ],
     }),
 
     listeners(({ actions }) => ({
@@ -75,6 +87,15 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 actions.deliverSubscriptionFailure()
             }
         },
+        setSubscriptionEnabled: async ({ id, enabled }) => {
+            const ok = await toggleSubscriptionEnabled(id, enabled)
+            if (ok) {
+                actions.setSubscriptionEnabledSuccess()
+            } else {
+                actions.setSubscriptionEnabledFailure()
+            }
+        },
+        setSubscriptionEnabledSuccess: () => actions.loadSubscriptions(),
     })),
 
     afterMount(({ actions }) => actions.loadSubscriptions()),
