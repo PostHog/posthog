@@ -51,6 +51,16 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                         const isCurrent = getFieldChange(logItem, 'version') === notebook?.version
                         const changedContent = getFieldChange(logItem, 'content')
                         const isButton = changedContent && !isCurrent
+                        const isRejected = logItem.activity.startsWith('save_rejected_')
+
+                        let actionLabel: string
+                        if (isRejected) {
+                            actionLabel = 'unsaved changes'
+                        } else if (changedContent) {
+                            actionLabel = 'made changes'
+                        } else {
+                            actionLabel = 'created this'
+                        }
 
                         const buttonContent = (
                             <span className="flex flex-1 gap-2 items-center p-2">
@@ -63,8 +73,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                     size="md"
                                 />
                                 <span className="flex-1">
-                                    <b className="ph-no-capture">{name}</b>{' '}
-                                    {changedContent ? 'made changes' : 'created this'}
+                                    <b className="ph-no-capture">{name}</b> {actionLabel}
                                 </span>
                                 <span className="text-secondary">
                                     <TZLabel time={logItem.created_at} />
