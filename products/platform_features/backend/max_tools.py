@@ -115,7 +115,7 @@ def _format_report(record: ProxyRecord, report: Any) -> str:
         lines.append(f"_Next action:_ {report.summary.next_action}")
     lines.append("")
     for check in report.checks:
-        marker = {"pass": "✓", "warn": "!", "fail": "×", "skip": "–"}.get(check.status, "?")
+        marker = {"passed": "✓", "warned": "!", "failed": "×", "skipped": "–"}.get(check.status, "?")
         lines.append(f"- {marker} **{check.name}** ({check.status}): {check.detail}")
         if check.remediation:
             lines.append(f"    - _Fix:_ {check.remediation.summary}")
