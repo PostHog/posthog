@@ -263,6 +263,13 @@ pub fn router(
     // 4. ConcurrencyLimitLayer: bounds in-flight requests.
     // 5. record_concurrency_wait (innermost): computes elapsed permit-wait
     //    immediately after the layer hands off a permit, before the handler.
+    //
+    // Note: this entire chain wraps both `/flags|/decide` AND
+    // `/flags/definitions|/api/feature_flag/local_evaluation`. The shim pair
+    // is harmless on definitions (the handler never extracts the wait
+    // extension), but does add ~one extension-insert + one extension-read
+    // per definitions request. If that overhead ever becomes load-bearing,
+    // scope the shims to `/flags|/decide` via a dedicated sub-router.
     let mut flags_router = Router::new();
 
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {

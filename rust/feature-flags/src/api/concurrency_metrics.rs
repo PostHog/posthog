@@ -13,6 +13,25 @@
 //! Layer wiring lives in `router::router` — see the comment block there.
 //! Both shims are no-ops when their counterpart is missing, so they can be
 //! rolled out / reverted independently without breaking requests.
+//!
+//! # Load-bearing axum invariant
+//!
+//! The metric only captures *true* permit-wait because each `Router::layer()`
+//! call in axum wraps the inner chain in a `Route` whose `poll_ready` returns
+//! `Poll::Ready(Ok(()))` unconditionally (see
+//! `axum::routing::route::Route::poll_ready`). That breaks the synchronous
+//! `poll_ready` cascade at every layer boundary, so
+//! `tower::limit::ConcurrencyLimit::poll_ready` (which is what blocks on the
+//! semaphore) does not run during the outer chain's readiness check — it
+//! runs inside `Route::call` *after* `record_concurrency_enter::call` has
+//! already stamped `Instant::now()`. If a future axum version changes
+//! `Route::poll_ready` to delegate to its inner service, this metric will
+//! silently report ~0 ms regardless of real wait. Re-verify against
+//! `axum::routing::route::Route::poll_ready` on every axum bump; a
+//! regression there will not surface in unit tests (the shim contract is
+//! decoupled from the cascade behavior) but will show up as the
+//! `flags_concurrency_limit_wait_ms` histogram collapsing to ~0 in
+//! production dashboards.
 
 use std::time::{Duration, Instant};
 

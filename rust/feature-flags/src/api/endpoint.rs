@@ -287,8 +287,9 @@ pub async fn flags(
         .filter(|&delta| delta >= 0);
 
     // Concurrency-limit permit-wait, captured by the `record_concurrency_wait`
-    // middleware. `as_millis()` saturates above `u64::MAX` ms (well over the
-    // life of the universe) so the cast is safe.
+    // middleware. `as_millis()` returns `u128`; the `as u64` cast truncates
+    // above `u64::MAX` ms — irrelevant in practice since reaching that bound
+    // would take longer than the age of the universe.
     let concurrency_limit_wait_ms = concurrency_wait.map(|Extension(w)| w.0.as_millis() as u64);
 
     // Initialize canonical log with all upfront request metadata.
