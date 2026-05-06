@@ -100,31 +100,40 @@ describe('hog-charts scales', () => {
             expect(domainMax).toBeLessThan(100)
         })
 
-        it('clips baseline to 0 when an overlay series dips below 0 but primary data is non-negative', () => {
-            // Mirrors a trendline whose backward extrapolation projects slightly negative
-            // while the underlying data is non-negative.
-            const main = makeSeries({ key: 'main', data: [0, 0, 5000, 14500] })
-            const trendline = makeSeries({ key: 'trend', data: [-1000, 4000, 7000, 10000], overlay: true })
-            const scale = createYScale([main, trendline], dimensions)
-            const [domainMin] = scale.domain()
-            expect(domainMin).toBe(0)
-        })
-
-        it('still respects negative values from the primary (non-overlay) data', () => {
-            const main = makeSeries({ key: 'main', data: [-50, 0, 100] })
-            const trendline = makeSeries({ key: 'trend', data: [-10, 50, 110], overlay: true })
-            const scale = createYScale([main, trendline], dimensions)
-            const [domainMin] = scale.domain()
-            expect(domainMin).toBeLessThan(0)
-        })
-
-        it('lets overlay series extend the maximum even when the baseline is clipped to 0', () => {
-            const main = makeSeries({ key: 'main', data: [0, 50, 100] })
-            const trendline = makeSeries({ key: 'trend', data: [200, 250, 300], overlay: true })
-            const scale = createYScale([main, trendline], dimensions)
-            const [domainMin, domainMax] = scale.domain()
-            expect(domainMin).toBe(0)
-            expect(domainMax).toBeGreaterThanOrEqual(300)
+        it.each([
+            {
+                description: 'clips baseline to 0 when an overlay dips below 0 but primary data is non-negative',
+                primaryData: [0, 0, 5000, 14500],
+                overlayData: [-1000, 4000, 7000, 10000],
+                expectedMin: 0,
+                expectMaxAtLeast: undefined as number | undefined,
+            },
+            {
+                description: 'preserves negative axis when primary data has genuine negatives',
+                primaryData: [-50, 0, 100],
+                overlayData: [-10, 50, 110],
+                expectedMin: 'negative' as const,
+                expectMaxAtLeast: undefined,
+            },
+            {
+                description: 'lets overlay extend max even when baseline is clipped to 0',
+                primaryData: [0, 50, 100],
+                overlayData: [200, 250, 300],
+                expectedMin: 0,
+                expectMaxAtLeast: 300,
+            },
+        ])('$description', ({ primaryData, overlayData, expectedMin, expectMaxAtLeast }) => {
+            const main = makeSeries({ key: 'main', data: primaryData })
+            const trendline = makeSeries({ key: 'trend', data: overlayData, overlay: true })
+            const [domainMin, domainMax] = createYScale([main, trendline], dimensions).domain()
+            if (expectedMin === 'negative') {
+                expect(domainMin).toBeLessThan(0)
+            } else {
+                expect(domainMin).toBe(expectedMin)
+            }
+            if (expectMaxAtLeast !== undefined) {
+                expect(domainMax).toBeGreaterThanOrEqual(expectMaxAtLeast)
+            }
         })
 
         it('maps the output range from plotTop + plotHeight down to plotTop', () => {

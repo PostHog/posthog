@@ -56,9 +56,11 @@ export interface Series<Meta = unknown> {
          *  filling down to the x-axis baseline. */
         lowerData?: number[]
     }
-    /** Auxiliary overlay derived from primary data (trendline, moving average, CI band).
+    /** Auxiliary overlay derived from primary data — trend lines and moving averages.
      *  Excluded from stack computation and from the y-axis baseline calculation, so a
-     *  trendline projection won't drag the axis below 0 when the underlying data is non-negative. */
+     *  trendline projection won't drag the axis below 0 when the underlying data is
+     *  non-negative. (CI bands are not overlays — they represent real data uncertainty
+     *  whose range should still influence the axis.) */
     overlay?: boolean
     /** Per-location visibility flags — control where this series appears. */
     visibility?: {

@@ -79,10 +79,11 @@ For custom tooltip content, pass a component to the `tooltip` prop. It receives
 ### Series role and visibility
 
 - `series.overlay` (default `false`): marks an auxiliary series derived from
-  primary data — trend lines, moving averages, confidence interval bands.
-  Excluded from stack computation and from the y-axis baseline calculation, so
-  a trendline projection won't drag the axis below 0 when the underlying data
-  is non-negative.
+  primary data — trend lines and moving averages. Excluded from stack
+  computation and from the y-axis baseline calculation, so a trendline
+  projection won't drag the axis below 0 when the underlying data is
+  non-negative. (CI bands are not overlays — they represent real data
+  uncertainty whose range should still influence the axis.)
 
 The `series.visibility` object controls where a series appears:
 
