@@ -269,11 +269,12 @@ pub struct FlagsCanonicalLogLine {
     /// phase ships; while None, `emit_timing_metrics` skips emission.
     pub concurrency_limit_wait_ms: Option<u64>,
 
-    /// Duration of the Redis HINCRBY billing increment call in milliseconds.
-    /// Only populated from endpoints that run inside a canonical log scope
-    /// (currently `/flags` and `/decide`). `None` when billing was skipped
-    /// (no billable flags or `skip_writes`), or when called from an endpoint
-    /// that does not emit a canonical log line (e.g. `/flags/definitions`).
+    /// Duration of the synchronous Redis HINCRBY billing increment in
+    /// milliseconds. Only populated from endpoints that run inside a canonical
+    /// log scope (currently `/flags` and `/decide`). `None` when billing was
+    /// skipped (no billable flags or `skip_writes`), or when called from an
+    /// endpoint that does not emit a canonical log line (e.g.
+    /// `/flags/definitions`).
     pub billing_duration_ms: Option<u64>,
 
     // Cache sources (populated during data fetching)

@@ -1,13 +1,20 @@
-import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { visualReviewReposRetrieve, visualReviewReposSnapshotsList } from '../generated/api'
-import type { RepoApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
+import {
+    visualReviewReposQuarantineCreate,
+    visualReviewReposQuarantineExpireCreate,
+    visualReviewReposQuarantineList,
+    visualReviewReposRetrieve,
+    visualReviewReposSnapshotsList,
+} from '../generated/api'
+import type { QuarantinedIdentifierEntryApi, RepoApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import type { visualReviewSnapshotHistorySceneLogicType } from './visualReviewSnapshotHistorySceneLogicType'
 
 export interface VisualReviewSnapshotHistorySceneLogicProps {
@@ -44,6 +51,14 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
     connect(() => ({
         values: [teamLogic, ['currentProjectId']],
     })),
+    actions({
+        quarantineIdentifier: (reason: string, identifiers: string[], expiresAt: string | null) => ({
+            reason,
+            identifiers,
+            expiresAt,
+        }),
+        unquarantineIdentifier: true,
+    }),
     loaders(({ props, values }) => ({
         repo: [
             null as RepoApi | null,
@@ -85,6 +100,29 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                         { limit: 100 }
                     )
                     return response.results
+                },
+            },
+        ],
+        // Active quarantine entry for this (identifier, run_type), or
+        // null when none. The endpoint returns full history when an
+        // identifier filter is applied; we pick the still-active one
+        // (no expiry, or expiry in the future).
+        quarantineEntry: [
+            null as QuarantinedIdentifierEntryApi | null,
+            {
+                loadQuarantineEntry: async () => {
+                    const response = await visualReviewReposQuarantineList(
+                        String(values.currentProjectId),
+                        props.repoId,
+                        { identifier: props.identifier, run_type: props.runType }
+                    )
+                    const now = Date.now()
+                    return (
+                        response.results.find(
+                            (q: QuarantinedIdentifierEntryApi) =>
+                                !q.expires_at || new Date(q.expires_at).getTime() > now
+                        ) ?? null
+                    )
                 },
             },
         ],
@@ -133,9 +171,45 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
             ],
         ],
     }),
+    listeners(({ actions, values, props }) => ({
+        quarantineIdentifier: async ({ reason, identifiers, expiresAt }) => {
+            try {
+                await Promise.all(
+                    identifiers.map((identifier) =>
+                        visualReviewReposQuarantineCreate(
+                            String(values.currentProjectId),
+                            props.repoId,
+                            props.runType,
+                            { identifier, reason, expires_at: expiresAt }
+                        )
+                    )
+                )
+                const count = identifiers.length
+                lemonToast.success(`${count} identifier${count > 1 ? 's' : ''} quarantined`)
+                actions.loadQuarantineEntry()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
+            }
+        },
+        unquarantineIdentifier: async () => {
+            try {
+                await visualReviewReposQuarantineExpireCreate(
+                    String(values.currentProjectId),
+                    props.repoId,
+                    props.runType,
+                    { identifier: props.identifier, reason: '' }
+                )
+                lemonToast.success('Identifier unquarantined — future runs will gate on it again')
+                actions.loadQuarantineEntry()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to unquarantine')
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadRepo()
         actions.loadHistory()
         actions.loadPartnerHistory()
+        actions.loadQuarantineEntry()
     }),
 ])

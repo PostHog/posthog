@@ -1,17 +1,10 @@
 import { useMemo } from 'react'
 
-import { createXAxisTickCallback, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
-    /** Custom tick label formatter. When set, it wins over the date-axis auto formatter. */
     tickFormatter?: (value: string, index: number) => string | null
     hide?: boolean
-    timezone?: string
-    interval?: TimeInterval
-    /** Raw date strings underlying each label, used to compute boundary-aware ticks.
-     * If omitted, falls back to `labels`. */
-    allDays?: string[]
 }
 
 export interface YAxisConfig extends YFormatterConfig {
@@ -20,25 +13,6 @@ export interface YAxisConfig extends YFormatterConfig {
     tickFormatter?: (value: number) => string
     hide?: boolean
     showGrid?: boolean
-}
-
-export function useXTickFormatter(
-    xAxis: XAxisConfig | undefined,
-    labels: string[]
-): ((value: string, index: number) => string | null) | undefined {
-    return useMemo(() => {
-        if (xAxis?.tickFormatter) {
-            return xAxis.tickFormatter
-        }
-        if (!xAxis?.timezone || !xAxis?.interval) {
-            return undefined
-        }
-        return createXAxisTickCallback({
-            timezone: xAxis.timezone,
-            interval: xAxis.interval,
-            allDays: xAxis.allDays ?? labels,
-        })
-    }, [xAxis?.tickFormatter, xAxis?.timezone, xAxis?.interval, xAxis?.allDays, labels])
 }
 
 export function useYTickFormatter(yAxis: YAxisConfig | undefined): ((value: number) => string) | undefined {
