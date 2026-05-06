@@ -32,9 +32,6 @@ pub struct Config {
     #[envconfig(default = "llm-traces")]
     pub opensearch_index_alias: String,
 
-    #[envconfig(default = "opensearch_indexer_dlq")]
-    pub opensearch_dlq_topic: String,
-
     // Bulk batching: size in bytes and max age in ms. OS recommends ~5-15MB per request;
     // we default to 5MB to keep latency tight and stay well under typical proxy buffers.
     #[envconfig(default = "5242880")]

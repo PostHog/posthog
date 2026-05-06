@@ -67,8 +67,9 @@ struct PendingItem<O> {
     offset: O,
 }
 
-/// `Permanent` and `Retryable` carry response context so the DLQ-bound log
-/// surfaces the *why*.
+/// `Permanent` and `Retryable` carry response context so the rejection log
+/// surfaces the *why*. Permanent items are not recoverable: there is no DLQ
+/// today, so observability is via the warn log plus per-outcome metrics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ItemOutcome {
     Success,
@@ -220,7 +221,7 @@ impl<O: OffsetKey> BulkBatch<O> {
                         status = status,
                         error_type = error_type.as_deref().unwrap_or(""),
                         error_reason = error_reason.as_deref().unwrap_or(""),
-                        "DLQ-bound bulk item"
+                        "permanent OpenSearch rejection (no recovery)"
                     );
                     consider_for_commit(&mut commit, &low_water, item.offset);
                 }
@@ -1483,7 +1484,7 @@ mod tests {
         // Permanent at 14 is held back behind retryable at 13 → no commit on
         // partition 0 from the success at 12 either? Let's reason:
         //  - LW(0)=13 (only retryable). Resolved offsets < LW: {12 (success)}.
-        //  - 14 is Permanent and resolved (left batch, logged as DLQ-bound)
+        //  - 14 is Permanent and resolved (left batch, logged as permanent rejection)
         //    but ≥ LW so doesn't commit.
         // So commit = {0:12}.
         assert_eq!(stats.committed_partitions, 1);
