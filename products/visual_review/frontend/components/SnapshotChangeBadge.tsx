@@ -73,11 +73,10 @@ type ChangeBadgeProps = {
 /**
  * Categorical chip describing the *kind* of change in a snapshot.
  *
- * The diff pipeline classifies into one of: `pixel` (a chunk of pixels
- * visibly differ), `structural` (SSIM caught a perceptual change while
- * pixel diff was below threshold). Size-mismatch is *not* a kind — it composes
- * with whichever kind the classifier picked, so when set it renders as
- * an additional chip next to the main one.
+ * `pixel` shows a percentage pill. `structural` shows the pixel diff %
+ * alongside a "Perceptible change" label — the % is real but low, and
+ * the label explains why it's flagged. Both tiers use the same metric
+ * (pixel diff %) so the overview can average across them.
  *
  * Returns null when there's nothing to show (no diff, no size mismatch,
  * or pre-migration legacy row with no kind and no percentage).
@@ -95,18 +94,17 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
     let kindChip: JSX.Element | null = null
 
     if (kind === 'structural') {
-        const ssimText =
-            snapshot.ssim_score != null
-                ? `SSIM ${snapshot.ssim_score.toFixed(3)} — perceptually different despite few pixels changing.`
-                : 'Perceptual change caught by SSIM despite few pixels changing.'
+        const hasPct = pct != null && pct >= PCT_DISPLAY_FLOOR
+        const tooltip = hasPct
+            ? `${pct.toFixed(2)}% of pixels differ, but the change is perceptually significant. Structural similarity analysis confirmed this is a real visual change.`
+            : 'Few pixels differ, but the change is perceptually significant. Structural similarity analysis confirmed this is a real visual change.'
         kindChip = (
-            <Tooltip
-                title={`Subtle change. ${ssimText} Pixel-diff percentage isn't shown because it's below the classifier threshold and would mislead.`}
-            >
+            <Tooltip title={tooltip}>
                 <span
-                    className={`shrink-0 inline-flex items-center bg-primary-highlight font-medium text-primary leading-none ${radiusClass} ${sizeClass}`}
+                    className={`shrink-0 inline-flex items-center gap-1 bg-primary-highlight font-medium text-primary leading-none ${radiusClass} ${sizeClass}`}
                 >
-                    {isCompact ? 'Subtle' : 'Subtle change'}
+                    {hasPct && <span className="font-mono tabular-nums">{formatPct(pct)}</span>}
+                    {isCompact ? 'Perceptible' : 'Perceptible change'}
                 </span>
             </Tooltip>
         )
@@ -121,7 +119,7 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
             tooltipBits.push(`${t} ${t === 1 ? 'region' : 'regions'} affected`)
         }
         if (snapshot.ssim_score != null) {
-            tooltipBits.push(`SSIM ${snapshot.ssim_score.toFixed(3)}`)
+            tooltipBits.push(`${((1 - snapshot.ssim_score) * 100).toFixed(1)}% perceptual diff`)
         }
         const tooltip = tooltipBits.length ? `${pct.toFixed(2)}% pixel diff. ${tooltipBits.join(' · ')}.` : null
         const chip = (
