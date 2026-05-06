@@ -64,7 +64,7 @@ def _is_applicable(expected: Any, key: str) -> bool:
 
 
 class DuplicateUniqueFlagKey(Scorer):
-    """Deterministic: agent must avoid the silent shared-flag-key default.
+    """Hybrid (deterministic + LLM judge): agent must avoid the silent shared-flag-key default.
 
     The skill body (``managing-experiment-lifecycle/SKILL.md`` line 111)
     requires the agent to provide a unique ``feature_flag_key`` distinct
@@ -73,32 +73,125 @@ class DuplicateUniqueFlagKey(Scorer):
 
     Two paths to pass:
 
-    1. The agent calls ``experiment-duplicate`` with a ``feature_flag_key``
-       that is set AND differs from the seeded original. The right thing.
-    2. The agent does NOT call ``experiment-duplicate`` at all, AND its
-       final message asks the user for a flag key (i.e. correctly refuses
-       to act on incomplete information).
+    1. **Deterministic.** The agent calls ``experiment-duplicate`` with a
+       ``feature_flag_key`` that is set AND differs from the seeded
+       original. The tool-call args are inspected directly.
+    2. **LLM-judged.** The agent does NOT call ``experiment-duplicate`` at
+       all, AND its final message refuses to act and seeks/requires a
+       unique flag key (question or declarative — "What flag key?" or
+       "I need a unique feature_flag_key to proceed."). A keyword + "?"
+       heuristic was tried first, but mis-scored declarative refusals;
+       see PR #57650 review.
 
     Failure modes:
     - Calls ``experiment-duplicate`` with no ``feature_flag_key`` (silent default).
     - Calls ``experiment-duplicate`` with a key matching the original.
-    - Doesn't call ``experiment-duplicate`` and doesn't ask about the key
-      (gave up / answered something unrelated).
+    - Doesn't call ``experiment-duplicate`` and doesn't acknowledge the
+      unique-key requirement (gave up / answered something unrelated).
     """
 
     def __init__(self, *, name: str = "duplicate_unique_flag_key"):
         self._label = name
+        # LLM judge for the no-call branch. Instantiated lazily to avoid
+        # paying its setup cost on cases that take the deterministic path.
+        self._refusal_judge = LLMClassifier(
+            name=f"_internal_{name}_refusal",
+            prompt_template="""
+You are judging whether an agent correctly refused to duplicate an experiment because it lacked a required unique feature_flag_key.
+
+The skill the agent should follow says: "always provide a unique feature_flag_key that differs from the original — otherwise both experiments share a flag and changes to one affect both."
+
+The agent did NOT call experiment-duplicate. Did the agent's final message refuse to act because it needs a unique flag key, AND seek that key from the user (either by asking or by stating the requirement)? Both interrogative and declarative phrasings qualify.
+
+Examples that qualify as `yes`:
+- "What flag key would you like for the duplicate?"
+- "I need a unique feature_flag_key to proceed."
+- "Please supply a flag key before I duplicate this."
+- "The duplicate needs its own flag key — could you specify one?"
+
+Examples that qualify as `no`:
+- The agent answered an unrelated question.
+- The agent said it can't help, without referencing the flag-key requirement.
+- The agent's message doesn't mention the flag-key requirement at all.
+
+User's prompt:
+<prompt>
+{{output.prompt}}
+</prompt>
+
+Agent's final message:
+<final_message>
+{{output.last_message}}
+</final_message>
+
+Answer `yes` or `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=_JUDGE_MODEL,
+            max_completion_tokens=128,
+        )
 
     def _name(self) -> str:
         return self._label
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
+        deterministic = self._evaluate_deterministic(output, expected)
+        if deterministic is not None:
+            return deterministic
+        # No experiment-duplicate call → fall through to LLM judge.
+        try:
+            judge_score = await self._refusal_judge._run_eval_async(
+                {"prompt": _user_prompt(output), "last_message": output.get("last_message", "") or ""},
+                None,
+            )
+        except Exception as exc:
+            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
+        return self._wrap_judge(judge_score)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
-        return self._evaluate(output, expected)
+        deterministic = self._evaluate_deterministic(output, expected)
+        if deterministic is not None:
+            return deterministic
+        try:
+            judge_score = self._refusal_judge._run_eval_sync(
+                {"prompt": _user_prompt(output), "last_message": output.get("last_message", "") or ""},
+                None,
+            )
+        except Exception as exc:
+            return Score(name=self._name(), score=0.0, metadata={"reason": f"judge error: {exc}"})
+        return self._wrap_judge(judge_score)
 
-    def _evaluate(self, output: dict | None, expected: Any) -> Score:
+    def _wrap_judge(self, judge_score: Score) -> Score:
+        """Translate the internal judge's pass/fail into this scorer's namespace.
+
+        Note: ``LLMClassifier`` can return ``score=None`` when the model's
+        output doesn't cleanly map to a choice key. Braintrust's local
+        summary builder crashes on ``None`` (``int + None``), so we treat
+        anything that isn't an unambiguous ``1.0`` as a failure (``0.0``).
+        """
+        if judge_score.score == 1.0:
+            return Score(
+                name=self._name(),
+                score=1.0,
+                metadata={
+                    "path": "refused_via_judge",
+                    "reason": "Agent refused to duplicate without a unique flag key (LLM judge)",
+                    "judge_metadata": dict(judge_score.metadata or {}),
+                },
+            )
+        return Score(
+            name=self._name(),
+            score=0.0,
+            metadata={
+                "path": "no_call_no_refusal",
+                "reason": "Agent neither called experiment-duplicate nor refused on flag-key grounds",
+                "judge_score": judge_score.score,
+                "judge_metadata": dict(judge_score.metadata or {}),
+            },
+        )
+
+    def _evaluate_deterministic(self, output: dict | None, expected: Any) -> Score | None:
+        """Returns a terminal Score, or None to fall through to the LLM judge."""
         if not _is_applicable(expected, self._name()):
             return Score(
                 name=self._name(), score=1.0, metadata={"skipped": True, "reason": "Not applicable to this case"}
@@ -117,32 +210,8 @@ class DuplicateUniqueFlagKey(Scorer):
 
         successful_dups = [c for c in parser.get_tool_calls("experiment-duplicate") if not c.is_error]
         if not successful_dups:
-            # Agent didn't act. Pass iff its final message asks the user
-            # for a flag key — a correct refusal to silently default.
-            last_message = (output.get("last_message") or "").lower()
-            asks_for_key = "?" in last_message and (
-                "flag key" in last_message
-                or "flag_key" in last_message
-                or "feature flag key" in last_message
-                or "feature_flag_key" in last_message
-            )
-            if asks_for_key:
-                return Score(
-                    name=self._name(),
-                    score=1.0,
-                    metadata={
-                        "reason": "Agent asked the user for a flag key before duplicating — correct refusal",
-                        "path": "asked_for_key",
-                    },
-                )
-            return Score(
-                name=self._name(),
-                score=0.0,
-                metadata={
-                    "reason": "Agent neither called experiment-duplicate nor asked for a flag key",
-                    "path": "no_call_no_ask",
-                },
-            )
+            # No call → caller will run the LLM judge.
+            return None
 
         last = successful_dups[-1]
         raw_input = last.input if isinstance(last.input, dict) else {}
