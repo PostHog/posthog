@@ -3,7 +3,7 @@ import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
@@ -47,7 +47,7 @@ export class CommonIngestionConsumer {
     private name: string
     private groupId: string
     private topic: string
-    private kafkaConsumer: KafkaConsumer
+    private kafkaConsumer: KafkaConsumerInterface
     public readonly promiseScheduler = new PromiseScheduler()
     isStopping = false
 
@@ -63,7 +63,7 @@ export class CommonIngestionConsumer {
         this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? config.INGESTION_CONSUMER_CONSUME_TOPIC
         this.name = `ingestion-consumer-${this.topic}`
 
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
         })
@@ -82,7 +82,7 @@ export class CommonIngestionConsumer {
             await this.lifecycle.onStart()
         }
 
-        await this.kafkaConsumer.connect(async (messages) => {
+        await this.kafkaConsumer.connect(async (messages: Message[]) => {
             return await instrumentFn(
                 { key: 'commonIngestionConsumer.handleEachBatch', sendException: false },
                 async () => await this.handleKafkaBatch(messages)
