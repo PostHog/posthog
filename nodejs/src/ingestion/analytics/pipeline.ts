@@ -16,6 +16,10 @@ import {
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
+import {
+    PostTeamPreprocessingSubpipelineConfig,
+    createPostTeamPreprocessingSubpipeline,
+} from '../common/subpipelines/post-team-preprocessing'
 import { createPreTeamPreprocessingSubpipeline } from '../common/subpipelines/pre-team-preprocessing'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
@@ -39,10 +43,6 @@ import {
     PerDistinctIdPipelineInput,
     createPerDistinctIdPipeline,
 } from './per-distinct-id-pipeline'
-import {
-    PostTeamPreprocessingSubpipelineConfig,
-    createPostTeamPreprocessingSubpipeline,
-} from './post-team-preprocessing-subpipeline'
 
 export interface AnalyticsPipelineConfig {
     eventSchemaEnforcementEnabled: boolean

@@ -13,7 +13,7 @@ export {
     createPostTeamPreprocessingSubpipeline,
     PostTeamPreprocessingSubpipelineConfig,
     PostTeamPreprocessingSubpipelineInput,
-} from './post-team-preprocessing-subpipeline'
+} from '../common/subpipelines/post-team-preprocessing'
 
 export {
     createPreTeamPreprocessingSubpipeline,
