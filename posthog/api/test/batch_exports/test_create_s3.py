@@ -67,7 +67,7 @@ def test_create_s3_family_batch_export(
     assert response.json()["destination"]["type"] == expected_persisted_type
 
 
-@pytest.mark.parametrize("destination_type", S3_FAMILY_TYPES)
+@pytest.mark.parametrize("destination_type", sorted(S3_FAMILY_TYPES))
 def test_create_s3_family_batch_export_validates_empty_inputs(
     client: HttpClient, temporal, organization, team, user, destination_type
 ):
@@ -98,7 +98,7 @@ def test_create_s3_family_batch_export_validates_empty_inputs(
 @pytest.mark.parametrize(
     "destination_type,missing_field",
     [
-        *((dt, field) for dt in S3_FAMILY_TYPES for field in ("aws_access_key_id", "aws_secret_access_key")),
+        *((dt, field) for dt in sorted(S3_FAMILY_TYPES) for field in ("aws_access_key_id", "aws_secret_access_key")),
         # `endpoint_url` is required only for S3Compatible.
         ("S3Compatible", "endpoint_url"),
     ],

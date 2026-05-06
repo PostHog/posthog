@@ -519,7 +519,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             A `serializers.ValidationError` if any of these checks fail.
         """
         export_type, config = data["type"], data["config"]
-        is_patch = self.context["request"].method == "PATCH"
+        request = self.context.get("request")
+        is_patch = request is not None and request.method == "PATCH"
 
         if not is_patch:
             normalized_type = _normalize_legacy_s3_type(export_type, config)

@@ -239,6 +239,48 @@ async def test_s3_export_workflow_with_minio_bucket_without_events(
     )
 
 
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("compression", [None], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+async def test_s3_export_workflow_with_legacy_s3_destination_type(
+    clickhouse_client,
+    minio_client,
+    ateam,
+    s3_compatible_batch_export,
+    bucket_name,
+    interval,
+    compression,
+    exclude_events,
+    file_format,
+    s3_key_prefix,
+    model,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+):
+    """Cover the legacy `S3` dispatch path through the canonical `S3BatchExportInputs`.
+
+    Production rows with `type="S3"` continue to dispatch via the canonical input
+    dataclass until reclassification runs.
+
+    TODO: This test can be removed once we have deprecated the legacy `S3` destination type.
+    """
+    await run_s3_batch_export_workflow(
+        model=model,
+        ateam=ateam,
+        batch_export_id=str(s3_compatible_batch_export.id),
+        s3_destination_config=s3_compatible_batch_export.destination.config,
+        interval=interval,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        clickhouse_client=clickhouse_client,
+        s3_client=minio_client,
+        destination_type="S3",
+    )
+
+
 @pytest.mark.parametrize(
     "s3_key_prefix",
     [
