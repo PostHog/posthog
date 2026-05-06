@@ -511,7 +511,7 @@ async def create_run_usage_reports_schedule(client: Client):
             # `dataclasses.asdict` would TypeError on registration.
             RunUsageReportsInputs().model_dump(mode="json"),
             id="run-usage-reports-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.BILLING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(
