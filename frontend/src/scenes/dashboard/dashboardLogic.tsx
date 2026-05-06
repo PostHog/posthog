@@ -1762,6 +1762,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         updateTileColor: async ({ tileId, color }) => {
+            if (isSharedView()) {
+                return
+            }
             const previousColor = values.tiles.find((tile) => tile.id === tileId)?.color
             actions.setTileProperty(tileId, { color })
             try {
@@ -1774,6 +1777,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         toggleTileDescription: async ({ tileId }) => {
+            if (isSharedView()) {
+                return
+            }
             const matchingTile = values.tiles.find((tile) => tile.id === tileId)
             const previousValue = matchingTile?.show_description
             const newValue = previousValue === false
