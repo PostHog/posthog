@@ -1098,15 +1098,6 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
     date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
 })
 
-/**
- * Fetch the recent $ai_generation events for the sentiment tab.
-
-Backed by `_SENTIMENT_GENERATIONS_SQL` reading `posthog.ai_events` through
-`execute_with_ai_events_fallback`, so heavy `input` values survive the
-post-cutover strip on `events.properties.$ai_input`. Frontend callers
-pass the same `HogQLFilters` payload they previously passed to
-`api.query({kind: HogQLQuery, filters: ...})`.
- */
 export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
     .object({
         filters: zod.unknown().optional(),
