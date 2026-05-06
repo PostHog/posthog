@@ -15,6 +15,8 @@ import pytest
 
 from django.conf import settings
 
+from temporalio.testing import WorkflowEnvironment
+
 from posthog.temporal.common.worker import create_worker
 
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
@@ -42,6 +44,25 @@ LLM_GATEWAY_PORT = 13308  # Non-default port to avoid conflicts with dev LLM gat
 # ``pytest_collection_modifyitems`` below so individual evals don't have
 # to repeat it on every ``@pytest.mark.django_db`` marker.
 SANDBOXED_EVAL_DATABASES = ("default", "persons_db_writer", "persons_db_reader")
+
+
+@pytest.fixture(scope="session")
+def _sandboxed_temporal_environment() -> Generator[tuple[str, int], None, None]:
+    """Start an isolated Temporal server for sandboxed eval workflows.
+
+    The repo's Docker Temporal service depends on Elasticsearch and can accept a
+    TCP connection before Temporal frontend is actually ready. Using the SDK test
+    server keeps these evals independent from that local service state.
+    """
+    environment = asyncio.run(WorkflowEnvironment.start_local())
+    target_host = environment.client.service_client.config.target_host
+    host, port = target_host.rsplit(":", 1)
+    logger.info("Sandboxed eval Temporal server ready at %s", target_host)
+
+    try:
+        yield host, int(port)
+    finally:
+        asyncio.run(environment.shutdown())
 
 
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
@@ -171,7 +192,7 @@ def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandbox_settings(_django_live_server, _llm_gateway):
+def _sandbox_settings(_django_live_server, _llm_gateway, _posthog_oauth_app, _sandboxed_temporal_environment):
     """Configure Django settings required by the sandbox/temporal activities.
 
     All URLs use ``host.docker.internal`` so they're reachable from inside
@@ -188,6 +209,7 @@ def _sandbox_settings(_django_live_server, _llm_gateway):
     # Docker containers reach the host via host.docker.internal
     docker_api_url = f"http://host.docker.internal:{DJANGO_LIVE_PORT}"
     docker_llm_gateway_url = f"http://host.docker.internal:{LLM_GATEWAY_PORT}"
+    temporal_host, temporal_port = _sandboxed_temporal_environment
 
     import posthoganalytics
 
@@ -198,6 +220,11 @@ def _sandbox_settings(_django_live_server, _llm_gateway):
             SANDBOX_API_URL=docker_api_url,
             SANDBOX_LLM_GATEWAY_URL=docker_llm_gateway_url,
             SANDBOX_MCP_URL=f"http://host.docker.internal:{MCP_PORT}/mcp",
+            TEMPORAL_HOST=temporal_host,
+            TEMPORAL_PORT=str(temporal_port),
+            TEMPORAL_NAMESPACE="default",
+            TEMPORAL_CLIENT_CERT=None,
+            TEMPORAL_CLIENT_KEY=None,
         ),
         patch.object(posthoganalytics, "feature_enabled", return_value=True),
     ):
