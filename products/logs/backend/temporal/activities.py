@@ -632,12 +632,15 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
         if cohort_size == 1:
             return _CohortQueryResult(per_alert={str(cohort.alerts[0].id): _PrefetchedQuery(error=e)})
 
+        alert_ids = [str(a.id) for a in cohort.alerts]
+
         classified = classify_alert_error(e)
         if classified.is_transient:
             logger.warning(
                 "Batched cohort query failed (transient); skipping per-alert fallback",
                 team_id=team_id,
                 cohort_size=cohort_size,
+                alert_ids=alert_ids,
                 error=str(e),
                 classification=classified.code,
             )
@@ -648,10 +651,11 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
             "Batched cohort query failed; falling back to per-alert queries",
             team_id=team_id,
             cohort_size=cohort_size,
+            alert_ids=alert_ids,
             error=str(e),
             classification=classified.code,
         )
-        capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size})
+        capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size, "alert_ids": alert_ids})
         _safe_record("cohort_query_fallback counter", increment_cohort_query_fallback, "batched_failure")
         return _run_per_alert_queries(cohort)
 

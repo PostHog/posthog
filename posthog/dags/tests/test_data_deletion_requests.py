@@ -721,6 +721,61 @@ def test_full_job_property_removal_single_property(cluster: ClickhouseCluster):
     assert request.status == RequestStatus.COMPLETED
 
 
+@pytest.mark.django_db
+def test_full_job_property_removal_applies_hogql_predicate(cluster: ClickhouseCluster):
+    """A property removal scoped by hogql_predicate must clean only matching events."""
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    org = Organization.objects.create(name="test-org-prop-hogql")
+    team = Team.objects.create(organization=org, name="test-team-prop-hogql")
+
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    chrome_props = json.dumps({"secret": "value", "$browser": "Chrome"})
+    firefox_props = json.dumps({"secret": "value", "$browser": "Firefox"})
+    chrome_events = [(team.id, "$pageview", uuid4(), now - timedelta(hours=i), chrome_props) for i in range(10)]
+    firefox_events = [(team.id, "$pageview", uuid4(), now - timedelta(hours=i), firefox_props) for i in range(5)]
+
+    cluster.any_host(partial(_insert_events_with_properties, chrome_events + firefox_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=team.id,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["secret"],
+        start_time=start_time,
+        end_time=end_time,
+        hogql_predicate="properties.$browser = 'Chrome'",
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    # Chrome events: secret cleaned, $browser preserved
+    all_props = cluster.any_host(partial(_get_properties, team.id, "$pageview")).result()
+    chrome = [p for p in all_props if p.get("$browser") == "Chrome"]
+    firefox = [p for p in all_props if p.get("$browser") == "Firefox"]
+    assert len(chrome) == 10, f"expected 10 Chrome rows, got {len(chrome)}"
+    assert len(firefox) == 5, f"expected 5 Firefox rows untouched, got {len(firefox)}"
+    for props in chrome:
+        assert "secret" not in props, f"Chrome event still has secret: {props}"
+    for props in firefox:
+        assert props.get("secret") == "value", f"Firefox event must keep secret: {props}"
+
+
 def _assert_subfield_removed(props: dict, path: str) -> None:
     """Assert a dotted subfield path was removed from props."""
     parts = path.split(".")

@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
+from posthog.event_usage import EventSource, get_event_source
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -42,6 +43,7 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import (
     partition_sessions_by_recording_existence,
 )
 from ee.hogai.session_summaries.tracking import (
+    SummarySource,
     capture_session_summary_generated,
     capture_session_summary_started,
     generate_tracking_id,
@@ -100,6 +102,10 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     permission_classes = [IsAuthenticated]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionSummariesSerializer
+
+    @staticmethod
+    def _resolve_summary_source(request: Request) -> SummarySource:
+        return "mcp" if get_event_source(request) == EventSource.MCP else "api"
 
     def _validate_user(self, request: Request) -> User:
         if not request.user.is_authenticated:
@@ -183,6 +189,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create_session_summaries(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
         session_ids, min_timestamp, max_timestamp, extra_summary_context = self._validate_input(request)
+        summary_source = self._resolve_summary_source(request)
         tracking_id = (
             generate_tracking_id()
         )  # Unified id to combine start/end, calculate duration, check success rate and so
@@ -190,7 +197,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             user=user,
             team=self.team,
             tracking_id=tracking_id,
-            summary_source="api",
+            summary_source=summary_source,
             summary_type="group",
             session_ids=session_ids,
         )
@@ -208,7 +215,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 user=user,
                 team=self.team,
                 tracking_id=tracking_id,
-                summary_source="api",
+                summary_source=summary_source,
                 summary_type="group",
                 session_ids=session_ids,
                 success=True,
@@ -225,7 +232,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 user=user,
                 team=self.team,
                 tracking_id=tracking_id,
-                summary_source="api",
+                summary_source=summary_source,
                 summary_type="group",
                 session_ids=session_ids,
                 success=False,
@@ -325,6 +332,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create_session_summaries_individually(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
         session_ids, extra_summary_context = self._parse_input(request)
+        summary_source = self._resolve_summary_source(request)
         # Don't fail the whole batch if some sessions have no recording — partition them out and surface
         # each missing session as a per-session error in the response (matches the partial-success contract
         # this endpoint already had for downstream summary failures).
@@ -336,7 +344,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             user=user,
             team=self.team,
             tracking_id=tracking_id,
-            summary_source="api",
+            summary_source=summary_source,
             summary_type="single",
             session_ids=session_ids,
         )
@@ -364,7 +372,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 user=user,
                 team=self.team,
                 tracking_id=tracking_id,
-                summary_source="api",
+                summary_source=summary_source,
                 summary_type="single",
                 session_ids=session_ids,
                 success=True,
@@ -381,7 +389,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 user=user,
                 team=self.team,
                 tracking_id=tracking_id,
-                summary_source="api",
+                summary_source=summary_source,
                 summary_type="single",
                 session_ids=session_ids,
                 success=False,
