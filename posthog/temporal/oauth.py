@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_oauth_access_token
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
 from posthog.utils import get_instance_region
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -14,52 +15,30 @@ ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
 McpScopePreset = Literal["read_only", "full"]
 
 
-# Scopes matching the MCP server's OAUTH_SCOPES_SUPPORTED (services/mcp/src/lib/constants.ts),
-# excluding OAuth auth scopes (openid, profile, email, introspection).
-MCP_READ_SCOPES: list[str] = [
-    "action:read",
-    "cohort:read",
-    "dashboard:read",
-    "error_tracking:read",
-    "event_definition:read",
-    "experiment:read",
-    "feature_flag:read",
-    "hog_flow:read",
-    "insight:read",
-    "insight_variable:read",
-    "llm_prompt:read",
-    "logs:read",
-    "notebook:read",
-    "organization:read",
-    "tracing:read",
-    "project:read",
-    "property_definition:read",
-    "query:read",
-    "survey:read",
-    "user:read",
-    "warehouse_table:read",
-    "warehouse_view:read",
-]
-
-MCP_WRITE_SCOPES: list[str] = [
-    "action:write",
-    "cohort:write",
-    "dashboard:write",
-    "error_tracking:write",
-    "event_definition:write",
-    "experiment:write",
-    "feature_flag:write",
-    "insight:write",
-    "insight_variable:write",
-    "llm_prompt:write",
-    "notebook:write",
-    "survey:write",
-]
-
 INTERNAL_SCOPES: list[str] = [
     "task:write",
     "llm_gateway:read",
 ]
+
+
+# Derived from posthog.scopes so the token issued to a sandboxed agent cannot
+# drift out of subset of what the MCP server advertises in
+# `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
+# `get_oauth_scopes_supported()` via `bin/build-mcp-oauth-scopes.py`). Scopes
+# already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
+# emit duplicates.
+def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
+    excluded_objects = INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS
+    internal_set = set(INTERNAL_SCOPES)
+    return [
+        f"{obj}:{action}"
+        for obj in API_SCOPE_OBJECTS
+        if obj not in excluded_objects and f"{obj}:{action}" not in internal_set
+    ]
+
+
+MCP_READ_SCOPES: list[str] = _build_mcp_scopes("read")
+MCP_WRITE_SCOPES: list[str] = _build_mcp_scopes("write")
 
 TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
