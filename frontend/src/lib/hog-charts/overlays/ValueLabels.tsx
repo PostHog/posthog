@@ -293,8 +293,9 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue, axisOrientation, isPercent } = useChartLayout()
-    const isHorizontal = axisOrientation === 'horizontal'
+    const { series, scales, labels, theme, resolveValue, axis } = useChartLayout()
+    const isHorizontal = axis.orientation === 'horizontal'
+    const isPercent = axis.isPercent
 
     const formatter = valueFormatter ?? defaultLocaleFormatter
 

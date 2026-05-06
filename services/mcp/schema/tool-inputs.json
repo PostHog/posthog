@@ -1513,9 +1513,12 @@
                                                                 "ActionsTable",
                                                                 "ActionsPie",
                                                                 "ActionsBar",
+                                                                "ActionsStackedBar",
+                                                                "ActionsAreaGraph",
                                                                 "ActionsBarValue",
                                                                 "WorldMap",
-                                                                "BoldNumber"
+                                                                "BoldNumber",
+                                                                "TwoDimensionalHeatmap"
                                                             ]
                                                         },
                                                         "showLegend": {
@@ -2594,6 +2597,220 @@
                                         }
                                     },
                                     "required": ["kind", "query"]
+                                },
+                                "display": {
+                                    "description": "Visualization type. Time series should usually use ActionsLineGraph or ActionsAreaGraph; use ActionsTable only when table rows are the intended output.",
+                                    "type": "string",
+                                    "enum": [
+                                        "ActionsLineGraph",
+                                        "ActionsTable",
+                                        "ActionsPie",
+                                        "ActionsBar",
+                                        "ActionsStackedBar",
+                                        "ActionsAreaGraph",
+                                        "ActionsBarValue",
+                                        "WorldMap",
+                                        "BoldNumber",
+                                        "TwoDimensionalHeatmap"
+                                    ]
+                                },
+                                "chartSettings": {
+                                    "type": "object",
+                                    "properties": {
+                                        "xAxis": {
+                                            "description": "Column used as the X axis, usually a time bucket or category.",
+                                            "type": "object",
+                                            "properties": {
+                                                "column": {
+                                                    "type": "string",
+                                                    "description": "Name of a column returned by the SQL query."
+                                                },
+                                                "settings": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "formatting": {
+                                                            "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "style": {
+                                                                    "type": "string",
+                                                                    "enum": ["none", "number", "short", "percent"]
+                                                                },
+                                                                "decimalPlaces": {
+                                                                    "type": "number"
+                                                                },
+                                                                "prefix": {
+                                                                    "type": "string"
+                                                                },
+                                                                "suffix": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        },
+                                                        "display": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "label": {
+                                                                    "type": "string"
+                                                                },
+                                                                "displayType": {
+                                                                    "type": "string",
+                                                                    "enum": ["auto", "line", "bar", "area"]
+                                                                },
+                                                                "yAxisPosition": {
+                                                                    "type": "string",
+                                                                    "enum": ["left", "right"]
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "required": ["column"]
+                                        },
+                                        "yAxis": {
+                                            "description": "Numeric columns plotted as Y series. Include only final metrics the user cares about, not helper columns such as numerators or denominators.",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "column": {
+                                                        "type": "string",
+                                                        "description": "Name of a column returned by the SQL query."
+                                                    },
+                                                    "settings": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "formatting": {
+                                                                "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "style": {
+                                                                        "type": "string",
+                                                                        "enum": ["none", "number", "short", "percent"]
+                                                                    },
+                                                                    "decimalPlaces": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "prefix": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "suffix": {
+                                                                        "type": "string"
+                                                                    }
+                                                                }
+                                                            },
+                                                            "display": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "label": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "displayType": {
+                                                                        "type": "string",
+                                                                        "enum": ["auto", "line", "bar", "area"]
+                                                                    },
+                                                                    "yAxisPosition": {
+                                                                        "type": "string",
+                                                                        "enum": ["left", "right"]
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "required": ["column"]
+                                            }
+                                        },
+                                        "seriesBreakdownColumn": {
+                                            "description": "Column that splits a single Y metric into multiple colored series.",
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "showLegend": {
+                                            "type": "boolean"
+                                        },
+                                        "showNullsAsZero": {
+                                            "type": "boolean"
+                                        },
+                                        "stackBars100": {
+                                            "type": "boolean"
+                                        }
+                                    }
+                                },
+                                "tableSettings": {
+                                    "type": "object",
+                                    "properties": {
+                                        "columns": {
+                                            "description": "Columns to display and their order.",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "column": {
+                                                        "type": "string",
+                                                        "description": "Name of a column returned by the SQL query."
+                                                    },
+                                                    "settings": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "formatting": {
+                                                                "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "style": {
+                                                                        "type": "string",
+                                                                        "enum": ["none", "number", "short", "percent"]
+                                                                    },
+                                                                    "decimalPlaces": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "prefix": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "suffix": {
+                                                                        "type": "string"
+                                                                    }
+                                                                }
+                                                            },
+                                                            "display": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "label": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "displayType": {
+                                                                        "type": "string",
+                                                                        "enum": ["auto", "line", "bar", "area"]
+                                                                    },
+                                                                    "yAxisPosition": {
+                                                                        "type": "string",
+                                                                        "enum": ["left", "right"]
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "required": ["column"]
+                                            }
+                                        },
+                                        "pinnedColumns": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "transpose": {
+                                            "type": "boolean"
+                                        }
+                                    }
                                 }
                             },
                             "required": ["kind", "source"]
