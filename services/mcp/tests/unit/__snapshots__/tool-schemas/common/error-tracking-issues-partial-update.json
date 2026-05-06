@@ -6,14 +6,10 @@
                 "id": {
                     "anyOf": [
                         {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "string"
-                                }
-                            ]
+                            "type": "number"
+                        },
+                        {
+                            "type": "string"
                         },
                         {
                             "type": "null"

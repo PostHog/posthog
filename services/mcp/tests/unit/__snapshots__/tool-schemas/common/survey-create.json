@@ -202,12 +202,6 @@
             "description": "When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false)."
         },
         "form_content": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ],
             "description": "Optional hosted-form content configuration for external_survey forms. Only include this when the user explicitly asks to customize the hosted form content beyond the standard question flow."
         },
         "iteration_count": {
@@ -656,17 +650,9 @@
         "schedule": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `once` - once\n* `recurring` - recurring\n* `always` - always",
-                            "enum": ["once", "recurring", "always"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `once` - once\n* `recurring` - recurring\n* `always` - always",
+                    "enum": ["once", "recurring", "always"],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -1169,12 +1155,6 @@
             "description": "User targeting rules for in-app surveys. Use only when the user wants the survey shown to a subset of users. Do not use this for external_survey forms."
         },
         "translations": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ],
             "description": "Optional survey-level translations keyed by language code. Use for translated survey name, description, and thank-you message fields. Question text translations belong inside each question's translations object."
         },
         "type": {

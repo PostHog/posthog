@@ -8,21 +8,13 @@
         "priority": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `low` - Low\n* `medium` - Medium\n* `high` - High",
-                            "enum": ["low", "medium", "high"],
-                            "type": "string"
-                        },
-                        {
-                            "enum": [""],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `low` - Low\n* `medium` - Medium\n* `high` - High",
+                    "enum": ["low", "medium", "high"],
+                    "type": "string"
+                },
+                {
+                    "enum": [""],
+                    "type": "string"
                 },
                 {
                     "type": "null"

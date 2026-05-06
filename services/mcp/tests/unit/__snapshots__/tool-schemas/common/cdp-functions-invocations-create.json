@@ -18,6 +18,8 @@
                 "batch_export_id": {
                     "anyOf": [
                         {
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                             "type": "string"
                         },
                         {
@@ -25,14 +27,7 @@
                         }
                     ]
                 },
-                "bytecode": {
-                    "anyOf": [
-                        {},
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
+                "bytecode": {},
                 "created_at": {
                     "format": "date-time",
                     "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
@@ -95,30 +90,22 @@
                         "role_at_organization": {
                             "anyOf": [
                                 {
-                                    "anyOf": [
-                                        {
-                                            "description": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other",
-                                            "enum": [
-                                                "engineering",
-                                                "data",
-                                                "product",
-                                                "founder",
-                                                "leadership",
-                                                "marketing",
-                                                "sales",
-                                                "other"
-                                            ],
-                                            "type": "string"
-                                        },
-                                        {
-                                            "enum": [""],
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": null,
-                                            "type": "null"
-                                        }
-                                    ]
+                                    "description": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other",
+                                    "enum": [
+                                        "engineering",
+                                        "data",
+                                        "product",
+                                        "founder",
+                                        "leadership",
+                                        "marketing",
+                                        "sales",
+                                        "other"
+                                    ],
+                                    "type": "string"
+                                },
+                                {
+                                    "enum": [""],
+                                    "type": "string"
                                 },
                                 {
                                     "type": "null"
@@ -170,14 +157,7 @@
                             },
                             "type": "array"
                         },
-                        "bytecode": {
-                            "anyOf": [
-                                {},
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
+                        "bytecode": {},
                         "bytecode_error": {
                             "type": "string"
                         },
@@ -372,14 +352,7 @@
                                                 },
                                                 "type": "array"
                                             },
-                                            "bytecode": {
-                                                "anyOf": [
-                                                    {},
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ]
-                                            },
+                                            "bytecode": {},
                                             "bytecode_error": {
                                                 "type": "string"
                                             },
@@ -556,12 +529,6 @@
                         {
                             "properties": {
                                 "bytecode": {
-                                    "anyOf": [
-                                        {},
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
                                     "description": "Compiled bytecode for the hash expression. Auto-generated."
                                 },
                                 "hash": {
@@ -678,12 +645,6 @@
                             "description": "What this template does."
                         },
                         "filters": {
-                            "anyOf": [
-                                {},
-                                {
-                                    "type": "null"
-                                }
-                            ],
                             "description": "Default event filters."
                         },
                         "free": {
@@ -714,12 +675,6 @@
                                     "items": {
                                         "properties": {
                                             "filters": {
-                                                "anyOf": [
-                                                    {},
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
                                                 "description": "Event filters specific to this mapping."
                                             },
                                             "include_by_default": {
@@ -734,21 +689,9 @@
                                                 "description": "Whether this mapping is enabled by default."
                                             },
                                             "inputs": {
-                                                "anyOf": [
-                                                    {},
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
                                                 "description": "Input values specific to this mapping."
                                             },
                                             "inputs_schema": {
-                                                "anyOf": [
-                                                    {},
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
                                                 "description": "Additional input schema fields specific to this mapping."
                                             },
                                             "name": {
@@ -779,12 +722,6 @@
                             "description": "Pre-defined mapping configurations for destination templates."
                         },
                         "masking": {
-                            "anyOf": [
-                                {},
-                                {
-                                    "type": "null"
-                                }
-                            ],
                             "description": "Default PII masking configuration."
                         },
                         "name": {
@@ -831,25 +768,17 @@
                 "type": {
                     "anyOf": [
                         {
-                            "anyOf": [
-                                {
-                                    "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation",
-                                    "enum": [
-                                        "destination",
-                                        "site_destination",
-                                        "internal_destination",
-                                        "source_webhook",
-                                        "warehouse_source_webhook",
-                                        "site_app",
-                                        "transformation"
-                                    ],
-                                    "type": "string"
-                                },
-                                {
-                                    "const": null,
-                                    "type": "null"
-                                }
-                            ]
+                            "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation",
+                            "enum": [
+                                "destination",
+                                "site_destination",
+                                "internal_destination",
+                                "source_webhook",
+                                "warehouse_source_webhook",
+                                "site_app",
+                                "transformation"
+                            ],
+                            "type": "string"
                         },
                         {
                             "type": "null"

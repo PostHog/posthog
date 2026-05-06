@@ -22,14 +22,7 @@
             },
             "type": "array"
         },
-        "autocapture_exceptions_errors_to_ignore": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "autocapture_exceptions_errors_to_ignore": {},
         "autocapture_exceptions_opt_in": {
             "anyOf": [
                 {
@@ -52,14 +45,7 @@
             ],
             "description": "Disables posthog-js autocapture (clicks, page views) when true."
         },
-        "autocapture_web_vitals_allowed_metrics": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "autocapture_web_vitals_allowed_metrics": {},
         "autocapture_web_vitals_opt_in": {
             "anyOf": [
                 {
@@ -74,21 +60,13 @@
         "business_model": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other",
-                            "enum": ["b2b", "b2c", "other"],
-                            "type": "string"
-                        },
-                        {
-                            "enum": [""],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other",
+                    "enum": ["b2b", "b2c", "other"],
+                    "type": "string"
+                },
+                {
+                    "enum": [""],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -132,33 +110,12 @@
             ],
             "description": "Enables the customer conversations / live chat product for this project."
         },
-        "conversations_settings": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
-        "correlation_config": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "conversations_settings": {},
+        "correlation_config": {},
         "data_attributes": {
             "description": "Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`)."
         },
-        "extra_settings": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "extra_settings": {},
         "flags_persistence_default": {
             "anyOf": [
                 {
@@ -170,14 +127,7 @@
             ],
             "description": "Default value for the `persist` option on newly created feature flags."
         },
-        "has_completed_onboarding_for": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "has_completed_onboarding_for": {},
         "heatmaps_opt_in": {
             "anyOf": [
                 {
@@ -221,22 +171,8 @@
                 }
             ]
         },
-        "logs_settings": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
-        "modifiers": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "logs_settings": {},
+        "modifiers": {},
         "name": {
             "description": "Human-readable project name.",
             "maxLength": 200,
@@ -244,12 +180,6 @@
             "type": "string"
         },
         "path_cleaning_filters": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ],
             "description": "Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths."
         },
         "person_display_name_properties": {
@@ -352,22 +282,8 @@
                 }
             ]
         },
-        "session_recording_linked_flag": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
-        "session_recording_masking_config": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "session_recording_linked_flag": {},
+        "session_recording_masking_config": {},
         "session_recording_minimum_duration_milliseconds": {
             "anyOf": [
                 {
@@ -381,14 +297,7 @@
             ],
             "description": "Skip saving sessions shorter than this many milliseconds."
         },
-        "session_recording_network_payload_capture_config": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "session_recording_network_payload_capture_config": {},
         "session_recording_opt_in": {
             "description": "Enables session replay recording for this project.",
             "type": "boolean"
@@ -411,12 +320,6 @@
             "description": "Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%)."
         },
         "session_recording_trigger_groups": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ],
             "description": "V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields."
         },
         "session_recording_trigger_match_type_config": {
@@ -433,14 +336,7 @@
         "session_recording_url_blocklist_config": {
             "anyOf": [
                 {
-                    "items": {
-                        "anyOf": [
-                            {},
-                            {
-                                "type": "null"
-                            }
-                        ]
-                    },
+                    "items": {},
                     "type": "array"
                 },
                 {
@@ -451,14 +347,7 @@
         "session_recording_url_trigger_config": {
             "anyOf": [
                 {
-                    "items": {
-                        "anyOf": [
-                            {},
-                            {
-                                "type": "null"
-                            }
-                        ]
-                    },
+                    "items": {},
                     "type": "array"
                 },
                 {
@@ -466,22 +355,8 @@
                 }
             ]
         },
-        "session_replay_config": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
-        "survey_config": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
+        "session_replay_config": {},
+        "survey_config": {},
         "surveys_opt_in": {
             "anyOf": [
                 {
@@ -516,23 +391,15 @@
                 {
                     "anyOf": [
                         {
-                            "anyOf": [
-                                {
-                                    "const": 0,
-                                    "type": "number"
-                                },
-                                {
-                                    "const": 1,
-                                    "type": "number"
-                                }
-                            ],
-                            "description": "* `0` - Sunday\n* `1` - Monday"
+                            "const": 0,
+                            "type": "number"
                         },
                         {
-                            "const": null,
-                            "type": "null"
+                            "const": 1,
+                            "type": "number"
                         }
-                    ]
+                    ],
+                    "description": "* `0` - Sunday\n* `1` - Monday"
                 },
                 {
                     "type": "null"

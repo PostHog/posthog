@@ -49,17 +49,9 @@
         "recurrence_interval": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly",
-                            "enum": ["daily", "weekly", "monthly", "yearly"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly",
+                    "enum": ["daily", "weekly", "monthly", "yearly"],
+                    "type": "string"
                 },
                 {
                     "type": "null"

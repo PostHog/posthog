@@ -68,17 +68,9 @@
                     "href_matching": {
                         "anyOf": [
                             {
-                                "anyOf": [
-                                    {
-                                        "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
-                                        "enum": ["contains", "regex", "exact"],
-                                        "type": "string"
-                                    },
-                                    {
-                                        "const": null,
-                                        "type": "null"
-                                    }
-                                ]
+                                "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                                "enum": ["contains", "regex", "exact"],
+                                "type": "string"
                             },
                             {
                                 "type": "null"
@@ -427,17 +419,9 @@
                     "text_matching": {
                         "anyOf": [
                             {
-                                "anyOf": [
-                                    {
-                                        "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
-                                        "enum": ["contains", "regex", "exact"],
-                                        "type": "string"
-                                    },
-                                    {
-                                        "const": null,
-                                        "type": "null"
-                                    }
-                                ]
+                                "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                                "enum": ["contains", "regex", "exact"],
+                                "type": "string"
                             },
                             {
                                 "type": "null"
@@ -459,17 +443,9 @@
                     "url_matching": {
                         "anyOf": [
                             {
-                                "anyOf": [
-                                    {
-                                        "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
-                                        "enum": ["contains", "regex", "exact"],
-                                        "type": "string"
-                                    },
-                                    {
-                                        "const": null,
-                                        "type": "null"
-                                    }
-                                ]
+                                "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                                "enum": ["contains", "regex", "exact"],
+                                "type": "string"
                             },
                             {
                                 "type": "null"
