@@ -104,7 +104,7 @@ class TestLinkedinAdsClient:
 
     @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_analytics_success(self, mock_restli_client):
-        """Test successful analytics retrieval."""
+        """Single weekly chunk yields the API's elements unchanged."""
         mock_response = mock.MagicMock()
         mock_response.status_code = 200
         mock_response.elements = [
@@ -120,14 +120,82 @@ class TestLinkedinAdsClient:
         mock_client_instance.finder.return_value = mock_response
 
         client = LinkedinAdsClient(self.access_token)
-        result = client.get_analytics(
-            account_id=self.account_id, pivot=LinkedinAdsPivot.CAMPAIGN, date_start="2024-01-01", date_end="2024-01-31"
+        # Date range fits within a single weekly chunk → exactly one finder call.
+        pages = list(
+            client.get_analytics(
+                account_id=self.account_id,
+                pivot=LinkedinAdsPivot.CAMPAIGN,
+                date_start="2024-01-01",
+                date_end="2024-01-05",
+            )
         )
 
-        assert len(result) == 1
-        assert result[0]["impressions"] == 1000
-        assert result[0]["clicks"] == 50
-        assert result[0]["costInUsd"] == 25.50
+        assert len(pages) == 1
+        elements, next_page_token = pages[0]
+        assert next_page_token is None
+        assert len(elements) == 1
+        assert elements[0]["impressions"] == 1000
+        assert elements[0]["clicks"] == 50
+        assert elements[0]["costInUsd"] == 25.50
+        assert mock_client_instance.finder.call_count == 1
+
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_analytics_chunks_long_date_range_weekly(self, mock_restli_client):
+        """Date ranges longer than a week are sliced into weekly chunks (LinkedIn caps
+        analytics responses at 15k records, so we have to slice rather than paginate).
+        Each chunk produces its own finder call, yielding one tuple per chunk."""
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.elements = [{"impressions": 100}]
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+        # 22-day range → ceil(22/7) = 4 weekly chunks (Jan 1–7, 8–14, 15–21, 22).
+        pages = list(
+            client.get_analytics(
+                account_id=self.account_id,
+                pivot=LinkedinAdsPivot.CREATIVE,
+                date_start="2024-01-01",
+                date_end="2024-01-22",
+            )
+        )
+
+        assert len(pages) == 4
+        assert mock_client_instance.finder.call_count == 4
+        # Each call should pass a dateRange that doesn't exceed 7 days.
+        for call_args in mock_client_instance.finder.call_args_list:
+            params = call_args[1]["query_params"]
+            assert params["pivot"] == LinkedinAdsPivot.CREATIVE.value
+            assert "dateRange" in params
+
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_analytics_logs_warning_when_chunk_hits_response_cap(self, mock_restli_client, caplog):
+        """When a chunk response is exactly the 15k cap we log a warning so we can
+        revisit chunk size — the chunk is still yielded (partial data > no data)."""
+        from posthog.temporal.data_imports.sources.linkedin_ads.client import ANALYTICS_RESPONSE_CAP
+
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.elements = [{"impressions": i} for i in range(ANALYTICS_RESPONSE_CAP)]
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+        with caplog.at_level("WARNING", logger="posthog.temporal.data_imports.sources.linkedin_ads.client"):
+            pages = list(
+                client.get_analytics(
+                    account_id=self.account_id,
+                    pivot=LinkedinAdsPivot.CREATIVE,
+                    date_start="2024-01-01",
+                    date_end="2024-01-05",
+                )
+            )
+
+        assert len(pages) == 1
+        assert any("analytics_chunk_capped" in record.message for record in caplog.records)
 
     def test_format_date_range(self):
         """Test date range formatting for LinkedIn API."""
