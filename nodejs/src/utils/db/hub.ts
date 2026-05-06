@@ -146,7 +146,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     await hub.posthogRedisPool.clear()
     await hub.cookielessRedisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')
-    hub.cookielessManager.shutdown()
+    await hub.cookielessManager.stop()
 
     if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests

@@ -212,12 +212,18 @@ export class CookielessManager {
         }
     }
 
-    shutdown(): void {
+    start(): Promise<void> {
+        // No startup work — the cleanup interval is registered lazily on first use.
+        return Promise.resolve()
+    }
+
+    stop(): Promise<void> {
         if (this.cleanupInterval) {
             clearInterval(this.cleanupInterval)
             this.cleanupInterval = null
         }
         this.deleteAllLocalSalts()
+        return Promise.resolve()
     }
 
     async doHashForDay({

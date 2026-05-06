@@ -295,7 +295,7 @@ export class IngestionGeneralServer implements NodeServer {
             pubsub: this.pubsub,
             additionalCleanup: async () => {
                 await this.ingestionProducerRegistry?.disconnectAll()
-                this.cookielessManager?.shutdown()
+                await this.cookielessManager?.stop()
             },
         }
     }
