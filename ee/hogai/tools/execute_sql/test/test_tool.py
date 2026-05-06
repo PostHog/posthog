@@ -11,7 +11,6 @@ from posthog.schema import (
     DataVisualizationNode,
     DateRange,
     HogQLFilters,
-    HogQLQuery,
     VisualizationArtifactContent,
 )
 
@@ -164,9 +163,9 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         artifact = await AgentArtifact.objects.aget(short_id=artifact_id, team=self.team)
         content = VisualizationArtifactContent.model_validate(artifact.data)
 
-        self.assertIsInstance(content.query, HogQLQuery)
-        assert isinstance(content.query, HogQLQuery)
-        self.assertEqual(content.query.filters, filters)
+        self.assertIsInstance(content.query, DataVisualizationNode)
+        assert isinstance(content.query, DataVisualizationNode)
+        self.assertEqual(content.query.source.filters, filters)
 
         tool_call_message = artifact_messages.messages[1]
         self.assertIsInstance(tool_call_message, AssistantToolCallMessage)

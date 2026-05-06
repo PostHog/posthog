@@ -530,13 +530,13 @@ db:
     db:prime-test-db:
         steps:
             - db:download-schema
-            - db:restore-schema-fresh
+            - db:restore-test-db
         description: Download pre-migrated schema and prime the test_posthog database for
             pytest --reuse-db
         services:
             - postgresql
             - docker
-    db:restore-schema-fresh:
+    db:restore-test-db:
         cmd: |
             set -e
             TARGET_DB="${TARGET_DB:-test_posthog}"
@@ -570,6 +570,12 @@ db:
         services:
             - postgresql
             - docker
+    db:restore-schema-fresh:
+        steps:
+            - db:restore-test-db
+        description: Alias for db:restore-test-db. Kept so PR branches that pulled in the
+            short-lived rename (#57657) still resolve a valid command after the revert.
+            Safe to remove once those branches are merged or rebased.
     db:download-schema:
         cmd: "set -e\nmkdir -p .postgres-backups\necho \"Finding latest CI run with migrated-schema\
             \ artifact...\"\nRUN_ID=$(gh api 'repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10'\

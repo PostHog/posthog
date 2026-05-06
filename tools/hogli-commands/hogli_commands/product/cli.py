@@ -6,7 +6,7 @@ import click
 from hogli.cli import cli
 
 from .lint import lint_all_products, lint_product
-from .maturity import generate_detail, generate_report, score_all_products, score_product
+from .maturity import generate_codegen_report, generate_detail, generate_report, score_all_products, score_product
 from .scaffold import bootstrap_product
 
 
@@ -46,7 +46,13 @@ def cmd_lint(name: str | None, lint_all: bool) -> None:
 @cli.command(name="product:maturity", help="Score product maturity across isolation dimensions")
 @click.argument("name", required=False)
 @click.option("--all", "score_all", is_flag=True, help="Score all products and generate ranked report")
-def cmd_maturity(name: str | None, score_all: bool) -> None:
+@click.option("--codegen", "codegen_detail", is_flag=True, help="Show detailed codegen call-site analysis")
+def cmd_maturity(name: str | None, score_all: bool, codegen_detail: bool) -> None:
+    if codegen_detail:
+        products = None if score_all or not name else [name]
+        click.echo(generate_codegen_report(products))
+        return
+
     if score_all:
         scores = score_all_products()
         click.echo(generate_report(scores))

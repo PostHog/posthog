@@ -100,12 +100,13 @@ function BarChartInner<Meta = unknown>({
         return m
     }, [barLayout, series])
 
-    const chartConfig = useMemo<BarChartConfig | undefined>(() => {
+    const chartConfig = useMemo<BarChartConfig>(() => {
+        const base = { ...config, isPercent: barLayout === 'percent' }
         if (barLayout !== 'percent' || config?.yTickFormatter) {
-            return config
+            return base
         }
         return {
-            ...config,
+            ...base,
             yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
         }
     }, [config, barLayout])
@@ -262,7 +263,6 @@ function BarChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
-            isPercent={barLayout === 'percent'}
         >
             {children}
         </Chart>

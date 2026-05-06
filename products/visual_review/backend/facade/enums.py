@@ -74,8 +74,8 @@ class ChangeKind(StrEnum):
 
     Set when a snapshot's `result` is CHANGED. The two-tier classifier
     distinguishes a pixel-level diff (lots of pixels differ) from a
-    structural shift caught by SSIM (few pixels but a measurable layout
-    change). Empty for snapshots that haven't been diffed yet (legacy data).
+    structural/perceptual change caught by SSIM (few pixels but a measurable
+    perceptual difference). Empty for snapshots that haven't been diffed yet (legacy data).
 
     Size mismatch is *not* a kind here — a snapshot can have a different
     viewport AND a content change. The flag lives in `diff_metadata`
@@ -83,7 +83,7 @@ class ChangeKind(StrEnum):
     """
 
     PIXEL = "pixel"  # Pixel diff above threshold — a chunk of pixels visibly changed
-    STRUCTURAL = "structural"  # SSIM caught a layout/structural shift; pixel diff was below threshold
+    STRUCTURAL = "structural"  # SSIM caught a perceptual change; pixel diff was below threshold
 
 
 class ActorType(StrEnum):

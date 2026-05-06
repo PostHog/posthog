@@ -9,13 +9,11 @@ from posthog.schema import (
     ArtifactSource,
     AssistantDataVisualizationChartSettings,
     AssistantDataVisualizationDisplayType,
-    AssistantHogQLQuery,
     AssistantToolCallMessage,
     ChartDisplayType,
     ChartSettings,
     DataVisualizationNode,
     HogQLFilters,
-    HogQLQuery,
     VisualizationArtifactContent,
 )
 
@@ -112,11 +110,12 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except PydanticOutputParserException as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
-        query_model: AssistantHogQLQuery | HogQLQuery = (
-            HogQLQuery(query=parsed_query.query.query, filters=filters) if filters is not None else parsed_query.query
+        source_query = (
+            parsed_query.query.source.model_copy(update={"filters": filters})
+            if filters is not None
+            else parsed_query.query.source
         )
-
-        artifact_query: AssistantHogQLQuery | HogQLQuery | DataVisualizationNode = query_model
+        artifact_query = parsed_query.query.model_copy(update={"source": source_query})
         if display or chart_settings:
             if isinstance(chart_settings, AssistantDataVisualizationChartSettings):
                 chart_settings_data = chart_settings.model_dump(mode="json", exclude_none=True)
@@ -127,11 +126,6 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             else:
                 chart_settings_data = None
 
-            source_query = (
-                query_model
-                if isinstance(query_model, HogQLQuery)
-                else HogQLQuery(**query_model.model_dump(mode="json", exclude_none=True))
-            )
             artifact_query = DataVisualizationNode(
                 source=source_query,
                 display=ChartDisplayType(display) if display else None,
@@ -151,7 +145,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
 
         insight_context = InsightContext(
             team=self._team,
-            query=query_model,
+            query=artifact_query,
             name=viz_title,
             description=viz_description,
             insight_id=artifact_message.artifact_id,
@@ -166,12 +160,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
         tool_payload: str | dict[str, object]
-        if isinstance(artifact_query, DataVisualizationNode):
-            tool_payload = artifact_query.model_dump(mode="json", exclude_none=True)
-        elif isinstance(query_model, HogQLQuery):
-            tool_payload = query_model.model_dump(mode="json", exclude_none=True)
+        if filters is not None:
+            tool_payload = source_query.model_dump(mode="json", exclude_none=True)
         else:
-            tool_payload = query_model.query
+            tool_payload = artifact_query.source.query
 
         return "", ToolMessagesArtifact(
             messages=[

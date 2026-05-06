@@ -12,7 +12,6 @@ export type {
     TrendLineConfig,
     ValueLabelsConfig,
 } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
-export type { InProgressConfig } from './charts/TimeSeriesLineChart/utils/in-progress'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
