@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM posthog_grouptypemapping\n            WHERE project_id = $1 AND group_type_index = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "af7ba6853ef19c5d8915159a80cced190a9dc7fbfee7a261e01b7da85f3c2187"
+}

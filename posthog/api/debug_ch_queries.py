@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -206,6 +207,8 @@ class DebugCHQueries(viewsets.ViewSet):
         if not (request.user.is_staff or DEBUG or is_impersonated_session(request) or not is_cloud()):
             raise exceptions.PermissionDenied("You're not allowed to see queries.")
 
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
         insight_id = request.query_params.get("insight_id")
         experiment_id = request.query_params.get("experiment_id")
 
@@ -240,6 +243,8 @@ class DebugCHQueries(viewsets.ViewSet):
     def precomputation_teams(self, request):
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can manage precomputation teams.")
+
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
 
         if request.method == "POST":
             return self._update_precomputation(request)
@@ -328,7 +333,7 @@ class DebugCHQueries(viewsets.ViewSet):
                     cus.organization_id IN ({org_id_list})
                     AND iwa.type NOT LIKE '%upcoming%'
                     AND iwa.mrr > 0
-                    AND toStartOfMonth(toTimeZone(iwa.period_end, 'UTC')) = toStartOfMonth(now())
+                    AND toStartOfMonth(toTimeZone(iwa.period_end, 'UTC')) = toStartOfMonth(now() - INTERVAL 1 MONTH)
                 GROUP BY cus.organization_id
                 """,
                 team=team,
@@ -344,14 +349,47 @@ class DebugCHQueries(viewsets.ViewSet):
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can view slowest queries.")
 
+        tag_queries(product=Product.INTERNAL, feature=Feature.DEBUG_QUERY)
+
         try:
             hours = int(request.query_params.get("hours", 1))
         except (TypeError, ValueError):
             raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 168))  # clamp to 1h–7d
 
-        response = sync_execute(
-            """
+        team_id_filter: Optional[int] = None
+        if request.query_params.get("team_id"):
+            try:
+                team_id_filter = int(request.query_params["team_id"])
+            except (TypeError, ValueError):
+                raise exceptions.ValidationError("team_id must be an integer.")
+            if team_id_filter <= 0:
+                raise exceptions.ValidationError("team_id must be a positive integer.")
+
+        experiment_id_filter: Optional[int] = None
+        if request.query_params.get("experiment_id"):
+            try:
+                experiment_id_filter = int(request.query_params["experiment_id"])
+            except (TypeError, ValueError):
+                raise exceptions.ValidationError("experiment_id must be an integer.")
+            if experiment_id_filter <= 0:
+                raise exceptions.ValidationError("experiment_id must be a positive integer.")
+
+        params: dict = {
+            "cluster": CLICKHOUSE_CLUSTER,
+            "hours": hours,
+            "not_query": "%request:_api_debug_ch_queries_%",
+        }
+        extra_filters = ""
+        if team_id_filter is not None:
+            extra_filters += " AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s"
+            params["team_id"] = team_id_filter
+        if experiment_id_filter is not None:
+            extra_filters += " AND JSONExtractInt(log_comment, 'experiment_id') = %(experiment_id)s"
+            params["experiment_id"] = experiment_id_filter
+
+        # nosemgrep: clickhouse-fstring-param-audit - extra_filters is built from hardcoded SQL fragments; user values flow through params
+        sql_query = f"""
             SELECT
                 query_id,
                 argMax(query, type) AS query,
@@ -376,18 +414,15 @@ class DebugCHQueries(viewsets.ViewSet):
                     AND JSONExtractString(log_comment, 'product') = 'experiments'
                     AND is_initial_query
                     AND query NOT LIKE %(not_query)s
+                    {extra_filters}
                 SETTINGS skip_unavailable_shards=1
             )
             GROUP BY query_id
             ORDER BY query_duration_ms DESC
             LIMIT 100
-            """,
-            {
-                "cluster": CLICKHOUSE_CLUSTER,
-                "hours": hours,
-                "not_query": "%request:_api_debug_ch_queries_%",
-            },
-        )
+            """
+
+        response = sync_execute(sql_query, params)
 
         # Batch-fetch team and org names from Postgres
         team_ids = {row[6] for row in response if row[6]}

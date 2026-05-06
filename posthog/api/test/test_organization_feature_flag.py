@@ -20,8 +20,11 @@ from rest_framework import status
 from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
+from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scheduled_change import ScheduledChange
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
@@ -971,6 +974,98 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             # Verify the encrypted payload can be decrypted back to the original value
             decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
             self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
+
+
+class TestOrganizationFeatureFlagCopyPersonalAPIKey(APIBaseTest):
+    """Verify the `copy_flags` action accepts personal API keys with `feature_flag:write` scope.
+
+    The viewset declares `scope_object = "INTERNAL"`, which would normally block all personal
+    API key access. The action-level `required_scopes=["feature_flag:write"]` overrides that gate
+    for this single action while keeping the rest of the viewset INTERNAL.
+    """
+
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.team_1 = self.team
+        self.team_2 = Team.objects.create(organization=self.organization)
+
+        self.feature_flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="key-to-copy",
+            filters={"groups": [{"rollout_percentage": 50}]},
+        )
+
+        self.url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        self.body = {
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+
+    def _create_key(
+        self,
+        scopes: list[str],
+        scoped_organizations: list[str] | None = None,
+        scoped_teams: list[int] | None = None,
+    ) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="test",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+            scoped_organizations=scoped_organizations or [],
+            scoped_teams=scoped_teams or [],
+        )
+        return value
+
+    def _post_with_key(self, value: str):
+        return self.client.post(self.url, self.body, headers={"authorization": f"Bearer {value}"})
+
+    def test_allows_personal_api_key_with_feature_flag_write_scope(self):
+        value = self._create_key(scopes=["feature_flag:write"])
+
+        response = self._post_with_key(value)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["success"]) == 1
+        assert len(response.json()["failed"]) == 0
+
+    @parameterized.expand(
+        [
+            # Read scope cannot satisfy a write-scoped action.
+            ("read_scope_only", ["feature_flag:read"], False),
+            # `*` consent intentionally does not satisfy INTERNAL viewsets even when the
+            # action declares explicit `required_scopes`. See posthog/permissions.py:498-499.
+            ("wildcard_scope_on_internal_viewset", ["*"], False),
+            # Team-scoped keys cannot reach org-level endpoints. The user must use an
+            # org-scoped or unscoped key. Confirms `check_team_and_org_permissions` at
+            # posthog/permissions.py:541-552 still gates this behind explicit team membership.
+            ("team_scoped_key", ["feature_flag:write"], True),
+        ]
+    )
+    def test_rejects_insufficient_or_overly_scoped_key(self, _name, scopes, scoped_to_team):
+        scoped_teams = [self.team_1.id] if scoped_to_team else None
+        value = self._create_key(scopes=scopes, scoped_teams=scoped_teams)
+
+        response = self._post_with_key(value)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_rejects_cross_organization_personal_api_key(self):
+        # A key scoped to a different org than the source flag's org should be rejected.
+        other_organization, _, _ = Organization.objects.bootstrap(self.user)
+        value = self._create_key(
+            scopes=["feature_flag:write"],
+            scoped_organizations=[str(other_organization.id)],
+        )
+
+        response = self._post_with_key(value)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):

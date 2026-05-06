@@ -1,6 +1,7 @@
 import json
 import uuid as uuid_module
-from typing import Any, Optional, Union, cast
+from datetime import timedelta
+from typing import Any, Optional, TypedDict, Union, cast
 from urllib.parse import quote, urlencode
 
 from django import forms
@@ -11,6 +12,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
 from django.urls.base import reverse
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -34,6 +36,7 @@ from posthog.event_usage import alias_invite_id, report_user_joined_organization
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle
@@ -339,6 +342,25 @@ class SignupEmailPrecheckSerializer(serializers.Serializer):
     email: serializers.Field = serializers.EmailField()
 
 
+class PendingInvitePayload(TypedDict):
+    organization_name: str
+
+
+def _get_pending_invite_for_email(email: str) -> Optional[OrganizationInvite]:
+    # Pre-filter in SQL to a generous validity window for efficiency, then defer to the
+    # model's `is_expired` for the authoritative check so any future expansion of that
+    # method (e.g. revocation flag) automatically applies here.
+    invites = (
+        OrganizationInvite.objects.filter(
+            target_email__iexact=email,
+            created_at__gt=timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        )
+        .select_related("organization")
+        .order_by("-created_at")
+    )
+    return next((i for i in invites if not i.is_expired()), None)
+
+
 class SignupEmailPrecheckViewset(generics.GenericAPIView):
     serializer_class = SignupEmailPrecheckSerializer
     permission_classes = (permissions.AllowAny,)
@@ -358,7 +380,47 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
-        return response.Response({"email_exists": False}, status=status.HTTP_200_OK)
+        invite = _get_pending_invite_for_email(email)
+        pending_invite: Optional[PendingInvitePayload] = None
+        if invite is not None:
+            # We deliberately do NOT return the invite UUID here. The signup form shows a
+            # nudge banner, and the user has to round-trip through the invite email to
+            # actually accept — preserving the pre-PR security property that only the
+            # mailbox owner can consume the invite.
+            pending_invite = {"organization_name": invite.organization.name}
+        return response.Response(
+            {"email_exists": False, "pending_invite": pending_invite},
+            status=status.HTTP_200_OK,
+        )
+
+
+class SignupResendInviteSerializer(serializers.Serializer):
+    email: serializers.Field = serializers.EmailField()
+
+
+class SignupResendInviteViewset(generics.GenericAPIView):
+    """Re-send the existing invite email for a given address, if one exists.
+
+    Pairs with the precheck nudge banner: a user who landed on /signup with a pending invite
+    can ask PostHog to re-deliver the original invite email. Returns the same shape whether
+    or not an invite exists, but precheck has already disclosed the existence — this endpoint
+    just makes the round-trip via email easier.
+    """
+
+    serializer_class = SignupResendInviteSerializer
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = [] if settings.E2E_TESTING else [SignupEmailPrecheckThrottle]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        invite = _get_pending_invite_for_email(email)
+        if invite is not None and is_email_available():
+            from posthog.tasks.email import send_invite
+
+            send_invite.apply_async(kwargs={"invite_id": str(invite.id)})
+        return response.Response({"sent": invite is not None}, status=status.HTTP_200_OK)
 
 
 class SignupViewset(generics.CreateAPIView):
@@ -386,7 +448,11 @@ class InviteSignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"])
+        # Setup-delegation invites hand off onboarding to the invitee — route them straight into
+        # onboarding instead of the default post-signup landing page, otherwise the sceneLogic
+        # redirect race can drop them on the homepage.
+        next_url = "/onboarding" if self.context.get("delegated_onboarding") else None
+        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -514,10 +580,19 @@ class InviteSignupSerializer(serializers.Serializer):
                         f"There already exists an account with email address {invite.target_email}. Please log in instead."
                     )
 
+            # Capture the delegation flag BEFORE invite.use(): use() deletes the invite row,
+            # so the in-memory boolean is the only safe source of truth for any post-use
+            # branching. A future refactor adding refresh_from_db() here would otherwise
+            # silently drop delegated invitees on the homepage instead of routing them into
+            # onboarding.
+            is_delegation = bool(invite.is_setup_delegation)
             try:
                 invite.use(user)
             except ValueError as e:
                 raise serializers.ValidationError(str(e))
+
+            if is_delegation:
+                self.context["delegated_onboarding"] = True
 
             if passkey_credential:
                 WebauthnCredential.objects.create(
@@ -716,9 +791,14 @@ def process_social_invite_signup(
         except Team.DoesNotExist:
             return None
 
+    # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is
+    # the only safe source of truth for delegation routing.
+    is_delegation = bool(getattr(invite, "is_setup_delegation", False))
     if user:
         invite.validate(user=user, email=email)
         invite.use(user, prevalidated=True)
+        if is_delegation:
+            strategy.session_set("next", "/onboarding")
         return user
     else:
         invite.validate(user=None, email=email)
@@ -731,6 +811,8 @@ def process_social_invite_signup(
             message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
             raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
 
+        if is_delegation:
+            strategy.session_set("next", "/onboarding")
         return _user
 
 
@@ -763,6 +845,8 @@ def process_social_domain_jit_provisioning_signup(
                         target_email=email, organization=domain_instance.organization
                     )
                     invite.validate(user=None, email=email)
+                    # Capture before invite.use() deletes the invite row.
+                    is_delegation = bool(getattr(invite, "is_setup_delegation", False))
 
                     try:
                         user = strategy.create_user(
@@ -774,6 +858,9 @@ def process_social_domain_jit_provisioning_signup(
                         capture_exception(e)
                         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
                         raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+
+                    if is_delegation:
+                        strategy.session_set("next", "/onboarding")
 
                 except (OrganizationInvite.DoesNotExist, InviteExpiredException):
                     user = User.objects.create_and_join(

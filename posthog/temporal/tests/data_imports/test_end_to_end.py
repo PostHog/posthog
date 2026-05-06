@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import functools
 import contextlib
@@ -59,6 +60,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor import process_message
 from posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BATCH_TABLE, PendingBatch
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -105,34 +107,76 @@ _current_pipeline_mode = "non_dlt"
 
 
 @pytest.fixture(params=["non_dlt", "v3"], autouse=True)
-def pipeline_mode(request):
+def pipeline_mode(request, _clean_sourcebatch_tables):
     global _current_pipeline_mode
     _current_pipeline_mode = request.param
     yield request.param
     _current_pipeline_mode = "non_dlt"
 
 
-class _KafkaMessageCapture:
-    def __init__(self):
-        self.messages: list[dict] = []
+# TODO: remove _KafkaMessageCapture once Postgres producer is fully validated
+# class _KafkaMessageCapture:
+#     ...
+# _kafka_capture = _KafkaMessageCapture()
+
+
+def _get_test_database_url() -> str:
+    """Build a psycopg-compatible DSN from Django's active test database connection."""
+    from django.db import connection
+
+    s = connection.settings_dict
+    host = s.get("HOST", "localhost") or "localhost"
+    port = s.get("PORT", "5432") or "5432"
+    return f"postgres://{s['USER']}:{s['PASSWORD']}@{host}:{port}/{s['NAME']}"
+
+
+class _PostgresQueueReplay:
+    """Reads batch rows written by PostgresProducer during tests and replays them
+    through process_message(), mimicking what the real BatchConsumer does."""
+
+    def __init__(self) -> None:
         self._processed_batches: set[tuple[str, int]] = set()
 
-    def _capture_and_ack(self, topic, data, key=None, **kw):
-        self.messages.append(data)
-        return mock.MagicMock(get=mock.MagicMock(return_value=None))
+    def replay_batches_for_run(self, run_uuid: str) -> None:
+        from django.db import connection as django_conn
 
-    def get_mock_producer(self):
-        producer = mock.MagicMock()
-        producer.produce.side_effect = self._capture_and_ack
-        producer.flush.return_value = 0
-        return producer
+        with django_conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT id, team_id, schema_id, source_id, job_id, run_uuid,
+                       batch_index, s3_path, row_count, byte_size, is_final_batch,
+                       total_batches, total_rows, sync_type, cumulative_row_count,
+                       resource_name, is_resume, is_first_ever_sync, metadata
+                FROM {BATCH_TABLE}
+                WHERE run_uuid = %s
+                ORDER BY created_at ASC, batch_index ASC
+                """,
+                [run_uuid],
+            )
+            columns = [col.name for col in cur.description]
+            rows = [dict(zip(columns, row)) for row in cur.fetchall()]
 
-    def replay_through_consumer(self):
-        for msg in self.messages:
+        if not rows:
+            return
+
+        for row in rows:
+            if isinstance(row.get("metadata"), str):
+                row["metadata"] = json.loads(row["metadata"])
+            batch = PendingBatch(latest_attempt=0, **row)
             try:
-                process_message(msg)
+                process_message(batch.to_export_signal())
             except Exception:
                 pass
+
+    def get_run_uuids_for_job(self, job_id: str) -> list[str]:
+        from django.db import connection as django_conn
+
+        with django_conn.cursor() as cur:
+            cur.execute(
+                f"SELECT DISTINCT run_uuid FROM {BATCH_TABLE} WHERE job_id = %s ORDER BY run_uuid",
+                [job_id],
+            )
+            return [row[0] for row in cur.fetchall()]
 
     def mock_idempotency_check(
         self,
@@ -148,12 +192,11 @@ class _KafkaMessageCapture:
         self._processed_batches.add(key)
         return False
 
-    def clear(self):
-        self.messages.clear()
+    def clear(self) -> None:
         self._processed_batches.clear()
 
 
-_kafka_capture = _KafkaMessageCapture()
+_pg_queue_replay = _PostgresQueueReplay()
 
 
 @pytest.fixture
@@ -426,17 +469,30 @@ async def _run(
 
 
 async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None):
-    if _current_pipeline_mode != "v3" or not _kafka_capture.messages:
+    if _current_pipeline_mode != "v3":
         return
+
+    if not job_id:
+        job = await sync_to_async(
+            ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id).order_by("-created_at").first
+        )()
+        if not job:
+            return
+        job_id = str(job.id)
+    else:
+        job = await sync_to_async(ExternalDataJob.objects.get)(id=job_id)
 
     # If the workflow already marked the job as COMPLETED (e.g. worker shutdown scenario),
     # the consumer should not replay — the workflow managed the job status itself and
     # S3 files may have been cleaned up.
-    if job_id:
-        job = await sync_to_async(ExternalDataJob.objects.get)(id=job_id)
-        if job.status == ExternalDataJob.Status.COMPLETED:
-            _kafka_capture.clear()
-            return
+    if job.status == ExternalDataJob.Status.COMPLETED:
+        _pg_queue_replay.clear()
+        return
+
+    run_uuids = await sync_to_async(_pg_queue_replay.get_run_uuids_for_job)(job_id)
+    if not run_uuids:
+        _pg_queue_replay.clear()
+        return
 
     with (
         override_settings(
@@ -452,21 +508,21 @@ async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None
         ),
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.is_batch_already_processed",
-            side_effect=_kafka_capture.mock_idempotency_check,
+            side_effect=_pg_queue_replay.mock_idempotency_check,
         ),
     ):
-        await sync_to_async(_kafka_capture.replay_through_consumer)()
+        for run_uuid in run_uuids:
+            await sync_to_async(_pg_queue_replay.replay_batches_for_run)(run_uuid)
 
-        if job_id:
-            await sync_to_async(calculate_table_size_activity)(
-                CalculateTableSizeActivityInputs(
-                    team_id=team_id,
-                    schema_id=str(schema_id),
-                    job_id=job_id,
-                )
+        await sync_to_async(calculate_table_size_activity)(
+            CalculateTableSizeActivityInputs(
+                team_id=team_id,
+                schema_id=str(schema_id),
+                job_id=job_id,
             )
+        )
 
-    _kafka_capture.clear()
+    _pg_queue_replay.clear()
 
 
 async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, mock_data_response):
@@ -522,7 +578,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
-    _kafka_capture.clear()
+    _pg_queue_replay.clear()
 
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
@@ -552,10 +608,11 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                     return_value=True,
                 )
             )
+            # Point the Postgres producer at the Django test database
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.producer.get_warpstream_kafka_producer",
-                    return_value=_kafka_capture.get_mock_producer(),
+                    "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.WAREHOUSE_SOURCES_DATABASE_URL",
+                    _get_test_database_url(),
                 )
             )
         else:

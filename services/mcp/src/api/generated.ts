@@ -1695,6 +1695,11 @@ export namespace Schemas {
        * @nullable
        */
       sessionIdPushdown?: boolean | null;
+      /**
+       * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
+       * @nullable
+       */
+      sessionPropertyPreAggregation?: boolean | null;
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       /** @nullable */
@@ -2952,12 +2957,13 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type AggregationPropertyType = typeof AggregationPropertyType[keyof typeof AggregationPropertyType];
+    export type AggregationPropertyType1 = typeof AggregationPropertyType1[keyof typeof AggregationPropertyType1];
 
 
-    export const AggregationPropertyType = {
+    export const AggregationPropertyType1 = {
       Event: 'event',
       Person: 'person',
+      DataWarehouse: 'data_warehouse',
     } as const;
 
     export type AggregationType = typeof AggregationType[keyof typeof AggregationType];
@@ -3081,8 +3087,8 @@ export namespace Schemas {
        * @nullable
        */
       aggregationProperty?: string | null;
-      /** The type of property to aggregate on (event or person). Defaults to event. */
-      aggregationPropertyType?: AggregationPropertyType | null;
+      /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
+      aggregationPropertyType?: AggregationPropertyType1 | null;
       /** The aggregation type to use for retention */
       aggregationType?: AggregationType | null;
       /** @nullable */
@@ -6156,6 +6162,94 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `brotli` - brotli
+    * `gzip` - gzip
+    * `lz4` - lz4
+    * `snappy` - snappy
+    * `zstd` - zstd
+     */
+    export type CompressionEnum = typeof CompressionEnum[keyof typeof CompressionEnum];
+
+
+    export const CompressionEnum = {
+      Brotli: 'brotli',
+      Gzip: 'gzip',
+      Lz4: 'lz4',
+      Snappy: 'snappy',
+      Zstd: 'zstd',
+    } as const;
+
+    /**
+     * * `JSONLines` - JSONLines
+    * `Parquet` - Parquet
+     */
+    export type FileFormatEnum = typeof FileFormatEnum[keyof typeof FileFormatEnum];
+
+
+    export const FileFormatEnum = {
+      JSONLines: 'JSONLines',
+      Parquet: 'Parquet',
+    } as const;
+
+    /**
+     * Typed configuration for an Azure Blob Storage batch-export destination.
+
+    Credentials live in the linked Integration, not in this config. Mirrors
+    `AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface AzureBlobDestinationConfig {
+      /** Azure Blob Storage container name. */
+      container_name: string;
+      /** Object key prefix applied to every exported file. */
+      prefix?: string;
+      /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+
+    * `brotli` - brotli
+    * `gzip` - gzip
+    * `lz4` - lz4
+    * `snappy` - snappy
+    * `zstd` - zstd */
+      compression?: CompressionEnum | NullEnum | null;
+      /** File format used for exported objects.
+
+    * `JSONLines` - JSONLines
+    * `Parquet` - Parquet */
+      file_format?: FileFormatEnum;
+      /**
+       * If set, rolls to a new file once the current file exceeds this size in MB.
+       * @nullable
+       */
+      max_file_size_mb?: number | null;
+    }
+
+    export type AzureBlobDestinationRequestType = typeof AzureBlobDestinationRequestType[keyof typeof AzureBlobDestinationRequestType];
+
+
+    export const AzureBlobDestinationRequestType = {
+      AzureBlob: 'AzureBlob',
+    } as const;
+
+    /**
+     * Request shape for creating or updating an Azure Blob Storage batch-export destination.
+     */
+    export interface AzureBlobDestinationRequest {
+      type: AzureBlobDestinationRequestType;
+      /** ID of an azure-blob-kind Integration. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: AzureBlobDestinationConfig;
+    }
+
+    /**
+     * * `AzureBlob` - AzureBlob
+     */
+    export type AzureBlobDestinationRequestTypeEnum = typeof AzureBlobDestinationRequestTypeEnum[keyof typeof AzureBlobDestinationRequestTypeEnum];
+
+
+    export const AzureBlobDestinationRequestTypeEnum = {
+      AzureBlob: 'AzureBlob',
+    } as const;
+
+    /**
      * * `AED` - AED
     * `AFN` - AFN
     * `ALL` - ALL
@@ -6467,15 +6561,7 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
-    export interface BaselineSparklineDay {
-      clean: number;
-      tolerated: number;
-      changed: number;
-      quarantined: number;
-    }
-
     export interface BaselineEntry {
-      sparkline: BaselineSparklineDay[];
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -6490,8 +6576,9 @@ export namespace Schemas {
       tolerate_count_90d: number;
       is_quarantined: boolean;
       last_run_at: string;
+      baseline_change_count: number;
       /** @nullable */
-      recent_diff_avg: number | null;
+      recent_drift_avg: number | null;
     }
 
     export type BaselineTotalsByRunType = {[key: string]: number};
@@ -6576,6 +6663,7 @@ export namespace Schemas {
     * `Workflows` - Workflows
     * `HTTP` - Http
     * `NoOp` - Noop
+    * `FileDownload` - File Download
      */
     export type BatchExportDestinationTypeEnum = typeof BatchExportDestinationTypeEnum[keyof typeof BatchExportDestinationTypeEnum];
 
@@ -6591,10 +6679,39 @@ export namespace Schemas {
       Workflows: 'Workflows',
       Http: 'HTTP',
       NoOp: 'NoOp',
+      FileDownload: 'FileDownload',
     } as const;
 
     /**
+     * Typed configuration for a Databricks batch-export destination.
+
+    Credentials live in the linked Integration, not in this config. Mirrors
+    `DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface DatabricksDestinationConfig {
+      /** Databricks SQL warehouse HTTP path. */
+      http_path: string;
+      /** Unity Catalog name. */
+      catalog: string;
+      /** Schema (database) name inside the catalog. */
+      schema: string;
+      /** Destination table name. */
+      table_name: string;
+      /** Whether to use the Databricks VARIANT type for JSON-like columns. */
+      use_variant_type?: boolean;
+      /** Whether to let Databricks evolve the destination table schema automatically. */
+      use_automatic_schema_evolution?: boolean;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig;
+
+    /**
      * Serializer for an BatchExportDestination model.
+
+    The `config` field is polymorphic and typed only for destinations that keep
+    credentials in the linked Integration (currently Databricks and AzureBlob).
+    Other destination types accept the same JSON shape but without a typed
+    OpenAPI schema. Secret fields are stripped from `config` on read.
      */
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
@@ -6608,13 +6725,20 @@ export namespace Schemas {
     * `AzureBlob` - Azure Blob
     * `Workflows` - Workflows
     * `HTTP` - Http
-    * `NoOp` - Noop */
+    * `NoOp` - Noop
+    * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
-      config?: unknown;
-      /** @nullable */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      config: BatchExportDestinationConfig;
+      /**
+       * The integration for this destination.
+       * @nullable
+       */
       integration?: number | null;
-      /** @nullable */
+      /**
+       * ID of a team-scoped Integration providing credentials. Required for Databricks and AzureBlob destinations; optional for BigQuery; unused for other types.
+       * @nullable
+       */
       integration_id?: number | null;
     }
 
@@ -6760,7 +6884,15 @@ export namespace Schemas {
     * `persons` - Persons
     * `sessions` - Sessions */
       model?: ModelEnum | BlankEnum | NullEnum | null;
+      /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
+      /** How often the batch export should run.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+    * `every 5 minutes` - every 5 minutes
+    * `every 15 minutes` - every 15 minutes */
       interval: IntervalEnum;
       /** Whether this BatchExport is paused or not. */
       paused?: boolean;
@@ -6783,19 +6915,621 @@ export namespace Schemas {
        * @nullable
        */
       end_at?: string | null;
+      /** The 10 most recent runs of this batch export, ordered newest first. */
       readonly latest_runs: readonly BatchExportRun[];
+      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
       /** A schema of custom fields to select when exporting data. */
       readonly schema: unknown | null;
       filters?: unknown | null;
+      /** IANA timezone name controlling daily and weekly interval boundaries. Defaults to UTC.
+
+    * `Africa/Abidjan` - Africa/Abidjan
+    * `Africa/Accra` - Africa/Accra
+    * `Africa/Addis_Ababa` - Africa/Addis_Ababa
+    * `Africa/Algiers` - Africa/Algiers
+    * `Africa/Asmara` - Africa/Asmara
+    * `Africa/Asmera` - Africa/Asmera
+    * `Africa/Bamako` - Africa/Bamako
+    * `Africa/Bangui` - Africa/Bangui
+    * `Africa/Banjul` - Africa/Banjul
+    * `Africa/Bissau` - Africa/Bissau
+    * `Africa/Blantyre` - Africa/Blantyre
+    * `Africa/Brazzaville` - Africa/Brazzaville
+    * `Africa/Bujumbura` - Africa/Bujumbura
+    * `Africa/Cairo` - Africa/Cairo
+    * `Africa/Casablanca` - Africa/Casablanca
+    * `Africa/Ceuta` - Africa/Ceuta
+    * `Africa/Conakry` - Africa/Conakry
+    * `Africa/Dakar` - Africa/Dakar
+    * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
+    * `Africa/Djibouti` - Africa/Djibouti
+    * `Africa/Douala` - Africa/Douala
+    * `Africa/El_Aaiun` - Africa/El_Aaiun
+    * `Africa/Freetown` - Africa/Freetown
+    * `Africa/Gaborone` - Africa/Gaborone
+    * `Africa/Harare` - Africa/Harare
+    * `Africa/Johannesburg` - Africa/Johannesburg
+    * `Africa/Juba` - Africa/Juba
+    * `Africa/Kampala` - Africa/Kampala
+    * `Africa/Khartoum` - Africa/Khartoum
+    * `Africa/Kigali` - Africa/Kigali
+    * `Africa/Kinshasa` - Africa/Kinshasa
+    * `Africa/Lagos` - Africa/Lagos
+    * `Africa/Libreville` - Africa/Libreville
+    * `Africa/Lome` - Africa/Lome
+    * `Africa/Luanda` - Africa/Luanda
+    * `Africa/Lubumbashi` - Africa/Lubumbashi
+    * `Africa/Lusaka` - Africa/Lusaka
+    * `Africa/Malabo` - Africa/Malabo
+    * `Africa/Maputo` - Africa/Maputo
+    * `Africa/Maseru` - Africa/Maseru
+    * `Africa/Mbabane` - Africa/Mbabane
+    * `Africa/Mogadishu` - Africa/Mogadishu
+    * `Africa/Monrovia` - Africa/Monrovia
+    * `Africa/Nairobi` - Africa/Nairobi
+    * `Africa/Ndjamena` - Africa/Ndjamena
+    * `Africa/Niamey` - Africa/Niamey
+    * `Africa/Nouakchott` - Africa/Nouakchott
+    * `Africa/Ouagadougou` - Africa/Ouagadougou
+    * `Africa/Porto-Novo` - Africa/Porto-Novo
+    * `Africa/Sao_Tome` - Africa/Sao_Tome
+    * `Africa/Timbuktu` - Africa/Timbuktu
+    * `Africa/Tripoli` - Africa/Tripoli
+    * `Africa/Tunis` - Africa/Tunis
+    * `Africa/Windhoek` - Africa/Windhoek
+    * `America/Adak` - America/Adak
+    * `America/Anchorage` - America/Anchorage
+    * `America/Anguilla` - America/Anguilla
+    * `America/Antigua` - America/Antigua
+    * `America/Araguaina` - America/Araguaina
+    * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
+    * `America/Argentina/Catamarca` - America/Argentina/Catamarca
+    * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
+    * `America/Argentina/Cordoba` - America/Argentina/Cordoba
+    * `America/Argentina/Jujuy` - America/Argentina/Jujuy
+    * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
+    * `America/Argentina/Mendoza` - America/Argentina/Mendoza
+    * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
+    * `America/Argentina/Salta` - America/Argentina/Salta
+    * `America/Argentina/San_Juan` - America/Argentina/San_Juan
+    * `America/Argentina/San_Luis` - America/Argentina/San_Luis
+    * `America/Argentina/Tucuman` - America/Argentina/Tucuman
+    * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
+    * `America/Aruba` - America/Aruba
+    * `America/Asuncion` - America/Asuncion
+    * `America/Atikokan` - America/Atikokan
+    * `America/Atka` - America/Atka
+    * `America/Bahia` - America/Bahia
+    * `America/Bahia_Banderas` - America/Bahia_Banderas
+    * `America/Barbados` - America/Barbados
+    * `America/Belem` - America/Belem
+    * `America/Belize` - America/Belize
+    * `America/Blanc-Sablon` - America/Blanc-Sablon
+    * `America/Boa_Vista` - America/Boa_Vista
+    * `America/Bogota` - America/Bogota
+    * `America/Boise` - America/Boise
+    * `America/Buenos_Aires` - America/Buenos_Aires
+    * `America/Cambridge_Bay` - America/Cambridge_Bay
+    * `America/Campo_Grande` - America/Campo_Grande
+    * `America/Cancun` - America/Cancun
+    * `America/Caracas` - America/Caracas
+    * `America/Catamarca` - America/Catamarca
+    * `America/Cayenne` - America/Cayenne
+    * `America/Cayman` - America/Cayman
+    * `America/Chicago` - America/Chicago
+    * `America/Chihuahua` - America/Chihuahua
+    * `America/Ciudad_Juarez` - America/Ciudad_Juarez
+    * `America/Coral_Harbour` - America/Coral_Harbour
+    * `America/Cordoba` - America/Cordoba
+    * `America/Costa_Rica` - America/Costa_Rica
+    * `America/Creston` - America/Creston
+    * `America/Cuiaba` - America/Cuiaba
+    * `America/Curacao` - America/Curacao
+    * `America/Danmarkshavn` - America/Danmarkshavn
+    * `America/Dawson` - America/Dawson
+    * `America/Dawson_Creek` - America/Dawson_Creek
+    * `America/Denver` - America/Denver
+    * `America/Detroit` - America/Detroit
+    * `America/Dominica` - America/Dominica
+    * `America/Edmonton` - America/Edmonton
+    * `America/Eirunepe` - America/Eirunepe
+    * `America/El_Salvador` - America/El_Salvador
+    * `America/Ensenada` - America/Ensenada
+    * `America/Fort_Nelson` - America/Fort_Nelson
+    * `America/Fort_Wayne` - America/Fort_Wayne
+    * `America/Fortaleza` - America/Fortaleza
+    * `America/Glace_Bay` - America/Glace_Bay
+    * `America/Godthab` - America/Godthab
+    * `America/Goose_Bay` - America/Goose_Bay
+    * `America/Grand_Turk` - America/Grand_Turk
+    * `America/Grenada` - America/Grenada
+    * `America/Guadeloupe` - America/Guadeloupe
+    * `America/Guatemala` - America/Guatemala
+    * `America/Guayaquil` - America/Guayaquil
+    * `America/Guyana` - America/Guyana
+    * `America/Halifax` - America/Halifax
+    * `America/Havana` - America/Havana
+    * `America/Hermosillo` - America/Hermosillo
+    * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
+    * `America/Indiana/Knox` - America/Indiana/Knox
+    * `America/Indiana/Marengo` - America/Indiana/Marengo
+    * `America/Indiana/Petersburg` - America/Indiana/Petersburg
+    * `America/Indiana/Tell_City` - America/Indiana/Tell_City
+    * `America/Indiana/Vevay` - America/Indiana/Vevay
+    * `America/Indiana/Vincennes` - America/Indiana/Vincennes
+    * `America/Indiana/Winamac` - America/Indiana/Winamac
+    * `America/Indianapolis` - America/Indianapolis
+    * `America/Inuvik` - America/Inuvik
+    * `America/Iqaluit` - America/Iqaluit
+    * `America/Jamaica` - America/Jamaica
+    * `America/Jujuy` - America/Jujuy
+    * `America/Juneau` - America/Juneau
+    * `America/Kentucky/Louisville` - America/Kentucky/Louisville
+    * `America/Kentucky/Monticello` - America/Kentucky/Monticello
+    * `America/Knox_IN` - America/Knox_IN
+    * `America/Kralendijk` - America/Kralendijk
+    * `America/La_Paz` - America/La_Paz
+    * `America/Lima` - America/Lima
+    * `America/Los_Angeles` - America/Los_Angeles
+    * `America/Louisville` - America/Louisville
+    * `America/Lower_Princes` - America/Lower_Princes
+    * `America/Maceio` - America/Maceio
+    * `America/Managua` - America/Managua
+    * `America/Manaus` - America/Manaus
+    * `America/Marigot` - America/Marigot
+    * `America/Martinique` - America/Martinique
+    * `America/Matamoros` - America/Matamoros
+    * `America/Mazatlan` - America/Mazatlan
+    * `America/Mendoza` - America/Mendoza
+    * `America/Menominee` - America/Menominee
+    * `America/Merida` - America/Merida
+    * `America/Metlakatla` - America/Metlakatla
+    * `America/Mexico_City` - America/Mexico_City
+    * `America/Miquelon` - America/Miquelon
+    * `America/Moncton` - America/Moncton
+    * `America/Monterrey` - America/Monterrey
+    * `America/Montevideo` - America/Montevideo
+    * `America/Montreal` - America/Montreal
+    * `America/Montserrat` - America/Montserrat
+    * `America/Nassau` - America/Nassau
+    * `America/New_York` - America/New_York
+    * `America/Nipigon` - America/Nipigon
+    * `America/Nome` - America/Nome
+    * `America/Noronha` - America/Noronha
+    * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
+    * `America/North_Dakota/Center` - America/North_Dakota/Center
+    * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
+    * `America/Nuuk` - America/Nuuk
+    * `America/Ojinaga` - America/Ojinaga
+    * `America/Panama` - America/Panama
+    * `America/Pangnirtung` - America/Pangnirtung
+    * `America/Paramaribo` - America/Paramaribo
+    * `America/Phoenix` - America/Phoenix
+    * `America/Port-au-Prince` - America/Port-au-Prince
+    * `America/Port_of_Spain` - America/Port_of_Spain
+    * `America/Porto_Acre` - America/Porto_Acre
+    * `America/Porto_Velho` - America/Porto_Velho
+    * `America/Puerto_Rico` - America/Puerto_Rico
+    * `America/Punta_Arenas` - America/Punta_Arenas
+    * `America/Rainy_River` - America/Rainy_River
+    * `America/Rankin_Inlet` - America/Rankin_Inlet
+    * `America/Recife` - America/Recife
+    * `America/Regina` - America/Regina
+    * `America/Resolute` - America/Resolute
+    * `America/Rio_Branco` - America/Rio_Branco
+    * `America/Rosario` - America/Rosario
+    * `America/Santa_Isabel` - America/Santa_Isabel
+    * `America/Santarem` - America/Santarem
+    * `America/Santiago` - America/Santiago
+    * `America/Santo_Domingo` - America/Santo_Domingo
+    * `America/Sao_Paulo` - America/Sao_Paulo
+    * `America/Scoresbysund` - America/Scoresbysund
+    * `America/Shiprock` - America/Shiprock
+    * `America/Sitka` - America/Sitka
+    * `America/St_Barthelemy` - America/St_Barthelemy
+    * `America/St_Johns` - America/St_Johns
+    * `America/St_Kitts` - America/St_Kitts
+    * `America/St_Lucia` - America/St_Lucia
+    * `America/St_Thomas` - America/St_Thomas
+    * `America/St_Vincent` - America/St_Vincent
+    * `America/Swift_Current` - America/Swift_Current
+    * `America/Tegucigalpa` - America/Tegucigalpa
+    * `America/Thule` - America/Thule
+    * `America/Thunder_Bay` - America/Thunder_Bay
+    * `America/Tijuana` - America/Tijuana
+    * `America/Toronto` - America/Toronto
+    * `America/Tortola` - America/Tortola
+    * `America/Vancouver` - America/Vancouver
+    * `America/Virgin` - America/Virgin
+    * `America/Whitehorse` - America/Whitehorse
+    * `America/Winnipeg` - America/Winnipeg
+    * `America/Yakutat` - America/Yakutat
+    * `America/Yellowknife` - America/Yellowknife
+    * `Antarctica/Casey` - Antarctica/Casey
+    * `Antarctica/Davis` - Antarctica/Davis
+    * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
+    * `Antarctica/Macquarie` - Antarctica/Macquarie
+    * `Antarctica/Mawson` - Antarctica/Mawson
+    * `Antarctica/McMurdo` - Antarctica/McMurdo
+    * `Antarctica/Palmer` - Antarctica/Palmer
+    * `Antarctica/Rothera` - Antarctica/Rothera
+    * `Antarctica/South_Pole` - Antarctica/South_Pole
+    * `Antarctica/Syowa` - Antarctica/Syowa
+    * `Antarctica/Troll` - Antarctica/Troll
+    * `Antarctica/Vostok` - Antarctica/Vostok
+    * `Arctic/Longyearbyen` - Arctic/Longyearbyen
+    * `Asia/Aden` - Asia/Aden
+    * `Asia/Almaty` - Asia/Almaty
+    * `Asia/Amman` - Asia/Amman
+    * `Asia/Anadyr` - Asia/Anadyr
+    * `Asia/Aqtau` - Asia/Aqtau
+    * `Asia/Aqtobe` - Asia/Aqtobe
+    * `Asia/Ashgabat` - Asia/Ashgabat
+    * `Asia/Ashkhabad` - Asia/Ashkhabad
+    * `Asia/Atyrau` - Asia/Atyrau
+    * `Asia/Baghdad` - Asia/Baghdad
+    * `Asia/Bahrain` - Asia/Bahrain
+    * `Asia/Baku` - Asia/Baku
+    * `Asia/Bangkok` - Asia/Bangkok
+    * `Asia/Barnaul` - Asia/Barnaul
+    * `Asia/Beirut` - Asia/Beirut
+    * `Asia/Bishkek` - Asia/Bishkek
+    * `Asia/Brunei` - Asia/Brunei
+    * `Asia/Calcutta` - Asia/Calcutta
+    * `Asia/Chita` - Asia/Chita
+    * `Asia/Choibalsan` - Asia/Choibalsan
+    * `Asia/Chongqing` - Asia/Chongqing
+    * `Asia/Chungking` - Asia/Chungking
+    * `Asia/Colombo` - Asia/Colombo
+    * `Asia/Dacca` - Asia/Dacca
+    * `Asia/Damascus` - Asia/Damascus
+    * `Asia/Dhaka` - Asia/Dhaka
+    * `Asia/Dili` - Asia/Dili
+    * `Asia/Dubai` - Asia/Dubai
+    * `Asia/Dushanbe` - Asia/Dushanbe
+    * `Asia/Famagusta` - Asia/Famagusta
+    * `Asia/Gaza` - Asia/Gaza
+    * `Asia/Harbin` - Asia/Harbin
+    * `Asia/Hebron` - Asia/Hebron
+    * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
+    * `Asia/Hong_Kong` - Asia/Hong_Kong
+    * `Asia/Hovd` - Asia/Hovd
+    * `Asia/Irkutsk` - Asia/Irkutsk
+    * `Asia/Istanbul` - Asia/Istanbul
+    * `Asia/Jakarta` - Asia/Jakarta
+    * `Asia/Jayapura` - Asia/Jayapura
+    * `Asia/Jerusalem` - Asia/Jerusalem
+    * `Asia/Kabul` - Asia/Kabul
+    * `Asia/Kamchatka` - Asia/Kamchatka
+    * `Asia/Karachi` - Asia/Karachi
+    * `Asia/Kashgar` - Asia/Kashgar
+    * `Asia/Kathmandu` - Asia/Kathmandu
+    * `Asia/Katmandu` - Asia/Katmandu
+    * `Asia/Khandyga` - Asia/Khandyga
+    * `Asia/Kolkata` - Asia/Kolkata
+    * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
+    * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
+    * `Asia/Kuching` - Asia/Kuching
+    * `Asia/Kuwait` - Asia/Kuwait
+    * `Asia/Macao` - Asia/Macao
+    * `Asia/Macau` - Asia/Macau
+    * `Asia/Magadan` - Asia/Magadan
+    * `Asia/Makassar` - Asia/Makassar
+    * `Asia/Manila` - Asia/Manila
+    * `Asia/Muscat` - Asia/Muscat
+    * `Asia/Nicosia` - Asia/Nicosia
+    * `Asia/Novokuznetsk` - Asia/Novokuznetsk
+    * `Asia/Novosibirsk` - Asia/Novosibirsk
+    * `Asia/Omsk` - Asia/Omsk
+    * `Asia/Oral` - Asia/Oral
+    * `Asia/Phnom_Penh` - Asia/Phnom_Penh
+    * `Asia/Pontianak` - Asia/Pontianak
+    * `Asia/Pyongyang` - Asia/Pyongyang
+    * `Asia/Qatar` - Asia/Qatar
+    * `Asia/Qostanay` - Asia/Qostanay
+    * `Asia/Qyzylorda` - Asia/Qyzylorda
+    * `Asia/Rangoon` - Asia/Rangoon
+    * `Asia/Riyadh` - Asia/Riyadh
+    * `Asia/Saigon` - Asia/Saigon
+    * `Asia/Sakhalin` - Asia/Sakhalin
+    * `Asia/Samarkand` - Asia/Samarkand
+    * `Asia/Seoul` - Asia/Seoul
+    * `Asia/Shanghai` - Asia/Shanghai
+    * `Asia/Singapore` - Asia/Singapore
+    * `Asia/Srednekolymsk` - Asia/Srednekolymsk
+    * `Asia/Taipei` - Asia/Taipei
+    * `Asia/Tashkent` - Asia/Tashkent
+    * `Asia/Tbilisi` - Asia/Tbilisi
+    * `Asia/Tehran` - Asia/Tehran
+    * `Asia/Tel_Aviv` - Asia/Tel_Aviv
+    * `Asia/Thimbu` - Asia/Thimbu
+    * `Asia/Thimphu` - Asia/Thimphu
+    * `Asia/Tokyo` - Asia/Tokyo
+    * `Asia/Tomsk` - Asia/Tomsk
+    * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
+    * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
+    * `Asia/Ulan_Bator` - Asia/Ulan_Bator
+    * `Asia/Urumqi` - Asia/Urumqi
+    * `Asia/Ust-Nera` - Asia/Ust-Nera
+    * `Asia/Vientiane` - Asia/Vientiane
+    * `Asia/Vladivostok` - Asia/Vladivostok
+    * `Asia/Yakutsk` - Asia/Yakutsk
+    * `Asia/Yangon` - Asia/Yangon
+    * `Asia/Yekaterinburg` - Asia/Yekaterinburg
+    * `Asia/Yerevan` - Asia/Yerevan
+    * `Atlantic/Azores` - Atlantic/Azores
+    * `Atlantic/Bermuda` - Atlantic/Bermuda
+    * `Atlantic/Canary` - Atlantic/Canary
+    * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
+    * `Atlantic/Faeroe` - Atlantic/Faeroe
+    * `Atlantic/Faroe` - Atlantic/Faroe
+    * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
+    * `Atlantic/Madeira` - Atlantic/Madeira
+    * `Atlantic/Reykjavik` - Atlantic/Reykjavik
+    * `Atlantic/South_Georgia` - Atlantic/South_Georgia
+    * `Atlantic/St_Helena` - Atlantic/St_Helena
+    * `Atlantic/Stanley` - Atlantic/Stanley
+    * `Australia/ACT` - Australia/ACT
+    * `Australia/Adelaide` - Australia/Adelaide
+    * `Australia/Brisbane` - Australia/Brisbane
+    * `Australia/Broken_Hill` - Australia/Broken_Hill
+    * `Australia/Canberra` - Australia/Canberra
+    * `Australia/Currie` - Australia/Currie
+    * `Australia/Darwin` - Australia/Darwin
+    * `Australia/Eucla` - Australia/Eucla
+    * `Australia/Hobart` - Australia/Hobart
+    * `Australia/LHI` - Australia/LHI
+    * `Australia/Lindeman` - Australia/Lindeman
+    * `Australia/Lord_Howe` - Australia/Lord_Howe
+    * `Australia/Melbourne` - Australia/Melbourne
+    * `Australia/NSW` - Australia/NSW
+    * `Australia/North` - Australia/North
+    * `Australia/Perth` - Australia/Perth
+    * `Australia/Queensland` - Australia/Queensland
+    * `Australia/South` - Australia/South
+    * `Australia/Sydney` - Australia/Sydney
+    * `Australia/Tasmania` - Australia/Tasmania
+    * `Australia/Victoria` - Australia/Victoria
+    * `Australia/West` - Australia/West
+    * `Australia/Yancowinna` - Australia/Yancowinna
+    * `Brazil/Acre` - Brazil/Acre
+    * `Brazil/DeNoronha` - Brazil/DeNoronha
+    * `Brazil/East` - Brazil/East
+    * `Brazil/West` - Brazil/West
+    * `CET` - CET
+    * `CST6CDT` - CST6CDT
+    * `Canada/Atlantic` - Canada/Atlantic
+    * `Canada/Central` - Canada/Central
+    * `Canada/Eastern` - Canada/Eastern
+    * `Canada/Mountain` - Canada/Mountain
+    * `Canada/Newfoundland` - Canada/Newfoundland
+    * `Canada/Pacific` - Canada/Pacific
+    * `Canada/Saskatchewan` - Canada/Saskatchewan
+    * `Canada/Yukon` - Canada/Yukon
+    * `Chile/Continental` - Chile/Continental
+    * `Chile/EasterIsland` - Chile/EasterIsland
+    * `Cuba` - Cuba
+    * `EET` - EET
+    * `EST` - EST
+    * `EST5EDT` - EST5EDT
+    * `Egypt` - Egypt
+    * `Eire` - Eire
+    * `Etc/GMT` - Etc/GMT
+    * `Etc/GMT+0` - Etc/GMT+0
+    * `Etc/GMT+1` - Etc/GMT+1
+    * `Etc/GMT+10` - Etc/GMT+10
+    * `Etc/GMT+11` - Etc/GMT+11
+    * `Etc/GMT+12` - Etc/GMT+12
+    * `Etc/GMT+2` - Etc/GMT+2
+    * `Etc/GMT+3` - Etc/GMT+3
+    * `Etc/GMT+4` - Etc/GMT+4
+    * `Etc/GMT+5` - Etc/GMT+5
+    * `Etc/GMT+6` - Etc/GMT+6
+    * `Etc/GMT+7` - Etc/GMT+7
+    * `Etc/GMT+8` - Etc/GMT+8
+    * `Etc/GMT+9` - Etc/GMT+9
+    * `Etc/GMT-0` - Etc/GMT-0
+    * `Etc/GMT-1` - Etc/GMT-1
+    * `Etc/GMT-10` - Etc/GMT-10
+    * `Etc/GMT-11` - Etc/GMT-11
+    * `Etc/GMT-12` - Etc/GMT-12
+    * `Etc/GMT-13` - Etc/GMT-13
+    * `Etc/GMT-14` - Etc/GMT-14
+    * `Etc/GMT-2` - Etc/GMT-2
+    * `Etc/GMT-3` - Etc/GMT-3
+    * `Etc/GMT-4` - Etc/GMT-4
+    * `Etc/GMT-5` - Etc/GMT-5
+    * `Etc/GMT-6` - Etc/GMT-6
+    * `Etc/GMT-7` - Etc/GMT-7
+    * `Etc/GMT-8` - Etc/GMT-8
+    * `Etc/GMT-9` - Etc/GMT-9
+    * `Etc/GMT0` - Etc/GMT0
+    * `Etc/Greenwich` - Etc/Greenwich
+    * `Etc/UCT` - Etc/UCT
+    * `Etc/UTC` - Etc/UTC
+    * `Etc/Universal` - Etc/Universal
+    * `Etc/Zulu` - Etc/Zulu
+    * `Europe/Amsterdam` - Europe/Amsterdam
+    * `Europe/Andorra` - Europe/Andorra
+    * `Europe/Astrakhan` - Europe/Astrakhan
+    * `Europe/Athens` - Europe/Athens
+    * `Europe/Belfast` - Europe/Belfast
+    * `Europe/Belgrade` - Europe/Belgrade
+    * `Europe/Berlin` - Europe/Berlin
+    * `Europe/Bratislava` - Europe/Bratislava
+    * `Europe/Brussels` - Europe/Brussels
+    * `Europe/Bucharest` - Europe/Bucharest
+    * `Europe/Budapest` - Europe/Budapest
+    * `Europe/Busingen` - Europe/Busingen
+    * `Europe/Chisinau` - Europe/Chisinau
+    * `Europe/Copenhagen` - Europe/Copenhagen
+    * `Europe/Dublin` - Europe/Dublin
+    * `Europe/Gibraltar` - Europe/Gibraltar
+    * `Europe/Guernsey` - Europe/Guernsey
+    * `Europe/Helsinki` - Europe/Helsinki
+    * `Europe/Isle_of_Man` - Europe/Isle_of_Man
+    * `Europe/Istanbul` - Europe/Istanbul
+    * `Europe/Jersey` - Europe/Jersey
+    * `Europe/Kaliningrad` - Europe/Kaliningrad
+    * `Europe/Kiev` - Europe/Kiev
+    * `Europe/Kirov` - Europe/Kirov
+    * `Europe/Kyiv` - Europe/Kyiv
+    * `Europe/Lisbon` - Europe/Lisbon
+    * `Europe/Ljubljana` - Europe/Ljubljana
+    * `Europe/London` - Europe/London
+    * `Europe/Luxembourg` - Europe/Luxembourg
+    * `Europe/Madrid` - Europe/Madrid
+    * `Europe/Malta` - Europe/Malta
+    * `Europe/Mariehamn` - Europe/Mariehamn
+    * `Europe/Minsk` - Europe/Minsk
+    * `Europe/Monaco` - Europe/Monaco
+    * `Europe/Moscow` - Europe/Moscow
+    * `Europe/Nicosia` - Europe/Nicosia
+    * `Europe/Oslo` - Europe/Oslo
+    * `Europe/Paris` - Europe/Paris
+    * `Europe/Podgorica` - Europe/Podgorica
+    * `Europe/Prague` - Europe/Prague
+    * `Europe/Riga` - Europe/Riga
+    * `Europe/Rome` - Europe/Rome
+    * `Europe/Samara` - Europe/Samara
+    * `Europe/San_Marino` - Europe/San_Marino
+    * `Europe/Sarajevo` - Europe/Sarajevo
+    * `Europe/Saratov` - Europe/Saratov
+    * `Europe/Simferopol` - Europe/Simferopol
+    * `Europe/Skopje` - Europe/Skopje
+    * `Europe/Sofia` - Europe/Sofia
+    * `Europe/Stockholm` - Europe/Stockholm
+    * `Europe/Tallinn` - Europe/Tallinn
+    * `Europe/Tirane` - Europe/Tirane
+    * `Europe/Tiraspol` - Europe/Tiraspol
+    * `Europe/Ulyanovsk` - Europe/Ulyanovsk
+    * `Europe/Uzhgorod` - Europe/Uzhgorod
+    * `Europe/Vaduz` - Europe/Vaduz
+    * `Europe/Vatican` - Europe/Vatican
+    * `Europe/Vienna` - Europe/Vienna
+    * `Europe/Vilnius` - Europe/Vilnius
+    * `Europe/Volgograd` - Europe/Volgograd
+    * `Europe/Warsaw` - Europe/Warsaw
+    * `Europe/Zagreb` - Europe/Zagreb
+    * `Europe/Zaporozhye` - Europe/Zaporozhye
+    * `Europe/Zurich` - Europe/Zurich
+    * `GB` - GB
+    * `GB-Eire` - GB-Eire
+    * `GMT` - GMT
+    * `GMT+0` - GMT+0
+    * `GMT-0` - GMT-0
+    * `GMT0` - GMT0
+    * `Greenwich` - Greenwich
+    * `HST` - HST
+    * `Hongkong` - Hongkong
+    * `Iceland` - Iceland
+    * `Indian/Antananarivo` - Indian/Antananarivo
+    * `Indian/Chagos` - Indian/Chagos
+    * `Indian/Christmas` - Indian/Christmas
+    * `Indian/Cocos` - Indian/Cocos
+    * `Indian/Comoro` - Indian/Comoro
+    * `Indian/Kerguelen` - Indian/Kerguelen
+    * `Indian/Mahe` - Indian/Mahe
+    * `Indian/Maldives` - Indian/Maldives
+    * `Indian/Mauritius` - Indian/Mauritius
+    * `Indian/Mayotte` - Indian/Mayotte
+    * `Indian/Reunion` - Indian/Reunion
+    * `Iran` - Iran
+    * `Israel` - Israel
+    * `Jamaica` - Jamaica
+    * `Japan` - Japan
+    * `Kwajalein` - Kwajalein
+    * `Libya` - Libya
+    * `MET` - MET
+    * `MST` - MST
+    * `MST7MDT` - MST7MDT
+    * `Mexico/BajaNorte` - Mexico/BajaNorte
+    * `Mexico/BajaSur` - Mexico/BajaSur
+    * `Mexico/General` - Mexico/General
+    * `NZ` - NZ
+    * `NZ-CHAT` - NZ-CHAT
+    * `Navajo` - Navajo
+    * `PRC` - PRC
+    * `PST8PDT` - PST8PDT
+    * `Pacific/Apia` - Pacific/Apia
+    * `Pacific/Auckland` - Pacific/Auckland
+    * `Pacific/Bougainville` - Pacific/Bougainville
+    * `Pacific/Chatham` - Pacific/Chatham
+    * `Pacific/Chuuk` - Pacific/Chuuk
+    * `Pacific/Easter` - Pacific/Easter
+    * `Pacific/Efate` - Pacific/Efate
+    * `Pacific/Enderbury` - Pacific/Enderbury
+    * `Pacific/Fakaofo` - Pacific/Fakaofo
+    * `Pacific/Fiji` - Pacific/Fiji
+    * `Pacific/Funafuti` - Pacific/Funafuti
+    * `Pacific/Galapagos` - Pacific/Galapagos
+    * `Pacific/Gambier` - Pacific/Gambier
+    * `Pacific/Guadalcanal` - Pacific/Guadalcanal
+    * `Pacific/Guam` - Pacific/Guam
+    * `Pacific/Honolulu` - Pacific/Honolulu
+    * `Pacific/Johnston` - Pacific/Johnston
+    * `Pacific/Kanton` - Pacific/Kanton
+    * `Pacific/Kiritimati` - Pacific/Kiritimati
+    * `Pacific/Kosrae` - Pacific/Kosrae
+    * `Pacific/Kwajalein` - Pacific/Kwajalein
+    * `Pacific/Majuro` - Pacific/Majuro
+    * `Pacific/Marquesas` - Pacific/Marquesas
+    * `Pacific/Midway` - Pacific/Midway
+    * `Pacific/Nauru` - Pacific/Nauru
+    * `Pacific/Niue` - Pacific/Niue
+    * `Pacific/Norfolk` - Pacific/Norfolk
+    * `Pacific/Noumea` - Pacific/Noumea
+    * `Pacific/Pago_Pago` - Pacific/Pago_Pago
+    * `Pacific/Palau` - Pacific/Palau
+    * `Pacific/Pitcairn` - Pacific/Pitcairn
+    * `Pacific/Pohnpei` - Pacific/Pohnpei
+    * `Pacific/Ponape` - Pacific/Ponape
+    * `Pacific/Port_Moresby` - Pacific/Port_Moresby
+    * `Pacific/Rarotonga` - Pacific/Rarotonga
+    * `Pacific/Saipan` - Pacific/Saipan
+    * `Pacific/Samoa` - Pacific/Samoa
+    * `Pacific/Tahiti` - Pacific/Tahiti
+    * `Pacific/Tarawa` - Pacific/Tarawa
+    * `Pacific/Tongatapu` - Pacific/Tongatapu
+    * `Pacific/Truk` - Pacific/Truk
+    * `Pacific/Wake` - Pacific/Wake
+    * `Pacific/Wallis` - Pacific/Wallis
+    * `Pacific/Yap` - Pacific/Yap
+    * `Poland` - Poland
+    * `Portugal` - Portugal
+    * `ROC` - ROC
+    * `ROK` - ROK
+    * `Singapore` - Singapore
+    * `Turkey` - Turkey
+    * `UCT` - UCT
+    * `US/Alaska` - US/Alaska
+    * `US/Aleutian` - US/Aleutian
+    * `US/Arizona` - US/Arizona
+    * `US/Central` - US/Central
+    * `US/East-Indiana` - US/East-Indiana
+    * `US/Eastern` - US/Eastern
+    * `US/Hawaii` - US/Hawaii
+    * `US/Indiana-Starke` - US/Indiana-Starke
+    * `US/Michigan` - US/Michigan
+    * `US/Mountain` - US/Mountain
+    * `US/Pacific` - US/Pacific
+    * `US/Samoa` - US/Samoa
+    * `UTC` - UTC
+    * `Universal` - Universal
+    * `W-SU` - W-SU
+    * `WET` - WET
+    * `Zulu` - Zulu */
       timezone?: string | NullEnum | null;
       /**
+       * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday). Only valid when interval is 'week'.
        * @minimum 0
        * @maximum 6
        * @nullable
        */
       offset_day?: number | null;
       /**
+       * Hour-of-day offset (0-23) for daily and weekly intervals. Only valid when interval is 'day' or 'week'.
        * @minimum 0
        * @maximum 23
        * @nullable
@@ -6892,6 +7626,77 @@ export namespace Schemas {
       team: number;
       /** The BatchExport this backfill belongs to. */
       batch_export: string;
+    }
+
+    export type DatabricksDestinationRequestType = typeof DatabricksDestinationRequestType[keyof typeof DatabricksDestinationRequestType];
+
+
+    export const DatabricksDestinationRequestType = {
+      Databricks: 'Databricks',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a Databricks batch-export destination.
+     */
+    export interface DatabricksDestinationRequest {
+      type: DatabricksDestinationRequestType;
+      /** ID of a databricks-kind Integration. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: DatabricksDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest;
+
+    /**
+     * Request body for create/partial_update on BatchExportViewSet.
+
+    Mirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic
+    `destination` schema so integration_id is marked required on the types that need
+    it. Responses continue to use `BatchExportSerializer`.
+     */
+    export interface BatchExportRequest {
+      /** Human-readable name for the batch export. */
+      name: string;
+      /** Which data model to export (events, persons, sessions).
+
+    * `events` - Events
+    * `persons` - Persons
+    * `sessions` - Sessions */
+      model?: ModelEnum;
+      /** Destination configuration. Required integration_id is enforced per destination type. */
+      destination: BatchExportDestinationRequest;
+      /** How often the batch export should run.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+    * `every 5 minutes` - every 5 minutes
+    * `every 15 minutes` - every 15 minutes */
+      interval: IntervalEnum;
+      /** Whether the batch export is paused. */
+      paused?: boolean;
+      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
+      hogql_query?: string;
+      filters?: unknown | null;
+      /**
+       * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
+       * @nullable
+       */
+      timezone?: string | null;
+      /**
+       * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday).
+       * @minimum 0
+       * @maximum 6
+       * @nullable
+       */
+      offset_day?: number | null;
+      /**
+       * Hour-of-day offset (0-23) for daily and weekly intervals.
+       * @minimum 0
+       * @maximum 23
+       * @nullable
+       */
+      offset_hour?: number | null;
     }
 
     /**
@@ -7525,6 +8330,7 @@ export namespace Schemas {
     * `teams_bot_mention` - Teams bot mention
     * `widget_embedded` - Widget
     * `widget_api` - API
+    * `github_issue` - GitHub issue
      */
     export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
 
@@ -7537,6 +8343,7 @@ export namespace Schemas {
       TeamsBotMention: 'teams_bot_mention',
       WidgetEmbedded: 'widget_embedded',
       WidgetApi: 'widget_api',
+      GithubIssue: 'github_issue',
     } as const;
 
     /**
@@ -7544,6 +8351,7 @@ export namespace Schemas {
     * `email` - Email
     * `slack` - Slack
     * `teams` - Microsoft Teams
+    * `github` - GitHub
      */
     export type ChannelSourceEnum = typeof ChannelSourceEnum[keyof typeof ChannelSourceEnum];
 
@@ -7553,6 +8361,7 @@ export namespace Schemas {
       Email: 'email',
       Slack: 'slack',
       Teams: 'teams',
+      Github: 'github',
     } as const;
 
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
@@ -7669,6 +8478,8 @@ export namespace Schemas {
     } as const;
 
     export interface YAxisSettings {
+      /** @nullable */
+      label?: string | null;
       scale?: Scale | null;
       /** @nullable */
       showGridLines?: boolean | null;
@@ -7711,6 +8522,8 @@ export namespace Schemas {
        */
       stackBars100?: boolean | null;
       xAxis?: ChartAxis | null;
+      /** @nullable */
+      xAxisLabel?: string | null;
       /** @nullable */
       yAxis?: ChartAxis[] | null;
       /**
@@ -7856,7 +8669,7 @@ export namespace Schemas {
     * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Claude runtimes.
 
@@ -7930,6 +8743,22 @@ export namespace Schemas {
       readonly person: ClickhouseEventPerson;
       readonly elements: readonly EventElement[];
       readonly elements_chain: string;
+    }
+
+    export interface DiffCluster {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      pixel_count: number;
+      centroid_x: number;
+      centroid_y: number;
+    }
+
+    export interface ClusterSummary {
+      items: DiffCluster[];
+      total: number;
+      truncated: boolean;
     }
 
     /**
@@ -8171,7 +9000,7 @@ export namespace Schemas {
     * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
-      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
 
@@ -8380,6 +9209,11 @@ export namespace Schemas {
       /** @maxLength 255 */
       name?: string;
       filters?: unknown;
+      /**
+       * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+       * @nullable
+       */
+      order_by?: string[] | null;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
@@ -8394,6 +9228,10 @@ export namespace Schemas {
       deleted?: boolean | null;
       mentions?: number[];
       slug?: string;
+      /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
+      is_task?: boolean;
+      /** The user who marked this task complete. Null for open tasks and non-task comments. */
+      readonly completed_by: UserBasic | null;
       /** @nullable */
       content?: string | null;
       rich_content?: unknown | null;
@@ -8407,6 +9245,11 @@ export namespace Schemas {
       item_context?: unknown | null;
       /** @maxLength 79 */
       scope: string;
+      /**
+       * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+       * @nullable
+       */
+      readonly completed_at: string | null;
       /** @nullable */
       source_comment?: string | null;
     }
@@ -10242,6 +11085,7 @@ export namespace Schemas {
       GoogleSheets: 'google-sheets',
       LinkedinAds: 'linkedin-ads',
       Snapchat: 'snapchat',
+      Stripe: 'stripe',
       Intercom: 'intercom',
       Email: 'email',
       Twilio: 'twilio',
@@ -11909,6 +12753,8 @@ export namespace Schemas {
       Channel: 'channel',
       Source: 'source',
       Campaign: 'campaign',
+      AdGroup: 'ad_group',
+      Ad: 'ad',
       Medium: 'medium',
       Content: 'content',
       Term: 'term',
@@ -14048,6 +14894,16 @@ export namespace Schemas {
       source_type: ExternalDataSourceTypeEnum;
     }
 
+    /**
+     * * `Databricks` - Databricks
+     */
+    export type DatabricksDestinationRequestTypeEnum = typeof DatabricksDestinationRequestTypeEnum[keyof typeof DatabricksDestinationRequestTypeEnum];
+
+
+    export const DatabricksDestinationRequestTypeEnum = {
+      Databricks: 'Databricks',
+    } as const;
+
     export interface Dataset {
       readonly id: string;
       /** @maxLength 400 */
@@ -14245,6 +15101,16 @@ export namespace Schemas {
       L2Distance: 'L2Distance',
       CosineDistance: 'cosineDistance',
     } as const;
+
+    export interface DocsSearchRequest {
+      /** Natural-language description of what to find in the PostHog documentation. Inkeep performs hybrid (semantic + full-text) RAG, so phrase the query the way a user would ask the question. */
+      query: string;
+    }
+
+    export interface DocsSearchResponse {
+      /** Markdown-formatted documentation results. Each block has a title, URL and excerpt; an empty result set returns guidance to navigate to https://posthog.com/docs. */
+      content: string;
+    }
 
     export type DocumentSimilarityQueryKind = typeof DocumentSimilarityQueryKind[keyof typeof DocumentSimilarityQueryKind];
 
@@ -15192,7 +16058,7 @@ export namespace Schemas {
        * @maxLength 400
        * @nullable
        */
-      promoted_property?: string | null;
+      primary_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -15515,16 +16381,17 @@ export namespace Schemas {
       new_issue_ids: string[];
     }
 
+    export type ErrorTrackingRecommendationMeta = { [key: string]: unknown };
+
     export interface ErrorTrackingRecommendation {
       readonly id: string;
       readonly type: string;
-      readonly meta: unknown;
+      readonly meta: ErrorTrackingRecommendationMeta;
+      readonly completed: boolean;
       /** @nullable */
       readonly computed_at: string | null;
       /** @nullable */
       readonly dismissed_at: string | null;
-      /** @nullable */
-      readonly next_refresh_at: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -15537,6 +16404,33 @@ export namespace Schemas {
       metadata?: unknown | null;
       version: string;
       project: string;
+    }
+
+    export interface ErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
+      /**
+       * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      per_issue_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the per-issue rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      per_issue_rate_limit_bucket_size_minutes?: number | null;
     }
 
     export type ErrorTrackingSimilarIssuesQueryKind = typeof ErrorTrackingSimilarIssuesQueryKind[keyof typeof ErrorTrackingSimilarIssuesQueryKind];
@@ -15684,27 +16578,86 @@ export namespace Schemas {
     }
 
     /**
-     * Release associated with this symbol set
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     export type ErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
 
     export interface ErrorTrackingSymbolSet {
+      /** Unique symbol set ID. */
       readonly id: string;
-      ref: string;
+      /** Reference used to match stack frames to this symbol set. */
+      readonly ref: string;
+      /** Project/team ID that owns this symbol set. */
       readonly team_id: number;
+      /** When this symbol set row was created. */
       readonly created_at: string;
-      /** @nullable */
-      last_used?: string | null;
-      /** @nullable */
-      storage_ptr?: string | null;
-      /** @nullable */
-      failure_reason?: string | null;
       /**
-       * Release associated with this symbol set
+       * When this symbol set was last used to resolve a stack frame.
+       * @nullable
+       */
+      readonly last_used: string | null;
+      /**
+       * Reason symbol lookup failed, if the source map is missing or invalid.
+       * @nullable
+       */
+      readonly failure_reason: string | null;
+      /** Whether this symbol set has an uploaded source map file available to download. */
+      readonly has_uploaded_file: boolean;
+      /**
+       * Release associated with this symbol set, if any.
        * @nullable
        */
       readonly release: ErrorTrackingSymbolSetRelease;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkDelete {
+      /** Symbol set IDs to delete. */
+      ids: string[];
+    }
+
+    /**
+     * Map of symbol set ID to uploaded content hash.
+     */
+    export type ErrorTrackingSymbolSetBulkFinishUploadContentHashes = {[key: string]: string};
+
+    export interface ErrorTrackingSymbolSetBulkFinishUpload {
+      /** Map of symbol set ID to uploaded content hash. */
+      content_hashes: ErrorTrackingSymbolSetBulkFinishUploadContentHashes;
+    }
+
+    export interface ErrorTrackingSymbolSetUpload {
+      /** Symbol set reference to upload. */
+      chunk_id: string;
+      /**
+       * Optional error tracking release ID associated with this symbol set.
+       * @nullable
+       */
+      release_id?: string | null;
+      /**
+       * Optional hash of the symbol set content, used to skip unchanged uploads.
+       * @nullable
+       */
+      content_hash?: string | null;
+    }
+
+    export interface ErrorTrackingSymbolSetBulkStartUpload {
+      /** Legacy list of symbol set references to upload, all associated with `release_id`. */
+      chunk_ids?: string[];
+      /**
+       * Optional error tracking release ID used with `chunk_ids`.
+       * @nullable
+       */
+      release_id?: string | null;
+      /** Symbol sets to upload with per-symbol release IDs and content hashes. */
+      symbol_sets?: ErrorTrackingSymbolSetUpload[];
+      /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+      force?: boolean;
+    }
+
+    export interface ErrorTrackingSymbolSetFinishUpload {
+      /** Hash of the uploaded symbol set content. */
+      content_hash: string;
     }
 
     /**
@@ -16124,7 +17077,7 @@ export namespace Schemas {
        * @maxLength 400
        * @nullable
        */
-      promoted_property?: string | null;
+      primary_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -17418,6 +18371,45 @@ export namespace Schemas {
       readonly is_used_in_replay_settings: boolean;
     }
 
+    export interface FeatureFlagConditionPropertyAnalysis {
+      /** Property key */
+      key: string;
+      /** Comparison operator */
+      operator: string;
+      /** Expected property value */
+      value: unknown;
+      /** Property type (person, group, etc.) */
+      type: string;
+      /** Actual property value from user */
+      actual_value: unknown | null;
+      /** Whether this property condition matched */
+      matched: boolean;
+      /** Human-readable explanation of the match result */
+      explanation: string;
+    }
+
+    export interface FeatureFlagConditionAnalysis {
+      /** Index of this condition in the feature flag */
+      index: number;
+      /** True when this condition was the one that determined the flag's outcome. Use this to find the winning condition — at most one condition per flag is True. */
+      matched: boolean;
+      /** True when every property in this condition evaluated to true, regardless of whether this condition was the eventual winner. */
+      properties_matched?: boolean;
+      /** Human-readable explanation of why this condition matched/didn't match */
+      explanation: string;
+      /** Rollout percentage for this condition (0.0-100.0) */
+      rollout_percentage: number;
+      /** Whether this condition matched properties but was excluded due to rollout */
+      rollout_excluded: boolean;
+      /**
+       * Variant associated with this condition
+       * @nullable
+       */
+      variant: string | null;
+      /** Analysis of each property in this condition */
+      properties: FeatureFlagConditionPropertyAnalysis[];
+    }
+
     /**
      * * `cohort` - cohort
     * `person` - person
@@ -17828,6 +18820,50 @@ export namespace Schemas {
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+    }
+
+    export interface FeatureFlagTestEvaluationRequest {
+      /** User distinct ID to test against (mutually exclusive with person_id) */
+      distinct_id?: string;
+      /** Person ID to test against (mutually exclusive with distinct_id) */
+      person_id?: string;
+      /**
+       * Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.
+       * @nullable
+       */
+      timestamp?: string | null;
+      /** Groups for feature flag evaluation (JSON object, defaults to empty dict) */
+      groups?: unknown;
+    }
+
+    /**
+     * Person properties at the time of evaluation (for historical evaluations)
+     */
+    export type FeatureFlagTestEvaluationResponsePersonProperties = { [key: string]: unknown };
+
+    export interface FeatureFlagTestEvaluationResponse {
+      /** Feature flag key */
+      flag_key: string;
+      /** The evaluated value of the feature flag (boolean or variant key string) */
+      result: unknown;
+      /** The reason for the evaluation result */
+      reason: string;
+      /**
+       * The index of the condition that matched, if applicable
+       * @nullable
+       */
+      condition_index: number | null;
+      /** Payload associated with the flag result, if any */
+      payload: unknown | null;
+      /** Person properties at the time of evaluation (for historical evaluations) */
+      person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
+      /**
+       * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
+       * @nullable
+       */
+      evaluation_distinct_id: string | null;
+      /** Detailed analysis of each condition in the feature flag */
+      conditions: FeatureFlagConditionAnalysis[];
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
@@ -20699,7 +21735,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `apns` - Apple Push
+     * * `anthropic` - Anthropic
+    * `apns` - Apple Push
     * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
@@ -20738,6 +21775,7 @@ export namespace Schemas {
 
 
     export const IntegrationKindEnum = {
+      Anthropic: 'anthropic',
       Apns: 'apns',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
@@ -21316,19 +22354,19 @@ export namespace Schemas {
       /** Unique identifier for this alert. */
       readonly id: string;
       /**
-       * Human-readable name for this alert.
+       * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
        * @maxLength 255
        */
-      name: string;
+      name?: string;
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
-      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
-      filters: unknown;
+      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+      filters?: unknown;
       /**
-       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
        * @minimum 1
        */
-      threshold_count: number;
+      threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
     * `above` - Above
@@ -21395,6 +22433,11 @@ export namespace Schemas {
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types: readonly NotificationDestinationTypeEnum[];
+      /**
+       * When the alert was first enabled. Null means the alert is still in draft state.
+       * @nullable
+       */
+      readonly first_enabled_at: string | null;
       /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -21501,6 +22544,12 @@ export namespace Schemas {
       /** Window size in minutes — determines bucket interval. */
       window_minutes: number;
       /**
+       * How often the alert is evaluated, in minutes.
+       * @minimum 1
+       * @maximum 60
+       */
+      check_interval_minutes?: number;
+      /**
        * Total check periods in the N-of-M evaluation window (M).
        * @minimum 1
        * @maximum 10
@@ -21568,7 +22617,7 @@ export namespace Schemas {
        * @nullable
        */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
     * `severity_sampling` - Severity-based reduction
     * `path_drop` - Path exclusion
@@ -21588,7 +22637,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -22377,6 +23426,52 @@ export namespace Schemas {
     }
 
     /**
+     * * `later` - Later
+    * `other` - Other
+     */
+    export type OnboardingSkipRequestReasonEnum = typeof OnboardingSkipRequestReasonEnum[keyof typeof OnboardingSkipRequestReasonEnum];
+
+
+    export const OnboardingSkipRequestReasonEnum = {
+      Later: 'later',
+      Other: 'other',
+    } as const;
+
+    /**
+     * Request body for POST /api/users/{id}/onboarding/skip/.
+
+    Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
+    runtime so the contract clients believe is enforced (length cap, choice validation,
+    no extra fields) is actually enforced server-side.
+     */
+    export interface OnboardingSkipRequest {
+      /** Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.
+
+    * `later` - Later
+    * `other` - Other */
+      reason: OnboardingSkipRequestReasonEnum;
+      /**
+       * Onboarding step key the user was on when skipping, for analytics only.
+       * @maxLength 64
+       */
+      step_at_skip?: string;
+    }
+
+    /**
+     * * `delegated` - Delegated to teammate
+    * `later` - Skipped for later
+    * `other` - Other
+     */
+    export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
+
+
+    export const OnboardingSkippedReasonEnum = {
+      Delegated: 'delegated',
+      Later: 'later',
+      Other: 'other',
+    } as const;
+
+    /**
      * * `latest` - latest
     * `earliest` - earliest
      */
@@ -22596,6 +23691,21 @@ export namespace Schemas {
       private_project_access?: unknown | null;
       send_email?: boolean;
       combine_pending_invites?: boolean;
+    }
+
+    export interface OrganizationInviteDelegate {
+      /** Email of the teammate who should complete setup on the inviter's behalf. Receives a PostHog-branded delegation invite granting admin-level membership on accept. */
+      target_email: string;
+      /**
+       * Optional personal message included in the delegation email (up to 1000 characters).
+       * @maxLength 1000
+       */
+      message?: string;
+      /**
+       * Onboarding step key the delegator was on when delegating, for analytics only.
+       * @maxLength 64
+       */
+      step_at_delegation?: string;
     }
 
     export interface OrganizationMember {
@@ -24528,6 +25638,10 @@ export namespace Schemas {
       /** @nullable */
       diff_percentage?: number | null;
       review_state?: string;
+      /** @nullable */
+      ssim_score?: number | null;
+      change_kind?: string;
+      size_mismatch?: boolean;
     }
 
     export interface PaginatedSnapshotHistoryEntryList {
@@ -24546,6 +25660,7 @@ export namespace Schemas {
       baseline_artifact?: Artifact | null;
       diff_artifact?: Artifact | null;
       reviewed_by?: UserBasicInfo | null;
+      cluster_summary?: ClusterSummary | null;
       id: string;
       identifier: string;
       result: string;
@@ -24562,6 +25677,10 @@ export namespace Schemas {
       tolerated_hash_id?: string | null;
       is_quarantined?: boolean;
       metadata?: SnapshotMetadata;
+      /** @nullable */
+      ssim_score?: number | null;
+      change_kind?: string;
+      size_mismatch?: boolean;
     }
 
     export interface PaginatedSnapshotList {
@@ -24750,6 +25869,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
       deleted?: boolean;
+      /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
+      enabled?: boolean;
       /**
        * Human-readable name for this subscription.
        * @maxLength 100
@@ -25264,6 +26385,11 @@ export namespace Schemas {
        * @nullable
        */
       github_integration?: number | null;
+      /**
+       * User-scoped GitHub integration to use for user-authored cloud runs.
+       * @nullable
+       */
+      github_user_integration?: string | null;
       /** @nullable */
       signal_report?: string | null;
       signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
@@ -25303,10 +26429,10 @@ export namespace Schemas {
     * `failed` - Failed
     * `cancelled` - Cancelled
      */
-    export type TaskRunDetailStatusEnum = typeof TaskRunDetailStatusEnum[keyof typeof TaskRunDetailStatusEnum];
+    export type TaskRunStatusEnum = typeof TaskRunStatusEnum[keyof typeof TaskRunStatusEnum];
 
 
-    export const TaskRunDetailStatusEnum = {
+    export const TaskRunStatusEnum = {
       NotStarted: 'not_started',
       Queued: 'queued',
       InProgress: 'in_progress',
@@ -25319,10 +26445,10 @@ export namespace Schemas {
      * * `local` - Local
     * `cloud` - Cloud
      */
-    export type TaskRunDetailEnvironmentEnum = typeof TaskRunDetailEnvironmentEnum[keyof typeof TaskRunDetailEnvironmentEnum];
+    export type TaskRunEnvironmentEnum = typeof TaskRunEnvironmentEnum[keyof typeof TaskRunEnvironmentEnum];
 
 
-    export const TaskRunDetailEnvironmentEnum = {
+    export const TaskRunEnvironmentEnum = {
       Local: 'local',
       Cloud: 'cloud',
     } as const;
@@ -25381,12 +26507,12 @@ export namespace Schemas {
        * @nullable
        */
       branch?: string | null;
-      status?: TaskRunDetailStatusEnum;
+      status?: TaskRunStatusEnum;
       /** Execution environment
 
     * `local` - Local
     * `cloud` - Cloud */
-      environment?: TaskRunDetailEnvironmentEnum;
+      environment?: TaskRunEnvironmentEnum;
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
       readonly runtime_adapter: RuntimeAdapterEnum | NullEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
@@ -25426,6 +26552,30 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaskRunDetail[];
+    }
+
+    export interface TaskRunSummary {
+      status: TaskRunStatusEnum | NullEnum | null;
+      environment: TaskRunEnvironmentEnum | NullEnum | null;
+    }
+
+    export interface TaskSummary {
+      readonly id: string;
+      readonly title: string;
+      /** @nullable */
+      readonly repository: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly latest_run: TaskRunSummary | null;
+    }
+
+    export interface PaginatedTaskSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskSummary[];
     }
 
     /**
@@ -25609,6 +26759,10 @@ export namespace Schemas {
       /** @nullable */
       readonly email_to: string | null;
       readonly cc_participants: unknown;
+      /** @nullable */
+      readonly github_repo: string | null;
+      /** @nullable */
+      readonly github_issue_number: number | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -25744,6 +26898,8 @@ export namespace Schemas {
     }
 
     export interface UserGitHubIntegrationItem {
+      /** PostHog UserIntegration row id. */
+      id: string;
       /** Integration kind; always `github` for this API. */
       kind: string;
       /** GitHub App installation id. */
@@ -25921,7 +27077,23 @@ export namespace Schemas {
        */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
+      readonly onboarding_skipped_at: string | null;
+      readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | NullEnum | null;
+      /** @nullable */
+      readonly onboarding_skipped_organization_id: string | null;
+      /** @nullable */
+      readonly onboarding_delegated_to_invite: string | null;
+      /**
+       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+       * @nullable
+       */
+      readonly onboarding_delegated_to_organization_id: string | null;
+      /** @nullable */
+      readonly onboarding_delegation_accepted_at: string | null;
+      /** @nullable */
       readonly is_organization_first_user: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
     }
 
@@ -25942,11 +27114,12 @@ export namespace Schemas {
     * `used_on_separate_team` - Used on Separate Team
     * `new_product` - New Product
     * `sales_led` - Sales Led
+    * `onboarding_delegated` - Onboarding Delegated
      */
-    export type ReasonEnum = typeof ReasonEnum[keyof typeof ReasonEnum];
+    export type UserProductListReasonEnum = typeof UserProductListReasonEnum[keyof typeof UserProductListReasonEnum];
 
 
-    export const ReasonEnum = {
+    export const UserProductListReasonEnum = {
       Onboarding: 'onboarding',
       ProductIntent: 'product_intent',
       UsedByColleagues: 'used_by_colleagues',
@@ -25954,13 +27127,14 @@ export namespace Schemas {
       UsedOnSeparateTeam: 'used_on_separate_team',
       NewProduct: 'new_product',
       SalesLed: 'sales_led',
+      OnboardingDelegated: 'onboarding_delegated',
     } as const;
 
     export interface UserProductList {
       readonly id: string;
       readonly product_path: string;
       enabled?: boolean;
-      readonly reason: ReasonEnum | NullEnum | null;
+      readonly reason: UserProductListReasonEnum | NullEnum | null;
       /** @nullable */
       readonly reason_text: string | null;
       readonly created_at: string;
@@ -26251,56 +27425,50 @@ export namespace Schemas {
     }
 
     /**
-     * Serializer for a BatchExport model.
+     * Request body for create/partial_update on BatchExportViewSet.
+
+    Mirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic
+    `destination` schema so integration_id is marked required on the types that need
+    it. Responses continue to use `BatchExportSerializer`.
      */
-    export interface PatchedBatchExport {
-      readonly id?: string;
-      /** The team this belongs to. */
-      readonly team_id?: number;
-      /** A human-readable name for this BatchExport. */
+    export interface PatchedBatchExportRequest {
+      /** Human-readable name for the batch export. */
       name?: string;
-      /** Which model this BatchExport is exporting.
+      /** Which data model to export (events, persons, sessions).
 
     * `events` - Events
     * `persons` - Persons
     * `sessions` - Sessions */
-      model?: ModelEnum | BlankEnum | NullEnum | null;
-      destination?: BatchExportDestination;
+      model?: ModelEnum;
+      /** Destination configuration. Required integration_id is enforced per destination type. */
+      destination?: BatchExportDestinationRequest;
+      /** How often the batch export should run.
+
+    * `hour` - hour
+    * `day` - day
+    * `week` - week
+    * `every 5 minutes` - every 5 minutes
+    * `every 15 minutes` - every 15 minutes */
       interval?: IntervalEnum;
-      /** Whether this BatchExport is paused or not. */
+      /** Whether the batch export is paused. */
       paused?: boolean;
-      /** The timestamp at which this BatchExport was created. */
-      readonly created_at?: string;
-      /** The timestamp at which this BatchExport was last updated. */
-      readonly last_updated_at?: string;
-      /**
-       * The timestamp at which this BatchExport was last paused.
-       * @nullable
-       */
-      last_paused_at?: string | null;
-      /**
-       * Time before which any Batch Export runs won't be triggered.
-       * @nullable
-       */
-      start_at?: string | null;
-      /**
-       * Time after which any Batch Export runs won't be triggered.
-       * @nullable
-       */
-      end_at?: string | null;
-      readonly latest_runs?: readonly BatchExportRun[];
+      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
-      /** A schema of custom fields to select when exporting data. */
-      readonly schema?: unknown | null;
       filters?: unknown | null;
-      timezone?: string | NullEnum | null;
       /**
+       * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
+       * @nullable
+       */
+      timezone?: string | null;
+      /**
+       * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday).
        * @minimum 0
        * @maximum 6
        * @nullable
        */
       offset_day?: number | null;
       /**
+       * Hour-of-day offset (0-23) for daily and weekly intervals.
        * @minimum 0
        * @maximum 23
        * @nullable
@@ -26393,6 +27561,11 @@ export namespace Schemas {
       /** @maxLength 255 */
       name?: string;
       filters?: unknown;
+      /**
+       * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+       * @nullable
+       */
+      order_by?: string[] | null;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
@@ -26407,6 +27580,10 @@ export namespace Schemas {
       deleted?: boolean | null;
       mentions?: number[];
       slug?: string;
+      /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
+      is_task?: boolean;
+      /** The user who marked this task complete. Null for open tasks and non-task comments. */
+      readonly completed_by?: UserBasic | null;
       /** @nullable */
       content?: string | null;
       rich_content?: unknown | null;
@@ -26420,6 +27597,11 @@ export namespace Schemas {
       item_context?: unknown | null;
       /** @maxLength 79 */
       scope?: string;
+      /**
+       * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+       * @nullable
+       */
+      readonly completed_at?: string | null;
       /** @nullable */
       source_comment?: string | null;
     }
@@ -27081,7 +28263,7 @@ export namespace Schemas {
        * @maxLength 400
        * @nullable
        */
-      promoted_property?: string | null;
+      primary_property?: string | null;
       readonly is_action?: boolean;
       readonly action_id?: number;
       readonly is_calculating?: boolean;
@@ -27213,6 +28395,33 @@ export namespace Schemas {
       project?: string;
     }
 
+    export interface PatchedErrorTrackingSettings {
+      /**
+       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the project-wide rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      project_rate_limit_bucket_size_minutes?: number | null;
+      /**
+       * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+       * @minimum 1
+       * @nullable
+       */
+      per_issue_rate_limit_value?: number | null;
+      /**
+       * Bucket window over which the per-issue rate limit applies, in minutes.
+       * @minimum 1
+       * @nullable
+       */
+      per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
     export interface PatchedErrorTrackingSpikeDetectionConfig {
       /**
        * Time to wait before alerting again for the same issue after a spike is detected.
@@ -27246,24 +28455,34 @@ export namespace Schemas {
     }
 
     /**
-     * Release associated with this symbol set
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     export type PatchedErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
 
     export interface PatchedErrorTrackingSymbolSet {
+      /** Unique symbol set ID. */
       readonly id?: string;
-      ref?: string;
+      /** Reference used to match stack frames to this symbol set. */
+      readonly ref?: string;
+      /** Project/team ID that owns this symbol set. */
       readonly team_id?: number;
+      /** When this symbol set row was created. */
       readonly created_at?: string;
-      /** @nullable */
-      last_used?: string | null;
-      /** @nullable */
-      storage_ptr?: string | null;
-      /** @nullable */
-      failure_reason?: string | null;
       /**
-       * Release associated with this symbol set
+       * When this symbol set was last used to resolve a stack frame.
+       * @nullable
+       */
+      readonly last_used?: string | null;
+      /**
+       * Reason symbol lookup failed, if the source map is missing or invalid.
+       * @nullable
+       */
+      readonly failure_reason?: string | null;
+      /** Whether this symbol set has an uploaded source map file available to download. */
+      readonly has_uploaded_file?: boolean;
+      /**
+       * Release associated with this symbol set, if any.
        * @nullable
        */
       readonly release?: PatchedErrorTrackingSymbolSetRelease;
@@ -28262,16 +29481,16 @@ export namespace Schemas {
       /** Unique identifier for this alert. */
       readonly id?: string;
       /**
-       * Human-readable name for this alert.
+       * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
        * @maxLength 255
        */
       name?: string;
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
-      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: unknown;
       /**
-       * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+       * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
        * @minimum 1
        */
       threshold_count?: number;
@@ -28341,6 +29560,11 @@ export namespace Schemas {
       readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types?: readonly NotificationDestinationTypeEnum[];
+      /**
+       * When the alert was first enabled. Null means the alert is still in draft state.
+       * @nullable
+       */
+      readonly first_enabled_at?: string | null;
       /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -28369,7 +29593,7 @@ export namespace Schemas {
        * @nullable
        */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
     * `severity_sampling` - Severity-based reduction
     * `path_drop` - Path exclusion
@@ -28389,7 +29613,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -30026,6 +31250,8 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
       deleted?: boolean;
+      /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
+      enabled?: boolean;
       /**
        * Human-readable name for this subscription.
        * @maxLength 100
@@ -30738,6 +31964,11 @@ export namespace Schemas {
        * @nullable
        */
       github_integration?: number | null;
+      /**
+       * User-scoped GitHub integration to use for user-authored cloud runs.
+       * @nullable
+       */
+      github_user_integration?: string | null;
       /** @nullable */
       signal_report?: string | null;
       signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
@@ -31123,6 +32354,10 @@ export namespace Schemas {
       /** @nullable */
       readonly email_to?: string | null;
       readonly cc_participants?: unknown;
+      /** @nullable */
+      readonly github_repo?: string | null;
+      /** @nullable */
+      readonly github_issue_number?: number | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -31273,7 +32508,23 @@ export namespace Schemas {
        */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
+      readonly onboarding_skipped_at?: string | null;
+      readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | NullEnum | null;
+      /** @nullable */
+      readonly onboarding_skipped_organization_id?: string | null;
+      /** @nullable */
+      readonly onboarding_delegated_to_invite?: string | null;
+      /**
+       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+       * @nullable
+       */
+      readonly onboarding_delegated_to_organization_id?: string | null;
+      /** @nullable */
+      readonly onboarding_delegation_accepted_at?: string | null;
+      /** @nullable */
       readonly is_organization_first_user?: boolean | null;
+      /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+      readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
     }
 
@@ -31291,7 +32542,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly product_path?: string;
       enabled?: boolean;
-      readonly reason?: ReasonEnum | NullEnum | null;
+      readonly reason?: UserProductListReasonEnum | NullEnum | null;
       /** @nullable */
       readonly reason_text?: string | null;
       readonly created_at?: string;
@@ -31406,29 +32657,6 @@ export namespace Schemas {
     }
 
     /**
-     * The parameters passed to the query
-     */
-    export type PersonPropertiesAtTimeDebugParams = { [key: string]: unknown };
-
-    export type PersonPropertiesAtTimeDebugEventsItem = { [key: string]: unknown };
-
-    /**
-     * Serializer for the debug information (only available to staff users).
-     */
-    export interface PersonPropertiesAtTimeDebug {
-      /** The ClickHouse query that was executed */
-      query: string;
-      /** The parameters passed to the query */
-      params: PersonPropertiesAtTimeDebugParams;
-      /** Number of events found */
-      events_found: number;
-      /** Raw events that were used to build the properties */
-      events: PersonPropertiesAtTimeDebugEventsItem[];
-      /** Error message if debug query failed */
-      error?: string;
-    }
-
-    /**
      * Serializer for the point-in-time query metadata.
      */
     export interface PersonPropertiesAtTimeMetadata {
@@ -31482,8 +32710,6 @@ export namespace Schemas {
       last_seen_at: string | null;
       /** Metadata about the point-in-time query */
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
-      /** Debug information (only available when debug=true and DEBUG=True) */
-      debug?: PersonPropertiesAtTimeDebug;
     }
 
     export interface PersonUpdatePropertyRequest {
@@ -31498,6 +32724,16 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
+    }
+
+    /**
+     * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
+     */
+    export type PrimaryPropertiesResponsePrimaryProperties = {[key: string]: string};
+
+    export interface PrimaryPropertiesResponse {
+      /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
+      primary_properties: PrimaryPropertiesResponsePrimaryProperties;
     }
 
     /**
@@ -32324,16 +33560,6 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
-    }
-
-    /**
-     * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
-     */
-    export type PromotedPropertiesResponsePromotedProperties = {[key: string]: string};
-
-    export interface PromotedPropertiesResponse {
-      /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
-      promoted_properties: PromotedPropertiesResponsePromotedProperties;
     }
 
     /**
@@ -35660,6 +36886,21 @@ export namespace Schemas {
     }
 
     /**
+     * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
+
+    `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+    path used (dateRange, filterTestAccounts, properties), so the migration is
+    behaviour-preserving for callers that pass a request unchanged.
+     */
+    export interface SentimentGenerationsRequest {
+      filters?: unknown;
+    }
+
+    export interface SentimentGenerationsResponse {
+      results: unknown[][];
+    }
+
+    /**
      * * `trace` - trace
     * `generation` - generation
      */
@@ -35673,7 +36914,7 @@ export namespace Schemas {
 
     export interface SentimentRequest {
       /**
-       * Trace IDs or generation IDs to classify, depending on analysis_level.
+       * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
        * @minItems 1
        * @maxItems 5
        */
@@ -36800,7 +38041,7 @@ export namespace Schemas {
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
-      /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+      /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
     }
 
@@ -36948,6 +38189,14 @@ export namespace Schemas {
     export interface TaskStagedArtifactsPrepareUploadResponse {
       /** Prepared staged uploads for the requested artifacts */
       artifacts: TaskStagedArtifactPrepareUploadResponse[];
+    }
+
+    export interface TaskSummariesRequest {
+      /**
+       * Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.
+       * @maxItems 5000
+       */
+      ids: string[];
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -37315,7 +38564,7 @@ export namespace Schemas {
     export interface UserGitHubLinkStartResponse {
       /** URL to open in the browser to install or authorize the GitHub App for this user. */
       install_url: string;
-      /** oauth_authorize when using user OAuth against an existing team installation; app_install for the GitHub App installation UI. */
+      /** OAuth or install flow used for this GitHub connection. */
       connect_flow: string;
     }
 
@@ -37857,9 +39106,126 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    /**
+     * * `span` - span
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
+     */
+    export type _SpanPropertyFilterTypeEnum = typeof _SpanPropertyFilterTypeEnum[keyof typeof _SpanPropertyFilterTypeEnum];
+
+
+    export const _SpanPropertyFilterTypeEnum = {
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    /**
+     * * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `lt` - lt
+    * `is_set` - is_set
+    * `is_not_set` - is_not_set
+     */
+    export type _SpanPropertyFilterOperatorEnum = typeof _SpanPropertyFilterOperatorEnum[keyof typeof _SpanPropertyFilterOperatorEnum];
+
+
+    export const _SpanPropertyFilterOperatorEnum = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Lt: 'lt',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+    } as const;
+
+    export interface _SpanPropertyFilter {
+      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+      key: string;
+      /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
+
+    * `span` - span
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute */
+      type: _SpanPropertyFilterTypeEnum;
+      /** Comparison operator.
+
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `lt` - lt
+    * `is_set` - is_set
+    * `is_not_set` - is_not_set */
+      operator: _SpanPropertyFilterOperatorEnum;
+      /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
+      value?: unknown | null;
+    }
+
     export interface _SymbolSetDownloadResponse {
-      /** Presigned URL to download the source map file */
+      /** Presigned URL to download the source map file. Use immediately; expires after one hour. */
       url: string;
+    }
+
+    export interface _TracingDateRange {
+      /**
+       * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.
+       * @nullable
+       */
+      date_from?: string | null;
+      /**
+       * End of the date range. Same format as date_from. Omit or null for "now".
+       * @nullable
+       */
+      date_to?: string | null;
+    }
+
+    export interface _TracingQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by HTTP status codes. */
+      statusCodes?: number[];
+      /** Order results by timestamp. Defaults to latest.
+
+    * `latest` - latest
+    * `earliest` - earliest */
+      orderBy?: OrderByEnum;
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+      /** Filter to a specific trace ID (hex string). */
+      traceId?: string;
+      /** Max results (1-1000). Defaults to 100. */
+      limit?: number;
+      /** Pagination cursor from previous response. */
+      after?: string;
+      /** Filter to root spans only. Defaults to true. */
+      rootSpans?: boolean;
+      /** Number of child spans to prefetch per trace (1-100). */
+      prefetchSpans?: number;
+    }
+
+    export interface _TracingQueryRequest {
+      /** The tracing spans query to execute. */
+      query: _TracingQueryBody;
+    }
+
+    export interface _TracingTraceRequest {
+      /** Date range for the query. Defaults to last 24 hours. */
+      dateRange?: _TracingDateRange;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -37999,6 +39365,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type EnvironmentsDashboardsListFormat = typeof EnvironmentsDashboardsListFormat[keyof typeof EnvironmentsDashboardsListFormat];
@@ -38023,12 +39393,12 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsDashboardsRetrieveFormat;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -38127,7 +39497,7 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
@@ -38140,7 +39510,7 @@ export namespace Schemas {
      */
     refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -38184,7 +39554,7 @@ export namespace Schemas {
 
     export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: EnvironmentsDashboardsStreamTilesRetrieveFormat;
@@ -38193,7 +39563,7 @@ export namespace Schemas {
      */
     layoutSize?: EnvironmentsDashboardsStreamTilesRetrieveLayoutSize;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -38388,7 +39758,42 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order for symbol sets. Prefix with `-` for descending order.
+
+    * `created_at` - created_at
+    * `-created_at` - -created_at
+    * `ref` - ref
+    * `-ref` - -ref
+    * `last_used` - last_used
+    * `-last_used` - -last_used
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Exact symbol set reference to filter by.
+     * @minLength 1
+     */
+    ref?: string;
+    /**
+     * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+
+    * `all` - all
+    * `valid` - valid
+    * `invalid` - invalid
+     * @minLength 1
+     */
+    status?: EnvironmentsErrorTrackingSymbolSetsListStatus;
     };
+
+    export type EnvironmentsErrorTrackingSymbolSetsListStatus = typeof EnvironmentsErrorTrackingSymbolSetsListStatus[keyof typeof EnvironmentsErrorTrackingSymbolSetsListStatus];
+
+
+    export const EnvironmentsErrorTrackingSymbolSetsListStatus = {
+      All: 'all',
+      Valid: 'valid',
+      Invalid: 'invalid',
+    } as const;
 
     export type EnvironmentsEventsListParams = {
     /**
@@ -38911,10 +40316,6 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
-     */
-    search?: string;
-    /**
      * Multiple values may be separated by commas.
      */
     type?: string[];
@@ -39228,6 +40629,10 @@ export namespace Schemas {
     };
 
     export type EnvironmentsInsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: EnvironmentsInsightsRetrieveFormat;
     /**
      * 
@@ -39247,6 +40652,10 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: EnvironmentsInsightsRetrieveRefresh;
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsInsightsRetrieveFormat = typeof EnvironmentsInsightsRetrieveFormat[keyof typeof EnvironmentsInsightsRetrieveFormat];
@@ -39440,6 +40849,44 @@ export namespace Schemas {
 
     export type EnvironmentsIntegrationsListParams = {
     /**
+     * * `anthropic` - Anthropic
+    * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
+    * `bing-ads` - Bing Ads
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
+    * `email` - Email
+    * `firebase` - Firebase
+    * `github` - Github
+    * `gitlab` - Gitlab
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
+    * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
+    * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
+    * `stripe` - Stripe
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
+     */
+    kind?: EnvironmentsIntegrationsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -39448,6 +40895,47 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type EnvironmentsIntegrationsListKind = typeof EnvironmentsIntegrationsListKind[keyof typeof EnvironmentsIntegrationsListKind];
+
+
+    export const EnvironmentsIntegrationsListKind = {
+      Anthropic: 'anthropic',
+      Apns: 'apns',
+      AzureBlob: 'azure-blob',
+      BingAds: 'bing-ads',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
+      Email: 'email',
+      Firebase: 'firebase',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
+      Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
+      PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
+      Stripe: 'stripe',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
+    } as const;
 
     export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
     /**
@@ -39936,10 +41424,6 @@ export namespace Schemas {
 
     export type EnvironmentsPersonsPropertiesAtTimeRetrieveParams = {
     /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean;
-    /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */
     distinct_id?: string;
@@ -40128,6 +41612,13 @@ export namespace Schemas {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
+
+    export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
+      active_count: number;
+      /** @nullable */
+      limit: number | null;
+      at_limit: boolean;
+    };
 
     export type EnvironmentsUserProductListListParams = {
     /**
@@ -40703,6 +42194,10 @@ export namespace Schemas {
 
     export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
 
+    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
+
     export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
     export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
@@ -41132,6 +42627,94 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type TracingSpansAttributesRetrieveParams = {
+    /**
+     * Type of attributes: "span" for span attributes, "resource" for resource attributes.
+
+    * `span` - span
+    * `resource` - resource
+     * @minLength 1
+     */
+    attribute_type?: TracingSpansAttributesRetrieveAttributeType;
+    /**
+     * Max results (default: 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Pagination offset (default: 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search filter for attribute names.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type TracingSpansAttributesRetrieveAttributeType = typeof TracingSpansAttributesRetrieveAttributeType[keyof typeof TracingSpansAttributesRetrieveAttributeType];
+
+
+    export const TracingSpansAttributesRetrieveAttributeType = {
+      Span: 'span',
+      Resource: 'resource',
+    } as const;
+
+    export type TracingSpansServiceNamesRetrieveParams = {
+    /**
+     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
+     * @minLength 1
+     */
+    dateRange?: string;
+    /**
+     * Search filter for service names.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type TracingSpansValuesRetrieveParams = {
+    /**
+     * Type of attribute: "span" or "resource".
+
+    * `span` - span
+    * `resource` - resource
+     * @minLength 1
+     */
+    attribute_type?: TracingSpansValuesRetrieveAttributeType;
+    /**
+     * The attribute key to get values for.
+     * @minLength 1
+     */
+    key: string;
+    /**
+     * Max results (default: 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Pagination offset (default: 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search filter for attribute values.
+     * @minLength 1
+     */
+    value?: string;
+    };
+
+    export type TracingSpansValuesRetrieveAttributeType = typeof TracingSpansValuesRetrieveAttributeType[keyof typeof TracingSpansValuesRetrieveAttributeType];
+
+
+    export const TracingSpansValuesRetrieveAttributeType = {
+      Span: 'span',
+      Resource: 'resource',
+    } as const;
+
     export type UserInterviewsListParams = {
     /**
      * Number of results to return per page.
@@ -41298,6 +42881,10 @@ export namespace Schemas {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string;
+    /**
+     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     */
+    search?: string;
     };
 
     export type OauthApplicationsListParams = {
@@ -41972,6 +43559,15 @@ export namespace Schemas {
 
     export type CommentsListParams = {
     /**
+     * When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).
+
+    * `any` - any
+    * `open` - open
+    * `completed` - completed
+     * @minLength 1
+     */
+    completed?: CommentsListCompleted;
+    /**
      * The pagination cursor value.
      */
     cursor?: string;
@@ -41980,6 +43576,15 @@ export namespace Schemas {
      * @minLength 1
      */
     item_id?: string;
+    /**
+     * Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).
+
+    * `any` - any
+    * `comment` - comment
+    * `task` - task
+     * @minLength 1
+     */
+    kind?: CommentsListKind;
     /**
      * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
      * @minLength 1
@@ -41996,6 +43601,24 @@ export namespace Schemas {
      */
     source_comment?: string;
     };
+
+    export type CommentsListCompleted = typeof CommentsListCompleted[keyof typeof CommentsListCompleted];
+
+
+    export const CommentsListCompleted = {
+      Any: 'any',
+      Open: 'open',
+      Completed: 'completed',
+    } as const;
+
+    export type CommentsListKind = typeof CommentsListKind[keyof typeof CommentsListKind];
+
+
+    export const CommentsListKind = {
+      Any: 'any',
+      Comment: 'comment',
+      Task: 'task',
+    } as const;
 
     export type ConversationsTicketsListParams = {
     /**
@@ -42060,6 +43683,7 @@ export namespace Schemas {
 
 
     export const ConversationsTicketsListChannelDetail = {
+      GithubIssue: 'github_issue',
       SlackBotMention: 'slack_bot_mention',
       SlackChannelMessage: 'slack_channel_message',
       SlackEmojiReaction: 'slack_emoji_reaction',
@@ -42074,6 +43698,7 @@ export namespace Schemas {
 
     export const ConversationsTicketsListChannelSource = {
       Email: 'email',
+      Github: 'github',
       Slack: 'slack',
       Teams: 'teams',
       Widget: 'widget',
@@ -42130,6 +43755,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type DashboardsListFormat = typeof DashboardsListFormat[keyof typeof DashboardsListFormat];
@@ -42154,12 +43783,12 @@ export namespace Schemas {
 
     export type DashboardsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: DashboardsRetrieveFormat;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -42258,7 +43887,7 @@ export namespace Schemas {
 
     export type DashboardsRunInsightsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: DashboardsRunInsightsRetrieveFormat;
@@ -42271,7 +43900,7 @@ export namespace Schemas {
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -42315,7 +43944,7 @@ export namespace Schemas {
 
     export type DashboardsStreamTilesRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
      */
     filters_override?: string;
     format?: DashboardsStreamTilesRetrieveFormat;
@@ -42324,7 +43953,7 @@ export namespace Schemas {
      */
     layoutSize?: DashboardsStreamTilesRetrieveLayoutSize;
     /**
-     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;
     };
@@ -42541,7 +44170,42 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order for symbol sets. Prefix with `-` for descending order.
+
+    * `created_at` - created_at
+    * `-created_at` - -created_at
+    * `ref` - ref
+    * `-ref` - -ref
+    * `last_used` - last_used
+    * `-last_used` - -last_used
+     * @minLength 1
+     */
+    order_by?: string;
+    /**
+     * Exact symbol set reference to filter by.
+     * @minLength 1
+     */
+    ref?: string;
+    /**
+     * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+
+    * `all` - all
+    * `valid` - valid
+    * `invalid` - invalid
+     * @minLength 1
+     */
+    status?: ErrorTrackingSymbolSetsListStatus;
     };
+
+    export type ErrorTrackingSymbolSetsListStatus = typeof ErrorTrackingSymbolSetsListStatus[keyof typeof ErrorTrackingSymbolSetsListStatus];
+
+
+    export const ErrorTrackingSymbolSetsListStatus = {
+      All: 'all',
+      Valid: 'valid',
+      Invalid: 'invalid',
+    } as const;
 
     export type EventDefinitionsListParams = {
     /**
@@ -42561,9 +44225,9 @@ export namespace Schemas {
     name: string;
     };
 
-    export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+    export type EventDefinitionsPrimaryPropertiesRetrieveParams = {
     /**
-     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured primary property.
      */
     names?: string[];
     };
@@ -43347,10 +45011,6 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
-     */
-    search?: string;
-    /**
      * Multiple values may be separated by commas.
      */
     type?: string[];
@@ -43664,6 +45324,10 @@ export namespace Schemas {
     };
 
     export type InsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: InsightsRetrieveFormat;
     /**
      * 
@@ -43683,6 +45347,10 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: InsightsRetrieveRefresh;
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string;
     };
 
     export type InsightsRetrieveFormat = typeof InsightsRetrieveFormat[keyof typeof InsightsRetrieveFormat];
@@ -43876,6 +45544,44 @@ export namespace Schemas {
 
     export type IntegrationsListParams = {
     /**
+     * * `anthropic` - Anthropic
+    * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
+    * `bing-ads` - Bing Ads
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
+    * `email` - Email
+    * `firebase` - Firebase
+    * `github` - Github
+    * `gitlab` - Gitlab
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
+    * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
+    * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
+    * `stripe` - Stripe
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
+     */
+    kind?: IntegrationsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -43884,6 +45590,47 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type IntegrationsListKind = typeof IntegrationsListKind[keyof typeof IntegrationsListKind];
+
+
+    export const IntegrationsListKind = {
+      Anthropic: 'anthropic',
+      Apns: 'apns',
+      AzureBlob: 'azure-blob',
+      BingAds: 'bing-ads',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
+      Email: 'email',
+      Firebase: 'firebase',
+      Github: 'github',
+      Gitlab: 'gitlab',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
+      Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
+      PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
+      Stripe: 'stripe',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
+    } as const;
 
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**
@@ -44501,10 +46248,6 @@ export namespace Schemas {
 
     export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean;
-    /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */
     distinct_id?: string;
@@ -44596,7 +46339,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
+     * Fuzzy match against product tour `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string;
     };
@@ -44914,6 +46657,13 @@ export namespace Schemas {
       Webhook: 'webhook',
     } as const;
 
+    export type SubscriptionsSummaryQuotaRetrieve200 = {
+      active_count: number;
+      /** @nullable */
+      limit: number | null;
+      at_limit: boolean;
+    };
+
     export type SurveysListParams = {
     archived?: boolean;
     /**
@@ -44925,7 +46675,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * A search term.
+     * Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string;
     };
@@ -44980,7 +46730,7 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
-     * When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.
+     * When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.
      */
     internal?: boolean;
     /**
@@ -45092,6 +46842,17 @@ export namespace Schemas {
      * @maximum 30
      */
     window_days?: number;
+    };
+
+    export type TasksSummariesCreateParams = {
+    /**
+     * Page size for the paginated response.
+     */
+    limit?: number;
+    /**
+     * Offset into the result set for pagination.
+     */
+    offset?: number;
     };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
@@ -45354,6 +47115,29 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type UsersIntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string;
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string;
     };
 
     export type UsersIntegrationsGithubReposRetrieveParams = {

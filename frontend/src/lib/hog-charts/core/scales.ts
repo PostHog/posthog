@@ -117,7 +117,12 @@ export function createYScale(
             .clamp(true)
     }
 
-    if (min > 0) {
+    // Auxiliary overlays (trendline projections, moving averages) may dip below 0
+    // when the underlying data does not. They shouldn't drag the axis baseline below
+    // 0 — d3.nice() applied to a slightly-negative min produces a disproportionately
+    // large negative tick (e.g. [-1, 14500] → [-2000, 16000]).
+    const primaryRange = series.some((s) => s.overlay) ? seriesValueRange(series.filter((s) => !s.overlay)) : range
+    if (primaryRange.count > 0 && primaryRange.min >= 0) {
         min = 0
     } else if (max < 0) {
         max = 0
@@ -184,9 +189,7 @@ function buildStackData(
     labels: string[],
     offset?: typeof d3.stackOffsetNone
 ): Map<string, StackedBand> {
-    const visibleSeries = series.filter(
-        (s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.visibility?.fromStack
-    )
+    const visibleSeries = series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
     if (visibleSeries.length === 0) {
         return new Map()
     }
@@ -220,9 +223,10 @@ function buildStackData(
 
         const stacked = stack(tableData)
         for (const layer of stacked) {
+            // d3.stackOffsetExpand emits NaN for all-zero columns; flatten so consumers don't have to guard.
             result.set(layer.key, {
-                top: layer.map((d) => d[1]),
-                bottom: layer.map((d) => d[0]),
+                top: layer.map((d) => (Number.isFinite(d[1]) ? d[1] : 0)),
+                bottom: layer.map((d) => (Number.isFinite(d[0]) ? d[0] : 0)),
             })
         }
     }

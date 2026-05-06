@@ -212,3 +212,60 @@ class TestConversationEvents(BaseTest):
 
         # Tokens must be different (proves isolation)
         assert first_call["token"] != second_call["token"]
+
+    @parameterized.expand(
+        [
+            ("identified_person", True, True, True),
+            ("anonymous_person", True, False, False),
+            ("no_person", False, False, False),
+            ("empty_distinct_id", False, False, False),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_person_processing(
+        self, _name, has_person, is_identified, expect_groups, mock_get_persons, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        is_empty_distinct_id = _name == "empty_distinct_id"
+        ticket = self.ticket
+        if is_empty_distinct_id:
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                widget_session_id=str(uuid.uuid4()),
+                distinct_id="",
+                channel_source="github",
+            )
+
+        if has_person:
+            mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=is_identified)]
+        else:
+            mock_get_persons.return_value = []
+
+        capture_ticket_created(ticket)
+
+        if is_empty_distinct_id:
+            mock_get_persons.assert_not_called()
+        else:
+            mock_get_persons.assert_called_once_with(self.team.id, [ticket.distinct_id])
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is expect_groups
+        if expect_groups:
+            groups = call_kwargs["properties"]["$groups"]
+            assert groups["organization"] == str(self.team.organization_id)
+            assert groups["project"] == str(self.team.uuid)
+            assert "instance" in groups
+        else:
+            assert "$groups" not in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids", side_effect=Exception("db timeout"))
+    def test_capture_ticket_created_still_fires_on_person_lookup_failure(self, mock_get_persons, mock_capture):
+        capture_ticket_created(self.ticket)
+
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
