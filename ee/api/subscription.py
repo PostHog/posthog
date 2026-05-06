@@ -220,34 +220,23 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if error_message:
                 raise ValidationError({"enabled": [error_message]})
 
-            # `enabled=True` with `next_delivery_date=None` is invisible to the
-            # scheduler (`fetch_due_subscriptions_activity` filters by `__lte=now`).
-            if Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None:
-                raise ValidationError(
-                    {
-                        "enabled": [
-                            "Subscription schedule has reached its end date. "
-                            "Extend until_date or remove count before re-enabling."
-                        ]
-                    }
-                )
-
-        # Same check at create-time, against the symmetric hole.
-        elif self.instance is None and Subscription.project_next_delivery_date(**attrs) is None:
-            raise ValidationError(
-                {"start_date": ["Subscription schedule has reached its end date. Extend until_date or remove count."]}
-            )
-
-        # And on PATCH: editing the rrule of an already-enabled sub into an
-        # exhausted state would land `next_delivery_date=None` via the model's
-        # save()-side rrule-change branch and silently un-schedule the sub.
-        elif (
-            self.instance is not None
-            and self.instance.enabled
-            and Subscription.RRULE_FIELDS & attrs.keys()
-            and Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None
-        ):
-            raise ValidationError("Subscription schedule has reached its end date. Extend until_date or remove count.")
+        # Reject mutations that would land `next_delivery_date=None` — `enabled=True`
+        # with a null next_delivery_date is invisible to the scheduler (the
+        # `__lte=now` filter in `fetch_due_subscriptions_activity` drops nulls).
+        # Three reachable paths: re-enable an exhausted sub, create one with a bad
+        # rrule, or PATCH an active sub's schedule into exhaustion.
+        check_schedule = (
+            is_re_enabling
+            or self.instance is None
+            or (self.instance is not None and self.instance.enabled and bool(Subscription.RRULE_FIELDS & attrs.keys()))
+        )
+        if check_schedule and Subscription.project_next_delivery_date(instance=self.instance, **attrs) is None:
+            base = "Subscription schedule has reached its end date. Extend until_date or remove count"
+            if is_re_enabling:
+                raise ValidationError({"enabled": [f"{base} before re-enabling."]})
+            if self.instance is None:
+                raise ValidationError({"start_date": [f"{base}."]})
+            raise ValidationError(f"{base}.")
 
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
