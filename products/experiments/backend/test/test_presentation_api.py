@@ -1910,20 +1910,27 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertIn("'test_1'", detail)
         self.assertIn("'test_2'", detail)
 
-    def test_creating_experiment_normalizes_capitalized_control_key(self):
+    @parameterized.expand(
+        [
+            ("Control",),
+            ("CONTROL",),
+            ("cOnTrOl",),
+        ]
+    )
+    def test_creating_experiment_normalizes_capitalized_control_key(self, control_key: str):
         # LLM callers often emit `Control` or `CONTROL` from natural-language input.
         # The serializer should rewrite it to lowercase `control` instead of rejecting,
         # since intent is unambiguous and the runtime treats `control` as a reserved key.
-        ff_key = "case-insensitive-control"
+        ff_key = f"case-insensitive-{control_key.lower()}-{control_key}"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
-                "name": "Capitalized control",
+                "name": f"Capitalized control {control_key}",
                 "description": "",
                 "feature_flag_key": ff_key,
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "Control", "name": "Control", "split_percent": 50},
+                        {"key": control_key, "name": "Control", "split_percent": 50},
                         {"key": "test", "name": "Test", "split_percent": 50},
                     ]
                 },
@@ -1940,10 +1947,14 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(flag_keys, ["control", "test"])
 
     def test_creating_experiment_does_not_collapse_when_control_already_present(self):
-        # If both `control` and `Control` are passed, leave them alone — normalization
-        # would silently merge two distinct variants into a duplicate key, which
-        # FeatureFlagSerializer would surface as its own error.
-        ff_key = "control-and-Control"
+        # If both `control` and `Control` are passed, normalization must NOT run —
+        # otherwise it would rewrite `Control` → `control` and produce two duplicate
+        # entries. The downstream FeatureFlagSerializer may then accept (variants
+        # preserved) or reject (duplicate-key error) — both prove the normalization
+        # path was skipped. The signal we actively check against: the response must
+        # not be the missing-control error, since that would only fire if our
+        # rewrite logic got confused.
+        ff_key = "control-and-capital-control"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -1960,13 +1971,16 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         )
 
-        # Either FeatureFlagSerializer rejects the duplicate, or it accepts the second
-        # untouched — either way the normalization path must NOT run when an exact
-        # `control` already exists.
+        # Must land on a deterministic outcome — not silently bypass.
+        self.assertIn(response.status_code, [status.HTTP_201_CREATED, status.HTTP_400_BAD_REQUEST])
         if response.status_code == status.HTTP_201_CREATED:
             variants = response.json()["parameters"]["feature_flag_variants"]
-            keys = [v["key"] for v in variants]
-            self.assertEqual(keys, ["control", "Control"])
+            self.assertEqual([v["key"] for v in variants], ["control", "Control"])
+        else:
+            # 400 path: the error must NOT be the missing-control message,
+            # which would only fire if normalization had wrongly rewritten things.
+            detail = str(response.json())
+            self.assertNotIn("must contain a variant with key 'control'", detail)
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
