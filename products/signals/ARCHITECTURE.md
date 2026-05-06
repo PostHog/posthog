@@ -597,16 +597,19 @@ Read + delete + state transitions. Uses `IsAuthenticated` + `APIScopePermission`
 
 **Ordering:** Configurable via `?ordering=` with comma-separated fields. Supported fields: `status`, `is_suggested_reviewer`, `signal_count`, `total_weight`, `priority`, `created_at`, `updated_at`, `id`.
 
-The `status` ordering uses semantic pipeline stage ranking:
+The `status` clause sorts by annotated `pipeline_status_rank` (not lexicographic `status` text). Ascending rank lists earlier pipeline stages first. Ranks:
 
-- `ready=0`
-- `pending_input=1`
-- `in_progress=2`
-- `candidate=3`
-- `potential=4`
-- `failed=5`
-- `suppressed=6`
-- `deleted=7`
+- `0` — `ready` and actionable (includes reports with no actionability judgment yet)
+- `1` — `ready` and latest actionability judgment is `not_actionable`
+- `2` — `pending_input`
+- `3` — `in_progress`
+- `4` — `candidate`
+- `5` — `potential`
+- `6` — `failed`
+- `7` — `suppressed`
+- `8` — `deleted` (deleted rows are not returned by the API; rank exists for queryset consistency)
+
+So with `ordering=status`, **`failed` sorts after actionable `ready`**. With `ordering=-status`, **`failed` sorts before actionable `ready`**.
 
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
 
@@ -650,6 +653,7 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
   - `priority` comes from the latest `PRIORITY_JUDGMENT` artefact
   - `actionability` comes from the latest `ACTIONABILITY_JUDGMENT` artefact and supports both current (`actionability`) and legacy (`choice`) payloads
   - `already_addressed` also comes from the latest actionability artefact
+  - `is_suggested_reviewer`: list/detail annotate from the requesting user’s linked GitHub login against the `suggested_reviewers` artefact. Always **`false`** when there is nothing to review: `failed` reports, or `ready` with latest actionability `not_actionable` (even if the artefact names the user)
 - **`SignalReportArtefactSerializer`**
   - Exposes `id`, `type`, `content`, `created_at`
   - Parses JSON text into structured content

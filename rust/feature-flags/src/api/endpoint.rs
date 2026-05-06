@@ -1,5 +1,6 @@
 use crate::{
     api::{
+        concurrency_metrics::ConcurrencyLimitWait,
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
         types::{
@@ -15,7 +16,7 @@ use crate::{
     utils::user_agent::UserAgentInfo,
 };
 // TODO: stream this instead
-use axum::extract::{MatchedPath, Query, State};
+use axum::extract::{Extension, MatchedPath, Query, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
@@ -199,10 +200,15 @@ fn get_versioned_response(
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
 #[debug_handler]
+#[allow(clippy::too_many_arguments)]
 pub async fn flags(
     state: State<router::State>,
     InsecureClientIp(direct_ip): InsecureClientIp,
     Query(query_params): Query<FlagsQueryParams>,
+    // Populated by the `record_concurrency_wait` middleware after
+    // `ConcurrencyLimitLayer` hands off a permit. Optional so the handler
+    // tolerates the layer pair being removed or temporarily disabled.
+    concurrency_wait: Option<Extension<ConcurrencyLimitWait>>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
@@ -280,6 +286,12 @@ pub async fn flags(
         .map(|start_ms| now_ms - start_ms)
         .filter(|&delta| delta >= 0);
 
+    // Concurrency-limit permit-wait, captured by the `record_concurrency_wait`
+    // middleware. `as_millis()` returns `u128`; the `as u64` cast truncates
+    // above `u64::MAX` ms — irrelevant in practice since reaching that bound
+    // would take longer than the age of the universe.
+    let concurrency_limit_wait_ms = concurrency_wait.map(|Extension(w)| w.0.as_millis() as u64);
+
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
     let canonical_log = FlagsCanonicalLogLine {
@@ -291,6 +303,7 @@ pub async fn flags(
         lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
         api_version: query_params.version.clone(),
         queue_time_ms,
+        concurrency_limit_wait_ms,
         ..Default::default()
     };
 
