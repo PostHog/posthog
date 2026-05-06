@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
+from parameterized import parameterized
+
 from ee.billing.salesforce_enrichment.duckgres_client import DuckgresNotConfiguredError
 from ee.billing.salesforce_enrichment.stripe_signals import _FETCH_QUERY, StripeSignals, fetch_stripe_signals
 
@@ -77,7 +79,18 @@ class TestFetchQueryFilters(TestCase):
         assert "pc.billing_customer_synced_at" in _FETCH_QUERY
         assert "pc.mapping_synced_at" in _FETCH_QUERY
 
-    def test_candidate_cte_pushes_cursor_into_each_source_table(self):
+    @parameterized.expand(
+        [
+            ("billing_customer", "billing_public.billing_customer bc", "bc._fivetran_synced >= %(cursor_ts)s"),
+            (
+                "billing_customertostripecustomer",
+                "billing_public.billing_customertostripecustomer cts",
+                "cts._fivetran_synced >= %(cursor_ts)s",
+            ),
+            ("stripe_customer", "ducklake.stripe.customer sc", "sc._fivetran_synced >= %(cursor_ts)s"),
+        ]
+    )
+    def test_candidate_cte_pushes_cursor_into_source_table(self, _name: str, table_ref: str, cursor_predicate: str):
         # The candidate CTE is what makes the query incremental: each source's
         # ``_fivetran_synced`` is compared against the cursor directly inside
         # the candidate CTE, so DuckLake can prune parquet files older than
@@ -88,14 +101,8 @@ class TestFetchQueryFilters(TestCase):
         # whole-query substring check but would not enable file pruning.
         cte = _candidate_cte_body(_FETCH_QUERY)
 
-        assert "billing_public.billing_customer bc" in cte
-        assert "bc._fivetran_synced >= %(cursor_ts)s" in cte
-
-        assert "billing_public.billing_customertostripecustomer cts" in cte
-        assert "cts._fivetran_synced >= %(cursor_ts)s" in cte
-
-        assert "ducklake.stripe.customer sc" in cte
-        assert "sc._fivetran_synced >= %(cursor_ts)s" in cte
+        assert table_ref in cte
+        assert cursor_predicate in cte
 
     def test_candidate_cte_falls_back_to_full_scan_when_cursor_is_null(self):
         # First-run / force-full-refresh paths pass ``cursor_ts=NULL``. Each
