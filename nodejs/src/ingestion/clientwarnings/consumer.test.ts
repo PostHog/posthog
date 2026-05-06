@@ -52,16 +52,11 @@ describe('createClientWarningsConsumer', () => {
         expect(call.promiseScheduler).toBeDefined()
     })
 
-    it('exposes a service descriptor with the topic-derived id', () => {
-        const consumer = createClientWarningsConsumer(makeConfig(), makeDeps(), { topic: 'client_warnings' })
+    it('exposes a service descriptor whose id derives from the configured topic', () => {
+        const consumer = createClientWarningsConsumer(
+            { ...makeConfig(), INGESTION_CONSUMER_CONSUME_TOPIC: 'client_warnings' },
+            makeDeps()
+        )
         expect(consumer.service.id).toBe('ingestion-consumer-client_warnings')
-    })
-
-    it('forwards group id and topic overrides', () => {
-        const consumer = createClientWarningsConsumer(makeConfig(), makeDeps(), {
-            groupId: 'custom_group',
-            topic: 'custom_topic',
-        })
-        expect(consumer.service.id).toBe('ingestion-consumer-custom_topic')
     })
 })

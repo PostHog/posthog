@@ -12,10 +12,9 @@ export interface ClientWarningsConsumerDeps {
 
 export function createClientWarningsConsumer(
     config: CommonIngestionConsumerConfig,
-    deps: ClientWarningsConsumerDeps,
-    overrides?: { groupId?: string; topic?: string }
+    deps: ClientWarningsConsumerDeps
 ): CommonIngestionConsumer {
-    let b = newCommonIngestionConsumer(config)
+    return newCommonIngestionConsumer(config)
         .withService('teamManager', deps.teamManager)
         .setOutputs(deps.outputs)
         .withPipeline(({ outputs, services, promiseScheduler }) =>
@@ -25,11 +24,5 @@ export function createClientWarningsConsumer(
                 promiseScheduler,
             })
         )
-    if (overrides?.groupId) {
-        b = b.overrideGroupId(overrides.groupId)
-    }
-    if (overrides?.topic) {
-        b = b.overrideTopic(overrides.topic)
-    }
-    return b.build()
+        .build()
 }

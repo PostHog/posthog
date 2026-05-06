@@ -54,13 +54,10 @@ export class CommonIngestionConsumer {
     constructor(
         private config: CommonIngestionConsumerConfig,
         private pipeline: IngestionBatchingPipeline,
-        private lifecycle: IngestionPipelineLifecycle = {},
-        overrides: Partial<
-            Pick<IngestionConsumerConfig, 'INGESTION_CONSUMER_GROUP_ID' | 'INGESTION_CONSUMER_CONSUME_TOPIC'>
-        > = {}
+        private lifecycle: IngestionPipelineLifecycle = {}
     ) {
-        this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? config.INGESTION_CONSUMER_GROUP_ID
-        this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? config.INGESTION_CONSUMER_CONSUME_TOPIC
+        this.groupId = config.INGESTION_CONSUMER_GROUP_ID
+        this.topic = config.INGESTION_CONSUMER_CONSUME_TOPIC
         this.name = `ingestion-consumer-${this.topic}`
 
         this.kafkaConsumer = createKafkaConsumer({

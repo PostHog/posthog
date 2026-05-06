@@ -51,7 +51,6 @@ interface BuilderState<S extends ServiceMap, O extends string> {
     onStartHooks: Array<() => Promise<void>>
     onStopHooks: Array<() => Promise<void>>
     healthcheckFn: (() => Promise<HealthCheckResult>) | undefined
-    overrides: { groupId?: string; topic?: string }
 }
 
 export class ConsumerNeedsOutputsBuilder<S extends ServiceMap = EmptyServiceMap> {
@@ -89,7 +88,6 @@ export class ConsumerNeedsPipelineBuilder<S extends ServiceMap, O extends string
             onStartHooks: [],
             onStopHooks: [],
             healthcheckFn: undefined,
-            overrides: {},
         })
     }
 }
@@ -118,23 +116,8 @@ export class ConsumerBuilder<S extends ServiceMap, O extends string> {
         return new ConsumerBuilder({ ...this.state, healthcheckFn: fn })
     }
 
-    overrideGroupId(groupId: string): ConsumerBuilder<S, O> {
-        return new ConsumerBuilder({
-            ...this.state,
-            overrides: { ...this.state.overrides, groupId },
-        })
-    }
-
-    overrideTopic(topic: string): ConsumerBuilder<S, O> {
-        return new ConsumerBuilder({
-            ...this.state,
-            overrides: { ...this.state.overrides, topic },
-        })
-    }
-
     build(): CommonIngestionConsumer {
-        const { config, services, outputs, pipelineFactory, onStartHooks, onStopHooks, healthcheckFn, overrides } =
-            this.state
+        const { config, services, outputs, pipelineFactory, onStartHooks, onStopHooks, healthcheckFn } = this.state
 
         const promiseScheduler = new PromiseScheduler()
         const pipeline = pipelineFactory({ outputs, services, promiseScheduler })
@@ -148,10 +131,7 @@ export class ConsumerBuilder<S extends ServiceMap, O extends string> {
             healthcheckFn,
         })
 
-        return new CommonIngestionConsumer(config, pipeline, lifecycle, {
-            INGESTION_CONSUMER_GROUP_ID: overrides.groupId,
-            INGESTION_CONSUMER_CONSUME_TOPIC: overrides.topic,
-        })
+        return new CommonIngestionConsumer(config, pipeline, lifecycle)
     }
 }
 
