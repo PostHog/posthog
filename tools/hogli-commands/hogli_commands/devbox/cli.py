@@ -11,6 +11,7 @@ import shutil
 import socket
 import functools
 import subprocess
+import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,6 @@ from .coder import (
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
-    ONE_PASSWORD_AGENT_SOCKET,
     _fail,
     create_task,
     create_workspace,
@@ -36,6 +36,7 @@ from .coder import (
     ensure_tailscale_connected,
     ensure_tailscale_routes_accepted,
     extract_workspace_label,
+    get_coder_url,
     get_coder_user_info,
     get_default_git_identity,
     get_shared_users,
@@ -69,6 +70,7 @@ from .coder import (
 from .config import load_config, save_dotfiles_uri, save_git_identity
 
 _CLAUDE_TOKEN_SERVICE = "posthog-claude-oauth-token"
+_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering/security#commit-signing"
 
 WORKSPACE_STATUS_COLORS = {
     "running": "green",
@@ -336,50 +338,72 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
-def _list_one_password_ssh_keys() -> list[tuple[str, str]]:
-    """Return ``(public_key_line, comment)`` tuples loaded in the local 1Password SSH agent.
+def _resolve_local_identity_agent_for_coder() -> str | None:
+    """Return the IdentityAgent ssh would use to connect to Coder workspaces, or ``None``.
 
-    Returns an empty list when the agent socket is missing, the agent is locked,
-    or no keys are loaded. Calls ``ssh-add -L`` against the 1Password socket
-    rather than the user's default ``$SSH_AUTH_SOCK`` so we only see 1Password
-    keys, not whatever else they may have loaded into a separate agent.
+    Resolves against the deployment hostname so the engineer's existing
+    ``Host *`` / ``Host *.posthog.dev`` / specific blocks all flow through.
     """
-    socket_path = Path(os.path.expanduser(ONE_PASSWORD_AGENT_SOCKET))
-    if not socket_path.exists():
-        return []
+    coder_host = urllib.parse.urlparse(get_coder_url()).hostname
+    if not coder_host:
+        return None
+    return _resolve_local_identity_agent(coder_host)
 
-    env = {**os.environ, "SSH_AUTH_SOCK": str(socket_path)}
+
+def _resolve_local_signing_key() -> str | None:
+    """Return the engineer's ``git config user.signingkey``, normalized to a literal SSH public key string.
+
+    Git accepts two formats: a literal ``ssh-... / ecdsa-... / sk-...`` string
+    or a path to a public-key file. Both are normalized here. Returns ``None``
+    when the value is unset or the referenced file can't be read.
+    """
     result = subprocess.run(
-        ["ssh-add", "-L"],
-        env=env,
+        ["git", "config", "--global", "--get", "user.signingkey"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
-        return []
+        return None
+    value = result.stdout.strip()
+    if not value:
+        return None
+    if value.startswith(("ssh-", "ecdsa-", "sk-")):
+        return value
+    try:
+        return Path(os.path.expanduser(value)).read_text().strip() or None
+    except OSError:
+        return None
 
-    keys: list[tuple[str, str]] = []
+
+def _resolve_local_identity_agent(host: str) -> str | None:
+    """Return the SSH agent socket ``ssh -G <host>`` would use to authenticate, or ``None`` when no specific agent is configured.
+
+    Treats ``none`` (signaling "no agent") and the literal placeholder
+    ``SSH_AUTH_SOCK`` (signaling "fall back to the env var") as "no specific
+    agent" so callers can decide their own fallback.
+    """
+    result = subprocess.run(["ssh", "-G", host], capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
     for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        # Lines look like: "ssh-ed25519 AAAA... user@host"
-        parts = line.split(None, 2)
-        if len(parts) < 2:
-            continue
-        comment = parts[2] if len(parts) >= 3 else "(no comment)"
-        keys.append((line, comment))
-    return keys
+        if line.startswith("identityagent "):
+            value = line[len("identityagent ") :].strip()
+            if value and value.lower() not in ("none", "ssh_auth_sock"):
+                return value
+            return None
+    return None
 
 
 def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
-    """Optionally register a 1Password-backed SSH signing key for new workspaces.
+    """Propagate the engineer's existing local commit-signing config into devboxes.
 
-    The public key is stored as the ``GIT_SIGNING_KEY`` Coder user secret -- a
-    server-side, encrypted, audited value that auto-injects into every
-    workspace start (and ``coder task`` runs) as an env var. The matching
-    private key never leaves the user's 1Password agent; the workspace signs
-    commits against the SSH agent forwarded over the user's IDE connection.
+    Reads ``git config user.signingkey`` (the public key the engineer already
+    signs locally with) and ``ssh -G <coder-host>``'s ``identityagent`` (the
+    SSH agent ssh would use for the connection, which is the agent that gets
+    forwarded). Pushes the public key to a Coder user secret and pins the
+    agent socket as the local IdentityAgent for Coder hosts. No menus, no
+    probing -- whatever the engineer has set up locally per the handbook is
+    what propagates.
     """
     already_set = user_secret_exists(GIT_SIGNING_KEY_SECRET)
 
@@ -396,55 +420,37 @@ def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
         click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
         return
 
-    if not keychain.is_supported():
-        # Non-macOS hosts: 1Password agent socket path is mac-specific.
-        click.echo("Skipping Git commit signing setup (1Password integration is macOS-only).")
-        return
-
-    keys = _list_one_password_ssh_keys()
-    if not keys:
+    public_key = _resolve_local_signing_key()
+    if not public_key:
         click.echo()
         click.echo(click.style("Git commit signing (skipped)", bold=True))
-        click.echo("  Could not reach the 1Password SSH agent.")
-        click.echo("  Enable it in 1Password -> Settings -> Developer -> 'Use the SSH agent',")
-        click.echo("  then re-run `hogli devbox:setup --configure-git-signing`.")
+        click.echo("  `git config --global user.signingkey` is empty.")
+        click.echo(f"  Set up commit signing per the handbook: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+        click.echo("  Then re-run `hogli devbox:setup --configure-git-signing`.")
         return
 
-    click.echo()
-    click.echo(click.style("Git commit signing (1Password)", bold=True))
-    click.echo("  Pick the SSH key to use for signing commits inside your devbox.")
-    click.echo("  The private key stays in 1Password; only the public key is sent to the workspace.")
-    click.echo()
-    for index, (_, comment) in enumerate(keys, start=1):
-        click.echo(f"  {index}. {comment}")
-    click.echo("  0. Skip (do not enable signing)")
-    click.echo()
+    if public_key.startswith("ssh-rsa "):
+        click.echo()
+        click.echo(click.style("RSA signing keys are not allowed.", fg="red"))
+        click.echo(f"  Use ECDSA or Ed25519 per the handbook: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+        return
 
-    while True:
-        raw = click.prompt("Choose a key", default="1").strip()
-        try:
-            choice = int(raw)
-        except ValueError:
-            click.echo("Enter a number from the list.")
-            continue
-        if choice == 0:
-            click.echo("Skipping Git commit signing setup.")
-            return
-        if 1 <= choice <= len(keys):
-            break
-        click.echo(f"Enter a number between 0 and {len(keys)}.")
-
-    public_key, comment = keys[choice - 1]
     upsert_user_secret(GIT_SIGNING_KEY_SECRET, public_key, env_var=GIT_SIGNING_KEY_SECRET)
+
     click.echo()
-    click.echo(f"Saved signing key for new workspaces: {comment}")
+    click.echo(click.style("Git commit signing", bold=True))
+    click.echo(f"  Pushed signing key from `git config user.signingkey`: {public_key}")
+    agent_socket = _resolve_local_identity_agent_for_coder()
+    if agent_socket:
+        click.echo(f"  IdentityAgent for Coder hosts (from your ssh config): {agent_socket}")
+    else:
+        click.echo("  No IdentityAgent detected for Coder hosts -- SSH agent forwarding will use")
+        click.echo(f"  whatever `$SSH_AUTH_SOCK` points to. Configure per: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
     click.echo()
-    click.echo(click.style("Action required on GitHub:", bold=True))
+    click.echo(click.style("If you haven't already:", bold=True))
     click.echo("  1. Open https://github.com/settings/ssh/new")
-    click.echo("  2. Set 'Key type' to 'Signing Key' (this is per-key; auth keys do not sign).")
-    click.echo("  3. Paste this public key:")
-    click.echo()
-    click.echo(f"     {public_key}")
+    click.echo("  2. Set 'Key type' to 'Signing Key' (auth keys do not sign).")
+    click.echo("  3. Paste the key above.")
     click.echo()
     click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
 
@@ -573,7 +579,11 @@ def devbox_setup(
     ensure_coder_reachable()
     ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
-    maybe_configure_ssh(configure_ssh=configure_ssh, verbose=verbose)
+    maybe_configure_ssh(
+        configure_ssh=configure_ssh,
+        identity_agent_socket=_resolve_local_identity_agent_for_coder(),
+        verbose=verbose,
+    )
     maybe_configure_git_identity(configure_git_identity)
     maybe_configure_git_signing(configure_git_signing)
     maybe_configure_dotfiles(configure_dotfiles)

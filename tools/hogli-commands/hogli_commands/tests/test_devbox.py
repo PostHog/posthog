@@ -660,6 +660,35 @@ class TestDevboxCommands:
             "summary",
         ]
 
+    def test_devbox_setup_threads_resolved_identity_agent_into_ssh_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_connected", lambda setup_hint="": None)
+        monkeypatch.setattr(devbox_cli, "ensure_tailscale_routes_accepted", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
+        monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
+        monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: "/tmp/resolved.sock")
+        monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_token", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "maybe_configure_ssh",
+            lambda *, configure_ssh, identity_agent_socket=None, **_: captured.update(
+                {"identity_agent_socket": identity_agent_socket}
+            ),
+        )
+
+        result = runner.invoke(cli, ["devbox:setup", "--skip-configure-git-identity"])
+
+        assert result.exit_code == 0
+        assert captured == {"identity_agent_socket": "/tmp/resolved.sock"}
+
     def test_devbox_setup_uses_coder_profile_as_prompt_defaults(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -670,6 +699,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
+        monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
@@ -703,6 +733,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
+        monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
@@ -1545,18 +1576,93 @@ class TestSetupClaudeToken:
         assert saved == ["fresh-token"]
 
 
+class TestResolveLocalSigningKey:
+    """Test reading user.signingkey from the engineer's local git config."""
+
+    def test_returns_literal_ssh_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.subprocess,
+            "run",
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, "ssh-ed25519 AAAA user@host\n", ""),
+        )
+        assert devbox_cli._resolve_local_signing_key() == "ssh-ed25519 AAAA user@host"
+
+    def test_reads_file_when_value_is_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        key_file = tmp_path / "id_ed25519.pub"
+        key_file.write_text("ssh-ed25519 AAAAFROMFILE user@host\n")
+        monkeypatch.setattr(
+            devbox_cli.subprocess,
+            "run",
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, str(key_file), ""),
+        )
+        assert devbox_cli._resolve_local_signing_key() == "ssh-ed25519 AAAAFROMFILE user@host"
+
+    def test_returns_none_when_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, "", ""))
+        assert devbox_cli._resolve_local_signing_key() is None
+
+    def test_returns_none_when_path_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        missing = str(tmp_path / "absent.pub")
+        monkeypatch.setattr(
+            devbox_cli.subprocess,
+            "run",
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, missing, ""),
+        )
+        assert devbox_cli._resolve_local_signing_key() is None
+
+
+class TestResolveLocalIdentityAgent:
+    """Test reading IdentityAgent from `ssh -G <host>`."""
+
+    def test_returns_socket_path_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.subprocess,
+            "run",
+            lambda *a, **kw: subprocess.CompletedProcess(
+                a[0], 0, "host coder.dev\nidentityagent /tmp/agent.sock\nidentityfile ~/.ssh/id_ed25519\n", ""
+            ),
+        )
+        assert devbox_cli._resolve_local_identity_agent("coder.dev") == "/tmp/agent.sock"
+
+    def test_returns_none_for_placeholder_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.subprocess,
+            "run",
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, "identityagent SSH_AUTH_SOCK\n", ""),
+        )
+        assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
+
+    def test_returns_none_for_none_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.subprocess,
+            "run",
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, "identityagent none\n", ""),
+        )
+        assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
+
+    def test_returns_none_when_ssh_g_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.subprocess,
+            "run",
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 255, "", "Bad host"),
+        )
+        assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
+
+
 class TestSetupGitSigning:
-    """Test the Git commit signing step in devbox:setup."""
+    """Test the Git commit signing step in devbox:setup.
+
+    Identity-agent threading into ssh config is not the wizard's job -- the
+    top-level ``devbox_setup`` resolves and applies it via ``ssh -G`` on every
+    run. The wizard only writes the user secret.
+    """
 
     PUBLIC_KEY = "ssh-ed25519 AAAAC3 user@host"
+    AGENT_SOCKET = "/tmp/test-agent.sock"
 
-    def _patch_one_password(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(keychain, "is_supported", lambda: True)
-        monkeypatch.setattr(
-            devbox_cli,
-            "_list_one_password_ssh_keys",
-            lambda: [(self.PUBLIC_KEY, "user@host")],
-        )
+    def _patch_local_config(self, monkeypatch: pytest.MonkeyPatch, *, key: str | None, agent: str | None) -> None:
+        monkeypatch.setattr(devbox_cli, "_resolve_local_signing_key", lambda: key)
+        monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: agent)
 
     def test_skips_when_secret_already_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: True)
@@ -1571,47 +1677,57 @@ class TestSetupGitSigning:
 
         assert upserts == []
 
-    def test_writes_user_secret_when_key_chosen(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_pushes_local_signing_key_to_user_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
-        self._patch_one_password(monkeypatch)
+        self._patch_local_config(monkeypatch, key=self.PUBLIC_KEY, agent=self.AGENT_SOCKET)
         upserts: list[tuple[str, str, str | None]] = []
         monkeypatch.setattr(
             devbox_cli,
             "upsert_user_secret",
             lambda name, value, env_var=None: upserts.append((name, value, env_var)),
         )
-        monkeypatch.setattr(click, "prompt", lambda *a, **kw: "1")
 
         devbox_cli.maybe_configure_git_signing(None)
 
         assert upserts == [(coder.GIT_SIGNING_KEY_SECRET, self.PUBLIC_KEY, coder.GIT_SIGNING_KEY_SECRET)]
 
     def test_explicit_reconfigure_overrides_existing_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # configure_git_signing=True must re-run the wizard even when a secret is already set.
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: True)
-        self._patch_one_password(monkeypatch)
+        self._patch_local_config(monkeypatch, key=self.PUBLIC_KEY, agent=self.AGENT_SOCKET)
         upserts: list[tuple[str, str, str | None]] = []
         monkeypatch.setattr(
             devbox_cli,
             "upsert_user_secret",
             lambda name, value, env_var=None: upserts.append((name, value, env_var)),
         )
-        monkeypatch.setattr(click, "prompt", lambda *a, **kw: "1")
 
         devbox_cli.maybe_configure_git_signing(True)
 
         assert upserts == [(coder.GIT_SIGNING_KEY_SECRET, self.PUBLIC_KEY, coder.GIT_SIGNING_KEY_SECRET)]
 
-    def test_skip_choice_does_not_write_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_skips_when_signing_key_unset_locally(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
-        self._patch_one_password(monkeypatch)
+        self._patch_local_config(monkeypatch, key=None, agent=None)
         upserts: list[tuple[str, str, str | None]] = []
         monkeypatch.setattr(
             devbox_cli,
             "upsert_user_secret",
             lambda name, value, env_var=None: upserts.append((name, value, env_var)),
         )
-        monkeypatch.setattr(click, "prompt", lambda *a, **kw: "0")
+
+        devbox_cli.maybe_configure_git_signing(None)
+
+        assert upserts == []
+
+    def test_rejects_rsa_keys_per_handbook(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
+        self._patch_local_config(monkeypatch, key="ssh-rsa AAAAB3 old@host", agent=self.AGENT_SOCKET)
+        upserts: list[tuple[str, str, str | None]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+        )
 
         devbox_cli.maybe_configure_git_signing(None)
 

@@ -42,9 +42,6 @@ JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 # user.signingkey. The matching private key never leaves 1Password.
 GIT_SIGNING_KEY_SECRET = "GIT_SIGNING_KEY"
 
-# 1Password SSH agent socket on macOS. Stable across versions and engineers
-# because it lives in the team's shared App Group container.
-ONE_PASSWORD_AGENT_SOCKET = "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 
 # Default values for all optional template parameters. Passing these explicitly
 # prevents the Coder CLI from prompting interactively for missing values.
@@ -332,28 +329,32 @@ def ensure_coder_reachable() -> None:
     )
 
 
-def _config_ssh_args() -> list[str]:
+def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     """Build the base args for ``coder config-ssh``, pinning the managed binary path.
 
-    Appends SSH options that wire up 1Password-backed commit signing inside
-    workspaces: ``ForwardAgent yes`` so the local SSH agent reaches the remote,
-    and on macOS ``IdentityAgent`` pointed at the 1Password app's socket so the
-    forwarded agent is the 1Password one. Both are emitted unconditionally;
-    they're harmless when signing isn't configured.
+    Appends SSH options that wire up commit signing via SSH agent forwarding:
+    ``ForwardAgent yes`` so the laptop's SSH agent reaches the remote, and (on
+    macOS) ``IdentityAgent <socket>`` pointed at whichever signing-key agent
+    the engineer picked in ``--configure-git-signing`` (Secretive or 1Password).
+    ``IdentityAgent`` is omitted when no socket has been chosen yet, leaving
+    SSH to fall back to the user's default ``$SSH_AUTH_SOCK``.
     """
     args = ["coder", "config-ssh"]
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
     args += ["--ssh-option", "ForwardAgent yes"]
-    if sys.platform == "darwin":
-        args += ["--ssh-option", f"IdentityAgent {ONE_PASSWORD_AGENT_SOCKET}"]
+    if identity_agent_socket:
+        args += ["--ssh-option", f"IdentityAgent {identity_agent_socket}"]
     return args
 
 
-def _ssh_config_needs_update() -> bool:
+def _ssh_config_needs_update(*, identity_agent_socket: str | None = None) -> bool:
     """Check whether ``coder config-ssh`` would make changes."""
-    result = _run([*_config_ssh_args(), "--dry-run", "--yes"], capture_output=True)
+    result = _run(
+        [*_config_ssh_args(identity_agent_socket=identity_agent_socket), "--dry-run", "--yes"],
+        capture_output=True,
+    )
     if result.returncode != 0:
         return True
     combined = result.stdout + result.stderr
@@ -508,9 +509,11 @@ def ensure_runtime_ready() -> None:
     _warn_version_mismatch()
 
 
-def maybe_configure_ssh(*, configure_ssh: bool | None, verbose: bool = False) -> None:
+def maybe_configure_ssh(
+    *, configure_ssh: bool | None, identity_agent_socket: str | None = None, verbose: bool = False
+) -> None:
     """Install Coder SSH config, skipping only when explicitly opted out."""
-    if not _ssh_config_needs_update():
+    if not _ssh_config_needs_update(identity_agent_socket=identity_agent_socket):
         click.echo("Coder SSH config is up to date.")
         return
 
@@ -520,7 +523,10 @@ def maybe_configure_ssh(*, configure_ssh: bool | None, verbose: bool = False) ->
         return
 
     click.echo("Adding Coder workspace entries to ~/.ssh/config...")
-    result = _run([*_config_ssh_args(), "--yes"], capture_output=not verbose)
+    result = _run(
+        [*_config_ssh_args(identity_agent_socket=identity_agent_socket), "--yes"],
+        capture_output=not verbose,
+    )
     if result.returncode != 0:
         if not verbose:
             click.echo(result.stdout or "")
