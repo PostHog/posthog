@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from django.http import HttpResponse
 
+from parameterized import parameterized
 from rest_framework import exceptions
 
 from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
@@ -211,14 +212,16 @@ class TestSessionSummariesAPI(APIBaseTest):
     def test_create_summaries_session_not_found(self, mock_find_sessions: Mock) -> None:
         # Mock find_sessions_timestamps to raise validation error for not found sessions
         mock_find_sessions.side_effect = exceptions.ValidationError(
-            "Sessions not found or do not belong to this team: nonexistent_session"
+            "Session recordings not found for the following IDs (the recording may not have been captured, "
+            "may have expired, or may belong to a different team): nonexistent_session"
         )
 
         response = self._make_api_request(session_ids=["nonexistent_session"])
 
         self.assertEqual(response.status_code, 400)
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
-        self.assertIn("Sessions not found or do not belong to this team: nonexistent_session", str(error))
+        self.assertIn("Session recordings not found", str(error))
+        self.assertIn("nonexistent_session", str(error))
 
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
@@ -256,17 +259,14 @@ class TestSessionSummariesAPI(APIBaseTest):
         response = self.client.delete(self.url)
         self.assertEqual(response.status_code, 405)
 
-    @patch("ee.api.session_summaries.find_sessions_timestamps")
+    @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_create_summaries_individually_success(
         self,
         mock_execute: Mock,
-        mock_find_sessions: Mock,
+        mock_partition: Mock,
     ) -> None:
-        mock_find_sessions.return_value = (
-            datetime(2024, 1, 1, 10, 0, 0),
-            datetime(2024, 1, 1, 11, 0, 0),
-        )
+        mock_partition.return_value = (["session_1", "session_2"], [])
         mock_execute.side_effect = lambda session_id, **kwargs: get_mock_enriched_llm_json_response(session_id)
         # Make request
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
@@ -276,22 +276,20 @@ class TestSessionSummariesAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(set(data.keys()), {"session_1", "session_2"})
         for session_id in ["session_1", "session_2"]:
+            self.assertNotIn("error", data[session_id])
             self.assertIn("segments", data[session_id])
             self.assertIn("key_actions", data[session_id])
             self.assertIn("segment_outcomes", data[session_id])
             self.assertIn("session_outcome", data[session_id])
 
-    @patch("ee.api.session_summaries.find_sessions_timestamps")
+    @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_create_summaries_individually_partial_failure(
         self,
         mock_execute: Mock,
-        mock_find_sessions: Mock,
+        mock_partition: Mock,
     ) -> None:
-        mock_find_sessions.return_value = (
-            datetime(2024, 1, 1, 10, 0, 0),
-            datetime(2024, 1, 1, 11, 0, 0),
-        )
+        mock_partition.return_value = (["session_1", "session_2"], [])
 
         # Mock execute to succeed for first session, fail for second
         def mock_execute_side_effect(session_id: str, **kwargs: Any) -> dict[str, Any]:
@@ -304,11 +302,85 @@ class TestSessionSummariesAPI(APIBaseTest):
         # Make request
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
         response = self.client.post(url, {"session_ids": ["session_1", "session_2"]}, format="json")
-        # Check the response - should return one summary
+        # Check the response - should return one summary plus a per-session error for the failure
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(set(data.keys()), {"session_1"})
+        self.assertEqual(set(data.keys()), {"session_1", "session_2"})
         self.assertIn("segments", data["session_1"])
         self.assertIn("key_actions", data["session_1"])
         self.assertIn("segment_outcomes", data["session_1"])
         self.assertIn("session_outcome", data["session_1"])
+        self.assertEqual(data["session_2"]["error"], "summary_failed")
+        self.assertIn("error_message", data["session_2"])
+
+    @parameterized.expand(
+        [
+            (
+                "no_events_or_too_short_from_value_error",
+                ValueError(
+                    "No ready summary found in DB when generating single session summary for session short_session"
+                ),
+                "no_events_or_too_short",
+                "too short",
+            ),
+            (
+                "summary_failed_from_generic_exception",
+                Exception("Failed to summarize session"),
+                "summary_failed",
+                "please try again",
+            ),
+            (
+                "summary_failed_from_unrelated_value_error",
+                ValueError("Some other unrelated failure"),
+                "summary_failed",
+                "please try again",
+            ),
+        ]
+    )
+    @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_create_summaries_individually_classifies_summary_errors(
+        self,
+        _name: str,
+        raised_exception: BaseException,
+        expected_error_type: str,
+        expected_message_substring: str,
+        mock_execute: Mock,
+        mock_partition: Mock,
+    ) -> None:
+        mock_partition.return_value = (["session_x"], [])
+        mock_execute.side_effect = raised_exception
+
+        url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
+        response = self.client.post(url, {"session_ids": ["session_x"]}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(set(data.keys()), {"session_x"})
+        self.assertEqual(data["session_x"]["error"], expected_error_type)
+        self.assertIn(expected_message_substring, data["session_x"]["error_message"].lower())
+
+    @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_create_summaries_individually_missing_session_does_not_fail_batch(
+        self,
+        mock_execute: Mock,
+        mock_partition: Mock,
+    ) -> None:
+        mock_partition.return_value = (["session_1"], ["missing_session"])
+        mock_execute.side_effect = lambda session_id, **kwargs: get_mock_enriched_llm_json_response(session_id)
+
+        url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
+        response = self.client.post(url, {"session_ids": ["session_1", "missing_session"]}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(set(data.keys()), {"session_1", "missing_session"})
+        # Successful session retains the existing summary shape
+        self.assertIn("segments", data["session_1"])
+        # Missing session gets a structured error rather than aborting the request
+        self.assertEqual(data["missing_session"]["error"], "recording_not_found")
+        self.assertIn("error_message", data["missing_session"])
+        # And we should not have invoked the workflow for the missing session
+        called_session_ids = {call.kwargs.get("session_id") for call in mock_execute.call_args_list}
+        self.assertEqual(called_session_ids, {"session_1"})

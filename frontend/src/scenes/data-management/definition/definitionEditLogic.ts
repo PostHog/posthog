@@ -12,7 +12,7 @@ import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventD
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { urls } from 'scenes/urls'
 
-import { promotedEventPropertiesModel } from '~/models/promotedEventPropertiesModel'
+import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { Definition, EventDefinition, PropertyDefinition } from '~/types'
@@ -34,8 +34,8 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
             ['setLocalEventDefinition'],
             tagsModel,
             ['loadTags'],
-            promotedEventPropertiesModel,
-            ['refreshLoadedPromotedProperties'],
+            primaryEventPropertiesModel,
+            ['refreshLoadedPrimaryProperties'],
         ],
     })),
     forms(({ actions }) => ({
@@ -90,7 +90,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                     actions.setDefinition(definition)
                     actions.loadTags() // reload tags in case new tags are being saved
                     if (values.isEvent) {
-                        actions.refreshLoadedPromotedProperties()
+                        actions.refreshLoadedPrimaryProperties()
                     }
 
                     router.actions.push(

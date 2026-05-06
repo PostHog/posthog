@@ -18,6 +18,7 @@ from rest_framework import status
 from posthog.api.integration import IntegrationViewSet
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
@@ -569,46 +570,9 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["kind"] == "github"
-
-    @patch(
-        "posthog.models.integration.get_instance_settings",
-        return_value={
-            "SLACK_APP_CLIENT_ID": "test-client-id",
-            "SLACK_APP_CLIENT_SECRET": "test-client-secret",
-            "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
-        },
-    )
-    def test_list_integrations_shows_github_and_slack_for_api_keys(self, _mock_settings, client: HttpClient):
-        Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_LIST",
-            config={"authed_user": {"id": "test_user_id"}, "team": {"name": "Test Workspace"}},
-            sensitive_config={"access_token": "test-token"},
-            created_by=self.user,
-        )
-
-        key_value = "test_key_123"
-        PersonalAPIKey.objects.create(
-            label="Test Key",
-            user=self.user,
-            secure_value=hash_key_value(key_value),
-            scopes=["integration:read"],
-        )
-
-        response = client.get(
-            f"/api/environments/{self.team.pk}/integrations/",
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
-        )
-
-        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         kinds = {integration["kind"] for integration in results}
-        assert kinds == {"github", "slack"}
-        # twilio_integration is created in the fixture but should remain hidden from API-key callers.
-        assert "twilio" not in kinds
+        assert kinds == {"github", "twilio"}
         # Sensitive credentials never round-trip via the list serializer.
         assert all("sensitive_config" not in integration for integration in results)
 
@@ -629,7 +593,7 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["kind"] == "github"
 
-    def test_retrieve_non_github_integration_with_api_key_fails(self, client: HttpClient):
+    def test_retrieve_non_github_integration_with_api_key_succeeds(self, client: HttpClient):
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -643,7 +607,8 @@ class TestIntegrationAPIKeyAccess:
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["kind"] == "twilio"
 
     @patch(
         "posthog.models.integration.get_instance_settings",
@@ -681,6 +646,31 @@ class TestIntegrationAPIKeyAccess:
         assert body["kind"] == "slack"
         # Sensitive credentials never round-trip via the retrieve serializer.
         assert "sensitive_config" not in body
+
+    @pytest.mark.parametrize(
+        "url_suffix,method",
+        [
+            ("github_repos/", "get"),
+            ("github_repos/refresh/", "post"),
+            ("github_branches/?repo=org/repo", "get"),
+        ],
+    )
+    def test_github_actions_on_non_github_integration_return_400(self, url_suffix, method, client: HttpClient):
+        key_value = "test_key_non_github"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read", "integration:write"],
+        )
+
+        response = getattr(client, method)(
+            f"/api/environments/{self.team.pk}/integrations/{self.twilio_integration.id}/{url_suffix}",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "GitHub" in response.json()["detail"]
 
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
@@ -918,11 +908,10 @@ class TestIntegrationAPIKeyAccess:
             ("slack", "integration:read", status.HTTP_200_OK, None),
             ("slack-posthog-code", "integration:read", status.HTTP_200_OK, None),
             ("slack", "feature_flag:read", status.HTTP_403_FORBIDDEN, "integration:read"),
-            # GitHub passes the queryset filter (it's a read-allowed kind) but the channels
-            # action's kind guard rejects it with a 400 before SlackIntegration is constructed.
+            # GitHub and Twilio resolve via the queryset, but the channels action's kind
+            # guard rejects them with a 400 before SlackIntegration is constructed.
             ("github", "integration:read", status.HTTP_400_BAD_REQUEST, "Slack"),
-            # Twilio is filtered out of the queryset entirely for API-key callers — 404.
-            ("twilio", "integration:read", status.HTTP_404_NOT_FOUND, None),
+            ("twilio", "integration:read", status.HTTP_400_BAD_REQUEST, "Slack"),
         ],
     )
     @patch("posthog.api.integration.SlackIntegration")
@@ -1068,6 +1057,16 @@ class TestIntegrationAPIKeyAccess:
         kinds = [integration["kind"] for integration in results]
         assert "github" in kinds
         assert "twilio" in kinds
+
+    def test_list_integrations_filtered_by_kind(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/?kind=twilio")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["kind"] == "twilio"
 
 
 class TestGitHubIntegrationStateValidation:
@@ -2497,3 +2496,356 @@ class TestGitHubOAuthAuthorize:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "GitHub App client ID is not configured" in response.json()["detail"]
+
+
+class TestAnthropicIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @staticmethod
+    def _mock_anthropic_validate_key(mock_anthropic_class) -> MagicMock:
+        """Configure the patched `Anthropic` class so `validate_key()` (now hits `/v1/agents`) succeeds."""
+        mock_client = MagicMock()
+        mock_anthropic_class.return_value = mock_client
+        mock_client.get.return_value = {"data": []}
+        return mock_client
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_create_with_valid_key(self, mock_anthropic_class, client: HttpClient):
+        self._mock_anthropic_validate_key(mock_anthropic_class)
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "anthropic",
+                "config": {"api_key": "sk-ant-test", "workspace_label": "production"},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["kind"] == "anthropic"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.kind == "anthropic"
+        assert integration.team == self.team
+        assert integration.config == {"workspace_label": "production"}
+        assert integration.sensitive_config == {"api_key": "sk-ant-test"}
+        assert integration.integration_id == "production"
+        assert integration.created_by == self.user
+
+        # Assert the anthropic-beta was called to validate the key during creation.
+        get_call = mock_anthropic_class.return_value.get.call_args
+        assert get_call.args[0] == "/v1/agents"
+        assert get_call.kwargs["options"]["headers"]["anthropic-beta"] == "managed-agents-2026-04-01"
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_create_strips_whitespace_from_api_key(self, mock_anthropic_class, client: HttpClient):
+        self._mock_anthropic_validate_key(mock_anthropic_class)
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "anthropic", "config": {"api_key": "  sk-ant-test  "}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.sensitive_config == {"api_key": "sk-ant-test"}
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_create_without_workspace_label_uses_default_id(self, mock_anthropic_class, client: HttpClient):
+        self._mock_anthropic_validate_key(mock_anthropic_class)
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "anthropic", "config": {"api_key": "sk-ant-test"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.config == {}
+        assert integration.integration_id == f"workspace-{self.team.pk}"
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_create_rejects_existing_workspace_without_force(self, mock_anthropic_class, client: HttpClient):
+        self._mock_anthropic_validate_key(mock_anthropic_class)
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "anthropic", "config": {"api_key": "sk-ant-first", "workspace_label": "production"}},
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        first_id = response.json()["id"]
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "anthropic", "config": {"api_key": "sk-ant-second", "workspace_label": "production"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already exists" in str(response.json())
+        # Original key untouched.
+        integration = Integration.objects.get(id=first_id)
+        assert integration.sensitive_config == {"api_key": "sk-ant-first"}
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_create_overwrites_with_force_flag(self, mock_anthropic_class, client: HttpClient):
+        self._mock_anthropic_validate_key(mock_anthropic_class)
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "anthropic", "config": {"api_key": "sk-ant-first", "workspace_label": "production"}},
+            content_type="application/json",
+        )
+        first_id = response.json()["id"]
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "anthropic",
+                "config": {"api_key": "sk-ant-second", "workspace_label": "production", "force": True},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        # Same row reused (same (team, kind, integration_id) tuple) with rotated key.
+        assert response.json()["id"] == first_id
+        integration = Integration.objects.get(id=first_id)
+        assert integration.sensitive_config == {"api_key": "sk-ant-second"}
+
+    @pytest.mark.parametrize(
+        "config,expected_error_substring",
+        [
+            ({}, "Anthropic API key"),
+            ({"api_key": ""}, "Anthropic API key"),
+            ({"api_key": "   "}, "Anthropic API key"),
+            ({"api_key": "sk-ant-with\nnewline"}, "must not contain whitespace"),
+            ({"api_key": "sk-ant-test", "workspace_label": "x" * 200}, "characters or fewer"),
+            ({"api_key": "sk-ant-test", "workspace_label": "workspace-foo"}, "cannot start with"),
+            ({"api_key": "sk-ant-test", "workspace_label": 42}, "Workspace label must be a string"),
+        ],
+    )
+    @patch("posthog.models.integration.Anthropic")
+    def test_create_rejects_invalid_payload(
+        self,
+        mock_anthropic_class,
+        config: dict,
+        expected_error_substring: str,
+        client: HttpClient,
+    ):
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "anthropic", "config": config},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error_substring in str(response.json())
+        assert not Integration.objects.filter(kind="anthropic", team=self.team).exists()
+        # Validation never reached the SDK boundary.
+        mock_anthropic_class.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "error_class_name,expected_error_substring",
+        [
+            ("AuthenticationError", "Invalid Anthropic API key"),
+            ("PermissionDeniedError", "missing required permissions"),
+            ("APIConnectionError", "Could not reach Anthropic"),
+        ],
+    )
+    @patch("posthog.models.integration.Anthropic")
+    def test_create_rejects_anthropic_failures(
+        self,
+        mock_anthropic_class,
+        error_class_name: str,
+        expected_error_substring: str,
+        client: HttpClient,
+    ):
+        import anthropic
+
+        error_class = getattr(anthropic, error_class_name)
+        mock_client = MagicMock()
+        mock_anthropic_class.return_value = mock_client
+        if error_class_name == "APIConnectionError":
+            mock_client.get.side_effect = error_class(request=MagicMock())
+        else:
+            mock_client.get.side_effect = error_class(
+                message="upstream error",
+                response=MagicMock(),
+                body=None,
+            )
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "anthropic", "config": {"api_key": "sk-ant-bad"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error_substring in str(response.json())
+        assert not Integration.objects.filter(kind="anthropic", team=self.team).exists()
+
+    def _make_integration(self, *, integration_id: str = "production") -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="anthropic",
+            integration_id=integration_id,
+            config={"workspace_label": integration_id},
+            sensitive_config={"api_key": "sk-ant-test"},
+            created_by=self.user,
+        )
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_anthropic_managed_agents_action(self, mock_anthropic_class, client: HttpClient):
+        from django.core.cache import cache
+
+        cache.clear()
+        mock_client = MagicMock()
+        mock_anthropic_class.return_value = mock_client
+        mock_client.get.return_value = {
+            "data": [
+                {"id": "agt_1", "name": "Support bot", "version": "v3"},
+                {"id": "agt_2", "name": "Sales bot", "version": "v1"},
+            ],
+            "next_cursor": None,
+        }
+        integration = self._make_integration()
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/anthropic_managed_agents/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["agents"] == [
+            {"id": "agt_1", "name": "Support bot", "version": "v3"},
+            {"id": "agt_2", "name": "Sales bot", "version": "v1"},
+        ]
+        assert body["has_more"] is False
+        assert body["next_cursor"] is None
+        path_arg = mock_client.get.call_args.args[0]
+        headers = mock_client.get.call_args.kwargs["options"]["headers"]
+        assert path_arg == "/v1/agents"
+        assert headers["anthropic-beta"] == "managed-agents-2026-04-01"
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_anthropic_managed_agents_action_caches_default_page(self, mock_anthropic_class, client: HttpClient):
+        from django.core.cache import cache
+
+        cache.clear()
+        mock_client = MagicMock()
+        mock_anthropic_class.return_value = mock_client
+        mock_client.get.return_value = {"data": [{"id": "agt_1", "name": "Bot"}], "next_cursor": None}
+        integration = self._make_integration()
+        client.force_login(self.user)
+
+        url = f"/api/environments/{self.team.pk}/integrations/{integration.id}/anthropic_managed_agents/"
+        first = client.get(url)
+        second = client.get(url)
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_200_OK
+        # Second hit served from cache → SDK called only once.
+        assert mock_client.get.call_count == 1
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_anthropic_managed_agents_action_translates_auth_error(self, mock_anthropic_class, client: HttpClient):
+        from django.core.cache import cache
+
+        from anthropic import AuthenticationError
+
+        cache.clear()
+        mock_client = MagicMock()
+        mock_anthropic_class.return_value = mock_client
+        mock_client.get.side_effect = AuthenticationError(message="bad key", response=MagicMock(), body=None)
+        integration = self._make_integration()
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/anthropic_managed_agents/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "no longer valid" in str(response.json())
+        # Failure is recorded on the integration so the UI can surface "needs reconnect".
+        integration.refresh_from_db()
+        assert integration.errors == ERROR_TOKEN_REFRESH_FAILED
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_anthropic_managed_agents_action_rejects_wrong_kind(self, mock_anthropic_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"team": {"id": "T123"}},
+            sensitive_config={},
+            created_by=self.user,
+        )
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/anthropic_managed_agents/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "is not an Anthropic integration" in str(response.json())
+        mock_anthropic_class.assert_not_called()
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_anthropic_managed_agent_environments_action(self, mock_anthropic_class, client: HttpClient):
+        from django.core.cache import cache
+
+        cache.clear()
+        mock_client = MagicMock()
+        mock_anthropic_class.return_value = mock_client
+        mock_client.get.return_value = {"data": [{"id": "env_prod", "name": "Production"}], "next_cursor": "abc"}
+        integration = self._make_integration()
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/anthropic_managed_agent_environments/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["environments"] == [{"id": "env_prod", "name": "Production"}]
+        assert body["next_cursor"] == "abc"
+        assert body["has_more"] is True
+
+    @patch("posthog.models.integration.Anthropic")
+    def test_anthropic_managed_agent_vaults_action(self, mock_anthropic_class, client: HttpClient):
+        from django.core.cache import cache
+
+        cache.clear()
+        mock_client = MagicMock()
+        mock_anthropic_class.return_value = mock_client
+        mock_client.get.return_value = {"data": [{"id": "vault_1", "display_name": "Customer secrets"}]}
+        integration = self._make_integration()
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/anthropic_managed_agent_vaults/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["vaults"] == [{"id": "vault_1", "display_name": "Customer secrets"}]
+        assert body["has_more"] is False

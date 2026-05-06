@@ -22,6 +22,12 @@ interface ValueLabelSummary {
     color: string
 }
 
+interface AnomalyPointSummary {
+    element: HTMLElement
+    /** Inline style backgroundColor (matches the marker's series color). */
+    color: string
+}
+
 export interface HogChart {
     /** The wrapper div of this chart. */
     element: HTMLElement
@@ -39,6 +45,8 @@ export interface HogChart {
     referenceLines(): ReferenceLineSummary[]
     /** All value-label overlays currently rendered for this chart. */
     valueLabels(): ValueLabelSummary[]
+    /** All anomaly point markers currently rendered (TimeSeriesLineChart only). */
+    anomalyPoints(): AnomalyPointSummary[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
 }
@@ -122,6 +130,11 @@ export function getHogChart(scope: HTMLElement = document.body): HogChart {
         valueLabels: () =>
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')).map((el) => ({
                 text: el.textContent ?? '',
+                color: el.style.backgroundColor,
+            })),
+        anomalyPoints: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-anomaly-point"]')).map((el) => ({
+                element: el,
                 color: el.style.backgroundColor,
             })),
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),

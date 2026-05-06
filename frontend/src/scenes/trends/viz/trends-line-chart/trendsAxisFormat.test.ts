@@ -3,7 +3,7 @@ import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 
-import { trendsFilterToYFormatterConfig } from './trendsAxisFormat'
+import { buildTrendsYAxisConfig, trendsFilterToYFormatterConfig } from './trendsAxisFormat'
 
 const NBSP = ' '
 
@@ -73,5 +73,37 @@ describe('trends y-tick formatter end-to-end', () => {
         const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency' }
         const fmt = buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, true, 'USD' as CurrencyCode))
         expect(fmt(50)).toBe('50%')
+    })
+})
+
+describe('buildTrendsYAxisConfig', () => {
+    it.each([
+        ['log10', 'log'],
+        ['linear', 'linear'],
+        ['auto', 'linear'],
+        [undefined, 'linear'],
+        [null, 'linear'],
+    ] as const)('translates yAxisScaleType "%s" to scale "%s"', (input, expected) => {
+        expect(buildTrendsYAxisConfig(null, false, undefined, { yAxisScaleType: input }).scale).toBe(expected)
+    })
+
+    it('passes showGrid through from extras', () => {
+        expect(buildTrendsYAxisConfig(null, false, undefined, { showGrid: true }).showGrid).toBe(true)
+        expect(buildTrendsYAxisConfig(null, false, undefined, {}).showGrid).toBeUndefined()
+    })
+
+    it('spreads the formatter config from trendsFilterToYFormatterConfig', () => {
+        const trendsFilter: TrendsFilter = {
+            aggregationAxisFormat: 'duration',
+            aggregationAxisPrefix: '~',
+            decimalPlaces: 2,
+        }
+        const cfg = buildTrendsYAxisConfig(trendsFilter, false, 'USD' as CurrencyCode)
+        expect(cfg).toMatchObject({ format: 'duration', prefix: '~', decimalPlaces: 2, currency: 'USD' })
+    })
+
+    it('forces percentage format when isPercentStackView is true', () => {
+        const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'currency', aggregationAxisPrefix: '$' }
+        expect(buildTrendsYAxisConfig(trendsFilter, true, 'USD' as CurrencyCode).format).toBe('percentage')
     })
 })

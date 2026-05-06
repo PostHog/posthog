@@ -924,6 +924,119 @@ class TestEmailInboundDmarcRewrite(BaseTest):
         assert comment.item_context["email_from_name"] == "Alex Smith"
 
 
+class TestEmailInboundTeamMemberDetection(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="ab01cd23ef45",
+            from_email="security@posthog.com",
+            from_name="Security",
+            domain="posthog.com",
+            domain_verified=True,
+        )
+
+    def _post(self, data: dict[str, str]):
+        return self.client.post("/api/conversations/v1/email/inbound", data)
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_team_member_reply_attribution_and_unread(self, _mock_sig: MagicMock):
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": "Customer <customer@external.com>",
+                "Message-Id": "<init@external.com>",
+                "subject": "Security question",
+                "stripped-text": "Hello",
+            }
+        )
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == "customer@external.com"
+        assert ticket.unread_team_count == 1
+
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": self.user.email,
+                "from": f"{self.user.first_name} <{self.user.email}>",
+                "Message-Id": "<reply@team.com>",
+                "In-Reply-To": "<init@external.com>",
+                "stripped-text": "Looking into this",
+                "X-Mailgun-Spf": "Pass",
+            }
+        )
+
+        comments = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")
+        assert comments.count() == 2
+
+        customer_comment = comments[0]
+        assert customer_comment.item_context["author_type"] == "customer"
+        assert customer_comment.created_by is None
+
+        support_comment = comments[1]
+        assert support_comment.item_context["author_type"] == "support"
+        assert support_comment.created_by_id == self.user.id
+
+        ticket.refresh_from_db()
+        assert ticket.unread_team_count == 1
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_no_spf_treated_as_customer(self, _mock_sig: MagicMock):
+        """From header matches a team member but no SPF pass → customer."""
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": "Customer <customer@external.com>",
+                "Message-Id": "<nospf-init@external.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+            }
+        )
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": self.user.email,
+                "from": f"Forged <{self.user.email}>",
+                "Message-Id": "<nospf-reply@external.com>",
+                "In-Reply-To": "<nospf-init@external.com>",
+                "stripped-text": "I am totally a team member",
+            }
+        )
+        forged = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
+        assert forged.item_context["author_type"] == "customer"
+        assert forged.created_by is None
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_spf_pass_but_mismatched_envelope_treated_as_customer(self, _mock_sig: MagicMock):
+        """SPF passes but envelope sender domain != From domain → customer."""
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": "Customer <customer@external.com>",
+                "Message-Id": "<align-init@external.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+            }
+        )
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": "attacker@evil.com",
+                "from": f"Forged <{self.user.email}>",
+                "Message-Id": "<align-reply@evil.com>",
+                "In-Reply-To": "<align-init@external.com>",
+                "stripped-text": "Cross-domain forgery attempt",
+                "X-Mailgun-Spf": "Pass",
+            }
+        )
+        forged = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
+        assert forged.item_context["author_type"] == "customer"
+        assert forged.created_by is None
+
+
 class TestEmailInboundCcParticipants(BaseTest):
     def setUp(self):
         super().setUp()

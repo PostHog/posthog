@@ -1,16 +1,11 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import type { BarScaleSet, StackedBand } from './scales'
-import type { ChartScales, Series } from './types'
+import type { Series } from './types'
 
-/** Brand for the BarChart `ChartScales._private` slot — populated by BarChart, narrowed
- *  by its draw callbacks and by overlays that detect bar-chart presence (ValueLabels). */
+/** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
+ *  narrowed by its draw callbacks. */
 export interface BarChartPrivate {
     __barChart: BarScaleSet
-}
-
-export function getBarChartPrivate(scales: ChartScales): BarChartPrivate | undefined {
-    const slot = scales._private as BarChartPrivate | undefined
-    return slot && '__barChart' in slot ? slot : undefined
 }
 
 export type SeriesBarLayout = (BarRect | null)[]

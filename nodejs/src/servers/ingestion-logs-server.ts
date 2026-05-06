@@ -13,11 +13,9 @@ import {
 import { LogsIngestionConsumer } from '../logs-ingestion/logs-ingestion-consumer'
 import { createProducerRegistry } from '../logs-ingestion/outputs/producer-registry'
 import {
-    KafkaMskProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamLogsProducerEnvConfig,
     LogsProducerName,
-    getDefaultKafkaMskProducerEnvConfig,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '../logs-ingestion/outputs/producers'
@@ -37,7 +35,7 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
  * - BaseServerConfig: HTTP server, profiling, pod termination lifecycle
  * - LogsIngestionConsumerConfig: Kafka topics, Redis, rate limiter settings
  * - LogsIngestionOutputsConfig: per-output topic + producer routing
- * - Producer env configs: typed env vars for the DEFAULT + MSK producers
+ * - Producer env configs: typed env vars for the Warpstream logs + ingestion producers
  * - Infrastructure configs: Kafka broker, Postgres, Redis
  * - Remaining CommonConfig picks: server mode, observability
  */
@@ -45,7 +43,6 @@ export type IngestionLogsServerConfig = BaseServerConfig &
     LogsIngestionConsumerConfig &
     LogsIngestionOutputsConfig &
     KafkaWarpstreamLogsProducerEnvConfig &
-    KafkaMskProducerEnvConfig &
     KafkaWarpstreamIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
@@ -64,7 +61,6 @@ export class IngestionLogsServer implements NodeServer {
         this.config = {
             ...defaultConfig,
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamLogsProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaMskProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultLogsIngestionOutputsConfig()),
             ...config,

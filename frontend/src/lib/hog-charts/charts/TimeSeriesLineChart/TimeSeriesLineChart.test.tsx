@@ -31,49 +31,17 @@ describe('TimeSeriesLineChart', () => {
             expect(chart.xTicks()).toHaveLength(0)
         })
 
-        it('builds an x-axis tick formatter from xAxis.timezone + xAxis.interval', () => {
-            const allDays = ['2025-04-01 14:00:00', '2025-04-01 15:00:00', '2025-04-01 16:00:00']
-            const { chart } = renderHogChart(
-                <TimeSeriesLineChart
-                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
-                    labels={['14:00', '15:00', '16:00']}
-                    theme={THEME}
-                    config={{ xAxis: { timezone: 'UTC', interval: 'hour', allDays } }}
-                />
-            )
-            expect(chart.xTicks()).toEqual(['14:00', '15:00', '16:00'])
-        })
-
-        it('explicit xAxis.tickFormatter wins over timezone+interval', () => {
+        it('forwards an explicit xAxis.tickFormatter to the chart', () => {
             const explicit = (_v: string, i: number): string => `tick-${i}`
             const { chart } = renderHogChart(
                 <TimeSeriesLineChart
                     series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
                     labels={['14:00', '15:00', '16:00']}
                     theme={THEME}
-                    config={{
-                        xAxis: {
-                            tickFormatter: explicit,
-                            timezone: 'UTC',
-                            interval: 'hour',
-                            allDays: ['2025-04-01 14:00:00', '2025-04-01 15:00:00', '2025-04-01 16:00:00'],
-                        },
-                    }}
+                    config={{ xAxis: { tickFormatter: explicit } }}
                 />
             )
             expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
-        })
-
-        it('does not auto-format when only one of timezone or interval is provided', () => {
-            const { chart } = renderHogChart(
-                <TimeSeriesLineChart
-                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={{ xAxis: { timezone: 'UTC' } }}
-                />
-            )
-            expect(chart.xTicks()).toEqual(LABELS)
         })
     })
 
@@ -216,6 +184,36 @@ describe('TimeSeriesLineChart', () => {
             expect(lines).toHaveLength(1)
             expect(lines[0].orientation).toBe('horizontal')
             expect(lines[0].label).toBe('Target')
+        })
+    })
+
+    describe('derived-series wiring', () => {
+        it.each([
+            ['confidenceIntervals', { confidenceIntervals: [{ seriesKey: 'a', lower: [0, 1, 2], upper: [2, 3, 4] }] }],
+            ['movingAverage', { movingAverage: [{ seriesKey: 'a', window: 2 }] }],
+            ['trendLines', { trendLines: [{ seriesKey: 'a', kind: 'linear' as const }] }],
+        ])('plumbs config.%s through to the rendered series count', (_, derivedConfig) => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={derivedConfig} />
+            )
+            // SERIES has 1 entry; each derived block adds one more series.
+            expect(chart.seriesCount).toBe(2)
+        })
+
+        it('skips comparison-period series count change while still rendering them', () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [1, 2, 3], color: '#112233' },
+                { key: 'a-prev', label: 'A (prev)', data: [1, 2, 3], color: '#112233' },
+            ]
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ comparisonOf: { 'a-prev': 'a' } }}
+                />
+            )
+            expect(chart.seriesCount).toBe(2)
         })
     })
 

@@ -1,18 +1,11 @@
 import type { AnomalyPoint } from 'lib/components/Alerts/types'
+import type { AnomalyMarker as BaseAnomalyMarker } from 'lib/hog-charts'
 
 import type { IndexedTrendResult } from '../../types'
 
-export interface AnomalyMarker {
-    /** Index along the x-axis (into the chart's `labels` array). */
-    dataIndex: number
-    /** y-value at the marker (used to position via the y-scale). */
-    value: number
-    /** Color to fill the marker (typically the source series's color). */
-    color: string
+export interface AnomalyMarker extends BaseAnomalyMarker {
     /** Originating alert anomaly score (0..1) if available. */
     score: number | null
-    /** y-axis id the marker is positioned against. */
-    yAxisId: string
 }
 
 /** Build a flat list of {@link AnomalyMarker}s ready for rendering as DOM dots.
