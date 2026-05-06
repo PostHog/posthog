@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gzip
 import zipfile
 import subprocess
 from io import BytesIO
@@ -48,6 +47,17 @@ def test_off_mode_skips_without_touching_database(monkeypatch: pytest.MonkeyPatc
     assert db_schema.restore_schema_if_fresh("off") is False
 
 
+def test_unset_env_var_resolves_to_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("POSTHOG_SCHEMA_RESTORE", raising=False)
+    assert db_schema._normalize_mode(None) == "off"
+
+
+def test_invalid_mode_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("POSTHOG_SCHEMA_RESTORE", raising=False)
+    with pytest.raises(click.ClickException):
+        db_schema._normalize_mode("maybe")
+
+
 def test_command_failure_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail_download() -> db_schema.SchemaArtifact:
         raise click.ClickException("download failed")
@@ -60,6 +70,7 @@ def test_command_failure_policy(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert auto_result.exit_code == 0
     assert "falling back to normal migrations" in auto_result.output
+    assert "download failed" in auto_result.output
     assert on_result.exit_code != 0
     assert "download failed" in on_result.output
 
@@ -99,62 +110,51 @@ def test_download_schema_artifact_writes_schema_and_metadata(tmp_path: Path, mon
     assert '"head_sha": "abc123"' in metadata_path.read_text()
 
 
-def test_restore_schema_uses_transactional_psql(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    schema_sql = b"CREATE TABLE example(id integer);\n"
-    schema_path = tmp_path / "schema-latest.sql.gz"
-    stream_calls: list[tuple[list[str], bytes | None]] = []
-    capture_calls: list[tuple[list[str], int]] = []
+def test_restore_schema_delegates_to_hogli_db_restore_test_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
 
-    def fake_run_stream(args: list[str], *, input_bytes: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
-        stream_calls.append((args, input_bytes))
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout=b"", stderr=b"")
-
-    def fake_run_capture(
-        args: list[str], *, input_text: str | None = None, timeout: int = 20
-    ) -> subprocess.CompletedProcess[str]:
-        capture_calls.append((args, timeout))
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
         return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
 
-    schema_path.write_bytes(gzip.compress(schema_sql))
-    monkeypatch.setattr(db_schema, "SCHEMA_PATH", schema_path)
-    monkeypatch.setattr(db_schema, "_run_stream", fake_run_stream)
-    monkeypatch.setattr(db_schema, "_run_capture", fake_run_capture)
+    monkeypatch.setattr(db_schema.subprocess, "run", fake_run)
 
     db_schema._restore_schema()
 
-    assert stream_calls == [
-        (
-            [
-                "docker",
-                "compose",
-                "exec",
-                "-T",
-                "db",
-                "psql",
-                "-q",
-                "-v",
-                "ON_ERROR_STOP=1",
-                "--single-transaction",
-                "-U",
-                "posthog",
-                "posthog",
-            ],
-            schema_sql,
-        )
-    ]
-    assert capture_calls == [(["python", "manage.py", "ensure_migration_defaults"], 120)]
+    args = captured["args"]
+    kwargs = captured["kwargs"]
+    assert isinstance(args, list)
+    assert isinstance(kwargs, dict)
+    assert args[-1] == "db:restore-test-db"
+    assert args[0].endswith("/bin/hogli")
+    assert kwargs["env"]["TARGET_DB"] == "posthog"
+    assert kwargs["cwd"] == db_schema.REPO_ROOT
+    assert kwargs["check"] is False
 
 
-def test_migrate_hook_enables_auto_only_for_coder_env() -> None:
+def test_restore_schema_surfaces_subprocess_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="hogli blew up")
+
+    monkeypatch.setattr(db_schema.subprocess, "run", fake_run)
+
+    with pytest.raises(click.ClickException) as excinfo:
+        db_schema._restore_schema()
+    assert "hogli blew up" in excinfo.value.message
+
+
+def test_migrate_hook_uses_only_posthog_schema_restore() -> None:
     migrate_script = (db_schema.REPO_ROOT / "bin" / "migrate").read_text()
 
-    restore_index = migrate_script.index('"$SCRIPT_DIR/hogli" db:restore-schema-if-fresh --mode="$SCHEMA_RESTORE_MODE"')
-    migrate_index = migrate_script.index("MIGRATE_MAX_RETRIES")
+    assert '"$SCRIPT_DIR/hogli" db:restore-schema-if-fresh' in migrate_script
+    assert '"${POSTHOG_SCHEMA_RESTORE:-off}"' in migrate_script
+    assert "CODER_WORKSPACE_ID" not in migrate_script
+    assert "schema_restore_mode()" not in migrate_script
+    assert "prepare_schema_restore_github_token" not in migrate_script
 
-    assert "schema_restore_mode()" in migrate_script
-    assert 'if [ -n "${POSTHOG_SCHEMA_RESTORE+x}" ]; then' in migrate_script
-    assert 'elif [ -n "${CODER_WORKSPACE_ID:-}" ]; then' in migrate_script
-    assert 'echo "auto"' in migrate_script
-    assert "prepare_schema_restore_github_token" in migrate_script
-    assert "coder external-auth access-token primary-github" in migrate_script
-    assert restore_index < migrate_index
+
+def test_bin_start_opts_into_auto_mode() -> None:
+    start_script = (db_schema.REPO_ROOT / "bin" / "start").read_text()
+
+    assert "POSTHOG_SCHEMA_RESTORE=${POSTHOG_SCHEMA_RESTORE:-auto}" in start_script

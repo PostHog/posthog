@@ -24,6 +24,14 @@ export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
+# Opt the local dev loop into the schema-restore fast path: when bin/migrate runs
+# and the local Postgres DB is empty, hogli will restore the CI-published migrated
+# schema instead of replaying Django migrations. `auto` falls back silently to
+# normal migrations on any failure (no token, no artifact, stale cache, etc).
+# Set explicitly to `off` to disable, or `on` to fail loudly when the fast path
+# can't run.
+export POSTHOG_SCHEMA_RESTORE=${POSTHOG_SCHEMA_RESTORE:-auto}
+
 # Use sccache for Rust compilation caching (if available via flox or homebrew)
 if [[ -z "${RUSTC_WRAPPER:-}" ]] && command -v sccache &>/dev/null; then
     export RUSTC_WRAPPER="sccache"

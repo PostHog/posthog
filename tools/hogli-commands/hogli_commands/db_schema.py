@@ -1,9 +1,18 @@
-"""PostgreSQL schema cache helpers for local development."""
+"""Restore the CI migrated Postgres schema when the local DB is fresh.
+
+Skips Django migrate replay on dev startup when the local Postgres DB is empty by
+downloading the latest `migrated-schema` artifact from CI and restoring it via the
+shared `db:restore-test-db` primitive.
+
+Gated entirely on the `POSTHOG_SCHEMA_RESTORE` env var:
+- ``auto`` (default for ``bin/start``): try, fall back silently to normal migrations
+- ``on``: try, fail loudly if anything blocks the restore
+- ``off`` / unset: no-op (CI/prod default)
+"""
 
 from __future__ import annotations
 
 import os
-import gzip
 import json
 import shutil
 import zipfile
@@ -17,7 +26,6 @@ from pathlib import Path
 from typing import cast
 
 import click
-from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
 
 ARTIFACT_API_URL = "https://api.github.com/repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10"
@@ -25,6 +33,7 @@ BACKUP_DIR = REPO_ROOT / ".postgres-backups"
 SCHEMA_PATH = BACKUP_DIR / "schema-latest.sql.gz"
 SCHEMA_METADATA_PATH = BACKUP_DIR / "schema-latest.json"
 MIN_SCHEMA_ARTIFACT_SIZE_BYTES = 10_000
+RESTORE_TIMEOUT_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -37,12 +46,12 @@ class SchemaArtifact:
 
 
 def _normalize_mode(raw_mode: str | None) -> str:
-    mode = (raw_mode or os.environ.get("POSTHOG_SCHEMA_RESTORE") or "off").strip().lower()
-    if mode in {"auto", ""}:
+    mode = (raw_mode if raw_mode is not None else os.environ.get("POSTHOG_SCHEMA_RESTORE", "")).strip().lower()
+    if mode == "auto":
         return "auto"
     if mode in {"1", "true", "yes", "on"}:
         return "on"
-    if mode in {"0", "false", "no", "off"}:
+    if mode in {"0", "false", "no", "off", ""}:
         return "off"
     raise click.ClickException("POSTHOG_SCHEMA_RESTORE must be auto, on, or off")
 
@@ -61,17 +70,6 @@ def _run_capture(
         capture_output=True,
         text=True,
         timeout=timeout,
-        check=False,
-    )
-
-
-def _run_stream(args: list[str], *, input_bytes: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        args,
-        cwd=REPO_ROOT,
-        input=input_bytes,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
         check=False,
     )
 
@@ -225,18 +223,13 @@ def _ensure_schema_downloaded() -> SchemaArtifact:
         raise click.ClickException("No GitHub token available for migrated-schema download")
 
     artifact = _latest_schema_artifact(token)
-    if not SCHEMA_PATH.exists():
-        _download_schema_artifact(artifact, token)
-        return artifact
-
-    if not SCHEMA_METADATA_PATH.exists():
+    if not SCHEMA_PATH.exists() or not SCHEMA_METADATA_PATH.exists():
         _download_schema_artifact(artifact, token)
         return artifact
 
     metadata = cast(dict[str, object], json.loads(SCHEMA_METADATA_PATH.read_text()))
     if metadata.get("artifact_id") != artifact.id:
         _download_schema_artifact(artifact, token)
-        return artifact
 
     return artifact
 
@@ -250,35 +243,26 @@ def _schema_sha_is_ancestor(head_sha: str) -> bool:
 
 
 def _restore_schema() -> None:
-    try:
-        schema_sql = gzip.decompress(SCHEMA_PATH.read_bytes())
-    except OSError as err:
-        raise click.ClickException(f"Failed to decompress schema: {err}") from err
+    """Delegate to the shared `db:restore-test-db` primitive with TARGET_DB=posthog.
 
-    restore = _run_stream(
-        [
-            "docker",
-            "compose",
-            "exec",
-            "-T",
-            "db",
-            "psql",
-            "-q",
-            "-v",
-            "ON_ERROR_STOP=1",
-            "--single-transaction",
-            "-U",
-            "posthog",
-            "posthog",
-        ],
-        input_bytes=schema_sql,
+    The shared command DROPs+CREATEs the target DB then loads schema-latest.sql.gz
+    and runs `ensure_migration_defaults`. DROP+CREATE is safe here because the caller
+    only reaches this point after `_database_is_fresh()` confirmed the DB has no
+    schema and no migration history.
+    """
+    env = {**os.environ, "TARGET_DB": "posthog"}
+    result = subprocess.run(
+        [str(REPO_ROOT / "bin" / "hogli"), "db:restore-test-db"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=RESTORE_TIMEOUT_SECONDS,
+        check=False,
     )
-    if restore.returncode != 0:
-        raise click.ClickException(restore.stderr.decode(errors="replace").strip() or "Failed to restore schema")
-
-    defaults = _run_capture(["python", "manage.py", "ensure_migration_defaults"], timeout=120)
-    if defaults.returncode != 0:
-        raise click.ClickException(defaults.stderr.strip() or "Failed to ensure migration defaults")
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip() or "Failed to restore schema"
+        raise click.ClickException(message)
 
 
 def restore_schema_if_fresh(mode: str) -> bool:
@@ -295,26 +279,33 @@ def restore_schema_if_fresh(mode: str) -> bool:
         click.echo("[schema-restore] Cached schema is newer than this branch; skipping schema restore.")
         return False
 
-    click.echo("[schema-restore] Restoring migrated Postgres schema.")
+    click.echo(f"[schema-restore] Restoring migrated Postgres schema (artifact {artifact.head_sha[:12]}).")
     _restore_schema()
     click.echo("[schema-restore] Migrated Postgres schema restored.")
     return True
 
 
-@cli.command(name="db:restore-schema-if-fresh", help="Restore migrated Postgres schema when the local DB is fresh")
-@click.option("--mode", default=None, help="auto, on, or off. Defaults to POSTHOG_SCHEMA_RESTORE or off.")
+@click.command(
+    name="db:restore-schema-if-fresh",
+    help="Restore the CI migrated Postgres schema when the local DB is empty.",
+)
+@click.option(
+    "--mode",
+    default=None,
+    help="Override POSTHOG_SCHEMA_RESTORE for this invocation. One of: auto, on, off.",
+)
 def restore_schema_if_fresh_command(mode: str | None) -> None:
-    """Restore the CI migrated schema only when the local Postgres DB is fresh."""
     normalized_mode = _normalize_mode(mode)
     try:
         restored = restore_schema_if_fresh(normalized_mode)
     except Exception as err:
+        message = err.message if isinstance(err, click.ClickException) else str(err)
         if normalized_mode == "auto":
-            click.echo(f"[schema-restore] {err}; falling back to normal migrations.")
+            click.echo(f"[schema-restore] {message}; falling back to normal migrations.")
             return
         if isinstance(err, click.ClickException):
             raise
-        raise click.ClickException(str(err))
+        raise click.ClickException(message)
 
     if not restored and normalized_mode == "on":
         click.echo("[schema-restore] Nothing restored.")

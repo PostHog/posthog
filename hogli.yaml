@@ -639,8 +639,12 @@ db:
             fi
             # Validate up front; substitutes for `set -o pipefail` (dash doesn't support it).
             gunzip -t .postgres-backups/schema-latest.sql.gz
-            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS $TARGET_DB;"
-            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE $TARGET_DB;"
+            # -d postgres pins the maintenance connection to the default postgres database.
+            # Without it, psql connects to a database matching the username (posthog), which
+            # blocks DROP DATABASE when TARGET_DB is also "posthog" (you can't drop the DB
+            # you're connected to). Existing TARGET_DB=test_posthog callers are unaffected.
+            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -d postgres -c "DROP DATABASE IF EXISTS $TARGET_DB;"
+            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -d postgres -c "CREATE DATABASE $TARGET_DB;"
             gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog "$TARGET_DB"
             # Schema-only dumps skip RunPython data migrations (e.g. the Default Theme row from 0537).
             # Reseed defaults so tests don't hit empty tables. Idempotent.
@@ -659,6 +663,12 @@ db:
         description: Alias for db:restore-test-db. Kept so PR branches that pulled in the
             short-lived rename (#57657) still resolve a valid command after the revert.
             Safe to remove once those branches are merged or rebased.
+    db:restore-schema-if-fresh:
+        click: hogli_commands.db_schema:restore_schema_if_fresh_command
+        description: Restore the CI migrated Postgres schema into the dev DB when it is
+            empty, instead of replaying Django migrations. No-op unless
+            POSTHOG_SCHEMA_RESTORE is auto/on. Auto mode falls back silently to normal
+            migrations on any failure.
     db:download-schema:
         cmd: "set -e\nmkdir -p .postgres-backups\necho \"Finding latest CI run with migrated-schema\
             \ artifact...\"\nRUN_ID=$(gh api 'repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10'\

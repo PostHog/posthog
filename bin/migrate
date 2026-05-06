@@ -16,25 +16,6 @@ run_scope() {
     return 1
 }
 
-schema_restore_mode() {
-    if [ -n "${POSTHOG_SCHEMA_RESTORE+x}" ]; then
-        echo "$POSTHOG_SCHEMA_RESTORE"
-    elif [ -n "${CODER_WORKSPACE_ID:-}" ]; then
-        echo "auto"
-    else
-        echo "off"
-    fi
-}
-
-prepare_schema_restore_github_token() {
-    if [ -z "${CODER_WORKSPACE_ID:-}" ] || [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ] || ! command -v coder >/dev/null 2>&1; then
-        return
-    fi
-
-    GITHUB_TOKEN=$(coder external-auth access-token primary-github 2>/dev/null || true)
-    export GITHUB_TOKEN
-}
-
 # timestamp function with nanosecond precision if supported, otherwise fallback to seconds with .000000000 suffix for uniform formatting
 if [ "$(date +%N)" != "N" ]; then
     timestamp() { date +%s.%N; }
@@ -102,12 +83,12 @@ if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
 fi
 
 if [ "$RUN_POSTGRES" = "1" ]; then
-    if [ "${DEBUG:-0}" = "1" ]; then
-        SCHEMA_RESTORE_MODE=$(schema_restore_mode)
-        if [ "$SCHEMA_RESTORE_MODE" != "off" ]; then
-            prepare_schema_restore_github_token
-            "$SCRIPT_DIR/hogli" db:restore-schema-if-fresh --mode="$SCHEMA_RESTORE_MODE"
-        fi
+    # Opt-in fast path: when POSTHOG_SCHEMA_RESTORE is auto/on, try to restore the
+    # CI-published migrated schema instead of replaying Django migrations. The hogli
+    # command refuses unless the local DB is empty, and `auto` falls back silently
+    # to normal migrations on any failure. CI/prod don't set the var → no-op.
+    if [ "${POSTHOG_SCHEMA_RESTORE:-off}" != "off" ]; then
+        "$SCRIPT_DIR/hogli" db:restore-schema-if-fresh
     fi
 
     # Run postgres migrations with retry logic
