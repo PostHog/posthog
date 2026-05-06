@@ -1,5 +1,6 @@
 import time
 import inspect
+import threading
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 from functools import wraps
@@ -65,16 +66,29 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
 
     @wraps(fn)
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        # Generate a unique activity ID for logging context. Temporal guarantees that retries of the same activity will have the same activity ID, so we can use this to correlate logs across retries.
-        activity_id: str | None = None
-        if activity.in_activity():
-            activity_id = activity.info().activity_id
-            activity.logger.info(f"Running '{fn.__name__}' in async wrapper (activity_id={activity_id})")
-        try:
-            return await sync_to_async(fn)(*args, **kwargs)
-        finally:
-            if activity_id:
-                activity.logger.info(f"Finished '{fn.__name__}' in async wrapper (activity_id={activity_id})")
+        submit_time = time.monotonic()
+
+        def instrumented() -> T:
+            start_time = time.monotonic()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                now = time.monotonic()
+                thread_wait = start_time - submit_time
+                execution_time = now - start_time
+                if activity.in_activity():
+                    activity.logger.warning(
+                        "asyncify_slow",
+                        extra={
+                            "function": fn.__name__,
+                            "thread_wait_seconds": round(thread_wait, 3),
+                            "execution_seconds": round(execution_time, 3),
+                            "thread_name": threading.current_thread().name,
+                            "activity_id": activity.info().activity_id,
+                        },
+                    )
+
+        return await sync_to_async(instrumented)()
 
     return wrapper
 
