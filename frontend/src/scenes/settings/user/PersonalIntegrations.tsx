@@ -112,10 +112,15 @@ export function PersonalIntegrations(): JSX.Element {
                         <GitHubInstallationRow key={integration.installation_id} integration={integration} />
                     ))
                 )}
-                <div className="px-4 py-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
                     <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={connectGitHub}>
                         {integrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
                     </LemonButton>
+                    <span className="text-xs text-secondary text-balance">
+                        Heads up: if GitHub's <strong>Save</strong> button is disabled at the end of the flow, flip
+                        between <strong>All repositories</strong> and <strong>Only select repositories</strong> to
+                        proceed.
+                    </span>
                 </div>
             </div>
         </div>
