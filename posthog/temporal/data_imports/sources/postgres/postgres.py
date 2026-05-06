@@ -41,6 +41,7 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     PARTITIONED_TABLE_MAX_CHUNK_SIZE,
     build_partition_query,
+    build_select_clause,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
     get_partition_settings_for_partitioned_table as _get_partition_settings_for_partitioned_table,
     get_partition_strategy,
@@ -759,37 +760,6 @@ class SafeDateLoader(Loader):
         return date.max
 
 
-def _build_select_clause(
-    enabled_columns: Optional[list[str]],
-    primary_keys: Optional[list[str]],
-    incremental_field: Optional[str],
-) -> sql.Composable:
-    # `None` and `[]` are distinct: `None` means sync all (`SELECT *`), `[]` means PKs + incremental only.
-    if enabled_columns is None:
-        return sql.SQL("*")
-
-    retained: set[str] = set(enabled_columns)
-    for pk in primary_keys or []:
-        retained.add(pk)
-    if incremental_field:
-        retained.add(incremental_field)
-
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for column in enabled_columns:
-        if column in retained and column not in seen:
-            seen.add(column)
-            ordered.append(column)
-    for column in primary_keys or []:
-        if column in retained and column not in seen:
-            seen.add(column)
-            ordered.append(column)
-    if incremental_field and incremental_field in retained and incremental_field not in seen:
-        ordered.append(incremental_field)
-
-    return sql.SQL(", ").join(sql.Identifier(column) for column in ordered)
-
-
 def _build_query(
     schema: str,
     table_name: str,
@@ -804,7 +774,7 @@ def _build_query(
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
-    select_clause = _build_select_clause(enabled_columns, primary_keys, incremental_field)
+    select_clause = build_select_clause(enabled_columns, primary_keys, incremental_field)
 
     if not should_use_incremental_field:
         if add_sampling:

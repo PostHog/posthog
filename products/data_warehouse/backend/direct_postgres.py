@@ -229,14 +229,17 @@ def filter_dwh_columns_by_enabled_columns(
     columns: DirectPostgresColumns,
     enabled_columns: list[str] | None,
     primary_keys: list[str] | None,
+    incremental_field: str | None = None,
 ) -> DirectPostgresColumns:
-    # `None` and `[]` are distinct: `None` means sync all, `[]` means retain only PKs.
+    # `None` and `[]` are distinct: `None` means sync all, `[]` means retain only PKs + incremental.
     if enabled_columns is None:
         return columns
 
     retained: set[str] = set(enabled_columns)
     for pk in primary_keys or []:
         retained.add(pk)
+    if incremental_field:
+        retained.add(incremental_field)
 
     return {name: column for name, column in columns.items() if name in retained}
 

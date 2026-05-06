@@ -495,91 +495,103 @@ class TestBuildQuery:
         assert '"id"' in rendered
         assert "LIMIT 1000" in rendered
 
-    def test_enabled_columns_emits_explicit_select_list(self):
+    @pytest.mark.parametrize(
+        "case_name,enabled_columns,primary_keys,should_use_incremental,incremental_field,incremental_type,last_value,must_contain,must_not_contain,ordered",
+        [
+            (
+                "explicit_list_includes_pk",
+                ["email", "name"],
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                ['"email"', '"name"', '"id"'],
+                ["SELECT *"],
+                None,
+            ),
+            (
+                "preserves_user_order_pk_appended",
+                ["zeta", "alpha"],
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                [],
+                None,
+                ['"zeta"', '"alpha"', '"id"'],
+            ),
+            (
+                "includes_incremental_field",
+                ["payload"],
+                ["id"],
+                True,
+                "updated_at",
+                IncrementalFieldType.Timestamp,
+                "2024-01-01",
+                ['"payload"', '"updated_at"', '"id"'],
+                None,
+                None,
+            ),
+            (
+                "none_is_select_star",
+                None,
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                ["SELECT *"],
+                None,
+                None,
+            ),
+            (
+                "empty_keeps_only_pks_and_incremental",
+                [],
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                ['"id"'],
+                ["SELECT *"],
+                None,
+            ),
+        ],
+    )
+    def test_enabled_columns_projection(
+        self,
+        case_name,
+        enabled_columns,
+        primary_keys,
+        should_use_incremental,
+        incremental_field,
+        incremental_type,
+        last_value,
+        must_contain,
+        must_not_contain,
+        ordered,
+    ):
         query = _build_query(
             "public",
-            "users",
-            False,
+            "events" if should_use_incremental else "users",
+            should_use_incremental,
             "table",
-            None,
-            None,
-            None,
-            enabled_columns=["email", "name"],
-            primary_keys=["id"],
+            incremental_field,
+            incremental_type,
+            last_value,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
         )
         rendered = self._render(query)
-        # PK auto-included even though not listed.
-        assert '"email"' in rendered
-        assert '"name"' in rendered
-        assert '"id"' in rendered
-        assert "SELECT *" not in rendered
-
-    def test_enabled_columns_preserves_user_order(self):
-        query = _build_query(
-            "public",
-            "users",
-            False,
-            "table",
-            None,
-            None,
-            None,
-            enabled_columns=["zeta", "alpha"],
-            primary_keys=["id"],
-        )
-        rendered = self._render(query)
-        # User order preserved; PK appended at the end.
-        zeta_pos = rendered.index('"zeta"')
-        alpha_pos = rendered.index('"alpha"')
-        id_pos = rendered.index('"id"')
-        assert zeta_pos < alpha_pos < id_pos
-
-    def test_enabled_columns_includes_incremental_field(self):
-        query = _build_query(
-            "public",
-            "events",
-            True,
-            "table",
-            "updated_at",
-            IncrementalFieldType.Timestamp,
-            "2024-01-01",
-            enabled_columns=["payload"],
-            primary_keys=["id"],
-        )
-        rendered = self._render(query)
-        # Incremental field auto-included even though only "payload" was selected.
-        assert '"payload"' in rendered
-        assert '"updated_at"' in rendered
-        assert '"id"' in rendered
-
-    def test_enabled_columns_none_is_select_star(self):
-        query = _build_query(
-            "public",
-            "users",
-            False,
-            "table",
-            None,
-            None,
-            None,
-            enabled_columns=None,
-            primary_keys=["id"],
-        )
-        rendered = self._render(query)
-        assert "SELECT *" in rendered
-
-    def test_enabled_columns_empty_list_is_select_star(self):
-        query = _build_query(
-            "public",
-            "users",
-            False,
-            "table",
-            None,
-            None,
-            None,
-            enabled_columns=[],
-            primary_keys=["id"],
-        )
-        rendered = self._render(query)
-        assert "SELECT *" in rendered
+        for substring in must_contain or []:
+            assert substring in rendered, f"[{case_name}] expected {substring!r} in {rendered!r}"
+        for substring in must_not_contain or []:
+            assert substring not in rendered, f"[{case_name}] expected {substring!r} NOT in {rendered!r}"
+        if ordered:
+            positions = [rendered.index(s) for s in ordered]
+            assert positions == sorted(positions), f"[{case_name}] expected {ordered} in order in {rendered!r}"
 
 
 class TestBuildPartitionQuery:
