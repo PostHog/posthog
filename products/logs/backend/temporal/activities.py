@@ -5,6 +5,7 @@ import time
 import asyncio
 import contextlib
 import dataclasses
+from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import batched
@@ -46,7 +47,11 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE, MAX_CONCURRENT_ALERT_EVALS
+from products.logs.backend.temporal.constants import (
+    MAX_ALERT_COHORT_SIZE,
+    MAX_COHORTS_PER_BATCH,
+    MAX_CONCURRENT_COHORTS_PER_BATCH,
+)
 from products.logs.backend.temporal.metrics import (
     increment_check_errors,
     increment_checkpoint_unavailable,
@@ -63,9 +68,7 @@ from products.logs.backend.temporal.metrics import (
     record_cohort_save_duration,
     record_cohort_size,
     record_cohort_update_duration,
-    record_pending_alerts,
     record_scheduler_lag,
-    record_semaphore_wait,
     record_worker_memory_snapshot,
 )
 
@@ -158,7 +161,7 @@ class CheckAlertsInput:
 class _AlertCohort:
     """Group of alerts that share team + bucket grid and can be batched into one CH query.
 
-    Cohort key (built in `_build_cohorts`): (team_id, window_minutes,
+    Cohort key matches `_cohort_manifests_from_alerts`: (team_id, window_minutes,
     evaluation_periods, check_interval_minutes, projection_eligible, date_to).
     """
 
@@ -193,6 +196,21 @@ class _AlertCohort:
                 self.window_minutes, self.check_interval_minutes, self.evaluation_periods
             )
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class CohortManifest:
+    """Lightweight cohort identifier passed between workflow and activities.
+
+    Plain JSON-friendly types only — `datetime` becomes ISO string, UUIDs become
+    str, alert_ids is `list[str]` (NOT tuple — Temporal's default converter
+    deserialises JSON arrays to lists, not tuples).
+    """
+
+    team_id: int
+    projection_eligible: bool
+    date_to_iso: str
+    alert_ids: list[str]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -258,160 +276,30 @@ class CheckAlertsOutput:
     alerts_errored: int
 
 
-@temporalio.activity.defn
-async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
-    """Find all due alerts and evaluate them with bounded concurrency.
+@dataclasses.dataclass(frozen=True)
+class DiscoverCohortsInput:
+    pass
 
-    Per-team batching with three phases per cohort:
-      1. Batched ClickHouse `countIf` query (one query, N predicate columns).
-      2. Per-alert in-memory eval (state machine) + per-alert Kafka dispatch.
-      3. Single bulk Postgres save (`bulk_create` events + `bulk_update` configs).
 
-    The semaphore bounds concurrent cohorts. Phase 2's per-alert work runs
-    in-memory only — no Postgres connections involved — so its concurrency
-    is bounded by Python's GIL plus the Kafka producer's queue, not by the
-    DB connection pool.
-    """
-    now, all_alerts, checkpoint = await database_sync_to_async_pool(_load_alerts_and_checkpoint)()
+@dataclasses.dataclass(frozen=True)
+class DiscoverCohortsOutput:
+    manifests: list[CohortManifest]
+    # Recorded in workflow history so replays chunk identically even if the env
+    # var changes between runs.
+    batch_size: int
 
-    cohorts = _build_cohorts(all_alerts, now=now, checkpoint=checkpoint)
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_ALERT_EVALS)
-    # Eval is in-memory + GIL-bound — no parallelism benefit from gather, so
-    # we run it as a sync list comprehension. Dispatch is Kafka I/O and gets
-    # a thread-pool wrap + gather for actual concurrency.
-    dispatch_async = database_sync_to_async_pool(_dispatch_for_alert)
-    cohort_query_async = database_sync_to_async_pool(_run_cohort_query)
-    save_cohort_async = database_sync_to_async_pool(_save_cohort_outcomes)
+@dataclasses.dataclass(frozen=True)
+class EvaluateCohortBatchInput:
+    manifests: list[CohortManifest]
 
-    async def _bounded_cohort_eval(cohort: _AlertCohort) -> dict[str, int]:
-        wait_start = time.perf_counter()
-        local_stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
-        async with semaphore:
-            wait_ms = int((time.perf_counter() - wait_start) * 1000)
-            _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
 
-            # Phase 1: cohort CH query (batched, with per-alert fallback on failure).
-            query_result = await cohort_query_async(cohort)
-
-            # Phase 2a: evaluate all alerts (sync, in-memory).
-            evaluations: list[_AlertEvaluation] = []
-            kept_eval_starts: list[float] = []
-            for alert in cohort.alerts:
-                eval_start = time.perf_counter()
-                try:
-                    evaluations.append(
-                        _evaluate_single_alert(
-                            alert,
-                            now,
-                            checkpoint=checkpoint,
-                            prefetched=query_result.for_alert(alert),
-                        )
-                    )
-                    kept_eval_starts.append(eval_start)
-                except Exception:
-                    logger.exception(
-                        "Unexpected error evaluating alert",
-                        alert_id=str(alert.id),
-                        alert_name=alert.name,
-                        team_id=alert.team_id,
-                    )
-                    local_stats["errored"] += 1
-
-            # Phase 2b: dispatch all alerts in parallel (Kafka concurrency).
-            dispatched_or_errors = await asyncio.gather(
-                *(dispatch_async(ev, now) for ev in evaluations),
-                return_exceptions=True,
-            )
-            # Capture per-alert elapsed_ms here — *before* Phase 3 starts — so the
-            # `check_duration` metric measures eval + dispatch only, matching its
-            # description. Cohort save time is recorded separately.
-            phase_2_end = time.perf_counter()
-            dispatched: list[_DispatchedAlert] = []
-            elapsed_ms_per_alert: list[int] = []
-            for ev, result, eval_start in zip(evaluations, dispatched_or_errors, kept_eval_starts):
-                if isinstance(result, BaseException):
-                    logger.exception(
-                        "Unexpected error dispatching alert",
-                        alert_id=str(ev.alert.id),
-                        alert_name=ev.alert.name,
-                        team_id=ev.alert.team_id,
-                        exc_info=result,
-                    )
-                    local_stats["errored"] += 1
-                else:
-                    dispatched.append(result)
-                    elapsed_ms_per_alert.append(int((phase_2_end - eval_start) * 1000))
-
-            # Phase 3: bulk save — one `bulk_create` + one `bulk_update` per cohort.
-            saved: list[_DispatchedAlert] = []
-            failed: list[_DispatchedAlert] = []
-            try:
-                if dispatched:
-                    saved, failed = await save_cohort_async(dispatched, now)
-            except Exception as e:
-                logger.exception(
-                    "Cohort bulk save failed (non-recoverable)",
-                    team_id=cohort.team_id,
-                    cohort_size=len(dispatched),
-                )
-                capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
-                # Saves failed — count alerts as errored so the cycle stat
-                # reflects that this cohort didn't advance state.
-                local_stats["errored"] += len(dispatched)
-                local_stats["checked"] += len(dispatched)
-                # Off-thread: gc.collect() is CPU-bound and would block the event loop.
-                await asyncio.to_thread(_post_cohort_memory_cleanup)
-                return local_stats
-
-            # Phase 4 (serial): finalize stats + per-alert post-save metrics.
-            elapsed_by_alert_id = {str(d.evaluation.alert.id): ms for d, ms in zip(dispatched, elapsed_ms_per_alert)}
-            for d in saved:
-                _finalize_alert(d, elapsed_by_alert_id[str(d.evaluation.alert.id)], local_stats)
-            for _ in failed:
-                # Alert's per-alert fallback save failed — count as errored.
-                local_stats["checked"] += 1
-                local_stats["errored"] += 1
-            await asyncio.to_thread(_post_cohort_memory_cleanup)
-        _safe_record("semaphore_wait histogram", record_semaphore_wait, wait_ms)
-        return local_stats
-
-    tasks: list[asyncio.Task[dict[str, int]]] = []
-    async with asyncio.TaskGroup() as tg:
-        for cohort in cohorts:
-            tasks.append(tg.create_task(_bounded_cohort_eval(cohort)))
-
-    aggregated = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
-    for task in tasks:
-        for k, v in task.result().items():
-            aggregated[k] += v
-
-    if aggregated["checked"] > 0:
-        logger.info("Alert check cycle complete", **aggregated)
-
-    # DB failure here is actionable (connection/timeout/query error) so log at
-    # error level with full error context — but skip `logger.exception` because
-    # retained tracebacks pin cohort state alive across invocations (see
-    # `_log_metric_failure` docstring). Metric record stays best-effort.
-    try:
-        pending = await database_sync_to_async_pool(_count_pending_alerts)()
-    except Exception as e:
-        # `logger.exception` would retain the traceback (and frame locals like
-        # `cohorts`) across activity invocations via buffered LogRecords.
-        logger.error(  # noqa: TRY400
-            "Failed to count pending alerts",
-            error=str(e),
-            error_type=type(e).__name__,
-        )
-    else:
-        _safe_record("pending_alerts gauge", record_pending_alerts, pending)
-
-    return CheckAlertsOutput(
-        alerts_checked=aggregated["checked"],
-        alerts_fired=aggregated["fired"],
-        alerts_resolved=aggregated["resolved"],
-        alerts_errored=aggregated["errored"],
-    )
+@dataclasses.dataclass(frozen=True)
+class EvaluateCohortBatchOutput:
+    alerts_checked: int
+    alerts_fired: int
+    alerts_resolved: int
+    alerts_errored: int
 
 
 def _due_alerts_qs(now: datetime):
@@ -425,25 +313,50 @@ def _due_alerts_qs(now: datetime):
     )
 
 
-def _count_pending_alerts() -> int:
-    return _due_alerts_qs(datetime.now(UTC)).count()
+@temporalio.activity.defn
+async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
+    """Phase 1: lightweight discovery. Returns serialisable manifests; no full ORM hydration.
+
+    Uses `.values()` to pull only the columns needed for grouping — at scale the
+    full `select_related('team')` would OOM. Team objects are loaded later, only
+    inside `evaluate_cohort_batch_activity`, scoped to a small batch.
+    """
+    return await database_sync_to_async_pool(_discover_cohorts_sync)()
 
 
-def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration], datetime | None]:
-    """Sync setup: pin `now`, load due alerts, fetch ingestion checkpoint, emit cycle metrics."""
+def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     now = datetime.now(UTC)
+    rows = list(
+        _due_alerts_qs(now).values(
+            "id",
+            "team_id",
+            "window_minutes",
+            "evaluation_periods",
+            "check_interval_minutes",
+            "filters",
+            "next_check_at",
+        )
+    )
 
-    all_alerts = list(_due_alerts_qs(now).select_related("team"))
-
-    _safe_record("alerts_active gauge", record_alerts_active, len(all_alerts))
+    _safe_record("alerts_active gauge", record_alerts_active, len(rows))
 
     checkpoint: datetime | None = None
-    if all_alerts:
+    if rows:
         try:
-            checkpoint = fetch_live_logs_checkpoint(all_alerts[0].team)
+            # Inline import: Django model imports trip Temporal's workflow
+            # sandbox (gettext.GNUTranslations.__mro_entries__). Activities
+            # don't run inside the sandbox, but workflow.py imports this
+            # module to reference the activity callable, which forces
+            # module-level evaluation. Keep this deferred.
+            from posthog.models import Team
+
+            first_team = Team.objects.get(pk=rows[0]["team_id"])
+            checkpoint = fetch_live_logs_checkpoint(first_team)
         except Exception as e:
-            # Real failure (CH unavailable, etc.) — traceback wanted; one record per cycle, not cohort-scoped.
-            logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(e))
+            logger.exception(
+                "Failed to fetch logs ingestion checkpoint; falling back to wall-clock",
+                error=str(e),
+            )
 
     with _safe_record_block("checkpoint metric"):
         if checkpoint is None:
@@ -451,42 +364,216 @@ def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration
         else:
             record_checkpoint_lag(now, checkpoint)
 
-    return now, all_alerts, checkpoint
+    manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=checkpoint)
+    # Read MAX_COHORTS_PER_BATCH inside the activity, not in workflow code:
+    # module-level env reads are non-deterministic on replay because Temporal's
+    # sandbox re-imports the workflow module each time.
+    return DiscoverCohortsOutput(manifests=manifests, batch_size=MAX_COHORTS_PER_BATCH)
 
 
-def _build_cohorts(
-    alerts: Sequence[LogsAlertConfiguration],
+def _cohort_manifests_from_alerts(
+    rows: Sequence[dict],
     *,
     now: datetime,
     checkpoint: datetime | None,
-) -> list[_AlertCohort]:
-    """Group alerts into cohorts that can share a batched CH query.
+) -> list[CohortManifest]:
+    """Group alert rows (from a `.values()` query) into `CohortManifest` objects.
 
-    Each cohort holds at most `MAX_ALERT_COHORT_SIZE` alerts. Larger groups (same
-    team / window / cadence / projection / date_to) split into multiple cohorts
-    so each individual batched query stays bounded — and the existing outer
-    semaphore (`MAX_CONCURRENT_ALERT_EVALS`) is the only concurrency control.
+    Cohort key + size-cap logic on plain dicts (no Django model hydration)
+    so it stays cheap at scale and produces serialisable manifests for the
+    workflow.
     """
-    grouped: dict[tuple, tuple[list[LogsAlertConfiguration], datetime, bool]] = {}
-    for alert in alerts:
-        nca = alert.next_check_at if alert.next_check_at is not None else now
+    grouped: defaultdict[tuple[int, int, int, int, bool, datetime], list[str]] = defaultdict(list)
+    for row in rows:
+        nca = row["next_check_at"] if row["next_check_at"] is not None else now
         date_to = resolve_alert_date_to(nca, checkpoint)
-        projection_eligible = is_projection_eligible(alert.filters)
+        projection_eligible = is_projection_eligible(row["filters"])
         key = (
-            alert.team_id,
-            alert.window_minutes,
-            alert.evaluation_periods,
-            alert.check_interval_minutes,
+            row["team_id"],
+            row["window_minutes"],
+            row["evaluation_periods"],
+            row["check_interval_minutes"],
             projection_eligible,
             date_to,
         )
-        grouped.setdefault(key, ([], date_to, projection_eligible))[0].append(alert)
+        grouped[key].append(str(row["id"]))
 
-    cohorts: list[_AlertCohort] = []
-    for members, date_to, projection_eligible in grouped.values():
-        for chunk in batched(members, MAX_ALERT_COHORT_SIZE):
-            cohorts.append(_AlertCohort(alerts=chunk, date_to=date_to, projection_eligible=projection_eligible))
-    return cohorts
+    manifests: list[CohortManifest] = []
+    for (team_id, _wm, _ep, _cim, projection_eligible, date_to), alert_ids in grouped.items():
+        for chunk in batched(alert_ids, MAX_ALERT_COHORT_SIZE):
+            manifests.append(
+                CohortManifest(
+                    team_id=team_id,
+                    projection_eligible=projection_eligible,
+                    date_to_iso=date_to.isoformat(),
+                    alert_ids=list(chunk),
+                )
+            )
+    return manifests
+
+
+def _cohort_from_manifest(
+    manifest: CohortManifest,
+    alerts_by_id: dict[str, LogsAlertConfiguration],
+) -> _AlertCohort:
+    """Reconstruct an `_AlertCohort` from a manifest and a pre-loaded alerts dict."""
+    alerts = tuple(alerts_by_id[alert_id] for alert_id in manifest.alert_ids)
+    return _AlertCohort(
+        alerts=alerts,
+        date_to=datetime.fromisoformat(manifest.date_to_iso),
+        projection_eligible=manifest.projection_eligible,
+    )
+
+
+@temporalio.activity.defn
+async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+    """Phase 2: process a batch of cohorts with bounded intra-batch parallelism.
+
+    Loads alerts once per batch (`id__in`), reconstructs `_AlertCohort`s from
+    manifests, then drives the existing per-cohort flow concurrently — bounded by
+    `MAX_CONCURRENT_COHORTS_PER_BATCH` via `asyncio.Semaphore`. Pure asyncio
+    (NOT a thread pool — nested thread pools deadlock under Temporal cancellation).
+
+    Per-cohort failure is contained: a single cohort's exception only counts its
+    alerts as errored. Per-batch failure (uncaught) bubbles up to the workflow,
+    which treats this batch's alerts as errored via `gather(return_exceptions=True)`.
+    """
+    now = datetime.now(UTC)
+
+    all_alert_ids = {aid for manifest in input.manifests for aid in manifest.alert_ids}
+    alerts_by_id = await database_sync_to_async_pool(_load_alerts_for_batch)(all_alert_ids)
+
+    cohort_query_async = database_sync_to_async_pool(_run_cohort_query)
+    save_cohort_async = database_sync_to_async_pool(_save_cohort_outcomes)
+    dispatch_async = database_sync_to_async_pool(_dispatch_for_alert)
+
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_COHORTS_PER_BATCH)
+
+    async def _run_one_cohort(manifest: CohortManifest) -> dict[str, int]:
+        """Process one cohort, returning its stats delta. Always returns —
+        per-cohort failure is captured into local_stats, never raised."""
+        local_stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+
+        async with semaphore:
+            try:
+                cohort = _cohort_from_manifest(manifest, alerts_by_id)
+            except KeyError:
+                logger.warning(
+                    "Manifest references missing alert(s); skipping cohort",
+                    team_id=manifest.team_id,
+                    missing_count=len(manifest.alert_ids),
+                )
+                local_stats["errored"] += len(manifest.alert_ids)
+                return local_stats
+
+            _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
+
+            try:
+                query_result = await cohort_query_async(cohort)
+            except Exception:
+                logger.exception(
+                    "Cohort CH query failed unrecoverably",
+                    team_id=cohort.team_id,
+                    cohort_size=len(cohort.alerts),
+                )
+                local_stats["errored"] += len(cohort.alerts)
+                return local_stats
+
+            evaluations: list[_AlertEvaluation] = []
+            eval_starts: list[float] = []
+            for alert in cohort.alerts:
+                eval_start = time.perf_counter()
+                try:
+                    evaluations.append(
+                        _evaluate_single_alert(
+                            alert,
+                            now,
+                            checkpoint=None,
+                            prefetched=query_result.for_alert(alert),
+                        )
+                    )
+                    eval_starts.append(eval_start)
+                except Exception:
+                    logger.exception(
+                        "Unexpected error evaluating alert",
+                        alert_id=str(alert.id),
+                        team_id=alert.team_id,
+                    )
+                    local_stats["errored"] += 1
+
+            dispatched_or_errors = await asyncio.gather(
+                *(dispatch_async(ev, now) for ev in evaluations),
+                return_exceptions=True,
+            )
+            phase_2_end = time.perf_counter()
+            dispatched: list[_DispatchedAlert] = []
+            elapsed_ms_per_alert: list[int] = []
+            for ev, result, eval_start in zip(evaluations, dispatched_or_errors, eval_starts):
+                if isinstance(result, BaseException):
+                    logger.exception(
+                        "Unexpected error dispatching alert",
+                        alert_id=str(ev.alert.id),
+                        team_id=ev.alert.team_id,
+                        exc_info=result,
+                    )
+                    local_stats["errored"] += 1
+                else:
+                    dispatched.append(result)
+                    elapsed_ms_per_alert.append(int((phase_2_end - eval_start) * 1000))
+
+            try:
+                saved, failed = (await save_cohort_async(dispatched, now)) if dispatched else ([], [])
+            except Exception as e:
+                logger.exception("Cohort bulk save failed (non-recoverable)", team_id=cohort.team_id)
+                capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
+                local_stats["errored"] += len(dispatched)
+                local_stats["checked"] += len(dispatched)
+                return local_stats
+
+            elapsed_by_id = {str(d.evaluation.alert.id): ms for d, ms in zip(dispatched, elapsed_ms_per_alert)}
+            for d in saved:
+                _finalize_alert(d, elapsed_by_id[str(d.evaluation.alert.id)], local_stats)
+            for _ in failed:
+                local_stats["checked"] += 1
+                local_stats["errored"] += 1
+
+            return local_stats
+
+    cohort_results = await asyncio.gather(
+        *(_run_one_cohort(m) for m in input.manifests),
+        return_exceptions=False,  # _run_one_cohort never raises; it captures failures into local_stats
+    )
+
+    # Single GC at batch end rather than per-cohort. With up to 20 cohorts × 50
+    # alerts retained inside the closure during gather, a stop-the-world per
+    # cohort costs more than the once-per-batch reclaim it buys.
+    await asyncio.to_thread(_post_cohort_memory_cleanup)
+
+    stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+    for r in cohort_results:
+        for k, v in r.items():
+            stats[k] += v
+
+    if stats["checked"] > 0:
+        logger.info("Cohort batch complete", **stats)
+
+    return EvaluateCohortBatchOutput(
+        alerts_checked=stats["checked"],
+        alerts_fired=stats["fired"],
+        alerts_resolved=stats["resolved"],
+        alerts_errored=stats["errored"],
+    )
+
+
+def _load_alerts_for_batch(alert_ids: set[str]) -> dict[str, LogsAlertConfiguration]:
+    """Single `id__in` query for all alerts referenced by the batch.
+
+    Alert IDs are UUID PKs (unique, indexed) so cross-team `id__in` is no
+    slower than per-team scoping — and saves one round-trip per team.
+    """
+    return {
+        str(alert.id): alert for alert in LogsAlertConfiguration.objects.filter(id__in=alert_ids).select_related("team")
+    }
 
 
 def _run_batched_query(cohort: _AlertCohort) -> BatchedBucketedResult:
@@ -531,10 +618,10 @@ def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
 def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
     """Batched CH query for a cohort; per-alert fallback on non-transient failure.
 
-    Cohorts are pre-sized at `_build_cohorts` time so this function operates on a
-    single bounded group. Skip fallback for single-alert cohorts (would hit the
-    same error) and transient cluster errors (would hammer a struggling cluster
-    with N more failing queries).
+    Cohorts are pre-sized at `_cohort_manifests_from_alerts` time so this function
+    operates on a single bounded group. Skip fallback for single-alert cohorts
+    (would hit the same error) and transient cluster errors (would hammer a
+    struggling cluster with N more failing queries).
     """
     try:
         batched_result = _run_batched_query(cohort)
@@ -576,106 +663,6 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
             )
             for alert in cohort.alerts
         }
-    )
-
-
-def _check_alerts_sync() -> CheckAlertsOutput:
-    """Synchronous variant kept for unit tests. Production runs through `check_alerts_activity`.
-
-    Mirrors the async cohort dispatch shape (CH batched query → per-alert eval +
-    Kafka dispatch → bulk save) so tests cover the production code path.
-    """
-    now, all_alerts, checkpoint = _load_alerts_and_checkpoint()
-    cohorts = _build_cohorts(all_alerts, now=now, checkpoint=checkpoint)
-
-    stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
-    for cohort in cohorts:
-        _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
-
-        # Phase 1: cohort CH query (batched, with per-alert fallback on failure).
-        query_result = _run_cohort_query(cohort)
-
-        # Phase 2a: evaluate all alerts.
-        evaluations: list[_AlertEvaluation] = []
-        eval_starts: list[float] = []
-        for alert in cohort.alerts:
-            eval_start = time.perf_counter()
-            try:
-                evaluation = _evaluate_single_alert(
-                    alert,
-                    now,
-                    checkpoint=checkpoint,
-                    prefetched=query_result.for_alert(alert),
-                )
-            except Exception:
-                logger.exception(
-                    "Unexpected error evaluating alert",
-                    alert_id=str(alert.id),
-                    alert_name=alert.name,
-                    team_id=alert.team_id,
-                )
-                stats["errored"] += 1
-                continue
-            evaluations.append(evaluation)
-            eval_starts.append(eval_start)
-
-        # Phase 2b: dispatch all alerts.
-        dispatched: list[_DispatchedAlert] = []
-        kept_eval_starts_for_dispatch: list[float] = []
-        for ev, eval_start in zip(evaluations, eval_starts):
-            try:
-                d = _dispatch_for_alert(ev, now)
-            except Exception:
-                logger.exception(
-                    "Unexpected error dispatching alert",
-                    alert_id=str(ev.alert.id),
-                    alert_name=ev.alert.name,
-                    team_id=ev.alert.team_id,
-                )
-                stats["errored"] += 1
-                continue
-            dispatched.append(d)
-            kept_eval_starts_for_dispatch.append(eval_start)
-
-        # Snapshot per-alert elapsed_ms here so it doesn't include Phase 3.
-        phase_2_end = time.perf_counter()
-        elapsed_ms_per_alert = [int((phase_2_end - es) * 1000) for es in kept_eval_starts_for_dispatch]
-
-        # Phase 3: bulk save.
-        saved: list[_DispatchedAlert] = []
-        failed: list[_DispatchedAlert] = []
-        try:
-            if dispatched:
-                saved, failed = _save_cohort_outcomes(dispatched, now)
-        except Exception as e:
-            logger.exception(
-                "Cohort bulk save failed (non-recoverable)",
-                team_id=cohort.team_id,
-                cohort_size=len(dispatched),
-            )
-            capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
-            stats["errored"] += len(dispatched)
-            stats["checked"] += len(dispatched)
-            _post_cohort_memory_cleanup()
-            continue
-
-        # Phase 4: finalize stats + per-alert post-save metrics.
-        elapsed_by_alert_id = {str(d.evaluation.alert.id): ms for d, ms in zip(dispatched, elapsed_ms_per_alert)}
-        for d in saved:
-            _finalize_alert(d, elapsed_by_alert_id[str(d.evaluation.alert.id)], stats)
-        for _ in failed:
-            stats["checked"] += 1
-            stats["errored"] += 1
-        _post_cohort_memory_cleanup()
-
-    if stats["checked"] > 0:
-        logger.info("Alert check cycle complete", **stats)
-
-    return CheckAlertsOutput(
-        alerts_checked=stats["checked"],
-        alerts_fired=stats["fired"],
-        alerts_resolved=stats["resolved"],
-        alerts_errored=stats["errored"],
     )
 
 

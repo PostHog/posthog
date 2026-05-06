@@ -2,9 +2,19 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconInfo, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonCollapse, LemonModal, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonCollapse,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { pluralize } from 'lib/utils'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
 
@@ -46,9 +56,12 @@ export default function SchemaForm(): JSX.Element {
         toggleAllTables,
         toggleDirectQuerySchemaGroup,
         setExpandedDirectQuerySchemaKeys,
+        setSchemaNameFilter,
     } = useActions(sourceWizardLogic)
     const {
         databaseSchema,
+        filteredDatabaseSchema,
+        schemaNameFilter,
         suggestedTablesMap,
         isDirectQueryMode,
         source,
@@ -73,11 +86,32 @@ export default function SchemaForm(): JSX.Element {
     }, [containerRef])
 
     const showRows = databaseSchema.some((schema) => schema.rows != null)
+    const hasManySchemas = databaseSchema.length > 10
 
     return (
         <>
-            <div className="flex flex-col gap-2">
-                <div className="max-h-[60vh] overflow-y-auto">
+            <div className="flex flex-col gap-2 flex-1 min-h-0">
+                {hasManySchemas && (
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Filter tables"
+                            size="small"
+                            value={schemaNameFilter}
+                            onChange={setSchemaNameFilter}
+                        />
+                        <span className="text-muted text-sm">
+                            {schemaNameFilter
+                                ? `${filteredDatabaseSchema.length} of ${pluralize(
+                                      databaseSchema.length,
+                                      'table',
+                                      'tables'
+                                  )}`
+                                : pluralize(databaseSchema.length, 'table', 'tables')}
+                        </span>
+                    </div>
+                )}
+                <div className="flex-1 min-h-0 overflow-y-auto">
                     {isDirectQueryMode ? (
                         groupedDirectQueryDatabaseSchema.length > 0 ? (
                             <div className="border rounded bg-bg-light">
@@ -193,14 +227,22 @@ export default function SchemaForm(): JSX.Element {
                         )
                     ) : (
                         <LemonTable
-                            emptyState="No schemas found"
-                            dataSource={databaseSchema}
+                            emptyState={schemaNameFilter ? `No tables match "${schemaNameFilter}"` : 'No schemas found'}
+                            dataSource={filteredDatabaseSchema}
+                            pagination={{ pageSize: 100, hideOnSinglePage: true }}
                             columns={[
                                 {
                                     title: (
                                         <LemonCheckbox
                                             checked={tablesAllToggledOn}
-                                            onChange={(checked) => toggleAllTables(checked)}
+                                            onChange={(checked) =>
+                                                toggleAllTables(
+                                                    checked,
+                                                    schemaNameFilter
+                                                        ? filteredDatabaseSchema.map((s) => s.table)
+                                                        : undefined
+                                                )
+                                            }
                                         />
                                     ),
                                     width: 0,

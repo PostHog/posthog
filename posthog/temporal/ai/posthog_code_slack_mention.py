@@ -773,6 +773,7 @@ def create_posthog_code_task_for_repo_activity(
             slack_thread_url=slack_thread_url,
             start_workflow=False,
             posthog_mcp_scopes="full",
+            initial_permission_mode="bypassPermissions",
         )
     except Exception as e:
         log.exception(
@@ -1069,6 +1070,10 @@ def _resume_task_with_new_run(
 
     extra_state: dict[str, Any] = {
         "interaction_origin": "slack",  # Makes the agent auto-push and open a draft PR
+        # No desktop is attached to Slack runs; bypass the destructive
+        # PostHog sub-tool gate so it doesn't make a permission roundtrip
+        # only to auto-allow at the cloud client.
+        "initial_permission_mode": "bypassPermissions",
     }
 
     previous_state = previous_run.state or {}
