@@ -212,3 +212,66 @@ class TestConversationEvents(BaseTest):
 
         # Tokens must be different (proves isolation)
         assert first_call["token"] != second_call["token"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_enables_person_processing_for_identified_person(
+        self, mock_get_persons, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        person = Person(team_id=self.team.id, is_identified=True, properties={"email": "test@example.com"})
+        mock_get_persons.return_value = [person]
+
+        capture_ticket_created(self.ticket)
+
+        mock_get_persons.assert_called_once_with(self.team.id, [self.ticket.distinct_id])
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        groups = call_kwargs["properties"]["$groups"]
+        assert groups["organization"] == str(self.team.organization_id)
+        assert groups["project"] == str(self.team.uuid)
+        assert "instance" in groups
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_skips_person_processing_for_anonymous_person(self, mock_get_persons, mock_capture):
+        from posthog.models.person.person import Person
+
+        person = Person(team_id=self.team.id, is_identified=False)
+        mock_get_persons.return_value = [person]
+
+        capture_ticket_created(self.ticket)
+
+        mock_get_persons.assert_called_once_with(self.team.id, [self.ticket.distinct_id])
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_skips_person_processing_when_no_person(self, mock_get_persons, mock_capture):
+        mock_get_persons.return_value = []
+
+        capture_ticket_created(self.ticket)
+
+        mock_get_persons.assert_called_once_with(self.team.id, [self.ticket.distinct_id])
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_skips_person_lookup_for_empty_distinct_id(self, mock_get_persons, mock_capture):
+        empty_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="",
+            channel_source="github",
+        )
+
+        capture_ticket_created(empty_ticket)
+
+        mock_get_persons.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
