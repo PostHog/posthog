@@ -88,7 +88,7 @@ export function buildTooltipContext<Meta = unknown>(
             continue
         }
         const value = resolveValue(s, dataIndex)
-        if (!s.visibility?.fromTooltip) {
+        if (s.visibility?.tooltip !== false) {
             seriesData.push({ series: s, value, color: s.color })
         }
         const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale

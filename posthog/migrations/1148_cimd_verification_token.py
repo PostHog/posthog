@@ -10,7 +10,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1146_subscription_enabled"),
+        ("posthog", "1147_columnconfiguration_order_by"),
     ]
 
     operations = [

@@ -26,6 +26,11 @@ export interface ColumnConfigurationApi {
     /** @maxLength 255 */
     name?: string
     filters?: unknown
+    /**
+     * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+     * @nullable
+     */
+    order_by?: string[] | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
@@ -50,6 +55,11 @@ export interface PatchedColumnConfigurationApi {
     /** @maxLength 255 */
     name?: string
     filters?: unknown
+    /**
+     * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+     * @nullable
+     */
+    order_by?: string[] | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
@@ -2635,11 +2645,12 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
 
-export const AggregationPropertyTypeApi = {
+export const AggregationPropertyType1Api = {
     Event: 'event',
     Person: 'person',
+    DataWarehouse: 'data_warehouse',
 } as const
 
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
@@ -2778,8 +2789,8 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
-    /** The type of property to aggregate on (event or person). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyTypeApi | null
+    /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyType1Api | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
@@ -8007,6 +8018,8 @@ export const MarketingAnalyticsDrillDownLevelApi = {
     Channel: 'channel',
     Source: 'source',
     Campaign: 'campaign',
+    AdGroup: 'ad_group',
+    Ad: 'ad',
     Medium: 'medium',
     Content: 'content',
     Term: 'term',
