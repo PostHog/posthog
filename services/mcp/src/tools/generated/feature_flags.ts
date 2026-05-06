@@ -261,19 +261,7 @@ const featureFlagsMyFlagsRetrieve = (): ToolBase<
                 groups: params.groups,
             },
         })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'feature_flag.id',
-                    'feature_flag.key',
-                    'feature_flag.name',
-                    'feature_flag.active',
-                    'value',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/feature_flags')
+        return await withPostHogUrl(context, result, '/feature_flags')
     },
 })
 
