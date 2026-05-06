@@ -163,10 +163,18 @@ function LineChartInner<Meta = unknown>({
 
             // Clip data drawing to the plot area so an overlay series with values outside
             // the y-domain (e.g. a trendline projecting below 0) doesn't bleed into the
-            // axis-label gutter beneath the chart.
+            // axis-label gutter beneath the chart. A small pad on top/bottom keeps strokes
+            // at the domain edge from rendering at half-thickness — line strokes and point
+            // markers extend past the value's pixel center.
+            const CLIP_PAD = 8
             ctx.save()
             ctx.beginPath()
-            ctx.rect(dimensions.plotLeft, dimensions.plotTop, dimensions.plotWidth, dimensions.plotHeight)
+            ctx.rect(
+                dimensions.plotLeft,
+                dimensions.plotTop - CLIP_PAD,
+                dimensions.plotWidth,
+                dimensions.plotHeight + CLIP_PAD * 2
+            )
             ctx.clip()
 
             for (const s of coloredSeries) {
