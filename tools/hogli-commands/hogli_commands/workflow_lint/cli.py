@@ -1,16 +1,7 @@
 """Click entrypoint for ``lint:workflows``.
 
-This module is importable from two contexts:
-
-1. **Local dev via hogli** — ``bin/hogli lint:workflows``. The lazy loader
-   resolves ``cmd_lint_workflows`` from the ``click:`` manifest entry in
-   ``hogli.yaml`` only when the command actually runs.
-2. **CI via standalone script** — ``.github/scripts/lint-workflows.py`` runs
-   ``cmd_lint_workflows.main(prog_name="lint:workflows")`` directly. No hogli
-   framework needed; pyyaml + click are the only deps.
-
-Keeping hogli optional avoids forcing every CI job that runs this lint into a
-full ``uv sync``.
+Wired into the hogli CLI via the ``click:`` manifest entry in ``hogli.yaml``;
+the lazy loader resolves this module only when the command actually runs.
 """
 
 from __future__ import annotations
@@ -19,10 +10,11 @@ import os
 from pathlib import Path
 
 import click
+from hogli.manifest import REPO_ROOT
 
 from .check import Issue, WorkflowCheck
 from .checks import CHECKS, get_check
-from .model import Workflow, WorkflowParseError, WorkflowReader, find_repo_root
+from .model import Workflow, WorkflowParseError, WorkflowReader
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -50,7 +42,7 @@ def _run_one(check: WorkflowCheck, workflows: list[Workflow]) -> tuple[int, int]
 
 
 def _default_workflows_dir() -> Path:
-    return find_repo_root() / ".github" / "workflows"
+    return REPO_ROOT / ".github" / "workflows"
 
 
 @click.command(

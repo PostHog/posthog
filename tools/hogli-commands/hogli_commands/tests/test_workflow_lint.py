@@ -407,9 +407,8 @@ class TestDornyNegationCheck:
 
 
 class TestSemgrepServicesCoverageCheck:
-    def test_passes_when_all_services_are_covered(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_passes_when_all_services_are_covered(self, tmp_path: Path) -> None:
         repo_root = tmp_path
-        (repo_root / "hogli.yaml").write_text("quality: {}\n")
         (repo_root / "services" / "api").mkdir(parents=True)
         (repo_root / "services" / "worker").mkdir()
         workflows_dir = repo_root / ".github" / "workflows"
@@ -435,12 +434,10 @@ class TestSemgrepServicesCoverageCheck:
                   - run: echo ok
             """,
         )
-        monkeypatch.setenv("HOGLI_MANIFEST", str(repo_root / "hogli.yaml"))
-        assert SemgrepServicesCoverageCheck().run(_read_all(workflows_dir)).issues == []
+        assert SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues == []
 
-    def test_fails_when_a_service_is_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_fails_when_a_service_is_missing(self, tmp_path: Path) -> None:
         repo_root = tmp_path
-        (repo_root / "hogli.yaml").write_text("quality: {}\n")
         (repo_root / "services" / "api").mkdir(parents=True)
         (repo_root / "services" / "worker").mkdir()
         workflows_dir = repo_root / ".github" / "workflows"
@@ -464,8 +461,7 @@ class TestSemgrepServicesCoverageCheck:
                   - run: echo ok
             """,
         )
-        monkeypatch.setenv("HOGLI_MANIFEST", str(repo_root / "hogli.yaml"))
-        [issue] = SemgrepServicesCoverageCheck().run(_read_all(workflows_dir)).issues
+        [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert issue.workflow == "ci-security.yaml"
         assert "services/worker/" in issue.message
 

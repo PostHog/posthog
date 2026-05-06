@@ -16,7 +16,6 @@ Quirks hidden here:
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,26 +23,6 @@ from pathlib import Path
 import yaml
 
 PR_TRIGGERS = frozenset({"pull_request", "pull_request_target"})
-
-
-def find_repo_root(start: Path | None = None) -> Path:
-    """Walk up from ``start`` (default: cwd) until ``hogli.yaml`` is found.
-
-    Mirrors ``hogli.manifest._find_repo_root`` but lives here so the
-    ``workflow_lint`` package has no hogli framework import dependency
-    (so it can run from a minimal CI venv).
-    """
-    if env_manifest := os.environ.get("HOGLI_MANIFEST"):
-        p = Path(env_manifest).resolve()
-        if not p.is_file():
-            raise ValueError(f"HOGLI_MANIFEST={env_manifest!r} does not point to an existing file")
-        return p.parent
-
-    current = (start or Path.cwd()).resolve()
-    for parent in [current, *current.parents]:
-        if (parent / "hogli.yaml").exists():
-            return parent
-    return current
 
 
 class WorkflowParseError(Exception):
@@ -225,5 +204,4 @@ __all__ = [
     "WorkflowParseError",
     "WorkflowReader",
     "parse_filters",
-    "find_repo_root",
 ]

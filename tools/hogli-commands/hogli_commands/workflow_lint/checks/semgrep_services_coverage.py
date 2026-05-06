@@ -12,8 +12,12 @@ walks both via ``REPO_ROOT`` rather than only iterating the parsed
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from hogli.manifest import REPO_ROOT
+
 from ..check import CheckResult, Issue, WorkflowCheck
-from ..model import Workflow, find_repo_root
+from ..model import Workflow
 
 COVERING_JOBS = ("semgrep-python", "semgrep-js")
 SECURITY_WORKFLOW_NAME = "ci-security.yaml"
@@ -24,13 +28,17 @@ class SemgrepServicesCoverageCheck(WorkflowCheck):
     label = "semgrep services coverage"
     description = f"every services/<name>/ appears in {' or '.join(COVERING_JOBS)} run-text in {SECURITY_WORKFLOW_NAME}"
 
+    def __init__(self, repo_root: Path | None = None) -> None:
+        # Injected so tests can point at a fixture tree without monkeypatching env vars.
+        self._repo_root = repo_root or REPO_ROOT
+
     @property
     def fix_hint(self) -> str | None:
         return f"Add each missing service to the matching job's target list in {SECURITY_WORKFLOW_NAME}."
 
     def run(self, workflows: list[Workflow]) -> CheckResult:
         result = CheckResult()
-        services_dir = find_repo_root() / "services"
+        services_dir = self._repo_root / "services"
         if not services_dir.exists():
             return result
 
