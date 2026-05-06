@@ -33,6 +33,7 @@ use tower_http::{
 
 use crate::{
     api::{
+        body_read_metrics::record_body_read,
         concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
@@ -266,8 +267,14 @@ pub fn router(
     //    just before permit acquisition. Inside `TimeoutLayer` so timeouts
     //    still fire while the request is parked at the limiter.
     // 4. ConcurrencyLimitLayer: bounds in-flight requests.
-    // 5. record_concurrency_wait (innermost): computes elapsed permit-wait
-    //    immediately after the layer hands off a permit, before the handler.
+    // 5. record_concurrency_wait: computes elapsed permit-wait immediately
+    //    after the layer hands off a permit, before the body shim runs.
+    // 6. record_body_read (innermost): buffers the inbound body to memory
+    //    while timing the operation, then hands the handler an in-memory
+    //    body. Sandwiched between `record_concurrency_wait` and the handler
+    //    so its measurement excludes permit wait but includes the slow-
+    //    upload / large-compressed-body path that would otherwise be
+    //    attributed to the handler with no per-step visibility.
     //
     // Note: this entire chain wraps both `/flags|/decide` AND
     // `/flags/definitions|/api/feature_flag/local_evaluation`. The shim pair
@@ -311,9 +318,13 @@ pub fn router(
     }
 
     let flags_router = flags_router
-        // Innermost: runs *after* `ConcurrencyLimitLayer` releases a
-        // permit, so it can compute the elapsed permit-wait before the
-        // handler runs.
+        // Innermost: buffers the inbound body to memory while timing
+        // the operation. Sits between `record_concurrency_wait` and the
+        // handler so it captures only body-buffering latency — not the
+        // permit wait, which `record_concurrency_wait` already records.
+        .layer(axum::middleware::from_fn(record_body_read))
+        // Runs *after* `ConcurrencyLimitLayer` releases a permit, so
+        // it can compute the elapsed permit-wait before the body shim.
         .layer(axum::middleware::from_fn(record_concurrency_wait))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
         // Sandwiched between `TimeoutLayer` and `ConcurrencyLimitLayer`:
