@@ -154,6 +154,17 @@ export class BatchWritingGroupStore implements GroupStore {
         this.clickhouseGroupRepository = clickhouseGroupRepository
     }
 
+    start(): Promise<void> {
+        // No startup work — the cache initializes in the constructor.
+        return Promise.resolve()
+    }
+
+    stop(): Promise<void> {
+        // The store flushes via the per-batch flush step; shutdown has no
+        // additional state to drain.
+        return Promise.resolve()
+    }
+
     getGroupCache(): GroupCache {
         return this.groupCache
     }
