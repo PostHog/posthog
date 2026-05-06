@@ -29,7 +29,6 @@ TEMPLATE_NAME = "posthog-linux"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
-CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
@@ -80,6 +79,38 @@ def get_coder_url() -> str:
 def _normalize_version(version: str) -> str:
     """Strip leading ``v`` and semver build metadata (``+hash``)."""
     return version.lstrip("v").split("+")[0]
+
+
+# Coder server version that introduced user secrets (Early Access).
+USER_SECRETS_MIN_VERSION = (2, 33)
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    """Parse a normalized semver string into an int tuple for ordered comparison.
+
+    Trailing pre-release segments (``-rc1``) are dropped from each component so
+    ``2.33.0-rc1`` compares equal to ``2.33.0`` for the gate we care about.
+    """
+    parts: list[int] = []
+    for segment in version.split("."):
+        digits = segment.split("-", 1)[0]
+        if not digits.isdigit():
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def server_supports_user_secrets() -> bool:
+    """Return whether the configured Coder server is >= 2.33.
+
+    Returns ``False`` (graceful) if the server version cannot be determined,
+    so callers can skip secret-related steps without aborting setup.
+    """
+    try:
+        version = get_server_version()
+    except RuntimeError:
+        return False
+    return _version_tuple(version) >= USER_SECRETS_MIN_VERSION
 
 
 def get_server_version() -> str:
@@ -523,7 +554,12 @@ def print_setup_summary() -> None:
     click.echo("To reconfigure later:")
     click.echo("  hogli devbox:setup --configure-git-identity")
     click.echo("  hogli devbox:setup --configure-dotfiles")
-    click.echo("  hogli devbox:setup --configure-claude")
+    click.echo("  hogli devbox:setup --configure-claude  (manage CLAUDE_CODE_OAUTH_TOKEN as a Coder user secret)")
+    click.echo()
+    click.echo("To manage other workspace secrets (GH_TOKEN, AWS creds, etc):")
+    click.echo("  hogli devbox:secret:list")
+    click.echo("  hogli devbox:secret:set NAME")
+    click.echo("  hogli devbox:secret:rm NAME")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:
@@ -675,7 +711,6 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
 def create_workspace(
     name: str,
     disk_size: int,
-    claude_oauth_token: str | None = None,
     git_name: str | None = None,
     git_email: str | None = None,
     dotfiles_uri: str | None = None,
@@ -688,7 +723,6 @@ def create_workspace(
         **_TEMPLATE_PARAMETER_DEFAULTS,
         "disk_size": str(disk_size),
         "repo": repo,
-        CLAUDE_OAUTH_PARAMETER: claude_oauth_token or "",
     }
     if git_name:
         parameters[GIT_NAME_PARAMETER] = git_name
@@ -840,6 +874,92 @@ def open_web_ide(name: str) -> None:
     """Open code-server for the workspace."""
     username = get_username()
     webbrowser.open(f"{get_coder_url()}/@{username}/{name}/apps/code-server")
+
+
+# ---------------------------------------------------------------------------
+# Coder user secrets
+# ---------------------------------------------------------------------------
+
+CLAUDE_CODE_OAUTH_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
+
+
+def list_user_secrets() -> list[dict[str, Any]] | None:
+    """Return user secrets via ``coder secret list -o json``.
+
+    Returns ``None`` when the CLI rejects the command (older server / missing
+    feature flag) so callers can distinguish "no secrets" from "unsupported".
+    """
+    result = _run(["coder", "secret", "list", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return None
+    try:
+        secrets = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return None
+    return secrets if isinstance(secrets, list) else []
+
+
+def get_user_secret(name: str) -> dict[str, Any] | None:
+    """Return a single secret payload by name, or ``None`` if not present."""
+    secrets = list_user_secrets() or []
+    for secret in secrets:
+        if isinstance(secret, dict) and secret.get("name") == name:
+            return secret
+    return None
+
+
+def has_claude_oauth_secret() -> bool:
+    """Return whether a Coder user secret named ``CLAUDE_CODE_OAUTH_TOKEN`` exists."""
+    return get_user_secret(CLAUDE_CODE_OAUTH_ENV) is not None
+
+
+def create_user_secret(
+    name: str,
+    value: str,
+    *,
+    env_name: str | None = None,
+    description: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Create a Coder user secret.
+
+    The value is written to a 0600 temp file and passed via ``--file`` so it is
+    never visible in argv or the process listing.
+    """
+    args = ["coder", "secret", "create", name]
+    if env_name:
+        args += ["--env", env_name]
+    if description:
+        args += ["--description", description]
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as value_file:
+        value_file.write(value)
+        file_path = Path(value_file.name)
+    try:
+        file_path.chmod(0o600)
+        return _run([*args, "--file", str(file_path)], capture_output=True)
+    finally:
+        file_path.unlink(missing_ok=True)
+
+
+def create_user_secret_from_file(
+    name: str,
+    source_path: Path,
+    *,
+    env_name: str | None = None,
+    description: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Create a Coder user secret from an existing file path."""
+    args = ["coder", "secret", "create", name]
+    if env_name:
+        args += ["--env", env_name]
+    if description:
+        args += ["--description", description]
+    return _run([*args, "--file", str(source_path)], capture_output=True)
+
+
+def delete_user_secret(name: str) -> subprocess.CompletedProcess[str]:
+    """Delete a Coder user secret by name."""
+    return _run(["coder", "secret", "delete", name, "--yes"], capture_output=True)
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ Provides hogli devbox:* commands for managing Coder-based remote dev environment
 from __future__ import annotations
 
 import os
+import sys
 import errno
 import shutil
 import socket
@@ -18,14 +19,17 @@ from typing import Any
 import click
 from hogli.manifest import get_manifest
 
-from . import keychain
 from .coder import (
+    CLAUDE_CODE_OAUTH_ENV,
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     _fail,
     create_task,
+    create_user_secret,
+    create_user_secret_from_file,
     create_workspace,
+    delete_user_secret,
     delete_workspace,
     ensure_coder_authenticated,
     ensure_coder_installed,
@@ -41,8 +45,10 @@ from .coder import (
     get_workspace,
     get_workspace_name,
     get_workspace_status,
+    has_claude_oauth_secret,
     list_coder_users,
     list_shared_workspaces,
+    list_user_secrets,
     list_user_workspaces,
     logs_replace,
     maybe_configure_ssh,
@@ -54,6 +60,7 @@ from .coder import (
     port_forward_replace,
     print_setup_summary,
     restart_workspace,
+    server_supports_user_secrets,
     share_workspace,
     ssh_replace,
     start_workspace,
@@ -64,7 +71,7 @@ from .coder import (
 )
 from .config import load_config, save_dotfiles_uri, save_git_identity
 
-_CLAUDE_TOKEN_SERVICE = "posthog-claude-oauth-token"
+_LEGACY_KEYCHAIN_SERVICE = "posthog-claude-oauth-token"
 
 WORKSPACE_STATUS_COLORS = {
     "running": "green",
@@ -233,55 +240,74 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
     _print_connection_info(name)
 
 
-def _prompt_for_claude_token(*, skip_pause: bool = False) -> str | None:
-    """Prompt for a Claude OAuth token and save it to Keychain."""
-    if not skip_pause:
-        click.echo("Run `claude setup-token` in another terminal to generate a token.")
-        click.pause("Press Enter when you have the token ready...")
+def _read_legacy_keychain_token() -> str | None:
+    """Read the legacy macOS Keychain Claude token, if present.
+
+    Used during migration only. Older hogli versions stashed the token under
+    a generic-password entry; the new flow stores it as a Coder user secret,
+    so this read happens once and the entry is then deleted.
+    """
+    if sys.platform != "darwin":
+        return None
+    result = subprocess.run(
+        ["security", "find-generic-password", "-a", os.environ.get("USER", ""), "-s", _LEGACY_KEYCHAIN_SERVICE, "-w"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _delete_legacy_keychain_token() -> bool:
+    """Best-effort delete of the legacy macOS Keychain Claude token entry."""
+    if sys.platform != "darwin":
+        return False
+    result = subprocess.run(
+        [
+            "security",
+            "delete-generic-password",
+            "-a",
+            os.environ.get("USER", ""),
+            "-s",
+            _LEGACY_KEYCHAIN_SERVICE,
+        ],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def _prompt_for_claude_token() -> str | None:
+    """Prompt for a Claude OAuth token interactively.
+
+    Returns the trimmed token, or ``None`` if the user accepts the empty default.
+    """
+    click.echo("Run `claude setup-token` in another terminal to generate a token.")
+    click.pause("Press Enter when you have the token ready...")
     token = click.prompt(
         "Claude OAuth token (Enter to skip)",
         default="",
         hide_input=True,
         show_default=False,
     ).strip()
-    if not token:
-        return None
-
-    if keychain.write(_CLAUDE_TOKEN_SERVICE, token):
-        click.echo("Saved to Keychain.")
-    else:
-        click.echo(click.style("Failed to save to Keychain.", fg="red"))
-    return token
+    return token or None
 
 
-def _maybe_prompt_for_claude_oauth_token(configure_claude: bool | None) -> str | None:
-    """Resolve a Claude OAuth token from env, Keychain, or interactive prompt.
-
-    When configure_claude is True (explicit --configure-claude), the user is
-    asked for a fresh token even if one exists in Keychain. This lets users
-    replace an expired token without a separate ``devbox:auth --set`` call.
-    """
-    if token := os.environ.get("CLAUDE_OAUTH_TOKEN"):
-        return token
-
-    # Explicit --configure-claude: skip cached token, prompt for a fresh one
-    if configure_claude is True:
-        return _prompt_for_claude_token()
-
-    if token := keychain.read(_CLAUDE_TOKEN_SERVICE):
-        click.echo("Using Claude token from Keychain. Pass --configure-claude to replace it.")
-        return token
-
-    if configure_claude is None:
-        configure_claude = click.confirm(
-            "Configure Claude Code in the workspace?",
-            default=True,
-        )
-
-    if not configure_claude:
-        return None
-
-    return _prompt_for_claude_token()
+def _create_claude_secret(token: str) -> bool:
+    """Create the CLAUDE_CODE_OAUTH_TOKEN Coder user secret. Returns True on success."""
+    result = create_user_secret(
+        CLAUDE_CODE_OAUTH_ENV,
+        token,
+        env_name=CLAUDE_CODE_OAUTH_ENV,
+        description="Claude Code OAuth token (managed by hogli)",
+    )
+    if result.returncode == 0:
+        return True
+    click.echo(click.style("Failed to create Coder user secret.", fg="red"))
+    if result.stderr:
+        click.echo(result.stderr.strip())
+    return False
 
 
 def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
@@ -387,31 +413,66 @@ def devbox_help() -> None:
     click.echo("Run `hogli <command> --help` for command-specific options.")
 
 
-def maybe_configure_claude_token(configure_claude: bool | None) -> None:
-    """Optionally prompt for a Claude OAuth token and store it in Keychain."""
-    if keychain.read(_CLAUDE_TOKEN_SERVICE) and configure_claude is not True:
-        click.echo("Claude token: configured (stored in Keychain).")
-        click.echo("Run `hogli devbox:setup --configure-claude` to replace.")
-        return
+def maybe_configure_claude_secret(configure_claude: bool | None) -> None:
+    """Manage the ``CLAUDE_CODE_OAUTH_TOKEN`` Coder user secret for this user.
 
-    if not keychain.is_supported():
-        click.echo("Claude token: set CLAUDE_OAUTH_TOKEN env var (Keychain not available on this platform).")
+    Resolution order:
+
+    1. Server unsupported (< 2.33) -- skip with a one-line note.
+    2. Secret already exists and the user did not pass --configure-claude -- skip.
+    3. Legacy macOS Keychain entry exists -- offer to migrate, then delete it.
+    4. Otherwise -- prompt for a fresh token and create the secret.
+    """
+    if not server_supports_user_secrets():
+        click.echo("Claude token: skipping (Coder server is older than 2.33; user secrets unavailable).")
         return
 
     if configure_claude is False:
         click.echo("Skipping Claude token setup.")
         return
 
+    secret_exists = has_claude_oauth_secret()
+
+    if secret_exists and configure_claude is not True:
+        click.echo(f"Claude token already set as a Coder user secret ({CLAUDE_CODE_OAUTH_ENV}).")
+        click.echo("Run `hogli devbox:setup --configure-claude` to replace it.")
+        return
+
+    legacy_token = _read_legacy_keychain_token()
+
+    if legacy_token and not secret_exists and configure_claude is not True:
+        click.echo()
+        click.echo(click.style("Claude Code: migrating Keychain token to a Coder user secret", bold=True))
+        click.echo("  hogli now stores the Claude OAuth token as a Coder user secret so that")
+        click.echo("  workspaces -- and devbox:task runs -- pick it up automatically.")
+        if click.confirm("Migrate the existing Keychain entry now?", default=True):
+            if _create_claude_secret(legacy_token):
+                if _delete_legacy_keychain_token():
+                    click.echo("Migrated to Coder user secret. Removed the legacy Keychain entry.")
+                else:
+                    click.echo("Migrated to Coder user secret. (Could not remove the legacy Keychain entry.)")
+            return
+
     click.echo()
     click.echo(click.style("Claude Code (optional)", bold=True))
-    click.echo("  Workspaces can run Claude Code if you provide an OAuth token.")
-    click.echo("  The token will be stored in your macOS Keychain and reused for future workspaces.")
+    click.echo("  Workspaces and devbox:task runs can use Claude Code if you provide an OAuth token.")
+    click.echo("  The token will be stored as a Coder user secret and injected as")
+    click.echo(f"  ${CLAUDE_CODE_OAUTH_ENV} into every workspace you start.")
     click.echo("  To generate one, run `claude setup-token` in another terminal.")
-    click.echo("  You can also skip this and pass --claude-oauth-token later, or set CLAUDE_OAUTH_TOKEN.")
     click.echo()
 
-    if not _prompt_for_claude_token(skip_pause=True):
+    token = _prompt_for_claude_token()
+    if not token:
         click.echo("No token provided. Skipping.")
+        return
+
+    if secret_exists:
+        # Replacing an existing secret: delete first since `coder secret create`
+        # rejects a duplicate name.
+        delete_user_secret(CLAUDE_CODE_OAUTH_ENV)
+
+    if _create_claude_secret(token):
+        click.echo(f"Saved Claude token as Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
 
 
 @click.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
@@ -434,7 +495,7 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
     "--configure-claude/--skip-configure-claude",
     "configure_claude_setup",
     default=None,
-    help="Prompt for a Claude OAuth token to store in Keychain",
+    help="Manage the CLAUDE_CODE_OAUTH_TOKEN Coder user secret for this user",
 )
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_setup(
@@ -453,7 +514,7 @@ def devbox_setup(
     maybe_configure_ssh(configure_ssh=configure_ssh, verbose=verbose)
     maybe_configure_git_identity(configure_git_identity)
     maybe_configure_dotfiles(configure_dotfiles)
-    maybe_configure_claude_token(configure_claude_setup)
+    maybe_configure_claude_secret(configure_claude_setup)
     print_setup_summary()
 
 
@@ -599,22 +660,10 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     default="100",
     help="Disk size in GiB (default: 100)",
 )
-@click.option(
-    "--configure-claude/--skip-configure-claude",
-    default=None,
-    help="Prompt for a Claude OAuth token when creating a new workspace",
-)
-@click.option(
-    "--claude-oauth-token",
-    envvar="HOGLI_DEVBOX_CLAUDE_OAUTH_TOKEN",
-    hidden=True,
-)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
     disk: str,
-    configure_claude: bool | None,
-    claude_oauth_token: str | None,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
@@ -626,14 +675,12 @@ def devbox_start(
         _start_existing_workspace(name, ws, verbose=verbose)
         return
 
-    token = claude_oauth_token or _maybe_prompt_for_claude_oauth_token(configure_claude)
     config = load_config()
 
     click.echo(f"Creating devbox '{name}' (disk={disk}GiB)...")
     create_workspace(
         name,
         int(disk),
-        claude_oauth_token=token,
         git_name=config.get("git_name"),
         git_email=config.get("git_email"),
         dotfiles_uri=config.get("dotfiles_uri"),
@@ -766,7 +813,107 @@ def devbox_task(prompt: str | None, task_name: str | None, quiet: bool) -> None:
             'Example: hogli devbox:task "document the ingestion pipeline"'
         )
     ensure_runtime_ready()
+    if server_supports_user_secrets() and not has_claude_oauth_secret():
+        click.echo(
+            click.style(
+                f"Warning: no '{CLAUDE_CODE_OAUTH_ENV}' Coder user secret set; the task will run without Claude auth.",
+                fg="yellow",
+            ),
+            err=True,
+        )
+        click.echo(
+            "  Run `hogli devbox:setup --configure-claude` (or `hogli devbox:secret:set "
+            f"{CLAUDE_CODE_OAUTH_ENV}`) to set it.",
+            err=True,
+        )
     create_task(prompt, task_name=task_name, quiet=quiet)
+
+
+def _ensure_user_secrets_supported() -> None:
+    """Fail fast when the Coder server does not support user secrets."""
+    if server_supports_user_secrets():
+        return
+    _fail("Coder server does not support user secrets (requires >= 2.33). Update the deployment first.")
+
+
+@click.command(name="devbox:secret:list", help="List your Coder user secrets")
+def devbox_secret_list() -> None:
+    """List the user secrets attached to your Coder account."""
+    ensure_runtime_ready()
+    _ensure_user_secrets_supported()
+
+    secrets = list_user_secrets()
+    if secrets is None:
+        _fail("Could not list user secrets. Check `coder secret list` directly for details.")
+    if not secrets:
+        click.echo("No user secrets configured. Run `hogli devbox:secret:set NAME` to add one.")
+        return
+
+    click.echo(f"  {'NAME':<32} {'ENV':<32} DESCRIPTION")
+    for secret in secrets:
+        name = str(secret.get("name", ""))
+        env = str(secret.get("env_name") or secret.get("env") or "")
+        description = str(secret.get("description", ""))
+        click.echo(f"  {name:<32} {env:<32} {description}")
+
+
+@click.command(name="devbox:secret:set", help="Create or replace a Coder user secret")
+@click.argument("name")
+@click.option(
+    "--file",
+    "file_path",
+    type=click.Path(exists=True, dir_okay=False, readable=True, path_type=Path),
+    default=None,
+    help="Read the secret value from this file instead of prompting for it",
+)
+@click.option(
+    "--env",
+    "env_name",
+    default=None,
+    help="Environment variable name to inject in the workspace (defaults to NAME)",
+)
+@click.option("--description", default=None, help="Optional description")
+def devbox_secret_set(name: str, file_path: Path | None, env_name: str | None, description: str | None) -> None:
+    """Set a Coder user secret. Replaces any existing secret with the same name."""
+    ensure_runtime_ready()
+    _ensure_user_secrets_supported()
+
+    target_env = env_name or name
+
+    # `coder secret create` rejects a duplicate name; delete-then-create keeps the
+    # CLI surface declarative ("set NAME to value") rather than two-step.
+    existing = list_user_secrets() or []
+    if any(isinstance(s, dict) and s.get("name") == name for s in existing):
+        delete_user_secret(name)
+
+    if file_path is not None:
+        result = create_user_secret_from_file(name, file_path, env_name=target_env, description=description)
+    else:
+        value = click.prompt(f"Value for {name}", hide_input=True, confirmation_prompt=True)
+        if not value:
+            _fail("Empty value rejected. Pass --file PATH or enter a non-empty value.")
+        result = create_user_secret(name, value, env_name=target_env, description=description)
+
+    if result.returncode != 0:
+        if result.stderr:
+            click.echo(result.stderr.strip(), err=True)
+        _fail(f"Failed to create user secret '{name}'.")
+    click.echo(f"Set user secret '{name}' (env: {target_env}). Restart workspaces to pick up the change.")
+
+
+@click.command(name="devbox:secret:rm", help="Delete a Coder user secret")
+@click.argument("name")
+def devbox_secret_rm(name: str) -> None:
+    """Delete a Coder user secret by name."""
+    ensure_runtime_ready()
+    _ensure_user_secrets_supported()
+
+    result = delete_user_secret(name)
+    if result.returncode != 0:
+        if result.stderr:
+            click.echo(result.stderr.strip(), err=True)
+        _fail(f"Failed to delete user secret '{name}'.")
+    click.echo(f"Deleted user secret '{name}'.")
 
 
 @click.command(name="devbox:destroy", help="Destroy your devbox and its data")
