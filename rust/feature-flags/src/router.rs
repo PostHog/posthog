@@ -256,32 +256,16 @@ pub fn router(
             get(move || startup(db_pools_for_startup.clone())),
         );
 
-    // flags endpoint
-    // IP rate limiting is now handled in the endpoint handler for better control and log-only mode support
+    // Layer ordering (outermost to innermost, last `.layer()` is outermost):
+    //   HandleErrorLayer → TimeoutLayer → record_concurrency_enter →
+    //   ConcurrencyLimitLayer → record_concurrency_wait → (per-sub-router).
     //
-    // Layer ordering (outermost to innermost, last .layer() call on Router is outermost):
-    // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
-    // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
-    //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
-    // 3. record_concurrency_enter: stamps the request with `Instant::now()`
-    //    just before permit acquisition. Inside `TimeoutLayer` so timeouts
-    //    still fire while the request is parked at the limiter.
-    // 4. ConcurrencyLimitLayer: bounds in-flight requests.
-    // 5. record_concurrency_wait: computes elapsed permit-wait immediately
-    //    after the layer hands off a permit, before the body shim runs.
-    // 6. record_body_read (innermost, /flags|/decide only): buffers the
-    //    inbound body to memory while timing the operation, then hands the
-    //    handler an in-memory body. Scoped to the routes that actually
-    //    consume `BodyReadDuration` — the definitions endpoint is GET-only
-    //    and 405s any non-GET method as its first action, so wrapping it
-    //    would buffer payloads to memory before the short-circuit.
-    //
-    // Sub-router shape:
-    //   flags_endpoints (/flags|/decide):    inner = record_body_read
-    //   definitions_endpoints (/flags/...):  inner = (no body shim)
-    // Both share the outer concurrency + timeout chain — those layers
-    // measure pod-level permit contention and budget enforcement, which
-    // apply uniformly regardless of endpoint.
+    // The body-read shim is per-sub-router: only `/flags|/decide` consume
+    // `BodyReadDuration`, and `/flags/definitions` 405s non-GET requests
+    // before the handler runs, so buffering its body would be wasted work.
+    // `axum::Router::layer` wraps the routes accumulated so far, so
+    // applying it on `flags_endpoints` before `.merge` keeps it off the
+    // definitions sub-router.
     let mut flags_endpoints: Router<State> = Router::new();
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
         flags_endpoints = flags_endpoints
@@ -289,11 +273,6 @@ pub fn router(
             .route("/flags/", any(endpoint::flags))
             .route("/decide", any(endpoint::flags))
             .route("/decide/", any(endpoint::flags))
-            // Innermost-on-this-sub-router: applies only to handlers that
-            // actually read the buffered body. `axum::Router::layer` wraps
-            // the routes accumulated *so far*, so attaching it here (before
-            // `.merge()` below) keeps the body shim off the definitions
-            // sub-router.
             .layer(axum::middleware::from_fn(record_body_read));
     }
 
@@ -321,18 +300,16 @@ pub fn router(
                 "/api/feature_flag/local_evaluation/",
                 any(flag_definitions::flags_definitions),
             );
-        // No body-read shim: handler is GET-only and never reads the body.
     }
 
     let flags_router = flags_endpoints
         .merge(definitions_endpoints)
-        // Runs *after* `ConcurrencyLimitLayer` releases a permit, so
-        // it can compute the elapsed permit-wait before the body shim.
+        // After `ConcurrencyLimitLayer` releases a permit, so this measures
+        // permit wait excluding body buffering.
         .layer(axum::middleware::from_fn(record_concurrency_wait))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
-        // Sandwiched between `TimeoutLayer` and `ConcurrencyLimitLayer`:
-        // captures `Instant::now()` *after* timeout deadline propagation
-        // but *before* permit acquisition.
+        // Stamps `Instant::now()` after timeout-deadline propagation but
+        // before permit acquisition.
         .layer(axum::middleware::from_fn(record_concurrency_enter))
         .layer(
             ServiceBuilder::new()

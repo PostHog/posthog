@@ -82,12 +82,9 @@ pub const FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS: &str = "flags_concurrency_limit_w
 // because this measurement happens before the request is authenticated.
 pub const FLAG_BODY_READ_TIME_MS: &str = "flags_body_read_ms";
 
-// Counter incremented when `record_body_read` fails to buffer the inbound
-// body (network error, peer disconnect during upload, malformed framing,
-// upstream proxy hangup). The shim returns 400 in that case; without this
-// counter a sudden spike of broken uploads is invisible on the dashboard
-// built around `flags_body_read_ms`. Pod-level: no `team_id` label because
-// this happens before authentication.
+// Counter for body-buffering failures inside `record_body_read`
+// (network error, peer disconnect, malformed framing). Pod-level: no
+// `team_id` label, because this happens before authentication.
 pub const FLAG_BODY_READ_FAILED_COUNTER: &str = "flags_body_read_failed_total";
 
 // Per-phase wall-clock duration inside `process_request_inner`. Phases
@@ -115,13 +112,10 @@ pub const FLAG_INFLIGHT_BY_PHASE: &str = "flags_inflight_by_phase";
 // `etag_missing`, `sentinel`, `fallback`}. A spike in `miss_load_*`
 // means the loader (HyperCache fetch + Pickle/JSON decode + regex
 // compile) is stalling; a spike in `hit` would indicate Moka itself is
-// slow (very unlikely). Concurrent first-misses are not coalesced
-// today, so thunder-herd events on etag rollover show up as
-// `miss_load_ok` p99 climbing while the hit rate stays normal. The
-// `fallback` label fires when the loader falls through to PG and the
-// result is *not* cached under the etag — sustained `fallback` rate
-// is the PG-fallback-storm signature, kept separate from `miss_load_ok`
-// so dashboards can isolate the actually-bad case.
+// slow (very unlikely). Concurrent first-misses are not coalesced, so
+// thunder-herd events on etag rollover show up as `miss_load_ok` p99
+// climbing while the hit rate stays normal. `fallback` is split out
+// from `miss_load_ok` so a PG-fallback storm is visible on its own.
 pub const FLAG_DEFINITIONS_INMEM_LOAD_MS: &str = "flags_definitions_inmem_load_ms";
 
 // Performance monitoring

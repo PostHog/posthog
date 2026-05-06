@@ -165,18 +165,11 @@ mod tests {
 
     #[test]
     fn phase_all_covers_every_variant() {
-        // Compile-time-ish invariant: if a new variant is added without
-        // extending `ALL`, this fails immediately. The match-via-name
-        // exhaustiveness is enforced by the compiler; this test guards
-        // the array.
+        // `PhaseDurations::iter` zips `Phase::ALL` with the duration
+        // array indexed by `phase as usize`; misaligned indices vs.
+        // discriminants would silently mislabel histograms.
         assert_eq!(Phase::ALL.len(), Phase::COUNT);
         for (i, phase) in Phase::ALL.iter().enumerate() {
-            // `PhaseDurations` indexes `durations[phase as usize]`, then
-            // `iter()` zips that array with `Phase::ALL`. If a future
-            // variant insertion shifts a discriminant without updating
-            // `Phase::ALL` in lockstep (or vice versa), iteration would
-            // mislabel histograms while keeping bounds intact. Pin the
-            // index↔discriminant alignment explicitly.
             assert_eq!(
                 *phase as usize, i,
                 "Phase::ALL[{i}] = {phase:?} but discriminant is {}",
