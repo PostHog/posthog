@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { urls } from 'scenes/urls'
 
@@ -21,7 +19,6 @@ export function SettingsTab(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
     const { updateExperiment } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const showCupedOption = useFeatureFlag('EXPERIMENT_CUPED')
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
@@ -36,8 +33,7 @@ export function SettingsTab(): JSX.Element {
     const returnTo = urls.experiment(experiment.id)
 
     // Only show alerts section for saved experiments, as the alert relies on experiment.id for filtering
-    const shouldShowSignificanceAlerts =
-        featureFlags[FEATURE_FLAGS.EXPERIMENT_SIGNIFICANCE_ALERTS] && typeof experiment.id === 'number'
+    const shouldShowSignificanceAlerts = typeof experiment.id === 'number'
 
     return (
         <div className="flex flex-col gap-8">

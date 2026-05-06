@@ -1,7 +1,7 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React from 'react'
 
-import { useChartLayout } from '../../../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 
 export interface AnomalyMarker {
     /** Index along the x-axis (into the chart's `labels` array). */
