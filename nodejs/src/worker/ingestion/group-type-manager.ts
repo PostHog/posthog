@@ -48,6 +48,14 @@ export class GroupTypeManager {
         })
     }
 
+    public async start(): Promise<void> {
+        // No startup work — the lazy loader hydrates on first access.
+    }
+
+    public async stop(): Promise<void> {
+        // No shutdown work — the lazy loader's caches are GC'd with the instance.
+    }
+
     public async fetchGroupTypes(projectId: ProjectId): Promise<GroupTypeToColumnIndex> {
         return (await this.loader.get(projectId.toString())) ?? {}
     }
