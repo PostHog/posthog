@@ -125,7 +125,7 @@ class OfflineExperimentItemsResponseSerializer(serializers.Serializer):
 
 class LLMAnalyticsOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "llm_analytics"
-    scope_object_write_actions = ["experiment_items"]
+    scope_object_read_actions = ["experiment_items"]
     permission_classes = [AccessControlPermission]
 
     @extend_schema(
@@ -190,12 +190,13 @@ class LLMAnalyticsOfflineEvaluationsViewSet(TeamAndOrgViewSetMixin, viewsets.Gen
             if not preflight_rows:
                 return Response({"results": []}, status=status.HTTP_200_OK)
 
-            trace_ids = [str(row.trace_id) for row in preflight_rows if row.trace_id]
+            traced_rows = [row for row in preflight_rows if row.trace_id]
+            trace_ids = [str(row.trace_id) for row in traced_rows]
             ai_input_output_by_trace: dict[str, tuple] = {}
 
             if trace_ids:
-                ts_start = min(row.first_seen_at for row in preflight_rows)
-                ts_end = max(row.last_seen_at for row in preflight_rows)
+                ts_start = min(row.first_seen_at for row in traced_rows)
+                ts_end = max(row.last_seen_at for row in traced_rows)
 
                 heavy_query = parse_select(_OFFLINE_EXPERIMENT_ITEMS_HEAVY_SQL)
                 try:
