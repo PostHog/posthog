@@ -12,7 +12,7 @@ from django.utils import timezone
 
 import requests
 from celery import shared_task
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 from redis import Redis
 from structlog import get_logger
 
@@ -536,10 +536,26 @@ _TASKS_RUN_AGE_STATUSES = ("queued", "in_progress")
 _TASKS_RUN_TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 
 
+_TASKS_RUN_AGE_BUCKETS = (
+    30.0,
+    60.0,
+    2 * 60.0,
+    5 * 60.0,
+    10 * 60.0,
+    15 * 60.0,
+    30 * 60.0,
+    60 * 60.0,
+    2 * 60 * 60.0,
+    4 * 60 * 60.0,
+    8 * 60 * 60.0,
+    24 * 60 * 60.0,
+)
+
+
 @shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
 def capture_task_run_state_metrics() -> None:
     """Emit gauges describing the current state of the Tasks product's TaskRun table"""
-    from django.db.models import Count, Min
+    from django.db.models import Count
 
     from products.tasks.backend.models import TaskRun
 
@@ -554,11 +570,17 @@ def capture_task_run_state_metrics() -> None:
                 registry=registry,
                 labelnames=["status", "origin_product", "run_environment"],
             )
-            oldest_age_gauge = Gauge(
-                "posthog_tasks_oldest_open_run_age_seconds",
-                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
+            # Snapshot histogram of open-run ages — one observation per currently-open TaskRun on each
+            # capture cycle. Pushgateway replaces the metric on every push, so the bucket counts reflect
+            # the latest snapshot. Compute quantiles directly without rate(), e.g.:
+            #   histogram_quantile(0.90, sum by (le, origin_product, run_environment)
+            #                          (posthog_tasks_open_run_age_seconds_bucket))
+            open_run_age_histogram = Histogram(
+                "posthog_tasks_open_run_age_seconds",
+                "Distribution of ages (seconds) of open TaskRun rows in queued/in_progress, by status, origin_product, and run_environment. Use histogram_quantile() for p50/p90/p99 alerts.",
                 registry=registry,
                 labelnames=["status", "origin_product", "run_environment"],
+                buckets=_TASKS_RUN_AGE_BUCKETS,
             )
             runs_created_1h_gauge = Gauge(
                 "posthog_tasks_runs_created_1h",
@@ -585,19 +607,17 @@ def capture_task_run_state_metrics() -> None:
                     run_environment=row["environment"],
                 ).set(row["count"])
 
-            oldest = (
-                TaskRun.objects.filter(status__in=_TASKS_RUN_AGE_STATUSES)
-                .values("status", "environment", "task__origin_product")
-                .annotate(oldest_created_at=Min("created_at"))
-            )
             now = timezone.now()
-            for row in oldest:
-                age_seconds = (now - row["oldest_created_at"]).total_seconds()
-                oldest_age_gauge.labels(
+            open_runs = TaskRun.objects.filter(status__in=_TASKS_RUN_AGE_STATUSES).values(
+                "status", "environment", "task__origin_product", "created_at"
+            )
+            for row in open_runs:
+                age_seconds = (now - row["created_at"]).total_seconds()
+                open_run_age_histogram.labels(
                     status=row["status"],
                     origin_product=row["task__origin_product"] or "unknown",
                     run_environment=row["environment"],
-                ).set(age_seconds)
+                ).observe(age_seconds)
 
             created_1h = (
                 TaskRun.objects.filter(created_at__gte=now - datetime.timedelta(hours=1))

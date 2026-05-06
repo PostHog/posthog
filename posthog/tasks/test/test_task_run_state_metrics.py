@@ -112,7 +112,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             is None
         )
 
-    def test_emits_oldest_open_run_age(self) -> None:
+    def test_emits_open_run_age_histogram(self) -> None:
         long_ago = timezone.now() - timedelta(minutes=30)
         self._make_task_run(
             origin=Task.OriginProduct.SLACK,
@@ -123,13 +123,26 @@ class TestCaptureTaskRunStateMetrics(TestCase):
 
         registry = self._run_with_registry()
 
-        age = registry.get_sample_value(
-            "posthog_tasks_oldest_open_run_age_seconds",
-            {"status": "queued", "origin_product": "slack", "run_environment": "cloud"},
+        labels = {"status": "queued", "origin_product": "slack", "run_environment": "cloud"}
+
+        # Two open runs observed under the same label combo.
+        count = registry.get_sample_value("posthog_tasks_open_run_age_seconds_count", labels)
+        assert count == 2
+
+        total = registry.get_sample_value("posthog_tasks_open_run_age_seconds_sum", labels)
+        assert total is not None
+        # ~30 minutes (1800s) for the old run + ~0s for the fresh run; allow slack for test timing.
+        assert 1500 < total < 2400
+
+        # The fresh run lands in the smallest bucket (≤30s); both runs land in +Inf.
+        bucket_30s = registry.get_sample_value(
+            "posthog_tasks_open_run_age_seconds_bucket", {**labels, "le": "30.0"}
         )
-        assert age is not None
-        # Oldest run was ~30 minutes ago; allow generous slack for test timing.
-        assert 1500 < age < 2400
+        assert bucket_30s == 1
+        bucket_inf = registry.get_sample_value(
+            "posthog_tasks_open_run_age_seconds_bucket", {**labels, "le": "+Inf"}
+        )
+        assert bucket_inf == 2
 
     def test_emits_runs_created_1h_by_origin_and_environment(self) -> None:
         # Two Slack runs created just now, one old run (outside the 1h window), one PostHog-code run.
@@ -184,7 +197,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             == 1
         )
 
-    def test_age_gauge_only_covers_queued_and_in_progress(self) -> None:
+    def test_age_histogram_only_covers_queued_and_in_progress(self) -> None:
         self._make_task_run(
             origin=Task.OriginProduct.SLACK,
             status=TaskRun.Status.NOT_STARTED,
@@ -195,7 +208,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
 
         assert (
             registry.get_sample_value(
-                "posthog_tasks_oldest_open_run_age_seconds",
+                "posthog_tasks_open_run_age_seconds_count",
                 {"status": "not_started", "origin_product": "slack", "run_environment": "cloud"},
             )
             is None
