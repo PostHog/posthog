@@ -494,8 +494,8 @@ class ClickHousePrinter(BasePrinter):
         if not keys_to_drop:
             return field_sql
 
-        keys_placeholders = ", ".join(self.context.add_sensitive_value(k) for k in sorted(keys_to_drop))
-        return f"JSONDropKeys([{keys_placeholders}])({field_sql})"
+        keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
+        return f"JSONDropKeys({keys_placeholder})({field_sql})"
 
     def _get_restricted_keys_for_table_type(self, table_type: ast.Type) -> set[str]:
         """

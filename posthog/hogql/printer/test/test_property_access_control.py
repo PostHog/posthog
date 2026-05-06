@@ -49,6 +49,16 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql, _ = self._compile_select_with_values(query, user)
         return sql
 
+    def _assert_value_present(self, values: dict, expected: str) -> None:
+        # Restricted keys are now passed to JSONDropKeys as a single list parameter,
+        # so we may need to look inside list values as well as scalar values.
+        for v in values.values():
+            if v == expected:
+                return
+            if isinstance(v, list) and expected in v:
+                return
+        raise AssertionError(f"Expected {expected!r} in values (scalars or lists), got {values!r}")
+
     def test_no_restrictions_passes_through(self):
         sql = self._compile_select("SELECT properties.secret_field FROM events")
         assert "secret_field" in sql
@@ -75,7 +85,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "JSONDropKeys" in sql
         # the restricted key only appears as a parameter placeholder — never as an inline literal
         assert "'secret_field'" not in sql
-        assert "secret_field" in values.values()
+        self._assert_value_present(values, "secret_field")
 
     def test_allowed_property_not_affected(self):
         PropertyAccessControl.objects.create(
@@ -99,8 +109,8 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         # the denied property is parameterised by JSONDropKeys, never inlined as a literal;
         # the allowed property is extracted by name (also parameterised)
         assert "'secret_field'" not in sql
-        assert "secret_field" in values.values()
-        assert "public_field" in values.values()
+        self._assert_value_present(values, "secret_field")
+        self._assert_value_present(values, "public_field")
 
     def test_user_override_allows_access(self):
         # default: none
@@ -136,7 +146,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql, values = self._compile_select_with_values("SELECT person.properties.secret_person_field FROM events")
         assert "JSONDropKeys" in sql
         assert "'secret_person_field'" not in sql
-        assert "secret_person_field" in values.values()
+        self._assert_value_present(values, "secret_person_field")
 
     def test_no_user_context_uses_default_rules(self):
         PropertyAccessControl.objects.create(
@@ -178,7 +188,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql, values = self._compile_select_with_values("SELECT event FROM events WHERE properties.secret_field = 'foo'")
         assert "JSONDropKeys" in sql
         assert "'secret_field'" not in sql
-        assert "secret_field" in values.values()
+        self._assert_value_present(values, "secret_field")
 
     def test_select_star_works_with_restrictions(self):
         PropertyAccessControl.objects.create(
@@ -229,7 +239,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "'secret_field'" not in sql
         for forbidden_word in ["restricted", "denied", "permission", "not allowed"]:
             assert forbidden_word not in sql.lower(), f"SQL leaks access control info: '{sql}'"
-        assert "secret_field" in values.values()
+        self._assert_value_present(values, "secret_field")
 
     @parameterized.expand(
         [
@@ -267,7 +277,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql, values = self._compile_select_with_values(query)
         assert "JSONDropKeys" in sql
         assert restricted_key not in sql
-        assert restricted_key in values.values()
+        self._assert_value_present(values, restricted_key)
 
     def test_properties_blob_no_wrapping_without_restrictions(self):
         sql = self._compile_select("SELECT properties FROM events")
@@ -294,8 +304,8 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "JSONDropKeys" in sql
         assert "another_secret" not in sql
         assert "secret_field" not in sql
-        assert "another_secret" in values.values()
-        assert "secret_field" in values.values()
+        self._assert_value_present(values, "another_secret")
+        self._assert_value_present(values, "secret_field")
 
     @parameterized.expand([("persons",), ("raw_persons",)])
     def test_persons_tables_properties_blob_strips_restricted_keys(self, table_name: str):
@@ -313,7 +323,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql, values = self._compile_select_with_values(f"SELECT properties FROM {table_name}")
         assert "JSONDropKeys" in sql
         assert "secret_person_field" not in sql
-        assert "secret_person_field" in values.values()
+        self._assert_value_present(values, "secret_person_field")
 
     def test_event_restriction_does_not_affect_person_properties_blob(self):
         PropertyAccessControl.objects.create(
@@ -359,7 +369,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql, values = self._compile_select_with_values("SELECT e.c FROM events AS e (a, b, c)")
         assert "JSONDropKeys" in sql
         assert "secret_field" not in sql
-        assert "secret_field" in values.values()
+        self._assert_value_present(values, "secret_field")
 
     def test_column_aliased_explicit_property_access_is_stripped(self):
         # regression: explicit access ``e.c.secret_field`` (where ``c`` aliases ``properties``)
@@ -372,7 +382,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql, values = self._compile_select_with_values("SELECT e.c.secret_field FROM events AS e (a, b, c)")
         assert "JSONDropKeys" in sql
         assert "'secret_field'" not in sql
-        assert "secret_field" in values.values()
+        self._assert_value_present(values, "secret_field")
 
     @parameterized.expand(
         [
