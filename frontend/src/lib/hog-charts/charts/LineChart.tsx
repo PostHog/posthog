@@ -198,7 +198,7 @@ function LineChartInner<Meta = unknown>({
                 // Auxiliary overlays (moving averages, trend lines) opt out of stacking.
                 // In percent-stack mode the y-scale domain is [0, 1], so mapping their raw
                 // values produces a highlight ring far outside the plot — skip them entirely.
-                if (s.visibility?.fromStack) {
+                if (s.overlay) {
                     continue
                 }
                 const data = stackedData?.get(s.key)?.top ?? s.data
