@@ -1,7 +1,6 @@
 import { cleanup } from '@testing-library/react'
 
 import type { ChartTheme, Series } from '../../core/types'
-import type { AnomalyMarker } from '../../overlays/AnomalyPointsLayer'
 import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
 import { TimeSeriesLineChart } from './TimeSeriesLineChart'
 
@@ -32,49 +31,17 @@ describe('TimeSeriesLineChart', () => {
             expect(chart.xTicks()).toHaveLength(0)
         })
 
-        it('builds an x-axis tick formatter from xAxis.timezone + xAxis.interval', () => {
-            const allDays = ['2025-04-01 14:00:00', '2025-04-01 15:00:00', '2025-04-01 16:00:00']
-            const { chart } = renderHogChart(
-                <TimeSeriesLineChart
-                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
-                    labels={['14:00', '15:00', '16:00']}
-                    theme={THEME}
-                    config={{ xAxis: { timezone: 'UTC', interval: 'hour', allDays } }}
-                />
-            )
-            expect(chart.xTicks()).toEqual(['14:00', '15:00', '16:00'])
-        })
-
-        it('explicit xAxis.tickFormatter wins over timezone+interval', () => {
+        it('forwards an explicit xAxis.tickFormatter to the chart', () => {
             const explicit = (_v: string, i: number): string => `tick-${i}`
             const { chart } = renderHogChart(
                 <TimeSeriesLineChart
                     series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
                     labels={['14:00', '15:00', '16:00']}
                     theme={THEME}
-                    config={{
-                        xAxis: {
-                            tickFormatter: explicit,
-                            timezone: 'UTC',
-                            interval: 'hour',
-                            allDays: ['2025-04-01 14:00:00', '2025-04-01 15:00:00', '2025-04-01 16:00:00'],
-                        },
-                    }}
+                    config={{ xAxis: { tickFormatter: explicit } }}
                 />
             )
             expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
-        })
-
-        it('does not auto-format when only one of timezone or interval is provided', () => {
-            const { chart } = renderHogChart(
-                <TimeSeriesLineChart
-                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={{ xAxis: { timezone: 'UTC' } }}
-                />
-            )
-            expect(chart.xTicks()).toEqual(LABELS)
         })
     })
 
@@ -217,37 +184,6 @@ describe('TimeSeriesLineChart', () => {
             expect(lines).toHaveLength(1)
             expect(lines[0].orientation).toBe('horizontal')
             expect(lines[0].label).toBe('Target')
-        })
-    })
-
-    describe('config.anomalies', () => {
-        it.each([
-            ['omitted', undefined],
-            ['empty', [] as AnomalyMarker[]],
-        ])('does not render anomaly points when anomalies is %s', (_, anomalies) => {
-            const { chart } = renderHogChart(
-                <TimeSeriesLineChart
-                    series={SERIES}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={anomalies === undefined ? undefined : { anomalies }}
-                />
-            )
-            expect(chart.anomalyPoints()).toHaveLength(0)
-        })
-
-        it('renders one anomaly point per marker', () => {
-            const markers: AnomalyMarker[] = [
-                { dataIndex: 1, value: 2, color: '#f00', yAxisId: 'left' },
-                { dataIndex: 2, value: 3, color: '#0f0', yAxisId: 'left' },
-            ]
-            const { chart } = renderHogChart(
-                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ anomalies: markers }} />
-            )
-            const points = chart.anomalyPoints()
-            expect(points).toHaveLength(2)
-            expect(points[0].color).toBe('rgb(255, 0, 0)')
-            expect(points[1].color).toBe('rgb(0, 255, 0)')
         })
     })
 

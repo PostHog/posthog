@@ -8,18 +8,11 @@ import type {
     TooltipConfig,
     TooltipContext,
 } from '../../core/types'
-import { AnomalyPointsLayer, type AnomalyMarker } from '../../overlays/AnomalyPointsLayer'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, type GoalLineConfig } from '../../utils/goal-lines'
-import {
-    useXTickFormatter,
-    useYTickFormatter,
-    type XAxisConfig,
-    type YAxisConfig,
-} from '../../utils/use-axis-formatters'
+import { useYTickFormatter, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart'
-import { applyInProgressToSeries, type InProgressConfig } from './utils/in-progress'
 import {
     useDerivedSeries,
     type ConfidenceIntervalConfig,
@@ -37,7 +30,6 @@ export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
     yAxis?: YAxisConfig
-    inProgress?: InProgressConfig
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     confidenceIntervals?: ConfidenceIntervalConfig[]
@@ -45,8 +37,6 @@ export interface TimeSeriesLineChartConfig {
     trendLines?: TrendLineConfig[]
     /** Comparison series keys mapped to their primary. Comparison series render dimmed. */
     comparisonOf?: Record<string, string>
-    /** Anomaly markers rendered as filled circles on top of the chart. */
-    anomalies?: AnomalyMarker[]
     /** Render area-fill series as a 100% stacked view; y-axis becomes 0–100%. */
     percentStackView?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
@@ -93,30 +83,19 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const {
         xAxis,
         yAxis,
-        inProgress,
         valueLabels,
         goalLines,
         confidenceIntervals,
         movingAverage,
         trendLines,
         comparisonOf,
-        anomalies,
         percentStackView,
         showCrosshair,
         tooltip: tooltipConfig,
     } = config ?? {}
-    const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
 
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-
-    const seriesWithInProgress = useMemo(
-        () => applyInProgressToSeries(series, inProgress),
-        // inProgress.fromIndex is the only field applyInProgressToSeries reads; depending
-        // on `inProgress` itself would invalidate on every inline-config render.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [series, inProgress?.fromIndex]
-    )
 
     // Stable primitive key so callers can pass `valueLabels: { seriesKeys: ['a'] }` inline
     // without re-running the transform on every render.
@@ -124,14 +103,14 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const seriesAfterValueLabels = useMemo(() => {
         const seriesKeys = valueLabelsConfig?.seriesKeys
         if (!seriesKeys) {
-            return seriesWithInProgress
+            return series
         }
         const allowed = new Set(seriesKeys)
-        return seriesWithInProgress.map((s) =>
+        return series.map((s) =>
             allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, fromValueLabels: true } }
         )
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [seriesWithInProgress, seriesKeysSignature])
+    }, [series, seriesKeysSignature])
 
     const finalSeries = useDerivedSeries(seriesAfterValueLabels, {
         confidenceIntervals,
@@ -146,7 +125,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     const lineChartConfig: LineChartConfig = {
         yScaleType: yAxis?.scale,
-        xTickFormatter,
+        xTickFormatter: xAxis?.tickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxis?.hide,
@@ -170,7 +149,6 @@ export function TimeSeriesLineChart<Meta = unknown>({
         >
             {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
             {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
-            {anomalies && anomalies.length > 0 && <AnomalyPointsLayer markers={anomalies} />}
             {children}
         </LineChart>
     )
