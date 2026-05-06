@@ -11,10 +11,9 @@ class DevboxConfig(TypedDict, total=False):
     git_name: str
     git_email: str
     dotfiles_uri: str
-    git_signing_key: str
 
 
-_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri", "git_signing_key")
+_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri")
 
 
 def get_config_path() -> Path:
@@ -70,13 +69,5 @@ def save_dotfiles_uri(dotfiles_uri: str) -> DevboxConfig:
     """Persist dotfiles repo URL for new workspaces."""
     config = load_config()
     config["dotfiles_uri"] = dotfiles_uri
-    save_config(config)
-    return config
-
-
-def save_git_signing_key(git_signing_key: str) -> DevboxConfig:
-    """Persist Git SSH signing public key for new workspaces. Empty string clears."""
-    config = load_config()
-    config["git_signing_key"] = git_signing_key
     save_config(config)
     return config

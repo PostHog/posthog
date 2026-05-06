@@ -62,16 +62,69 @@ class TestDevboxConfig:
             "dotfiles_uri": "https://github.com/user/dotfiles",
         }
 
-    def test_save_git_signing_key_persists_value(self, devbox_config_path: Path) -> None:
-        devbox_config.save_git_signing_key("ssh-ed25519 AAAAC3 user@host")
 
-        assert devbox_config.load_config()["git_signing_key"] == "ssh-ed25519 AAAAC3 user@host"
+class TestUserSecrets:
+    """Test the per-user Coder secret helpers used for Git signing."""
 
-    def test_save_git_signing_key_empty_clears_value(self, devbox_config_path: Path) -> None:
-        devbox_config.save_git_signing_key("ssh-ed25519 AAAAC3 user@host")
-        devbox_config.save_git_signing_key("")
+    def test_upsert_creates_when_secret_does_not_exist(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[tuple[list[str], str | None]] = []
 
-        assert "git_signing_key" not in devbox_config.load_config()
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append((args, kwargs.get("input")))  # type: ignore[arg-type]
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+        monkeypatch.setattr(coder, "_resolve_coder", lambda args: args)
+
+        coder.upsert_user_secret("API_KEY", "v1", env_var="API_KEY")
+
+        assert calls == [(["coder", "secret", "create", "API_KEY", "--env", "API_KEY"], "v1")]
+
+    def test_upsert_falls_back_to_update_when_create_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(args)
+            returncode = 1 if "create" in args else 0
+            return subprocess.CompletedProcess(args, returncode, "", "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+        monkeypatch.setattr(coder, "_resolve_coder", lambda args: args)
+
+        coder.upsert_user_secret("API_KEY", "v2", env_var="API_KEY")
+
+        assert calls == [
+            ["coder", "secret", "create", "API_KEY", "--env", "API_KEY"],
+            ["coder", "secret", "update", "API_KEY", "--env", "API_KEY"],
+        ]
+
+    def test_upsert_exits_when_both_create_and_update_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(args, 2, "", "boom")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_run)
+        monkeypatch.setattr(coder, "_resolve_coder", lambda args: args)
+
+        with pytest.raises(SystemExit) as excinfo:
+            coder.upsert_user_secret("API_KEY", "v3", env_var="API_KEY")
+        assert excinfo.value.code == 2
+
+    def test_user_secret_exists_matches_by_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(args, 0, '[{"name":"API_KEY"},{"name":"OTHER"}]', ""),
+        )
+        assert coder.user_secret_exists("API_KEY") is True
+        assert coder.user_secret_exists("MISSING") is False
+
+    def test_user_secret_exists_returns_false_on_cli_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 1, "", "auth required"))
+        assert coder.user_secret_exists("API_KEY") is False
+
+    def test_user_secret_exists_returns_false_on_invalid_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_run", lambda args, **kw: subprocess.CompletedProcess(args, 0, "not json", ""))
+        assert coder.user_secret_exists("API_KEY") is False
 
 
 class TestResolveTailscale:
@@ -936,35 +989,6 @@ class TestStartExistingWorkspace:
             },
         }
 
-    def test_syncs_git_signing_key_when_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured_params: dict[str, object] = {}
-
-        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
-        monkeypatch.setattr(
-            devbox_cli,
-            "load_config",
-            lambda: {
-                "git_name": "PostHog Engineer",
-                "git_email": "test-user@example.com",
-                "git_signing_key": "ssh-ed25519 AAAAC3 user@host",
-            },
-        )
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: captured_params.update(params),
-        )
-        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
-        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
-
-        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
-
-        assert captured_params == {
-            "git_name": "PostHog Engineer",
-            "git_email": "test-user@example.com",
-            "git_signing_key": "ssh-ed25519 AAAAC3 user@host",
-        }
-
     def test_skips_sync_when_no_git_identity_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
 
@@ -1519,3 +1543,76 @@ class TestSetupClaudeToken:
 
         devbox_cli.maybe_configure_claude_token(True)
         assert saved == ["fresh-token"]
+
+
+class TestSetupGitSigning:
+    """Test the Git commit signing step in devbox:setup."""
+
+    PUBLIC_KEY = "ssh-ed25519 AAAAC3 user@host"
+
+    def _patch_one_password(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(keychain, "is_supported", lambda: True)
+        monkeypatch.setattr(
+            devbox_cli,
+            "_list_one_password_ssh_keys",
+            lambda: [(self.PUBLIC_KEY, "user@host")],
+        )
+
+    def test_skips_when_secret_already_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: True)
+        upserts: list[tuple[str, str, str | None]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+        )
+
+        devbox_cli.maybe_configure_git_signing(None)
+
+        assert upserts == []
+
+    def test_writes_user_secret_when_key_chosen(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
+        self._patch_one_password(monkeypatch)
+        upserts: list[tuple[str, str, str | None]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+        )
+        monkeypatch.setattr(click, "prompt", lambda *a, **kw: "1")
+
+        devbox_cli.maybe_configure_git_signing(None)
+
+        assert upserts == [(coder.GIT_SIGNING_KEY_SECRET, self.PUBLIC_KEY, coder.GIT_SIGNING_KEY_SECRET)]
+
+    def test_explicit_reconfigure_overrides_existing_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # configure_git_signing=True must re-run the wizard even when a secret is already set.
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: True)
+        self._patch_one_password(monkeypatch)
+        upserts: list[tuple[str, str, str | None]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+        )
+        monkeypatch.setattr(click, "prompt", lambda *a, **kw: "1")
+
+        devbox_cli.maybe_configure_git_signing(True)
+
+        assert upserts == [(coder.GIT_SIGNING_KEY_SECRET, self.PUBLIC_KEY, coder.GIT_SIGNING_KEY_SECRET)]
+
+    def test_skip_choice_does_not_write_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
+        self._patch_one_password(monkeypatch)
+        upserts: list[tuple[str, str, str | None]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, env_var=None: upserts.append((name, value, env_var)),
+        )
+        monkeypatch.setattr(click, "prompt", lambda *a, **kw: "0")
+
+        devbox_cli.maybe_configure_git_signing(None)
+
+        assert upserts == []

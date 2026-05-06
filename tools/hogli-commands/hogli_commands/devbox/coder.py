@@ -32,10 +32,15 @@ _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
-GIT_SIGNING_KEY_PARAMETER = "git_signing_key"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
+
+# Per-user Coder secret holding the SSH public key used to sign commits inside
+# workspaces. Injected as the GIT_SIGNING_KEY env var on every workspace start
+# (including coder task runs); the workspace template reads it to populate
+# user.signingkey. The matching private key never leaves 1Password.
+GIT_SIGNING_KEY_SECRET = "GIT_SIGNING_KEY"
 
 # 1Password SSH agent socket on macOS. Stable across versions and engineers
 # because it lives in the team's shared App Group container.
@@ -48,7 +53,6 @@ _TEMPLATE_PARAMETER_DEFAULTS: dict[str, str] = {
     DOTFILES_URI_PARAMETER: "",
     DOTFILES_BRANCH_PARAMETER: "",
     JETBRAINS_IDES_PARAMETER: "[]",
-    GIT_SIGNING_KEY_PARAMETER: "",
 }
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
@@ -774,6 +778,50 @@ def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
     result = _run_with_rich_parameters(["coder", "update", name], parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+
+
+def upsert_user_secret(name: str, value: str, *, env_var: str | None = None) -> None:
+    """Idempotently set a per-user Coder secret. Requires server >= 2.33.
+
+    Tries ``coder secret create`` first; falls back to ``coder secret update``
+    when the secret already exists. The secret value is piped through stdin so
+    it never appears in process args or shell history. ``env_var`` is the
+    workspace-side environment variable target; passing ``None`` leaves the
+    secret with whatever target it already has (only meaningful on update).
+    """
+    flags = ["--env", env_var] if env_var else []
+    payload = subprocess.run(
+        _resolve_coder(["coder", "secret", "create", name, *flags]),
+        input=value,
+        text=True,
+        capture_output=True,
+    )
+    if payload.returncode == 0:
+        return
+
+    payload = subprocess.run(
+        _resolve_coder(["coder", "secret", "update", name, *flags]),
+        input=value,
+        text=True,
+        capture_output=True,
+    )
+    if payload.returncode != 0:
+        click.echo(payload.stderr or payload.stdout, err=True)
+        raise SystemExit(payload.returncode)
+
+
+def user_secret_exists(name: str) -> bool:
+    """Return whether the current user has a secret with the given name set."""
+    result = _run(["coder", "secret", "list", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return False
+    try:
+        secrets = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(secrets, list):
+        return False
+    return any(isinstance(s, dict) and s.get("name") == name for s in secrets)
 
 
 def ssh_replace(name: str) -> None:

@@ -23,7 +23,7 @@ from .coder import (
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
-    GIT_SIGNING_KEY_PARAMETER,
+    GIT_SIGNING_KEY_SECRET,
     ONE_PASSWORD_AGENT_SOCKET,
     _fail,
     create_task,
@@ -63,8 +63,10 @@ from .coder import (
     unshare_workspace,
     update_workspace,
     update_workspace_parameters,
+    upsert_user_secret,
+    user_secret_exists,
 )
-from .config import load_config, save_dotfiles_uri, save_git_identity, save_git_signing_key
+from .config import load_config, save_dotfiles_uri, save_git_identity
 
 _CLAUDE_TOKEN_SERVICE = "posthog-claude-oauth-token"
 
@@ -189,7 +191,7 @@ def _workspace_status_color(status: str) -> str:
 
 
 def _sync_workspace_parameters(name: str) -> None:
-    """Push local config (git identity, signing, dotfiles) to workspace parameters before start."""
+    """Push local config (git identity, dotfiles) to workspace parameters before start."""
     config = load_config()
     params: dict[str, str] = {}
 
@@ -202,10 +204,6 @@ def _sync_workspace_parameters(name: str) -> None:
     dotfiles_uri = config.get("dotfiles_uri")
     if dotfiles_uri:
         params[DOTFILES_URI_PARAMETER] = dotfiles_uri
-
-    git_signing_key = config.get("git_signing_key")
-    if git_signing_key:
-        params[GIT_SIGNING_KEY_PARAMETER] = git_signing_key
 
     if params:
         update_workspace_parameters(name, params)
@@ -375,26 +373,25 @@ def _list_one_password_ssh_keys() -> list[tuple[str, str]]:
 
 
 def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
-    """Optionally persist a 1Password-backed SSH signing key for new workspaces.
+    """Optionally register a 1Password-backed SSH signing key for new workspaces.
 
-    Stores the public key only -- the private key never leaves the user's
-    1Password agent. The workspace receives the public key via a Coder
-    template parameter and writes the matching gitconfig on every start; the
-    actual signing happens against the forwarded SSH agent at commit time.
+    The public key is stored as the ``GIT_SIGNING_KEY`` Coder user secret -- a
+    server-side, encrypted, audited value that auto-injects into every
+    workspace start (and ``coder task`` runs) as an env var. The matching
+    private key never leaves the user's 1Password agent; the workspace signs
+    commits against the SSH agent forwarded over the user's IDE connection.
     """
-    config = load_config()
-    existing_key = config.get("git_signing_key")
+    already_set = user_secret_exists(GIT_SIGNING_KEY_SECRET)
 
     if configure_git_signing is False:
-        if existing_key:
+        if already_set:
             click.echo("Using saved Git signing key.")
             click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
         else:
             click.echo("Skipping Git commit signing setup.")
         return
 
-    # Already saved -- skip unless explicitly asked to reconfigure.
-    if configure_git_signing is None and existing_key:
+    if configure_git_signing is None and already_set:
         click.echo("Git signing: configured (commits inside devbox will be signed).")
         click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
         return
@@ -438,7 +435,7 @@ def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
         click.echo(f"Enter a number between 0 and {len(keys)}.")
 
     public_key, comment = keys[choice - 1]
-    save_git_signing_key(public_key)
+    upsert_user_secret(GIT_SIGNING_KEY_SECRET, public_key, env_var=GIT_SIGNING_KEY_SECRET)
     click.echo()
     click.echo(f"Saved signing key for new workspaces: {comment}")
     click.echo()
