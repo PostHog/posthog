@@ -43,6 +43,11 @@
   # Adds redis-cli + awscli for operator use (see bin/rust-jumphost).
   target: runtime-jumphost
 
+- image: flags-consumer
+  bin: flags-consumer
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
 - image: batch-import-worker
   dockerfile: ./rust/Dockerfile
   project: 4ppc15q4bv
