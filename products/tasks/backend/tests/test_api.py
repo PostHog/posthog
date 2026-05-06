@@ -4923,6 +4923,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             "id": request_id,
         }
 
+    def _make_cancel(self, request_id="req-cancel"):
+        return {"jsonrpc": "2.0", "method": "cancel", "id": request_id}
+
     def _create_run_with_sandbox(self, task, sandbox_url="http://localhost:9999", connect_token=None):
         state = {"sandbox_url": sandbox_url, "mode": "interactive"}
         if connect_token:
@@ -4942,19 +4945,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_resp.text = json.dumps(body) if isinstance(body, dict) else str(body)
         mock_post.return_value = mock_resp
 
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    @patch("products.tasks.backend.api.http_requests.post")
-    def test_command_proxies_user_message(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
-        self._mock_agent_response(
-            mock_post,
-            {
-                "jsonrpc": "2.0",
-                "id": "req-1",
-                "result": {"stopReason": "end_turn"},
-            },
-        )
-
+    @patch("products.tasks.backend.api.signal_task_followup_message")
+    def test_command_signals_user_message(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
 
@@ -4967,27 +4959,12 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["jsonrpc"], "2.0")
-        self.assertEqual(data["result"]["stopReason"], "end_turn")
+        self.assertTrue(data["result"]["queued"])
 
-        mock_post.assert_called_once()
-        call_kwargs = mock_post.call_args
-        self.assertEqual(call_kwargs[1]["json"]["method"], "user_message")
-        self.assertEqual(call_kwargs[1]["json"]["params"]["content"], "Hello agent")
-        self.assertIn("Bearer ", call_kwargs[1]["headers"]["Authorization"])
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
 
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    @patch("products.tasks.backend.api.http_requests.post")
-    def test_command_resolves_artifact_ids(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
-        self._mock_agent_response(
-            mock_post,
-            {
-                "jsonrpc": "2.0",
-                "id": "req-attachments",
-                "result": {"stopReason": "end_turn"},
-            },
-        )
-
+    @patch("products.tasks.backend.api.signal_task_followup_message")
+    def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
         artifact = {
@@ -5015,10 +4992,23 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        sent_params = mock_post.call_args[1]["json"]["params"]
-        self.assertEqual(sent_params["content"], "See attached")
-        self.assertEqual(sent_params["artifacts"], [artifact])
-        self.assertNotIn("artifact_ids", sent_params)
+        self.assertTrue(response.json()["result"]["queued"])
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "See attached", ["artifact-123"])
+
+    @patch("products.tasks.backend.api.signal_task_followup_message")
+    def test_command_returns_502_when_user_message_signal_fails(self, mock_signal_followup):
+        mock_signal_followup.side_effect = RuntimeError("temporal unavailable")
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
@@ -5162,7 +5152,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5229,7 +5219,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5249,7 +5239,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5268,7 +5258,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5286,7 +5276,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5308,7 +5298,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5330,7 +5320,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5348,7 +5338,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5380,7 +5370,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5438,7 +5428,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5475,7 +5465,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5518,7 +5508,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5549,7 +5539,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5565,7 +5555,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -5602,7 +5592,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 

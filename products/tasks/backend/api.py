@@ -117,6 +117,7 @@ from .temporal.client import (
     execute_posthog_code_agent_relay_workflow,
     execute_task_processing_workflow,
     resume_task_in_cloud_workflow,
+    signal_task_followup_message,
 )
 from .temporal.process_task.utils import (
     PrAuthorshipMode,
@@ -1911,9 +1912,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Task run not found"),
             502: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Agent server unreachable"),
         },
-        summary="Send command to agent server",
-        description="Forward a JSON-RPC command to the agent server running in the sandbox. "
-        "Supports user_message, cancel, close, permission_response, and set_config_option commands.",
+        summary="Send command to task run",
+        description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
+        "commands to the agent server. Supports user_message, cancel, close, permission_response, "
+        "and set_config_option commands.",
         strict_request_validation=True,
     )
     @action(
@@ -1939,6 +1941,44 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        method = request.validated_data["method"]
+        request_id = request.validated_data.get("id")
+        params = request.validated_data.get("params")
+        if method == "user_message":
+            command_params = dict(params or {})
+            artifact_ids = command_params.pop("artifact_ids", [])
+            if artifact_ids:
+                _, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, artifact_ids)
+                if missing_artifact_ids:
+                    return Response(
+                        {
+                            "error": "Some artifact_ids are invalid for this run",
+                            "missing_artifact_ids": missing_artifact_ids,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            try:
+                signal_task_followup_message(
+                    task_run.workflow_id,
+                    command_params.get("content"),
+                    artifact_ids,
+                )
+            except Exception:
+                logger.exception("Failed to signal follow-up message for task run %s", task_run.id)
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+            response_payload: dict[str, Any] = {
+                "jsonrpc": request.validated_data["jsonrpc"],
+                "result": {"queued": True},
+            }
+            if request_id is not None:
+                response_payload["id"] = request_id
+            return Response(TaskRunCommandResponseSerializer(response_payload).data)
+
         connection_token = create_sandbox_connection_token(
             task_run=task_run,
             user_id=request.user.id,
@@ -1947,28 +1987,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         command_payload: dict = {
             "jsonrpc": request.validated_data["jsonrpc"],
-            "method": request.validated_data["method"],
+            "method": method,
         }
-        params = request.validated_data.get("params")
         if params:
             command_params = dict(params)
-            if request.validated_data["method"] == "user_message":
-                artifact_ids = command_params.pop("artifact_ids", [])
-                if artifact_ids:
-                    resolved_artifacts, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, artifact_ids)
-                    if missing_artifact_ids:
-                        return Response(
-                            {
-                                "error": "Some artifact_ids are invalid for this run",
-                                "missing_artifact_ids": missing_artifact_ids,
-                            },
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-                    command_params["artifacts"] = resolved_artifacts
             if command_params:
                 command_payload["params"] = command_params
-        if "id" in request.validated_data and request.validated_data["id"] is not None:
-            command_payload["id"] = request.validated_data["id"]
+        if request_id is not None:
+            command_payload["id"] = request_id
 
         try:
             agent_response = self._proxy_command_to_agent_server(
