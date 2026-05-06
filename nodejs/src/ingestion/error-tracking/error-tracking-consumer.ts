@@ -87,7 +87,8 @@ export interface ErrorTrackingHogTransformer {
 export interface ErrorTrackingConsumerDeps {
     outputs: ErrorTrackingOutputs
     teamManager: TeamManager
-    errorTrackingSettingsManager: ErrorTrackingSettingsManager
+    /** Only required when the rate limiter is enabled; constructed alongside it. */
+    errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
     redisPool: GenericPool<Redis>
@@ -293,15 +294,20 @@ export class ErrorTrackingConsumer {
                 getBucketConfig: (input) => {
                     // User model: "N events per M minutes". Token bucket: bucketSize=N (max burst),
                     // refillRate=N/(M*60) per second (steady state). Falls back to env defaults
-                    // when the team has no row or hasn't set a project-wide value.
+                    // when the team has no row or hasn't set a project-wide value. We also treat
+                    // non-positive values as unset — the API serializer rejects these, but legacy
+                    // rows or manual edits could slip through and a zero/negative minutes value
+                    // would otherwise produce a divide-by-zero or negative refill rate.
                     const settings = input.errorTrackingSettings
-                    if (settings?.projectRateLimitValue == null) {
+                    const value = settings?.projectRateLimitValue
+                    if (value == null || value <= 0) {
                         return {}
                     }
-                    const minutes = settings.projectRateLimitBucketSizeMinutes ?? 60
+                    const minutes = settings?.projectRateLimitBucketSizeMinutes
+                    const safeMinutes = minutes != null && minutes > 0 ? minutes : 60
                     return {
-                        bucketSize: settings.projectRateLimitValue,
-                        refillRate: settings.projectRateLimitValue / (minutes * 60),
+                        bucketSize: value,
+                        refillRate: value / (safeMinutes * 60),
                     }
                 },
             },

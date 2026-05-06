@@ -144,7 +144,9 @@ export class ErrorTrackingServer implements NodeServer {
         await this.pubsub.start()
 
         const teamManager = new TeamManager(this.postgres)
-        const errorTrackingSettingsManager = new ErrorTrackingSettingsManager(this.postgres)
+        const errorTrackingSettingsManager = this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED
+            ? new ErrorTrackingSettingsManager(this.postgres)
+            : undefined
 
         // 2. Services needed by ErrorTrackingConsumer and HogTransformer
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)

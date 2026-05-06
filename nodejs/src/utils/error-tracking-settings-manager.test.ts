@@ -27,6 +27,7 @@ describe('ErrorTrackingSettingsManager', () => {
     })
 
     afterEach(async () => {
+        jest.restoreAllMocks()
         await postgres.end()
         await closeHub(hub)
     })
