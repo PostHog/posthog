@@ -1,8 +1,22 @@
+from datetime import UTC, datetime
+
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities, flush_persons_and_events
 
 from parameterized import parameterized
 
+from posthog.schema import (
+    DateRange,
+    ErrorTrackingIssueFilter,
+    ErrorTrackingQuery,
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
+
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v3 import ErrorTrackingQueryV3Builder
 from products.error_tracking.backend.hogql_queries.test.test_error_tracking_query_runner import (
     ErrorTrackingQueryRunnerTestsMixin,
 )
@@ -125,6 +139,100 @@ class TestErrorTrackingQueryRunnerV3(
         sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @parameterized.expand(
+        [
+            (
+                "or_returns_union",
+                FilterLogicalOperator.OR_,
+                # issue_one (TypeError) and issue_two (ReferenceError) both match
+                [True, True, False],
+            ),
+            (
+                "and_returns_intersection",
+                FilterLogicalOperator.AND_,
+                # No issue has both names — AND yields empty
+                [False, False, False],
+            ),
+        ]
+    )
+    @freeze_time("2022-01-10T12:11:00")
+    def test_filter_group_operator(self, _name, operator: FilterLogicalOperator, expected_membership: list[bool]):
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=operator,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            ),
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_two], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+        result_ids = {r["id"] for r in results}
+        expected_ids = {
+            issue_id
+            for issue_id, included in zip(
+                [self.issue_id_one, self.issue_id_two, self.issue_id_three], expected_membership
+            )
+            if included
+        }
+        self.assertEqual(result_ids, expected_ids)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_nested_filter_group_routes_issue_filters_to_issue_fields(self):
+        filter_group = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR_,
+                            values=[
+                                EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+                                EventPropertyFilter(key="$browser", value=["Chrome"], operator=PropertyOperator.EXACT),
+                                ErrorTrackingIssueFilter(
+                                    key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                                ),
+                            ],
+                        ),
+                        EventPropertyFilter(
+                            key="$exception_issue_id", value=[self.issue_id_one], operator=PropertyOperator.EXACT
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        builder = ErrorTrackingQueryV3Builder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                filterGroup=filter_group,
+                orderBy="last_seen",
+                volumeResolution=1,
+                useQueryV3=True,
+            ),
+            team=self.team,
+            date_from=datetime(2022, 1, 3, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+        user_filter_expr = builder._user_filter_expr()
+        assert user_filter_expr is not None
+        user_filter_hogql = user_filter_expr.to_hogql()
+        self.assertIn("e.issue_name", user_filter_hogql)
+        self.assertNotIn("properties.name", user_filter_hogql)
+
+        results = self._calculate(filterGroup=filter_group)["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_id_one])
 
     @freeze_time("2022-01-10T12:11:00")
     def test_status(self):

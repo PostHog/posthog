@@ -70,9 +70,6 @@ export interface ChartProps<Meta = unknown> {
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
-    /** `data-attr` applied to the chart wrapper. Lets product-level tests
-     *  (`waitForSelector: '[data-attr=…] > canvas'`) target a chart instance
-     *  without having to know its className. */
     dataAttr?: string
     children?: React.ReactNode
     /** Resolves the y-value for a series at a given index. Defaults to series.data[index].
@@ -112,6 +109,7 @@ export function Chart<Meta = unknown>({
         tooltip: tooltipConfig,
         showCrosshair = false,
         axisOrientation = 'vertical',
+        isPercent = false,
     } = config ?? {}
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
@@ -205,6 +203,11 @@ export function Chart<Meta = unknown>({
 
     const stableResolveValue = useStableResolveValue(resolveValue)
 
+    const axisValue = useMemo(
+        () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
+        [axisOrientation, xTickFormatter, isPercent]
+    )
+
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
             return null
@@ -217,8 +220,9 @@ export function Chart<Meta = unknown>({
             theme,
             resolveValue: stableResolveValue,
             canvasBounds,
+            axis: axisValue,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds])
+    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds, axisValue])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 

@@ -193,7 +193,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 53
+        cls.base_app_num_queries = 52
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -1903,3 +1903,26 @@ def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> Non
     assert "pg_max;dur=1200" in header
     assert 'pg_count;desc="17"' in header
     assert 'pg_slow;desc="2"' in header
+
+
+@parameterized.expand(
+    [
+        ("/api/projects/@current/insights/", True),
+        ("/api/projects/@current/dashboards/", True),
+        ("/api/projects/@current/property_definitions/", True),
+        ("/", True),
+        ("/insights/abc123", True),
+        ("/dashboard/42", True),
+        ("/project/2/insights", True),
+        ("/api/projects/@current/feature_flags/", False),
+    ]
+)
+def test_query_time_counting_middleware_should_instrument(path, expected) -> None:
+    from django.test import RequestFactory
+
+    from posthog.middleware import QueryTimeCountingMiddleware
+
+    middleware = QueryTimeCountingMiddleware(get_response=lambda r: None)
+    request = RequestFactory().get(path)
+
+    assert middleware._should_instrument(request) is expected

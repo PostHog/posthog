@@ -131,8 +131,9 @@ class TestCreateWebhook:
         assert body["endpoint"] == "https://example.com/hook"
         assert "email_sent" in body["events"]
         assert "customer_subscribed" in body["events"]
-        # No `disabled` flag should be sent so the webhook is enabled by default.
-        assert "disabled" not in body
+        # Created disabled — Customer.io would 404 on webhook deliveries until the
+        # signing secret is in place, so we wait until the user provides it.
+        assert body["disabled"] is True
 
     @patch("posthog.temporal.data_imports.sources.customer_io.api_client._session")
     def test_subscribes_to_in_app_events(self, mock_session):
@@ -150,8 +151,14 @@ class TestCreateWebhook:
         assert "in_app_sent" in body["events"]
         assert "in_app_clicked" in body["events"]
 
+    @parameterized.expand(
+        [
+            ("disabled_existing_webhook", True),
+            ("enabled_existing_webhook", False),
+        ]
+    )
     @patch("posthog.temporal.data_imports.sources.customer_io.api_client._session")
-    def test_returns_failure_when_existing_webhook_is_disabled(self, mock_session):
+    def test_skips_create_when_webhook_already_exists_for_url(self, _name, disabled, mock_session):
         mock_session.return_value.get.return_value = _ok_json_response(
             {
                 "reporting_webhooks": [
@@ -159,28 +166,10 @@ class TestCreateWebhook:
                         "id": 7,
                         "endpoint": "https://example.com/hook",
                         "events": ["email_sent"],
-                        "disabled": True,
+                        "disabled": disabled,
                     }
                 ]
             }
-        )
-
-        result = api_client.create_webhook(
-            api_key="key",
-            region="us",
-            webhook_url="https://example.com/hook",
-            resource_names=["email_events"],
-        )
-
-        assert result.success is False
-        assert result.error is not None
-        assert "disabled" in result.error.lower()
-        mock_session.return_value.post.assert_not_called()
-
-    @patch("posthog.temporal.data_imports.sources.customer_io.api_client._session")
-    def test_skips_create_when_webhook_already_exists_for_url(self, mock_session):
-        mock_session.return_value.get.return_value = _ok_json_response(
-            {"reporting_webhooks": [{"id": 7, "endpoint": "https://example.com/hook", "events": ["email_sent"]}]}
         )
 
         result = api_client.create_webhook(
@@ -226,6 +215,78 @@ class TestCreateWebhook:
         assert result.success is False
         assert result.error is not None
         assert "App API Key" in result.error
+
+
+class TestEnableWebhook:
+    @patch("posthog.temporal.data_imports.sources.customer_io.api_client._session")
+    def test_enables_disabled_webhook(self, mock_session):
+        mock_session.return_value.get.return_value = _ok_json_response(
+            {
+                "reporting_webhooks": [
+                    {"id": 7, "endpoint": "https://example.com/hook", "disabled": True},
+                ]
+            }
+        )
+        mock_session.return_value.put.return_value = _ok_json_response()
+
+        success, error = api_client.enable_webhook("key", "us", "https://example.com/hook")
+
+        assert success is True
+        assert error is None
+        mock_session.return_value.put.assert_called_once()
+        called_url = mock_session.return_value.put.call_args.args[0]
+        assert called_url == f"{CIO_US_BASE_URL}/v1/reporting_webhooks/7"
+        body = mock_session.return_value.put.call_args.kwargs["json"]
+        assert body == {"disabled": False}
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.api_client._session")
+    def test_noop_when_already_enabled(self, mock_session):
+        mock_session.return_value.get.return_value = _ok_json_response(
+            {"reporting_webhooks": [{"id": 7, "endpoint": "https://example.com/hook", "disabled": False}]}
+        )
+
+        success, error = api_client.enable_webhook("key", "us", "https://example.com/hook")
+
+        assert success is True
+        assert error is None
+        mock_session.return_value.put.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.api_client._session")
+    def test_returns_failure_when_webhook_not_found(self, mock_session):
+        mock_session.return_value.get.return_value = _ok_json_response({"reporting_webhooks": []})
+
+        success, error = api_client.enable_webhook("key", "us", "https://example.com/hook")
+
+        assert success is False
+        assert error is not None
+        assert "No reporting webhook" in error
+        mock_session.return_value.put.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.api_client._session")
+    def test_returns_failure_on_put_http_error(self, mock_session):
+        mock_session.return_value.get.return_value = _ok_json_response(
+            {"reporting_webhooks": [{"id": 7, "endpoint": "https://example.com/hook", "disabled": True}]}
+        )
+        response = MagicMock()
+        response.status_code = 401
+        response.raise_for_status.side_effect = requests.HTTPError(response=response)
+        mock_session.return_value.put.return_value = response
+
+        success, error = api_client.enable_webhook("key", "us", "https://example.com/hook")
+
+        assert success is False
+        assert error is not None
+        assert "App API Key" in error
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.api_client._session")
+    def test_returns_failure_on_network_error(self, mock_session):
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+
+        success, error = api_client.enable_webhook("key", "us", "https://example.com/hook")
+
+        assert success is False
+        assert error is not None
+        assert "Could not reach Customer.io" in error
 
 
 class TestDeleteWebhook:

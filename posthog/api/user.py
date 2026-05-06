@@ -17,12 +17,14 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.utils import timezone as django_timezone
 from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
 import requests
 import structlog
+import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
@@ -30,6 +32,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound
@@ -62,7 +65,7 @@ from posthog.auth import (
     SessionAuthentication,
     session_auth_required,
 )
-from posthog.constants import PERMITTED_FORUM_DOMAINS
+from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_deleted_account,
@@ -70,17 +73,29 @@ from posthog.event_usage import (
     report_user_updated,
     report_user_verified_email,
 )
-from posthog.helpers.email_utils import validate_display_name
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
-from posthog.models import Team, User, UserScenePersonalisation
-from posthog.models.organization import Organization
+from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
+from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
+from posthog.models.user import (
+    NOTIFICATION_DEFAULTS,
+    ROLE_CHOICES,
+    Notifications,
+    OnboardingSkippedReason,
+    ShortcutPosition,
+)
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
-from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
-from posthog.tasks import user_identify
+from posthog.rate_limit import (
+    OnboardingSkipThrottle,
+    ToolbarOAuthRefreshThrottle,
+    UserAuthenticationThrottle,
+    UserEmailVerificationThrottle,
+)
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -91,6 +106,9 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.notifications.backend.facade.api import NotificationType
+
+_VALID_NOTIFICATION_TYPE_VALUES: frozenset[str] = frozenset(t.value for t in NotificationType)
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -98,6 +116,7 @@ REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Re
 NUM_2FA_BACKUP_CODES = 10
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
@@ -114,6 +133,31 @@ class PendingInviteSerializer(serializers.Serializer):
     organization_id = serializers.CharField()
     organization_name = serializers.CharField()
     created_at = serializers.DateTimeField()
+
+
+class OnboardingSkipRequestSerializer(serializers.Serializer):
+    """Request body for POST /api/users/{id}/onboarding/skip/.
+
+    Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
+    runtime so the contract clients believe is enforced (length cap, choice validation,
+    no extra fields) is actually enforced server-side.
+    """
+
+    reason = serializers.ChoiceField(
+        choices=[("later", "Later"), ("other", "Other")],
+        required=True,
+        help_text=(
+            "Why the user is leaving onboarding. 'later' keeps them able to return; "
+            "'other' is a catch-all. 'delegated' is rejected here — use the delegate "
+            "endpoint so the delegation invite is created atomically."
+        ),
+    )
+    step_at_skip = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=64,
+        help_text="Onboarding step key the user was on when skipping, for analytics only.",
+    )
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -154,7 +198,24 @@ class UserSerializer(serializers.ModelSerializer):
         help_text="Whether PostHog should anonymize events captured for this user when identified."
     )
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
+    # Intentionally NOT declared explicitly — Meta.read_only_fields below is silently ignored
+    # for explicitly declared fields (a well-known DRF gotcha that drf-spectacular replicates
+    # in its generated OpenAPI), so any explicit declaration here would re-open the writable
+    # PATCH bypass on /api/users/@me/. Letting DRF auto-generate the field from the model
+    # picks up the choices on User.onboarding_skipped_reason and Meta.read_only_fields wins.
+    onboarding_delegated_to_organization_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Organization ID of the pending delegation invite, if any. Used by the frontend "
+        "to scope the 'waiting for teammate' UI to the org where delegation was initiated.",
+    )
     is_organization_first_user = serializers.SerializerMethodField()
+    active_realtime_notification_types = serializers.SerializerMethodField(
+        help_text=(
+            "Real-time notification types that currently have a live dispatch site. "
+            "Drives the in-app notifications settings UI. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -197,7 +258,14 @@ class UserSerializer(serializers.ModelSerializer):
             "shortcut_position",
             "role_at_organization",
             "passkeys_enabled_for_2fa",
+            "onboarding_skipped_at",
+            "onboarding_skipped_reason",
+            "onboarding_skipped_organization_id",
+            "onboarding_delegated_to_invite",
+            "onboarding_delegated_to_organization_id",
+            "onboarding_delegation_accepted_at",
             "is_organization_first_user",
+            "active_realtime_notification_types",
             "pending_invites",
         ]
 
@@ -218,7 +286,14 @@ class UserSerializer(serializers.ModelSerializer):
             "organizations",
             "has_social_auth",
             "has_sso_enforcement",
+            "onboarding_skipped_at",
+            "onboarding_skipped_reason",
+            "onboarding_skipped_organization_id",
+            "onboarding_delegated_to_invite",
+            "onboarding_delegated_to_organization_id",
+            "onboarding_delegation_accepted_at",
             "is_organization_first_user",
+            "active_realtime_notification_types",
             "pending_invites",
         ]
 
@@ -272,12 +347,15 @@ class UserSerializer(serializers.ModelSerializer):
 
         return session_expiry_time.replace(tzinfo=UTC).isoformat()
 
+    @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
 
+    @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
 
+    @tracer.start_as_current_span("user_serializer.has_sso_enforcement")
     def get_has_sso_enforcement(self, instance: User) -> bool:
         organization = instance.current_organization
         if not organization:
@@ -287,12 +365,19 @@ class UserSerializer(serializers.ModelSerializer):
             OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
         )
 
+    def _is_self_request(self, instance: User) -> bool:
+        # True when the requesting user is the same as the user being serialized.
+        # Several SerializerMethodFields short-circuit when this is False so we don't
+        # pay extra queries on staff retrievals or leak per-user data across users.
+        request = self.context.get("request")
+        return bool(request and request.user.id == instance.id)
+
+    @tracer.start_as_current_span("user_serializer.is_organization_first_user")
     def get_is_organization_first_user(self, instance: User) -> bool | None:
         # Only compute when the serialized user is the requesting user. Avoids paying an
         # extra membership query on every /api/users/@me/ hit for admin/staff flows that
         # don't need this field, and ensures invitee attribution can't leak across users.
-        request = self.context.get("request")
-        if not request or request.user.id != instance.id:
+        if not self._is_self_request(instance):
             return None
 
         organization = instance.current_organization
@@ -302,8 +387,6 @@ class UserSerializer(serializers.ModelSerializer):
         # "First user" == "didn't arrive via an invite". Direct signal (membership.invited_by IS NULL)
         # avoids the earliest-joined heuristic, which silently reassigns creator status if the
         # original creator leaves the org.
-        from posthog.models.organization import OrganizationMembership
-
         membership = (
             OrganizationMembership.objects.filter(organization=organization, user=instance)
             .only("invited_by_id")
@@ -313,27 +396,30 @@ class UserSerializer(serializers.ModelSerializer):
             return None
         return membership.invited_by_id is None
 
+    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    def get_active_realtime_notification_types(self, _: User) -> list[str]:
+        return [t.value for t in NotificationType]
+
     @extend_schema_field(PendingInviteSerializer(many=True))
+    @tracer.start_as_current_span("user_serializer.pending_invites")
     def get_pending_invites(self, instance: User) -> list[dict]:
         """Non-expired organization invites matching the user's email for orgs they aren't already in.
 
         Only returned when the serialized user is the requesting user — staff retrieving
         another account should not see that user's private invites.
         """
-        from django.utils import timezone as django_timezone
-
-        from posthog.constants import INVITE_DAYS_VALIDITY
-        from posthog.helpers.email_utils import EmailNormalizer
-        from posthog.models import OrganizationInvite, OrganizationMembership
-
-        request = self.context.get("request")
-        if not request or request.user.id != instance.id or not instance.email:
+        if not self._is_self_request(instance) or not instance.email:
             return []
 
         normalized_email = EmailNormalizer.normalize(instance.email)
         existing_org_ids = OrganizationMembership.objects.filter(user=instance).values_list(
             "organization_id", flat=True
         )
+
+        # Hard cap on the number of invites returned. /api/users/@me/ runs on every page
+        # navigation; an outlier user invited to many orgs (e.g. a popular gmail.com address)
+        # would otherwise ship a huge payload on every hit.
+        PENDING_INVITES_MAX = 25
 
         invites = (
             OrganizationInvite.objects.filter(
@@ -342,7 +428,7 @@ class UserSerializer(serializers.ModelSerializer):
             )
             .exclude(organization_id__in=existing_org_ids)
             .select_related("organization")
-            .order_by("-created_at")
+            .order_by("-created_at")[:PENDING_INVITES_MAX]
         )
 
         return [
@@ -412,6 +498,34 @@ class UserSerializer(serializers.ModelSerializer):
                             code="invalid_input",
                         )
                 current_settings[key] = {**current_settings.get(key, {}), **value}
+            elif key == "realtime_notifications_disabled":
+                if not isinstance(value, dict):
+                    raise serializers.ValidationError(
+                        "realtime_notifications_disabled must be a dict",
+                        code="invalid_input",
+                    )
+                for type_key, team_map in value.items():
+                    if type_key not in _VALID_NOTIFICATION_TYPE_VALUES:
+                        raise serializers.ValidationError(
+                            f"Unknown notification type {type_key}",
+                            code="invalid_input",
+                        )
+                    if not isinstance(team_map, dict):
+                        raise serializers.ValidationError(
+                            f"Per-type value for {type_key} must be a dict of team_id to bool",
+                            code="invalid_input",
+                        )
+                    for _team_id, disabled in team_map.items():
+                        if not isinstance(disabled, bool):
+                            raise serializers.ValidationError(
+                                f"Disabled flag for {type_key} must be boolean, got {type(disabled)}",
+                                code="invalid_input",
+                            )
+                existing = current_settings.get("realtime_notifications_disabled", {}) or {}
+                merged: dict[str, dict[str, bool]] = {**existing}
+                for type_key, team_map in value.items():
+                    merged[type_key] = {**(existing.get(type_key, {}) or {}), **team_map}
+                current_settings["realtime_notifications_disabled"] = merged
             elif key == "data_pipeline_error_threshold":
                 if not isinstance(value, (int, float)):
                     raise serializers.ValidationError(
@@ -546,12 +660,28 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
     def to_representation(self, instance: Any) -> Any:
-        user_identify.identify_task.delay(user_id=instance.id)
-        data = super().to_representation(instance)
+        # Refresh PostHog person properties so the dogfood instance keeps the user's
+        # org/project/role properties current. posthoganalytics.capture is non-blocking
+        # (the SDK ships events on a background thread) so this call doesn't add request
+        # latency. Inline rather than via celery — the previous celery .delay() was a
+        # synchronous broker round-trip that spiked to ~500ms+ in slow traces, which
+        # was the whole reason for moving away from it. Server-side capture also keeps
+        # working for clients running ad blockers, which a frontend-side identify would
+        # silently miss.
+        with tracer.start_as_current_span("user_serializer.identify"):
+            posthoganalytics.capture(
+                distinct_id=instance.distinct_id,
+                event="update user properties",
+                properties={"$set": instance.get_analytics_metadata()},
+            )
+
+        with tracer.start_as_current_span("user_serializer.default_fields"):
+            data = super().to_representation(instance)
 
         # Backfill shortcut_position default for frontend if null
-        if data.get("shortcut_position") is None:
-            data["shortcut_position"] = ShortcutPosition.ABOVE.value
+        with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):
+            if data.get("shortcut_position") is None:
+                data["shortcut_position"] = ShortcutPosition.ABOVE.value
 
         return data
 
@@ -795,6 +925,113 @@ class UserViewSet(
 
         instance.pending_email = None
         instance.save()
+
+        return Response(self.get_serializer(instance=instance).data)
+
+    @extend_schema(
+        request=OnboardingSkipRequestSerializer,
+        responses=UserSerializer,
+    )
+    @action(methods=["POST"], detail=True, url_path="onboarding/skip", throttle_classes=[OnboardingSkipThrottle])
+    def onboarding_skip(self, request, **kwargs):
+        """
+        Mark the current user as having exited onboarding with a non-delegated reason.
+        Idempotent: the skip timestamp is only set on the first successful call.
+
+        Callers wanting to delegate setup to a teammate must use the dedicated
+        /organizations/{id}/invites/delegate/ endpoint, which atomically creates the
+        invite and sets reason="delegated". This endpoint rejects that reason so state
+        can't be faked without a real invite.
+        """
+        instance = self.get_object()
+
+        # Bind the declared serializer at runtime so the contract clients believe is
+        # enforced (length cap on step_at_skip, choice validation on reason, rejection
+        # of malformed payloads) is actually enforced server-side.
+        skip_serializer = OnboardingSkipRequestSerializer(data=request.data if isinstance(request.data, dict) else {})
+        skip_serializer.is_valid(raise_exception=True)
+        validated = skip_serializer.validated_data
+        non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
+        reason = validated["reason"]
+        step_at_skip = validated.get("step_at_skip") or ""
+
+        with transaction.atomic():
+            locked = User.objects.select_for_update().get(pk=instance.pk)
+
+            # If the user has a pending (not-yet-accepted) delegation, cancel it atomically.
+            # Otherwise the delegate could still accept and silently become admin after the
+            # delegator thinks they've backed out.
+            pending_invite_id = (
+                locked.onboarding_delegated_to_invite_id if locked.onboarding_delegation_accepted_at is None else None
+            )
+            if pending_invite_id is not None:
+                # Per-instance delete() so ModelActivityMixin signals still fire.
+                cancel_pending_delegation(locked_user=locked)
+                # Re-read the user since post_delete may have cleared some fields already.
+                locked.refresh_from_db()
+
+            # Org-scoped skip: pin to the user's current org so this doesn't suppress
+            # onboarding in other orgs they later join/create.
+            current_org_id = getattr(locked, "current_organization_id", None) or (
+                locked.organization.id if locked.organization else None
+            )
+
+            # Idempotency: preserve the first skip timestamp and short-circuit repeat analytics.
+            already_skipped_non_delegated = bool(
+                locked.onboarding_skipped_at and locked.onboarding_skipped_reason in non_delegated_reasons
+            )
+            update_fields = []
+            if not already_skipped_non_delegated:
+                locked.onboarding_skipped_at = datetime.now(UTC)
+                update_fields.append("onboarding_skipped_at")
+            if locked.onboarding_skipped_reason != reason:
+                locked.onboarding_skipped_reason = reason
+                update_fields.append("onboarding_skipped_reason")
+            if locked.onboarding_skipped_organization_id != current_org_id:
+                locked.onboarding_skipped_organization_id = current_org_id
+                update_fields.append("onboarding_skipped_organization_id")
+            # A stale FK to a delegation invite the delegate already accepted can remain; clear it
+            # so the "waiting on teammate" UI doesn't re-engage.
+            had_delegation_state = any(
+                [
+                    locked.onboarding_delegated_to_invite_id is not None,
+                    locked.onboarding_delegated_to_organization_id is not None,
+                    locked.onboarding_delegation_accepted_at is not None,
+                ]
+            )
+            if had_delegation_state:
+                clear_delegation_state(locked, save=False)
+                update_fields.extend(
+                    [
+                        "onboarding_delegated_to_invite",
+                        "onboarding_delegated_to_organization_id",
+                        "onboarding_delegation_accepted_at",
+                    ]
+                )
+            if update_fields:
+                locked.save(update_fields=update_fields)
+
+            # Sync the in-memory instance that will be serialized back to the caller.
+            instance.refresh_from_db()
+
+            if instance.distinct_id and not already_skipped_non_delegated:
+                # Fire analytics only after the transaction commits, so a rolled-back
+                # request doesn't produce a skip event the DB doesn't back.
+                distinct_id = str(instance.distinct_id)
+
+                def _fire_skip_analytics() -> None:
+                    try:
+                        # Single event name with `reason` as a property keeps dashboards simple —
+                        # counting skips doesn't require unioning event names.
+                        posthoganalytics.capture(
+                            distinct_id=distinct_id,
+                            event="onboarding skipped",
+                            properties={"step_at_skip": step_at_skip or None, "reason": reason},
+                        )
+                    except Exception as exc:
+                        capture_exception(exc)
+
+                transaction.on_commit(_fire_skip_analytics)
 
         return Response(self.get_serializer(instance=instance).data)
 

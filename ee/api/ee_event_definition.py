@@ -24,7 +24,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     post_to_slack = serializers.BooleanField(default=False)
     default_columns = serializers.ListField(child=serializers.CharField(), required=False)
     media_preview_urls = serializers.SerializerMethodField(read_only=True)
-    promoted_property = serializers.CharField(
+    primary_property = serializers.CharField(
         required=False,
         allow_null=True,
         allow_blank=False,
@@ -54,7 +54,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_by",
             "hidden",
             "enforcement_mode",
-            "promoted_property",
+            "primary_property",
             # Action fields
             "is_action",
             "action_id",

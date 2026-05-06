@@ -64,19 +64,23 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             )
 
         try:
-            task = Task.objects.select_related("created_by").get(id=ctx.task_id)
+            task = Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
+                id=ctx.task_id
+            )
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
         github_token = ""
-        if ctx.github_integration_id is not None:
+        if ctx.has_github_credentials:
             try:
                 github_token = (
                     get_sandbox_github_token(
                         ctx.github_integration_id,
                         run_id=ctx.run_id,
                         state=ctx.state,
-                        created_by=task.created_by,
+                        task=task,
+                        github_user_integration_id=ctx.github_user_integration_id,
+                        repository=ctx.repository,
                     )
                     or ""
                 )
