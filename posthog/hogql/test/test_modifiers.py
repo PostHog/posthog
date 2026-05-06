@@ -32,7 +32,10 @@ class TestModifiers(BaseTest):
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
     def test_team_modifiers_override(self):
-        assert self.team.modifiers is None
+        # New teams get `personsOnEventsMode` persisted at creation time (see the pre_save hook in
+        # team.py), but this test exercises the no-override-set path. Clear it explicitly.
+        self.team.modifiers = None
+        self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
         assert (
@@ -66,7 +69,9 @@ class TestModifiers(BaseTest):
         # Teams that need a non-default mode have it persisted in `team.modifiers["personsOnEventsMode"]`
         # (populated by the `backfill_persons_on_events_mode_job` Dagster job). When the team has
         # no value persisted, the runner falls back to a stable hardcoded default below.
-        assert self.team.modifiers is None
+        # Clear the value the pre_save hook set at creation so we exercise the unbackfilled path.
+        self.team.modifiers = None
+        self.team.save()
         modifiers = create_default_modifiers_for_team(self.team)
         # `team.person_on_events_mode` still walks the flag chain, so this asserts the value that
         # WOULD have leaked into the cache_key under the old behavior:

@@ -10,7 +10,7 @@ from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 
 import pytz
 import pydantic
@@ -1079,6 +1079,28 @@ class Team(UUIDTClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("id", "uuid", "project_id", "name", "api_token")
+
+
+@mutable_receiver(pre_save, sender=Team)
+def set_default_persons_on_events_mode_for_new_team(sender, instance: "Team", **kwargs):
+    """Persist a stable `personsOnEventsMode` on every newly-created team.
+
+    The cache_key path no longer evaluates `team.person_on_events_mode_flag_based_default` (which
+    would return different values across web pods depending on local feature-flag cache state).
+    To keep behavior coherent for new teams and to allow eventual retirement of the flag-based
+    fallback in `team.person_on_events_mode`, we eagerly persist the default mode at creation
+    time. Brand-new team UUIDs never appear in the legacy POE-v2 include list, so the hardcoded
+    default matches what the flag would have resolved to anyway.
+    """
+    if not instance._state.adding:
+        return
+    modifiers = instance.modifiers or {}
+    if "personsOnEventsMode" in modifiers:
+        return
+    instance.modifiers = {
+        **modifiers,
+        "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED.value,
+    }
 
 
 @mutable_receiver(post_save, sender=Team)

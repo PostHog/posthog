@@ -76,6 +76,26 @@ class TestTeam(BaseTest):
         self.assertEqual(team.autocapture_web_vitals_allowed_metrics, None)
         self.assertEqual(team.autocapture_exceptions_errors_to_ignore, None)
 
+    def test_new_teams_get_persons_on_events_mode_persisted(self):
+        # Pairs with the cache_key fix: new teams must have `personsOnEventsMode` persisted at
+        # creation time so the runner never has to fall back to the per-pod flag eval.
+        team: Team = Team.objects.create(name="New Team", organization=self.organization)
+        assert team.modifiers is not None
+        assert team.modifiers.get("personsOnEventsMode") == "person_id_override_properties_joined"
+
+    def test_existing_team_modifiers_value_is_preserved_on_update(self):
+        # If a team already has a non-default `personsOnEventsMode` (e.g. set via the backfill job
+        # or explicitly by an admin), updating other fields must not overwrite it.
+        team: Team = Team.objects.create(
+            name="New Team",
+            organization=self.organization,
+            modifiers={"personsOnEventsMode": "person_id_no_override_properties_on_events"},
+        )
+        team.name = "Renamed Team"
+        team.save()
+        team.refresh_from_db()
+        assert team.modifiers["personsOnEventsMode"] == "person_id_no_override_properties_on_events"
+
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
@@ -170,9 +190,15 @@ class TestTeam(BaseTest):
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
+        # New teams get `personsOnEventsMode` persisted at creation (see the pre_save hook in
+        # team.py), so the flag-based fallback in `team.person_on_events_mode` no longer fires
+        # through the normal creation flow. To exercise the fallback we explicitly clear the
+        # persisted value.
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+                team.modifiers = None
+                team.save()
                 self.assertEqual(
                     team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 )
@@ -193,9 +219,12 @@ class TestTeam(BaseTest):
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
     def test_team_on_self_hosted_uses_instance_setting_to_determine_person_on_events(self, mock_feature_enabled):
+        # See note on the cloud variant above: clear the persisted modifier so the fallback runs.
         with self.is_cloud(False):
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+                team.modifiers = None
+                team.save()
                 self.assertEqual(
                     team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 )
@@ -205,6 +234,8 @@ class TestTeam(BaseTest):
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
                 team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+                team.modifiers = None
+                team.save()
                 self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
                 for args_list in mock_feature_enabled.call_args_list:
                     # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
