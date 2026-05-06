@@ -289,6 +289,4 @@ class TestRESTClient:
 
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
-        # Tenacity should have slept once with the Retry-After value (capped at 300s).
-        assert mock_sleep.call_count == 1
-        assert mock_sleep.call_args.args[0] == 90.0
+        mock_sleep.assert_called_once_with(90.0)
