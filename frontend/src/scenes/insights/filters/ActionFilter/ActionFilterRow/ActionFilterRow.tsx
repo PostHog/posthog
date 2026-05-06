@@ -600,12 +600,44 @@ export function ActionFilterRow({
                                             selected={
                                                 filter.id != null && filter.type
                                                     ? ({
-                                                          item: { id: filter.id, name: filter.name },
+                                                          // DWH filters need the saved column
+                                                          // mapping (`id_field` /
+                                                          // `timestamp_field` /
+                                                          // `distinct_id_field` etc.) on the
+                                                          // `item` so re-opening the menu
+                                                          // routes into `dwh-config` with the
+                                                          // form pre-filled. Spread the whole
+                                                          // filter for DWH; events/actions
+                                                          // only need id + name.
+                                                          item:
+                                                              filter.type === EntityTypes.DATA_WAREHOUSE
+                                                                  ? {
+                                                                        ...filter,
+                                                                        name: filter.name,
+                                                                        // DWH `getValue` reads `name`,
+                                                                        // not `id` — make sure both
+                                                                        // are present so routing +
+                                                                        // checkmark match.
+                                                                        ...dataWarehouseTablesMap[String(filter.name)],
+                                                                    }
+                                                                  : { id: filter.id, name: filter.name },
                                                           group: {
                                                               type:
                                                                   filter.type === EntityTypes.ACTIONS
                                                                       ? TaxonomicFilterGroupType.Actions
-                                                                      : TaxonomicFilterGroupType.Events,
+                                                                      : filter.type === EntityTypes.DATA_WAREHOUSE
+                                                                        ? TaxonomicFilterGroupType.DataWarehouse
+                                                                        : TaxonomicFilterGroupType.Events,
+                                                              // DWH config form reads `getName`
+                                                              // / `getValue` off `selected.group`
+                                                              // when re-opening, so provide them
+                                                              // for the DWH branch. Events /
+                                                              // Actions don't need them — the
+                                                              // resolved orchestrator group is
+                                                              // used for those once the user
+                                                              // commits.
+                                                              getName: (t: any) => t?.name,
+                                                              getValue: (t: any) => t?.name,
                                                           },
                                                           name: String(name ?? filter.id),
                                                           friendlyLabel: name ? String(name) : undefined,

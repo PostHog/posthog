@@ -70,6 +70,10 @@ export interface TaxonomicFilterMenuProps {
      * "Choose series filter" so the panel matches its surrounding context.
      */
     comboboxTitle?: string
+    /** Field tabs the DWH config form should expose (id_field, timestamp_field, …). Defaults to the standard bundle. */
+    dataWarehousePopoverFields?: import('../types').DataWarehousePopoverField[]
+    /** Insight context for the DWH config — when set, the aggregation-target tab reads `funnelDataLogic` for funnel-aware copy. */
+    insightProps?: import('~/types').InsightLogicProps
 }
 
 export interface TriggerState {
@@ -85,6 +89,8 @@ export function TaxonomicFilterMenu({
     onCommit,
     placeholder,
     comboboxTitle,
+    dataWarehousePopoverFields,
+    insightProps,
 }: TaxonomicFilterMenuProps): JSX.Element {
     const { groups, selectItem, inputProps, searchQuery } = useTaxonomicFilterContext()
     const [state, setState] = useState<MenuFilterState>({ kind: 'closed' })
@@ -216,11 +222,14 @@ export function TaxonomicFilterMenu({
     // -- Popover open derives from state. The dropdown menu is a separate
     // overlay (DropdownMenu); the popover is open for any non-menu,
     // non-closed kind.
-    const popoverOpen =
-        state.kind === 'combobox' ||
-        state.kind === 'dwh-pick' ||
-        state.kind === 'dwh-config' ||
-        state.kind === 'hogql-edit'
+    //
+    // `dwh-config` deliberately excluded — when the user opens the DWH
+    // config dialog we close the popover (not just stack on top of it),
+    // so PostHog's stock z-order (`--z-popover` > `--z-modal`) keeps
+    // Selects inside the dialog above the modal as expected. Cancelling
+    // the dialog returns to `dwh-pick` and the popover re-opens at the
+    // table list.
+    const popoverOpen = state.kind === 'combobox' || state.kind === 'dwh-pick' || state.kind === 'hogql-edit'
 
     // Manual outside-click handling. base-ui Popover's automatic dismiss
     // can't reliably distinguish a click on the visible trigger (the
@@ -244,7 +253,17 @@ export function TaxonomicFilterMenu({
             if (!target) {
                 return
             }
+            // Treat clicks inside our own popover content as inside…
             if (target.closest?.('[data-slot="popover-content"]')) {
+                return
+            }
+            // …and clicks inside ANY quill portal (Select dropdown, nested
+            // DropdownMenu, ContextMenu, Combobox suggestions) as inside
+            // too — those mount in their own portals at body level so a
+            // raw `target.closest(popover-content)` misses them. Without
+            // this, choosing a column from the field Select inside the
+            // DWH config form was closing the whole popover.
+            if (target.closest?.('[data-quill-portal]')) {
                 return
             }
             if (triggerWrapRef.current?.contains(target)) {
@@ -345,7 +364,12 @@ export function TaxonomicFilterMenu({
                             onBack={openMenu}
                         />
                     )}
-                    {state.kind === 'dwh-pick' && (
+                    {(state.kind === 'dwh-pick' || state.kind === 'dwh-config') && (
+                        // Popover stays at the table list while the
+                        // dwh-config Dialog (rendered below) is open on
+                        // top — that way Cancel returns the user to the
+                        // same list scroll/highlight position they were
+                        // browsing before clicking a table.
                         <MenuFilterCombobox
                             drillTo={TaxonomicFilterGroupType.DataWarehouse}
                             title="Data warehouse tables"
@@ -355,14 +379,6 @@ export function TaxonomicFilterMenu({
                             }
                             onCommit={(entry) => openDwhConfig(entry.item, entry.group)}
                             onBack={openMenu}
-                        />
-                    )}
-                    {state.kind === 'dwh-config' && (
-                        <MenuFilterDwhConfig
-                            table={state.table}
-                            group={state.group}
-                            onCommit={handleCommit}
-                            onBack={openDwhPick}
                         />
                     )}
                     {state.kind === 'hogql-edit' && (
@@ -378,6 +394,22 @@ export function TaxonomicFilterMenu({
                     )}
                 </PopoverContent>
             </Popover>
+            {/* DWH config dialog — sibling of the popover so it portals
+                above it. Mounting only while in `dwh-config` state means
+                the dialog auto-opens on transition and unmounts on
+                close (Cancel / X / Esc → `onBack` returns to dwh-pick;
+                Select calls `handleCommit` which triggers `closeAll`
+                and dismisses both the dialog and the popover). */}
+            {state.kind === 'dwh-config' && (
+                <MenuFilterDwhConfig
+                    table={state.table}
+                    group={state.group}
+                    dataWarehousePopoverFields={dataWarehousePopoverFields}
+                    insightProps={insightProps}
+                    onCommit={handleCommit}
+                    onBack={openDwhPick}
+                />
+            )}
             <DropdownMenuContent align="start" className="min-w-[240px]">
                 <DropdownMenuItem onClick={() => openCombobox('all')} data-attr="taxonomic-filter-menu-new">
                     New filter…

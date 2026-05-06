@@ -43,10 +43,11 @@ export function MenuFilterHeader({ title, onBack, className, showTabHint = true 
             <div className="flex items-center gap-2 text-xs">
                 {showTabHint && (
                     <>
-                        <Kbd>Tab</Kbd> <span className="text-tertiary/50 font-normal">Cycle through categories</span>
+                        <Kbd>Tab</Kbd>{' '}
+                        <span className="text-muted-foreground font-normal">Cycle through categories</span>
                     </>
                 )}
-                <Kbd>Esc</Kbd> <span className="text-tertiary/50 font-normal">Go back one level</span>
+                <Kbd>Esc</Kbd> <span className="text-muted-foreground font-normal">Go back one level</span>
             </div>
         </div>
     )
