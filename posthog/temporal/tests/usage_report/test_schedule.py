@@ -59,7 +59,7 @@ async def test_run_usage_reports_schedule_input_is_json_serializable() -> None:
 
     captured: dict = {}
 
-    async def fake_create_schedule(client, schedule_id, schedule, trigger_immediately=False):  # type: ignore[no-untyped-def]
+    async def fake_create_schedule(client, schedule_id, schedule, trigger_immediately=False):
         captured["schedule_id"] = schedule_id
         captured["schedule"] = schedule
 

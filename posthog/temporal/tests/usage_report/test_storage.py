@@ -209,7 +209,7 @@ def test_jsonl_gzip_writer_batches_writes_to_gzip_stream() -> None:
 def test_delete_keys_continues_on_failure() -> None:
     calls: list[str] = []
 
-    def fake_delete(key, bucket=None):  # type: ignore[no-untyped-def]
+    def fake_delete(key, bucket=None):
         calls.append(key)
         if key == "fail":
             raise RuntimeError("boom")

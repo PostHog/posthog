@@ -23,7 +23,7 @@ from posthog.temporal.usage_report.storage import bucket, run_prefix
 from posthog.temporal.usage_report.types import WorkflowContext
 
 
-def _s3_resource():  # type: ignore[no-untyped-def]
+def _s3_resource():
     return resource(
         "s3",
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,

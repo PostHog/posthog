@@ -11,7 +11,7 @@ import inspect
 from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX
 
 
-def _required_arg_count(fn) -> int:  # type: ignore[no-untyped-def]
+def _required_arg_count(fn) -> int:
     """Count positional/positional-or-keyword params with no default."""
     sig = inspect.signature(fn)
     return sum(

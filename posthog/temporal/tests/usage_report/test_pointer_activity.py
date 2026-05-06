@@ -47,7 +47,7 @@ async def test_pointer_uses_v2_queue_and_correct_payload(activity_environment) -
     fake_producer = MagicMock()
     fake_producer.send_message.return_value = {"MessageId": "abc"}
 
-    def fake_get_producer(queue_name):  # type: ignore[no-untyped-def]
+    def fake_get_producer(queue_name):
         captured["queue_name"] = queue_name
         return fake_producer
 

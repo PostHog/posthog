@@ -8,10 +8,12 @@ required.
 
 import json
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
 
+from posthog.tasks.usage_report import OrgReport
 from posthog.temporal.usage_report.aggregator import (
     batched,
     build_manifest,
@@ -61,7 +63,7 @@ def _seed_s3(s3: dict[str, bytes], spec_name: str, payload) -> str:
     return key
 
 
-def _patch_query_index(specs: dict) -> "patch":
+def _patch_query_index(specs: dict) -> Any:
     return patch.dict(
         "posthog.temporal.usage_report.queries.QUERY_INDEX",
         specs,
@@ -171,7 +173,7 @@ def test_iter_chunk_lines_emits_id_and_report_with_usage_flag() -> None:
         return {"event_count_in_period": 0, "has_non_zero_usage": False}
 
     with patch("posthog.temporal.usage_report.aggregator.serialize_full_org_report", side_effect=fake_serialize):
-        result = list(iter_chunk_lines([org_a, org_b], instance_metadata=None))  # type: ignore[arg-type]
+        result = list(iter_chunk_lines(cast(list[OrgReport], [org_a, org_b]), instance_metadata=None))
 
     assert result == [
         ({"organization_id": "org-a", "usage_report": {"event_count_in_period": 10, "has_non_zero_usage": True}}, True),
@@ -188,7 +190,7 @@ def test_iter_chunk_lines_treats_missing_flag_as_falsy() -> None:
         "posthog.temporal.usage_report.aggregator.serialize_full_org_report",
         return_value={"event_count_in_period": 0},  # no has_non_zero_usage
     ):
-        out = list(iter_chunk_lines([org], instance_metadata=None))  # type: ignore[arg-type]
+        out = list(iter_chunk_lines(cast(list[OrgReport], [org]), instance_metadata=None))
     assert out[0][1] is False
 
 
@@ -230,22 +232,28 @@ def test_build_manifest_returns_typed_manifest() -> None:
 
 
 def test_filter_org_reports_no_filter_returns_all() -> None:
-    reports = {"a": _FakeOrgReport("a"), "b": _FakeOrgReport("b")}
+    reports = cast(dict[str, OrgReport], {"a": _FakeOrgReport("a"), "b": _FakeOrgReport("b")})
     assert filter_org_reports(reports, None) is reports
     assert filter_org_reports(reports, []) is reports  # empty list also no-ops
 
 
 def test_filter_org_reports_with_ids_keeps_only_requested() -> None:
-    reports = {"a": _FakeOrgReport("a"), "b": _FakeOrgReport("b"), "c": _FakeOrgReport("c")}
+    reports = cast(
+        dict[str, OrgReport],
+        {"a": _FakeOrgReport("a"), "b": _FakeOrgReport("b"), "c": _FakeOrgReport("c")},
+    )
     out = filter_org_reports(reports, ["a", "c", "missing"])
     assert set(out.keys()) == {"a", "c"}
 
 
 def test_sort_org_reports_orders_by_organization_id() -> None:
-    reports = {
-        "z": _FakeOrgReport("z"),
-        "a": _FakeOrgReport("a"),
-        "m": _FakeOrgReport("m"),
-    }
+    reports = cast(
+        dict[str, OrgReport],
+        {
+            "z": _FakeOrgReport("z"),
+            "a": _FakeOrgReport("a"),
+            "m": _FakeOrgReport("m"),
+        },
+    )
     out = sort_org_reports(reports)
     assert [r.organization_id for r in out] == ["a", "m", "z"]
