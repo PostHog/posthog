@@ -5,7 +5,7 @@ Pass CLI-style commands in the `command` parameter for all PostHog interactions.
 **MANDATORY — HARD REQUIREMENTS**
 
 1. Discover tools first with `search` or `tools`.
-2. Run `info <tool_name>` BEFORE every `call <tool_name>`.
+2. Run `info <tool_name>` BEFORE every `call <tool_name> <json>`.
 
 BLOCKING, like reading a file before editing it. Tool names and schemas are NOT predictable — never assume.
 
@@ -23,8 +23,8 @@ posthog:exec({ "command": "info <tool_name>" })
 posthog:exec({ "command": "schema <tool_name> <field_path>" })
 
 # 4. Call the tool. Pass arguments as inline JSON in `command`:
-posthog:exec({ "command": "call <tool_name> {<json_input>}" })
-posthog:exec({ "command": "call --json <tool_name> {<json_input>}" })
+posthog:exec({ "command": "call <tool_name> <json_input>" })
+posthog:exec({ "command": "call --json <tool_name> <json_input>" })
 ```
 
 **Schema drill-down:**

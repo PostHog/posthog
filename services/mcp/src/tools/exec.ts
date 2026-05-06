@@ -198,12 +198,12 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new Error('Usage: call [--json] <tool_name> [<json_input>]')
+                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
                     }
                     const forceJson = rest.startsWith('--json ') || rest === '--json'
                     const callArgs = forceJson ? rest.slice('--json'.length).trim() : rest
                     if (!callArgs) {
-                        throw new Error('Usage: call [--json] <tool_name> [<json_input>]')
+                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
@@ -215,7 +215,7 @@ export function createExecTool(
                             input = JSON.parse(jsonBody) as Record<string, unknown>
                         } catch (err) {
                             const detail = err instanceof Error ? err.message : String(err)
-                            throw new Error(`Invalid JSON input: ${detail}. Body received: ${jsonBody}`)
+                            throw new Error(`Invalid JSON input: ${detail}`)
                         }
                     }
 

@@ -76,14 +76,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] <tool_name> [<json_input>]'
+                'Usage: call [--json] <tool_name> <json_input>'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] <tool_name> [<json_input>]'
+                'Usage: call [--json] <tool_name> <json_input>'
             )
         })
 
@@ -191,7 +191,7 @@ describe('exec tool', () => {
                 exec.handler(mockContext, {
                     command: 'call mock-tool {not-json}',
                 })
-            ).rejects.toThrow(/Invalid JSON input: .*Body received: \{not-json\}/)
+            ).rejects.toThrow(/Invalid JSON input:/)
         })
 
         it('invokes the inner-call tracker with success=false when the inner tool throws', async () => {
