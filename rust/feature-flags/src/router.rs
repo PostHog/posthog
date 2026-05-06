@@ -9,6 +9,7 @@ use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimite
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
+    extract::DefaultBodyLimit,
     http::{Method, StatusCode},
     routing::{any, get},
     Router,
@@ -33,7 +34,7 @@ use tower_http::{
 
 use crate::{
     api::{
-        body_read_metrics::record_body_read,
+        body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
         concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
@@ -260,12 +261,12 @@ pub fn router(
     //   HandleErrorLayer → TimeoutLayer → record_concurrency_enter →
     //   ConcurrencyLimitLayer → record_concurrency_wait → (per-sub-router).
     //
-    // The body-read shim is per-sub-router: only `/flags|/decide` consume
-    // `BodyReadDuration`, and `/flags/definitions` 405s non-GET requests
-    // before the handler runs, so buffering its body would be wasted work.
-    // `axum::Router::layer` wraps the routes accumulated so far, so
-    // applying it on `flags_endpoints` before `.merge` keeps it off the
-    // definitions sub-router.
+    // The body-read shim and `DefaultBodyLimit` are per-sub-router and only
+    // attached to `/flags|/decide`. `/flags/definitions` is GET-only and
+    // 405s non-GET before any body is read. `DefaultBodyLimit::max` is the
+    // marker the handler's `Bytes` extractor reads; the shim's `to_bytes`
+    // cap (see `MAX_FLAGS_BODY_BYTES`) handles the same boundary while the
+    // body is being buffered. Both are required.
     let mut flags_endpoints: Router<State> = Router::new();
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
         flags_endpoints = flags_endpoints
@@ -273,7 +274,8 @@ pub fn router(
             .route("/flags/", any(endpoint::flags))
             .route("/decide", any(endpoint::flags))
             .route("/decide/", any(endpoint::flags))
-            .layer(axum::middleware::from_fn(record_body_read));
+            .layer(axum::middleware::from_fn(record_body_read))
+            .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES));
     }
 
     let mut definitions_endpoints: Router<State> = Router::new();

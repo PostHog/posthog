@@ -87,6 +87,12 @@ pub const FLAG_BODY_READ_TIME_MS: &str = "flags_body_read_ms";
 // `team_id` label, because this happens before authentication.
 pub const FLAG_BODY_READ_FAILED_COUNTER: &str = "flags_body_read_failed_total";
 
+// Counter for inbound bodies rejected because they exceeded
+// `MAX_FLAGS_BODY_BYTES`. Split from the transport-failure counter so a
+// dashboard can distinguish suspected upload abuse from genuine network
+// errors. Pod-level: no `team_id` label.
+pub const FLAG_BODY_READ_TOO_LARGE_COUNTER: &str = "flags_body_read_too_large_total";
+
 // Per-phase wall-clock duration inside `process_request_inner`. Phases
 // match handler-level state transitions:
 // `auth → billing_check → cookieless → fetch_and_filter → evaluate →

@@ -121,9 +121,8 @@ impl PhaseGuard {
 impl Drop for PhaseGuard {
     fn drop(&mut self) {
         let elapsed = self.start.elapsed();
-        // Record into the canonical log first so a histogram emission
-        // failure (or the canonical scope not existing — e.g. unit
-        // tests) doesn't drop the inflight decrement.
+        // Log update can no-op (e.g. unit tests with no canonical scope),
+        // but the gauge must always decrement to balance `enter`.
         with_canonical_log(|log| log.phases.record(self.phase, elapsed));
         gauge!(FLAG_INFLIGHT_BY_PHASE, "phase" => self.phase.name()).decrement(1.0);
     }

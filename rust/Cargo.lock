@@ -3360,6 +3360,7 @@ dependencies = [
  "futures",
  "governor",
  "hex",
+ "http-body-util",
  "json5",
  "lifecycle",
  "limiters",

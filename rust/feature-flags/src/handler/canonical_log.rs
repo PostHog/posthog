@@ -802,7 +802,6 @@ mod tests {
             let recorder = DebuggingRecorder::new();
             metrics::with_local_recorder(&recorder, || {
                 let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
-                // All three timing fields default to None.
                 log.emit_timing_metrics();
             });
 
@@ -811,6 +810,7 @@ mod tests {
                 "flags_queue_time_ms",
                 "flags_pre_handler_time_ms",
                 "flags_concurrency_limit_wait_ms",
+                "flags_body_read_ms",
             ] {
                 assert!(
                     !metrics.iter().any(|s| s.name == name),
@@ -854,17 +854,6 @@ mod tests {
                 "body_read_ms should not carry team_id, got {:?}",
                 sample.labels
             );
-        }
-
-        #[test]
-        fn test_no_body_read_emission_when_field_is_none() {
-            let recorder = DebuggingRecorder::new();
-            metrics::with_local_recorder(&recorder, || {
-                let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
-                log.emit_timing_metrics();
-            });
-            let metrics = snapshot_metrics(&recorder);
-            assert!(!metrics.iter().any(|s| s.name == "flags_body_read_ms"));
         }
     }
 

@@ -36,7 +36,13 @@ use axum::{
 };
 use common_metrics::inc;
 
-use crate::metrics::consts::FLAG_BODY_READ_FAILED_COUNTER;
+use crate::metrics::consts::{FLAG_BODY_READ_FAILED_COUNTER, FLAG_BODY_READ_TOO_LARGE_COUNTER};
+
+/// Maximum inbound POST body size for `/flags` and `/decide`. Kept in
+/// lockstep with the `DefaultBodyLimit` layer on the same sub-router so
+/// the streaming cap (here) and the extractor cap (downstream) reject at
+/// the same boundary.
+pub const MAX_FLAGS_BODY_BYTES: usize = 2 * 1024 * 1024;
 
 /// Wall-clock duration spent buffering the inbound request body. Inserted
 /// into request extensions by [`record_body_read`] and read by the
@@ -48,19 +54,33 @@ pub struct BodyReadDuration(pub Duration);
 /// forwards a request with an in-memory body so the handler's `Bytes`
 /// extractor short-circuits.
 ///
-/// Errors during buffering map to a 400 response — the same shape the
-/// `Bytes` extractor's `BytesRejection` produces by default. The shim
-/// must not absorb the request silently; an unbuffered body would never
-/// reach the handler regardless.
+/// Bodies above [`MAX_FLAGS_BODY_BYTES`] are rejected with 413; transport
+/// errors are rejected with 400. Both responses use the same body string
+/// that axum's `BytesRejection::FailedToBufferBody` would produce.
 pub async fn record_body_read(req: Request, next: Next) -> Response {
     let (parts, body) = req.into_parts();
     let start = Instant::now();
-    // No explicit upper bound: the existing handler accepts `body: Bytes`
-    // without a `RequestBodyLimitLayer`, so this shim must match that
-    // contract. Upstream (Envoy / Contour) enforces the real ceiling.
-    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+    let bytes = match axum::body::to_bytes(body, MAX_FLAGS_BODY_BYTES).await {
         Ok(bytes) => bytes,
         Err(err) => {
+            // `to_bytes` wraps the underlying http_body_util error; walking
+            // `Error::source` is how axum's own `Bytes::from_request` picks
+            // 413 vs 400.
+            let too_large = std::error::Error::source(&err)
+                .is_some_and(|s| s.is::<http_body_util::LengthLimitError>());
+            if too_large {
+                inc(FLAG_BODY_READ_TOO_LARGE_COUNTER, &[], 1);
+                tracing::warn!(
+                    error = %err,
+                    limit = MAX_FLAGS_BODY_BYTES,
+                    "request body exceeded limit"
+                );
+                return (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Failed to buffer the request body",
+                )
+                    .into_response();
+            }
             inc(FLAG_BODY_READ_FAILED_COUNTER, &[], 1);
             tracing::warn!(error = %err, "failed to buffer request body");
             return (StatusCode::BAD_REQUEST, "Failed to buffer the request body").into_response();
@@ -161,9 +181,8 @@ mod tests {
 
     #[tokio::test]
     async fn shim_handles_empty_body() {
-        // GET / OPTIONS / HEAD requests routed through the same layer
-        // chain see an empty body. The shim must record a duration
-        // (even ~0) and forward without error.
+        // POST with an empty body still produces a (~0 ms) duration and
+        // forwards without error.
         let app = Router::new()
             .route("/", post(echo_body_read))
             .layer(axum::middleware::from_fn(record_body_read));
@@ -233,6 +252,73 @@ mod tests {
             other => {
                 panic!("expected `{FLAG_BODY_READ_FAILED_COUNTER}` Counter sample, got {other:?}")
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn shim_accepts_body_at_limit() {
+        let body = vec![b'a'; MAX_FLAGS_BODY_BYTES];
+        let app = Router::new()
+            .route("/", post(echo_body_read))
+            .layer(axum::middleware::from_fn(record_body_read));
+
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/")
+            .body(Body::from(body.clone()))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let payload = read_response_bytes(resp).await;
+        let (wait, echoed_body) = split_echo(&payload);
+        assert_ne!(wait, "missing");
+        assert_eq!(echoed_body, body);
+    }
+
+    #[tokio::test]
+    async fn shim_returns_413_and_increments_too_large_counter_when_body_exceeds_limit() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let app = Router::new()
+            .route("/", post(echo_body_read))
+            .layer(axum::middleware::from_fn(record_body_read));
+
+        let body = vec![b'a'; MAX_FLAGS_BODY_BYTES + 1];
+        let req = HttpRequest::builder()
+            .method("POST")
+            .uri("/")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let body_bytes = read_response_bytes(resp).await;
+        assert_eq!(body_bytes, b"Failed to buffer the request body");
+
+        let snapshot = snapshotter.snapshot().into_vec();
+        let too_large = snapshot.iter().find_map(|(ckey, _, _, value)| {
+            (ckey.key().name() == FLAG_BODY_READ_TOO_LARGE_COUNTER).then_some(value)
+        });
+        match too_large {
+            Some(DebugValue::Counter(n)) => assert_eq!(*n, 1),
+            other => panic!(
+                "expected `{FLAG_BODY_READ_TOO_LARGE_COUNTER}` Counter sample, got {other:?}"
+            ),
+        }
+        // The transport-failure counter must stay clean — the two paths
+        // are split on purpose, so a regression that collapses them back
+        // would cross-fire here.
+        let failed = snapshot.iter().find_map(|(ckey, _, _, value)| {
+            (ckey.key().name() == FLAG_BODY_READ_FAILED_COUNTER).then_some(value)
+        });
+        if let Some(DebugValue::Counter(n)) = failed {
+            assert_eq!(
+                *n, 0,
+                "transport-failure counter must not fire on size-exceeded path"
+            );
         }
     }
 }
