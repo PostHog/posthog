@@ -22,6 +22,9 @@ const PCT_DISPLAY_FLOOR = 0.05
 const PCT_WARNING_THRESHOLD = 5
 
 function formatPct(value: number): string {
+    if (value > 0 && value < PCT_DISPLAY_FLOOR) {
+        return '<0.1%'
+    }
     if (value < 1) {
         return `${value.toFixed(1)}%`
     }
@@ -119,7 +122,8 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
             tooltipBits.push(`${t} ${t === 1 ? 'region' : 'regions'} affected`)
         }
         if (snapshot.ssim_score != null) {
-            tooltipBits.push(`${((1 - snapshot.ssim_score) * 100).toFixed(1)}% perceptual diff`)
+            const ssimClamped = Math.max(0, Math.min(1, snapshot.ssim_score))
+            tooltipBits.push(`${((1 - ssimClamped) * 100).toFixed(1)}% perceptual diff`)
         }
         const tooltip = tooltipBits.length ? `${pct.toFixed(2)}% pixel diff. ${tooltipBits.join(' · ')}.` : null
         const chip = (
