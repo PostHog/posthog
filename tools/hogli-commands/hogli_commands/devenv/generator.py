@@ -232,10 +232,10 @@ echo ''
 _news=$(curl -sf --max-time 2 '{news_url}' 2>/dev/null || cat {news_local} 2>/dev/null || true)
 if [ -n "$_news" ]; then
     printf '  {orange}{bold}News:{reset}\\n'
-    echo "$_news" | grep -E '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}' | sort -r | head -8 | \\
-      while IFS= read -r _line; do
-        _d=$(printf '%s' "$_line" | cut -c1-10)
-        _c=$(printf '%s' "$_line" | sed 's/^[^ ]* *//')
+    echo "$_news" | \\
+      awk '/^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}[[:space:]]*$/ {{ date=$1; next }} /^[[:space:]]*$/ {{ next }} date != "" {{ print date "|" $0 }}' | \\
+      sort -r | head -8 | \\
+      while IFS='|' read -r _d _c; do
         printf '    {gray}%s{reset}  %s\\n' "$_d" "$_c"
       done
     echo ''
