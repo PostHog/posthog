@@ -937,14 +937,13 @@ describe('infiniteListLogic', () => {
             const recentLogic = recentTaxonomicFiltersLogic.build()
             recentLogic.mount()
             for (const item of items) {
-                recentLogic.actions.recordRecentFilter(
-                    item._recentContext.sourceGroupType,
-                    item._recentContext.sourceGroupName,
-                    item._recentContext.propertyFilter.value,
-                    { name: item.name },
-                    undefined,
-                    item._recentContext.propertyFilter
-                )
+                recentLogic.actions.recordRecentFilter({
+                    groupType: item._recentContext.sourceGroupType,
+                    groupName: item._recentContext.sourceGroupName,
+                    value: item._recentContext.propertyFilter.value,
+                    item: { name: item.name },
+                    propertyFilter: item._recentContext.propertyFilter,
+                })
             }
         }
 

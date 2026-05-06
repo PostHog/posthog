@@ -1198,47 +1198,44 @@ describe('TaxonomicFilter', () => {
         const seedRecents = (): void => {
             const recentLogic = recentTaxonomicFiltersLogic.build()
             recentLogic.mount()
-            recentLogic.actions.recordRecentFilter(
-                TaxonomicFilterGroupType.Cohorts,
-                'Cohorts',
-                1,
-                { name: 'Power Users' },
-                undefined,
-                {
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 1,
+                item: { name: 'Power Users' },
+                propertyFilter: {
                     type: PropertyFilterType.Cohort,
                     key: 'id',
                     value: 1,
                     operator: PropertyOperator.In,
                     cohort_name: 'Power Users',
-                }
-            )
-            recentLogic.actions.recordRecentFilter(
-                TaxonomicFilterGroupType.Cohorts,
-                'Cohorts',
-                2,
-                { name: 'Trial Users' },
-                undefined,
-                {
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 2,
+                item: { name: 'Trial Users' },
+                propertyFilter: {
                     type: PropertyFilterType.Cohort,
                     key: 'id',
                     value: 2,
                     operator: PropertyOperator.NotIn,
                     cohort_name: 'Trial Users',
-                }
-            )
-            recentLogic.actions.recordRecentFilter(
-                TaxonomicFilterGroupType.EventProperties,
-                'Event properties',
-                '$browser',
-                { name: '$browser' },
-                undefined,
-                {
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: '$browser',
+                item: { name: '$browser' },
+                propertyFilter: {
                     type: PropertyFilterType.Event,
                     key: '$browser',
                     value: 'Chrome',
                     operator: PropertyOperator.Exact,
-                }
-            )
+                },
+            })
         }
 
         beforeEach(() => {
