@@ -97,9 +97,9 @@ tools:
                     rollout.
 
 
-                    HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant's `key` must be
-                    the literal string `control` (lowercase, no variations). It is the baseline used for analysis and
-                    the experiment runtime treats it specially. If the user describes variants as "A/B", "old/new",
+                    HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant's `key` must be the
+                    literal string `control` (lowercase, no variations). It is the baseline used for analysis and the
+                    experiment runtime treats it specially. If the user describes variants as "A/B", "old/new",
                     "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not
                     "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`,
                     `variant_a`, etc.).
