@@ -577,7 +577,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
             logger.exception("Billing service auth failed: invalid license key format")
             raise AuthenticationFailed("Invalid license key format")
 
-        return jwt.decode(
+        return jwt.decode(  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
             token,
             license_secret,
             algorithms=["HS256"],

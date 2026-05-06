@@ -881,7 +881,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         mock_strategy.request = mock_request
         mock_strategy.setting = lambda name, default=None, backend=None: default
 
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = mock_strategy  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -899,7 +899,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         mock_strategy.request = mock_request
         mock_strategy.setting = lambda name, default=None, backend=None: default
 
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = mock_strategy  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -915,7 +915,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         mock_strategy.request = mock_request
         mock_strategy.setting = lambda name, default=None, backend=None: default
 
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = mock_strategy  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
@@ -930,7 +930,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         mock_strategy.request = mock_request
         mock_strategy.setting = lambda name, default=None, backend=None: default
 
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = mock_strategy  # ty: ignore[invalid-assignment]
 
         with patch("ee.api.authentication.GoogleOAuth2.auth_extra_arguments", return_value={"prompt": "consent"}):
             extra_args = self.google_oauth.auth_extra_arguments()

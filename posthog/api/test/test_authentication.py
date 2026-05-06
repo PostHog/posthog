@@ -1215,12 +1215,14 @@ class TestPasswordResetAPI(APIBaseTest):
         UserSocialAuth.objects.create(
             user=self.user,
             provider="google-oauth2",
+            uid="google-oauth2|test",
             extra_data='"{"expires": 3599, "auth_time": 1633412833, "token_type": "Bearer", "access_token": "ya29"}"',
         )
 
         UserSocialAuth.objects.create(
             user=self.user,
             provider="github",
+            uid="github|test",
             extra_data='"{"expires": 3599, "auth_time": 1633412833, "token_type": "Bearer", "access_token": "ya29"}"',
         )
 
