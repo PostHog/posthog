@@ -134,10 +134,9 @@ tools:
             idempotent: true
         title: Look up feature flag keys by ID
         description: >
-            Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs.
-            Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when
-            you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream
-            calls.
+            Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns
+            `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have
+            IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.
     feature-flags-bulk-update-tags-create:
         operation: feature_flags_bulk_update_tags_create
         enabled: true

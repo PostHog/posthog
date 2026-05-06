@@ -10,6 +10,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivityLogPaginatedResponseApi,
+    BulkDeleteRequestApi,
+    BulkDeleteResponseApi,
+    BulkKeysRequestApi,
+    BulkKeysResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CopyFlagsRequestApi,
@@ -485,14 +489,14 @@ export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
 
 export const featureFlagsBulkDeleteCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    bulkDeleteRequestApi: BulkDeleteRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
+): Promise<BulkDeleteResponseApi> => {
+    return apiMutator<BulkDeleteResponseApi>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(bulkDeleteRequestApi),
     })
 }
 
@@ -506,14 +510,14 @@ export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
 
 export const featureFlagsBulkKeysCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    bulkKeysRequestApi: BulkKeysRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
+): Promise<BulkKeysResponseApi> => {
+    return apiMutator<BulkKeysResponseApi>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(bulkKeysRequestApi),
     })
 }
 
