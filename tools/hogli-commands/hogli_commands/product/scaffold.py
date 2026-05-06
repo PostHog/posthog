@@ -291,3 +291,11 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
         _add_to_db_routing(name, db_name, dry_run=dry_run)
     elif not dry_run:
         click.echo("  Skipped db_routing entry. Models live in the main database.")
+
+    if not dry_run:
+        mixin = "ProductTeamModel" if separate_db else "TeamScopedRootMixin"
+        click.secho(
+            f"\n  Models inherit `{mixin}` (fail-closed team scoping). "
+            "Read posthog/models/scoping/README.md for the contract before writing your first model.",
+            fg="cyan",
+        )
