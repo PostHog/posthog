@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 from dataclasses import asdict
+from typing import Any
 
 from django.conf import settings
 from django.contrib import admin, messages
@@ -147,6 +148,7 @@ def _get_delta_fragmentation_stats(schema: ExternalDataSchema) -> dict | None:
 
     import deltalake
 
+    from posthog.temporal.common.logger import get_logger
     from posthog.temporal.data_imports.naming_convention import NamingConvention
     from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 
@@ -160,7 +162,9 @@ def _get_delta_fragmentation_stats(schema: ExternalDataSchema) -> dict | None:
     delta_uri = f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
 
     # Borrow DeltaTableHelper just for its credentials helper — that part is sync.
-    storage_options = DeltaTableHelper(resource_name=schema.name, job=job, logger=None)._get_credentials()
+    storage_options = DeltaTableHelper(
+        resource_name=schema.name, job=job, logger=get_logger(__name__)
+    )._get_credentials()
 
     if not deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
         return None
@@ -172,9 +176,15 @@ def _get_delta_fragmentation_stats(schema: ExternalDataSchema) -> dict | None:
 
     total_size_bytes: int | None
     try:
-        # delta-rs returns per-add-action stats including file size; sum them.
-        add_actions = delta_table.get_add_actions(flatten=True).to_pylist()
-        total_size_bytes = sum(int(action.get("size_bytes", 0) or 0) for action in add_actions)
+        # delta-rs ships `get_add_actions(flatten=True)` typed as a pyarrow
+        # RecordBatch, but at runtime it's an arro3 RecordBatch (delta-rs uses
+        # arro3 internally). The two are not interchangeable — the arro3
+        # variant lacks `to_pydict()` / `to_pylist()` and isn't accepted by
+        # `pa.Table.from_batches`. Column-by-name access via `__getitem__`
+        # does work on both, so we go through that path.
+        add_actions: Any = delta_table.get_add_actions(flatten=True)
+        size_bytes_col = add_actions["size_bytes"].to_pylist()
+        total_size_bytes = sum(int(v or 0) for v in size_bytes_col)
     except Exception:
         total_size_bytes = None
 
