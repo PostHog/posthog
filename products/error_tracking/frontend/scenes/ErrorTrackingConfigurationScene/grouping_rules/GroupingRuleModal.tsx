@@ -21,10 +21,7 @@ export function GroupingRuleModal(): JSX.Element {
             ruleLabel="grouping"
             description="Matching exceptions will be grouped as a single issue."
             pageKey="grouping-rule-modal"
-            taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.ErrorTrackingProperties,
-                TaxonomicFilterGroupType.EventProperties,
-            ]}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
             suffix={(issuesLink, dateRangeLabel) => (
                 <>
                     across {issuesLink} would have been grouped into one issue in the last {dateRangeLabel}

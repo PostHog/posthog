@@ -37,10 +37,7 @@ export function AutoAssignmentRules(): JSX.Element {
                             <LemonDivider className="my-0" />
                             <div className="p-2">
                                 <Rules.Filters
-                                    taxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.ErrorTrackingProperties,
-                                        TaxonomicFilterGroupType.EventProperties,
-                                    ]}
+                                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                     rule={rule}
                                     editing={editing}
                                 />

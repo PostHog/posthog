@@ -26,10 +26,7 @@ export function AssignmentRules(): JSX.Element {
             ruleType={ErrorTrackingRuleType.Assignment}
             modalLogic={assignmentRuleModalLogic}
             modal={<AssignmentRuleModal />}
-            taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.ErrorTrackingProperties,
-                TaxonomicFilterGroupType.EventProperties,
-            ]}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
             pageKeyPrefix="assignment-rule"
             onMount={onMount}
             description={
