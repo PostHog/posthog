@@ -1,14 +1,4 @@
-"""Restore the CI migrated Postgres schema when the local DB is fresh.
-
-Skips Django migrate replay on dev startup when the local Postgres DB is empty by
-downloading the latest `migrated-schema` artifact from CI and restoring it via the
-shared `db:restore-test-db` primitive.
-
-Gated entirely on the `POSTHOG_SCHEMA_RESTORE_IN_DEV` env var:
-- ``auto`` (default for ``bin/start``): try, fall back silently to normal migrations
-- ``on``: try, fail loudly if anything blocks the restore
-- ``off`` / unset: no-op (CI/prod default)
-"""
+"""Restore the CI migrated Postgres schema when the local dev DB is empty."""
 
 from __future__ import annotations
 
@@ -207,13 +197,7 @@ def _download_schema_artifact(artifact: SchemaArtifact, token: str) -> None:
 
 
 def _fetch_schema_artifact() -> SchemaArtifact:
-    """Always pull the latest artifact from GitHub. No local cache check.
-
-    The artifact API call + download is the cost we pay for not having to invalidate
-    a local cache. Cheap relative to the multi-minute migrate replay it replaces, and
-    keeps freshness guarantees obvious — what's on disk is always what GitHub
-    just told us is current.
-    """
+    # Always re-download — no local cache. Avoids any stale-cache class of bug.
     token = _github_token()
     if not token:
         raise click.ClickException("No GitHub token available for migrated-schema download")
@@ -232,13 +216,8 @@ def _schema_sha_is_ancestor(head_sha: str) -> bool:
 
 
 def _restore_schema() -> None:
-    """Delegate to the shared `db:restore-test-db` primitive with TARGET_DB=posthog.
-
-    The shared command DROPs+CREATEs the target DB then loads schema-latest.sql.gz
-    and runs `ensure_migration_defaults`. DROP+CREATE is safe here because the caller
-    only reaches this point after `_database_is_fresh()` confirmed the DB has no
-    schema and no migration history.
-    """
+    # `db:restore-test-db` DROPs+CREATEs the target — safe here because the caller
+    # only reaches this point after `_database_is_fresh()` returned True.
     env = {**os.environ, "TARGET_DB": "posthog"}
     result = subprocess.run(
         [str(REPO_ROOT / "bin" / "hogli"), "db:restore-test-db"],

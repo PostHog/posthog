@@ -639,10 +639,7 @@ db:
             fi
             # Validate up front; substitutes for `set -o pipefail` (dash doesn't support it).
             gunzip -t .postgres-backups/schema-latest.sql.gz
-            # -d postgres pins the maintenance connection to the default postgres database.
-            # Without it, psql connects to a database matching the username (posthog), which
-            # blocks DROP DATABASE when TARGET_DB is also "posthog" (you can't drop the DB
-            # you're connected to). Existing TARGET_DB=test_posthog callers are unaffected.
+            # -d postgres so DROP works when TARGET_DB matches the connection default (posthog).
             docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -d postgres -c "DROP DATABASE IF EXISTS $TARGET_DB;"
             docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -d postgres -c "CREATE DATABASE $TARGET_DB;"
             gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog "$TARGET_DB"

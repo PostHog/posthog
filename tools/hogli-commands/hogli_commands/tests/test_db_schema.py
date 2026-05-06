@@ -21,7 +21,6 @@ def _artifact() -> db_schema.SchemaArtifact:
 
 
 def test_auto_mode_restores_when_database_is_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Happy path: orchestration runs all the gates and delegates to the restore."""
     restored: list[bool] = []
 
     monkeypatch.setattr(db_schema, "_database_is_fresh", lambda: True)
@@ -34,8 +33,6 @@ def test_auto_mode_restores_when_database_is_fresh(monkeypatch: pytest.MonkeyPat
 
 
 def test_auto_falls_back_silently_on_failure_but_on_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The mode contract: auto eats failures, on surfaces them."""
-
     def fail() -> db_schema.SchemaArtifact:
         raise click.ClickException("download failed")
 
