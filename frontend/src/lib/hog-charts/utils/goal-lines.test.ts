@@ -1,4 +1,4 @@
-import type { Series } from '../../../core/types'
+import type { Series } from '../core/types'
 import { buildGoalLineReferenceLines, computeSeriesNonZeroMax, type GoalLineConfig } from './goal-lines'
 
 const makeSeries = (data: number[], overrides: Partial<Series> = {}): Series => ({

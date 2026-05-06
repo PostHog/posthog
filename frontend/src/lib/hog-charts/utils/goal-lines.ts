@@ -1,5 +1,5 @@
-import type { Series } from '../../../core/types'
-import type { ReferenceLineProps } from '../../../overlays/ReferenceLine'
+import type { Series } from '../core/types'
+import type { ReferenceLineProps } from '../overlays/ReferenceLine'
 
 export interface GoalLineConfig {
     value: number

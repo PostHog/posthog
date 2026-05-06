@@ -1,12 +1,8 @@
 import { useMemo } from 'react'
 
 import type { Series } from '../../../core/types'
-import {
-    applyComparisonDimming,
-    buildConfidenceIntervalSeries,
-    buildMovingAverageSeries,
-    buildTrendLineSeries,
-} from './derived-series'
+import { applyComparisonDimming } from '../../../utils/comparison-dimming'
+import { buildConfidenceIntervalSeries, buildMovingAverageSeries, buildTrendLineSeries } from './derived-series'
 
 export interface ConfidenceIntervalConfig {
     seriesKey: string
@@ -24,6 +20,10 @@ export interface TrendLineConfig {
     seriesKey: string
     kind: 'linear' | 'exponential'
     label?: string
+    /** Restrict the regression fit to indices `[0, fitUpTo)`; trend is still extrapolated
+     *  across the full range. Use to exclude an in-progress tail so the partial bucket
+     *  doesn't drag the slope. */
+    fitUpTo?: number
 }
 
 export interface DerivedSeriesOptions {
@@ -97,7 +97,14 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
             if (!found) {
                 continue
             }
-            tlSeries.push(buildTrendLineSeries<Meta>({ sourceSeries: found, kind: tl.kind, label: tl.label }))
+            tlSeries.push(
+                buildTrendLineSeries<Meta>({
+                    sourceSeries: found,
+                    kind: tl.kind,
+                    label: tl.label,
+                    fitUpTo: tl.fitUpTo,
+                })
+            )
         }
 
         return applyComparisonDimming([...ciSeries, ...source, ...maSeries, ...tlSeries], comparisonOf)
@@ -128,7 +135,7 @@ function tlSig(tl: TrendLineConfig[] | undefined): string {
     if (!tl?.length) {
         return ''
     }
-    return tl.map((t) => `${t.seriesKey}|${t.kind}|${t.label ?? ''}`).join(';')
+    return tl.map((t) => `${t.seriesKey}|${t.kind}|${t.label ?? ''}|${t.fitUpTo ?? ''}`).join(';')
 }
 
 function cmpSig(cmp: Record<string, string> | undefined): string {
