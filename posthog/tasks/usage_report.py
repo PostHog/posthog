@@ -2295,6 +2295,31 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
     }
 
 
+def build_org_reports(all_data: dict[str, Any], period_start: datetime) -> dict[str, OrgReport]:
+    """Aggregate per-team `all_data` rows into per-organization `OrgReport`s.
+
+    Public facade that bundles `_get_teams_for_usage_reports`, `_get_team_report`,
+    and `_add_team_report_to_org_reports` so callers (e.g. the Temporal
+    workflow) don't need to import the private helpers individually.
+    """
+    org_reports: dict[str, OrgReport] = {}
+    for team in _get_teams_for_usage_reports():
+        team_report = _get_team_report(all_data, team)
+        _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
+    return org_reports
+
+
+def serialize_full_org_report(org_report: OrgReport, instance_metadata: InstanceMetadata) -> dict[str, Any]:
+    """Combine an `OrgReport` with `InstanceMetadata` and serialize to a dict.
+
+    Public facade equivalent to `_get_full_org_usage_report` followed by
+    `_get_full_org_usage_report_as_dict`. The result includes the
+    `has_non_zero_usage` flag and is the shape billing consumes.
+    """
+    full = _get_full_org_usage_report(org_report, instance_metadata)
+    return _get_full_org_usage_report_as_dict(full)
+
+
 def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[str, Any]) -> None:
     json_data = json.dumps(
         {"organization_id": organization_id, "usage_report": full_report_dict},

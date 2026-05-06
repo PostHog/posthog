@@ -93,7 +93,6 @@ export function CodeInstructions({
     const { warning: localEvalWarning } = useValues(
         featureFlagConditionWarningLogic({
             properties: allProperties,
-            filterGroups: featureFlag?.filters?.groups,
             evaluationRuntime: featureFlag?.evaluation_runtime ?? FeatureFlagEvaluationRuntime.ALL,
         })
     )

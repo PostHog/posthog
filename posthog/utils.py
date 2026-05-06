@@ -46,6 +46,7 @@ from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
+from prometheus_client import Histogram
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
@@ -60,6 +61,16 @@ from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
 tracer = trace.get_tracer(__name__)
+
+# Cardinality is bounded: render_template is only called with the literal template
+# names "index.html", "demo.html", and "render_query.html" — 3 templates × 2 auth
+# states = 6 series total.
+TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
+    "posthog_template_context_duration_seconds",
+    "Time spent building the SPA template context (get_context_for_template).",
+    labelnames=["template_name", "authenticated"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+)
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
@@ -387,6 +398,17 @@ def get_context_for_template(
     request: HttpRequest,
     context: Optional[dict] = None,
     team_for_public_context: Optional["Team"] = None,
+) -> dict:
+    authenticated = "true" if request.user.is_authenticated else "false"
+    with TEMPLATE_CONTEXT_DURATION_HISTOGRAM.labels(template_name=template_name, authenticated=authenticated).time():
+        return _build_template_context(template_name, request, context, team_for_public_context)
+
+
+def _build_template_context(
+    template_name: str,
+    request: HttpRequest,
+    context: Optional[dict],
+    team_for_public_context: Optional["Team"],
 ) -> dict:
     if context is None:
         context = {}

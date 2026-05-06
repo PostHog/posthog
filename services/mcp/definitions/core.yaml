@@ -80,6 +80,9 @@ tools:
     cohorts-update:
         operation: cohorts_update
         enabled: false
+    comments-complete-create:
+        operation: comments_complete_create
+        enabled: false
     comments-count-retrieve:
         operation: comments_count_retrieve
         enabled: false
@@ -94,6 +97,9 @@ tools:
         enabled: false
     comments-partial-update:
         operation: comments_partial_update
+        enabled: false
+    comments-reopen-create:
+        operation: comments_reopen_create
         enabled: false
     comments-retrieve:
         operation: comments_retrieve
@@ -245,8 +251,8 @@ tools:
     event-definitions-partial-update:
         operation: event_definitions_partial_update
         enabled: false
-    event-definitions-promoted-properties-retrieve:
-        operation: event_definitions_promoted_properties_retrieve
+    event-definitions-primary-properties-retrieve:
+        operation: event_definitions_primary_properties_retrieve
         enabled: false
     event-definitions-python-retrieve:
         operation: event_definitions_python_retrieve
@@ -400,6 +406,18 @@ tools:
         enabled: false
     members-update:
         operation: members_update
+        enabled: false
+    notebooks-sharing-list:
+        operation: notebooks_sharing_list
+        enabled: false
+    notebooks-sharing-passwords-create:
+        operation: notebooks_sharing_passwords_create
+        enabled: false
+    notebooks-sharing-passwords-destroy:
+        operation: notebooks_sharing_passwords_destroy
+        enabled: false
+    notebooks-sharing-refresh-create:
+        operation: notebooks_sharing_refresh_create
         enabled: false
     oauth-applications-list:
         operation: oauth_applications_list

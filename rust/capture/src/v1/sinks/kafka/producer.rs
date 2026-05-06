@@ -105,7 +105,6 @@ impl Future for SendHandle {
 
 pub struct KafkaProducer {
     inner: FutureProducer<KafkaContext>,
-    #[allow(dead_code)]
     handle: lifecycle::Handle,
     sink: SinkName,
 }
@@ -146,8 +145,41 @@ impl KafkaProducer {
                 "metadata.max.age.ms",
                 config.metadata_max_age_ms.to_string(),
             )
-            .set("socket.timeout.ms", config.socket_timeout_ms.to_string());
+            .set("socket.timeout.ms", config.socket_timeout_ms.to_string())
+            .set("partitioner", &config.partitioner)
+            .set("message.send.max.retries", config.max_retries.to_string())
+            .set(
+                "max.in.flight.requests.per.connection",
+                config.max_in_flight_requests.to_string(),
+            )
+            .set(
+                "sticky.partitioning.linger.ms",
+                config.sticky_partitioning_linger_ms.to_string(),
+            )
+            .set(
+                "log.connection.close",
+                config.log_connection_close.to_string(),
+            )
+            .set(
+                "queue.buffering.max.messages",
+                config.queue_buffering_max_messages.to_string(),
+            )
+            .set(
+                "retry.backoff.max.ms",
+                config.retry_backoff_max_ms.to_string(),
+            )
+            .set(
+                "socket.send.buffer.bytes",
+                config.socket_send_buffer_bytes.to_string(),
+            )
+            .set(
+                "socket.receive.buffer.bytes",
+                config.socket_receive_buffer_bytes.to_string(),
+            );
 
+        if !config.broker_address_family.is_empty() {
+            client_config.set("broker.address.family", &config.broker_address_family);
+        }
         if !config.client_id.is_empty() {
             client_config.set("client.id", &config.client_id);
         }

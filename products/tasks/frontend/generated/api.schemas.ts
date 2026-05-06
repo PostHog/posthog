@@ -771,9 +771,9 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
  * `failed` - Failed
  * `cancelled` - Cancelled
  */
-export type TaskRunDetailStatusEnumApi = (typeof TaskRunDetailStatusEnumApi)[keyof typeof TaskRunDetailStatusEnumApi]
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
 
-export const TaskRunDetailStatusEnumApi = {
+export const TaskRunStatusEnumApi = {
     NotStarted: 'not_started',
     Queued: 'queued',
     InProgress: 'in_progress',
@@ -786,10 +786,9 @@ export const TaskRunDetailStatusEnumApi = {
  * * `local` - Local
  * `cloud` - Cloud
  */
-export type TaskRunDetailEnvironmentEnumApi =
-    (typeof TaskRunDetailEnvironmentEnumApi)[keyof typeof TaskRunDetailEnvironmentEnumApi]
+export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
 
-export const TaskRunDetailEnvironmentEnumApi = {
+export const TaskRunEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
 } as const
@@ -828,12 +827,12 @@ export interface TaskRunDetailApi {
      * @nullable
      */
     branch?: string | null
-    status?: TaskRunDetailStatusEnumApi
+    status?: TaskRunStatusEnumApi
     /** Execution environment
 
 * `local` - Local
 * `cloud` - Cloud */
-    environment?: TaskRunDetailEnvironmentEnumApi
+    environment?: TaskRunEnvironmentEnumApi
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
     readonly runtime_adapter: RuntimeAdapterEnumApi | NullEnumApi | null
     /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
@@ -1424,6 +1423,38 @@ export interface RepositoryReadinessResponseApi {
     scan?: ScanEvidenceApi
 }
 
+export interface TaskSummariesRequestApi {
+    /**
+     * Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.
+     * @maxItems 5000
+     */
+    ids: string[]
+}
+
+export interface TaskRunSummaryApi {
+    status: TaskRunStatusEnumApi | NullEnumApi | null
+    environment: TaskRunEnvironmentEnumApi | NullEnumApi | null
+}
+
+export interface TaskSummaryApi {
+    readonly id: string
+    readonly title: string
+    /** @nullable */
+    readonly repository: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly latest_run: TaskRunSummaryApi | null
+}
+
+export interface PaginatedTaskSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskSummaryApi[]
+}
+
 export type SandboxListParams = {
     /**
      * Number of results to return per page.
@@ -1452,7 +1483,7 @@ export type TasksListParams = {
      */
     created_by?: number
     /**
-     * When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.
+     * When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.
      */
     internal?: boolean
     /**
@@ -1563,4 +1594,15 @@ export type TasksRepositoryReadinessRetrieveParams = {
      * @maximum 30
      */
     window_days?: number
+}
+
+export type TasksSummariesCreateParams = {
+    /**
+     * Page size for the paginated response.
+     */
+    limit?: number
+    /**
+     * Offset into the result set for pagination.
+     */
+    offset?: number
 }

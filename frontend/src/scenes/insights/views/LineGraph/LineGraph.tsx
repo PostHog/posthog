@@ -1304,7 +1304,7 @@ export function LineGraph_({
             {showAnnotations && chartRef.current && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
                     chart={chartRef.current}
-                    dates={datasets[0]?.days || EMPTY_DATES}
+                    dates={currentPeriodResult?.days || datasets[0]?.days || EMPTY_DATES}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
                     insightNumericId={insight.id || 'new'}

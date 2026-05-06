@@ -17,6 +17,9 @@ interface TrendsAlertOverlaysProps {
     getColor: (r: IndexedTrendResult) => string
     isHidden: (r: IndexedTrendResult) => boolean
     getYAxisId: (r: IndexedTrendResult) => string
+    /** Chart axis orientation. When `'horizontal'`, threshold lines flip to vertical
+     *  stripes at the value-axis x-pixel. Defaults to `'vertical'`. */
+    axisOrientation?: 'vertical' | 'horizontal'
 }
 
 /** Renders alert threshold lines and anomaly point markers on top of the trends chart.
@@ -32,12 +35,16 @@ export function TrendsAlertOverlays({
     getColor,
     isHidden,
     getYAxisId,
+    axisOrientation,
 }: TrendsAlertOverlaysProps): React.ReactElement | null {
     const { alertThresholdLines, alertAnomalyPoints } = useValues(
         insightAlertsLogic({ insightId, insightLogicProps: insightProps })
     )
 
-    const referenceLines = useMemo(() => alertThresholdsToReferenceLines(alertThresholdLines), [alertThresholdLines])
+    const referenceLines = useMemo(
+        () => alertThresholdsToReferenceLines(alertThresholdLines, axisOrientation),
+        [alertThresholdLines, axisOrientation]
+    )
 
     const anomalyMarkers = useMemo(
         () => buildAnomalyMarkers(alertAnomalyPoints, indexedResults, getColor, getYAxisId, isHidden),

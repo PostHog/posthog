@@ -284,6 +284,70 @@
             "readOnlyHint": false
         }
     },
+    "apm-attribute-values-list": {
+        "description": "List values for a specific span or resource attribute key. Use to discover what values exist for a given attribute before building filters.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "List tracing attribute values",
+        "title": "List tracing attribute values",
+        "required_scopes": ["tracing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
+    "apm-attributes-list": {
+        "description": "List available span or resource attribute names. Use attribute_type \"span\" for span-level attributes or \"resource\" for resource-level attributes (e.g. k8s labels). Use this to discover available attribute keys before building filters.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "List tracing span attributes",
+        "title": "List tracing span attributes",
+        "required_scopes": ["tracing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
+    "apm-services-list": {
+        "description": "List distinct service names that have emitted trace spans. Use to discover available services before filtering spans by service name.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "List tracing service names",
+        "title": "List tracing service names",
+        "required_scopes": ["tracing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
+    "apm-trace-get": {
+        "description": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, and status information. Use this to inspect a specific trace in detail after discovering it via the query tool.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Retrieve trace spans",
+        "title": "Retrieve trace spans",
+        "required_scopes": ["tracing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
     "approval-policies-list": {
         "description": "List all approval policies configured for this project. Shows which actions require approval, who can approve, and bypass rules.",
         "category": "Platform Features",
@@ -1244,6 +1308,51 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-symbol-sets-download-retrieve": {
+        "description": "Get a presigned download URL for a source map symbol set by ID. The URL expires after one hour. Use it immediately, and do not echo it back unless the user explicitly asks. If you only have a symbol set reference, call `error-tracking-symbol-sets-list` with the exact `ref` first.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Download error tracking symbol set",
+        "title": "Download error tracking symbol set",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-symbol-sets-list": {
+        "description": "List source map symbol sets for the current project. Supports pagination plus filtering by exact `ref` or upload `status` (`valid`, `invalid`, or `all`) and sorting with `order_by`. Each result includes `has_uploaded_file` so you can tell whether the download tool will work.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking symbol sets",
+        "title": "List error tracking symbol sets",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-symbol-sets-retrieve": {
+        "description": "Get a source map symbol set by ID. If you only have a symbol set reference, call `error-tracking-symbol-sets-list` with the exact `ref` first.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Get error tracking symbol set",
+        "title": "Get error tracking symbol set",
+        "required_scopes": ["error_tracking:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-archive": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
         "category": "Experiments",
@@ -2100,7 +2209,7 @@
         }
     },
     "integration-get": {
-        "description": "Get a specific integration by ID. Returns the full integration details including kind, display name, non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.",
+        "description": "Get a specific integration by ID. Returns full integration details including kind, display name, error status, and creation metadata. Does not expose sensitive credentials or raw configuration.",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "Get integration",
@@ -2130,7 +2239,7 @@
         }
     },
     "integrations-list": {
-        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key or OAuth, only GitHub and Slack integrations are returned (other kinds remain session-only).",
+        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are never serialized.",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "List integrations",
@@ -2927,6 +3036,38 @@
         },
         "feature_flag": "logs-alerting"
     },
+    "logs-alerts-destinations-create": {
+        "description": "Attach a notification destination (Slack channel or webhook) to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically — the returned hog_function_ids identify the destination group.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Attach alert destination",
+        "title": "Attach alert destination",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-destinations-delete-create": {
+        "description": "Remove a notification destination from a log alert by passing the hog_function_ids returned from logs-alerts-destinations-create. Destinations are deleted as one atomic group — partial deletion fails the call.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Detach alert destination",
+        "title": "Detach alert destination",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
     "logs-alerts-destroy": {
         "description": "Permanently delete a log alert configuration by ID.",
         "category": "Logs",
@@ -2940,6 +3081,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-events-list": {
+        "description": "List historical events for a log alert — fires, resolves, errors, enable/disable toggles, threshold changes. Use to evaluate how an existing alert has behaved (firing cadence, error rate, flap pattern) before tuning thresholds. Quiet no-op check rows are filtered out server-side. Optional `kind` query param narrows to a single event kind.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "List alert events",
+        "title": "List alert events",
+        "required_scopes": ["logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "logs-alerting"
     },
@@ -2981,6 +3138,22 @@
         "feature": "logs",
         "summary": "Get log alert",
         "title": "Get log alert",
+        "required_scopes": ["logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-simulate-create": {
+        "description": "Run a draft alert configuration against historical logs and return per-bucket results from the full state machine — count, threshold_breached, state, notification (none/fire/resolve), reason. Use to validate threshold + N-of-M settings before creating an alert. Read-only; no alert records are written. Aim for fire_count between 0 and 3 over a `-7d` lookback for a healthy threshold.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Simulate log alert",
+        "title": "Simulate log alert",
         "required_scopes": ["logs:read"],
         "new_mcp": true,
         "annotations": {
@@ -3042,6 +3215,21 @@
         "feature": "logs",
         "summary": "Count logs by time bucket",
         "title": "Count logs by time bucket",
+        "required_scopes": ["logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "logs-services-create": {
+        "description": "Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate, plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking attribute-values + per-service counts.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "List services with stats",
+        "title": "List services with stats",
         "required_scopes": ["logs:read"],
         "new_mcp": true,
         "annotations": {
@@ -3396,6 +3584,22 @@
             "readOnlyHint": false
         }
     },
+    "query-apm-spans": {
+        "description": "Query trace spans with filtering by service name, status code, date range, and structured attribute filters. Supports cursor-based pagination. Returns spans with uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, and is_root_span.\n\nUse 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Span property types are:\n  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code).\n  - `span_attribute` — filters span-level attributes (e.g. \"http.method\", \"http.status_code\").\n  - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `apm-attributes-list` to discover available attribute keys** before building filters.\n- **Use `apm-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.serviceNames\n\nFilter by service names. Use `apm-services-list` to discover available services.\n\n## query.statusCodes\n\nFilter by HTTP status codes (list of integers).\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (span/span_attribute/span_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.traceId\n\nFilter to a specific trace ID (hex string). Use this when you already know the trace ID.\n\n## query.rootSpans\n\nFilter to root spans only. Defaults to true. Set to false to include all spans in the trace tree.\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n## query.prefetchSpans\n\nNumber of child spans to prefetch per trace (1-100). Useful to get a preview of trace structure without fetching the full trace.\n\n# Examples\n\n## List recent error spans\n\n```json\n{\n  \"query\": {\n    \"statusCodes\": [500, 503]\n  }\n}\n```\n\n## Search spans from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a span attribute\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"http.method\", \"operator\": \"exact\", \"type\": \"span_attribute\", \"value\": \"POST\" }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Find slow spans\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"duration\", \"operator\": \"gt\", \"type\": \"span\", \"value\": \"1000000000\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine service and attribute filters\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"web-server\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"gt\", \"type\": \"span_attribute\", \"value\": \"399\" }],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Check if a resource attribute exists\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"k8s.pod.name\", \"operator\": \"is_set\", \"type\": \"span_resource_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `apm-attributes-list` and `apm-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Use `apm-services-list` to discover available services before filtering by service name.\n- Duration values are in nanoseconds (1 second = 1,000,000,000 nanoseconds).",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Query tracing spans",
+        "title": "Query tracing spans",
+        "required_scopes": ["tracing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
     "query-error-tracking-issues": {
         "description": "Query error tracking issues to find, filter, and inspect errors in the project. Returns aggregated metrics per issue including occurrence count, affected users, sessions, and volume data.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nThis is a unified query tool — use it both to list issues and to get details on a specific issue:\n\n- **List issues**: omit `issueId` to get a filtered, sorted list of error tracking issues.\n- **Get issue details**: provide `issueId` to get aggregated metrics for a single issue.\n\nUse `error-tracking-issues-retrieve` to get the full issue model (description, assignee, external references) and `error-tracking-issues-partial-update` to change status or assignee.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional filtering and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `$browser`, `$os`, or `$geoip_country_code`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, the default is the last 7 days.\n\n# Parameters\n\n## issueId (optional)\n\nWhen provided, returns aggregated metrics for a single error tracking issue. When omitted, returns a paginated list of issues matching the filters.\n\n## status\n\nFilter by issue status. Available values: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, `all`. Defaults to `active`.\n\n## orderBy\n\nField to sort results by: `occurrences`, `last_seen`, `first_seen`, `users`, `sessions`. Defaults to `occurrences`.\n\n## searchQuery\n\nFree-text search across exception type, message, and stack frames. Use this when the user is looking for a specific error by name or message content.\n\n## assignee\n\nFilter issues by assignee. The value is a user ID. Use this when the user asks to see errors assigned to a specific person.\n\n## filterGroup\n\nA flat list of property filters to narrow results. Each filter specifies a property key, operator, type (event/person/session/group), and value. See the \"Property filters\" section above for usage guidelines and supported operators.\n\n## volumeResolution\n\nControls the granularity of the volume chart data returned with each issue. Use `1` (default) for list views where you want a volume sparkline. Use `0` when you only need aggregate counts without volume data.\n\n## dateRange\n\nDate range to filter results. Defaults to the last 7 days (`-7d`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps (e.g., `2024-01-15T00:00:00Z`) or relative formats: `-7d`, `-2w`, `-1m`, `-1h`, `-1mStart`, `-1yStart`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## limit / offset\n\nPagination controls. `limit` defaults to 50.\n\n# Examples\n\n## List all active errors sorted by occurrence count\n\n```json\n{}\n```\n\nAll defaults apply: `status: \"active\"`, `orderBy: \"occurrences\"`, `dateRange: { \"date_from\": \"-7d\" }`.\n\n## Search for a specific error\n\n```json\n{\n  \"searchQuery\": \"TypeError: Cannot read property\",\n  \"limit\": 10\n}\n```\n\n## Get details for a specific issue\n\n```json\n{\n  \"issueId\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"volumeResolution\": 0\n}\n```\n\n## List resolved errors from the last 30 days\n\n```json\n{\n  \"status\": \"resolved\",\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"orderBy\": \"last_seen\"\n}\n```\n\n## Find most recent errors\n\n```json\n{\n  \"orderBy\": \"first_seen\",\n  \"orderDirection\": \"DESC\",\n  \"dateRange\": { \"date_from\": \"-24h\" }\n}\n```\n\n## Errors from Chrome users only\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Chrome\"] }]\n}\n```\n\n## Errors from US users in the last 30 days\n\n```json\n{\n  \"filterGroup\": [{ \"key\": \"$geoip_country_code\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"US\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```\n\n# Session recordings\n\nEach error issue is linked to sessions via `$session_id` on the underlying `$exception` events. When a user asks \"what were they doing,\" \"can I see what happened,\" or wants visual context for an error, fetch the session recording.\n\nIf you have specific `$session_id` values from event data, use `query-session-recordings-list` with the `session_ids` parameter to fetch multiple recordings in a single call. Otherwise, use `query-session-recordings-list` with an event filter for `$exception` matching the error. If a specific person is involved, also filter by `person_uuid` to see all their sessions. If no person context is available, filter by `$exception` alone to find all sessions with that error. Use `date_from` to match the issue's time range — e.g., if the error was first seen 10 days ago, set `date_from` accordingly so recordings from that period are included.\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
         "category": "Error tracking",
@@ -3413,7 +3617,7 @@
         "system_prompt_hint": "Error filtering and aggregation (error-tracking category)"
     },
     "query-funnel": {
-        "description": "Run a funnel query to analyze conversion rates through a sequence of steps. Funnel insights help understand user behavior as users navigate through a product. A funnel consists of a sequence of at least two events or actions, where some users progress to the next step while others drop off. Funnels use percentages as the primary aggregation type.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters and breakdowns.\n\nIMPORTANT: Funnels REQUIRE AT LEAST TWO series (events or actions).\n\nThe funnel insights have the following features:\n\n- Various visualization types (steps, time-to-convert, historical trends).\n- Filter data and apply exclusion steps (events only, not actions).\n- Break down data using a single property.\n- Specify conversion windows (default 14 days), step order (strict/ordered/unordered), and attribution settings.\n- Aggregate by users, sessions, or specific group types.\n- Track first-time conversions with special math aggregations.\n\nExamples of use cases include:\n\n- Conversion rates between steps.\n- Drop off steps (which step loses most users).\n- Steps with the highest friction and time to convert.\n- If product changes are improving their funnel over time.\n- Average/median/histogram of time to convert.\n- Conversion trends over time (using trends visualization type).\n- First-time user conversions (using first_time_for_user math).\n\nCRITICAL: Be minimalist. Only include filters, breakdowns, and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Funnel guidelines\n\n## Exclusion steps\n\nUsers may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events should not be included in the main sequence. You should include start and end indexes (0-based) for each exclusion where the minimum `funnelFromStep` is 0 (first step) and the maximum `funnelToStep` is the number of steps minus one. Exclusion events cannot be actions, only events.\n\nIMPORTANT: Exclusion steps filter out conversions where the exclusion event occurred BETWEEN the specified steps. This does NOT exclude users who completed the event before the funnel started or after it ended.\n\nFor example, there is a sequence with three steps: sign up (step 0), finish onboarding (step 1), purchase (step 2). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be `$pageleave` with `funnelFromStep: 0` and `funnelToStep: 1`.\n\n## Breakdown\n\nA breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user's question**. You should not add a breakdown if the question can be addressed without additional segmentation.\n\nWhen using breakdowns, you should:\n\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**.\n\nExamples of using a breakdown:\n\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.\n\n# Examples\n\n## Conversion from first event ingested to insight saved for organizations over 6 months\n\n```json\n{\n  \"kind\": \"FunnelsQuery\",\n  \"series\": [\n    { \"kind\": \"EventsNode\", \"event\": \"first team event ingested\" },\n    { \"kind\": \"EventsNode\", \"event\": \"insight saved\" }\n  ],\n  \"dateRange\": { \"date_from\": \"-6m\" },\n  \"interval\": \"month\",\n  \"aggregation_group_type_index\": 0,\n  \"funnelsFilter\": {\n    \"funnelOrderType\": \"ordered\",\n    \"funnelVizType\": \"trends\",\n    \"funnelWindowInterval\": 14,\n    \"funnelWindowIntervalUnit\": \"day\"\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## Signup page CTA click rate within one hour, excluding page leaves, broken down by OS\n\n```json\n{\n  \"kind\": \"FunnelsQuery\",\n  \"series\": [\n    {\n      \"kind\": \"EventsNode\",\n      \"event\": \"$pageview\",\n      \"properties\": [{ \"key\": \"$current_url\", \"type\": \"event\", \"value\": \"signup\", \"operator\": \"icontains\" }]\n    },\n    {\n      \"kind\": \"EventsNode\",\n      \"event\": \"click subscribe button\",\n      \"properties\": [{ \"key\": \"$current_url\", \"type\": \"event\", \"value\": \"signup\", \"operator\": \"icontains\" }]\n    }\n  ],\n  \"dateRange\": { \"date_from\": \"-180d\" },\n  \"interval\": \"week\",\n  \"funnelsFilter\": {\n    \"funnelWindowInterval\": 1,\n    \"funnelWindowIntervalUnit\": \"hour\",\n    \"funnelOrderType\": \"ordered\",\n    \"exclusions\": [{ \"kind\": \"EventsNode\", \"event\": \"$pageleave\", \"funnelFromStep\": 0, \"funnelToStep\": 1 }]\n  },\n  \"breakdownFilter\": { \"breakdown_type\": \"event\", \"breakdown\": \"$os\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Credit card purchase rate from viewing a product with strict ordering (no events in between)\n\n```json\n{\n  \"kind\": \"FunnelsQuery\",\n  \"series\": [\n    { \"kind\": \"EventsNode\", \"event\": \"view product\" },\n    {\n      \"kind\": \"EventsNode\",\n      \"event\": \"purchase\",\n      \"properties\": [{ \"key\": \"paymentMethod\", \"type\": \"event\", \"value\": \"credit_card\", \"operator\": \"exact\" }]\n    }\n  ],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"funnelsFilter\": {\n    \"funnelOrderType\": \"strict\",\n    \"funnelWindowInterval\": 14,\n    \"funnelWindowIntervalUnit\": \"day\"\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## View product to buy button to purchase, using actions and events\n\n```json\n{\n  \"kind\": \"FunnelsQuery\",\n  \"series\": [\n    { \"kind\": \"ActionsNode\", \"id\": 8882, \"name\": \"view product\" },\n    { \"kind\": \"EventsNode\", \"event\": \"click buy button\" },\n    {\n      \"kind\": \"ActionsNode\",\n      \"id\": 573,\n      \"name\": \"purchase\",\n      \"properties\": [\n        { \"key\": \"shipping_method\", \"value\": \"express_delivery\", \"operator\": \"icontains\", \"type\": \"event\" }\n      ]\n    }\n  ],\n  \"funnelsFilter\": { \"funnelVizType\": \"steps\" },\n  \"filterTestAccounts\": true\n}\n```\n\n# Reminders\n\n- You MUST ALWAYS use AT LEAST TWO series (events or actions) in the funnel.\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.\n- The default funnel step order is `ordered` (events in sequence but with other events allowed in between). Use `strict` when events should happen consecutively with no events in between. Use `unordered` when order doesn't matter.\n- Exclusion events in funnels only exclude conversions where the event happened between the specified steps, not before or after the funnel.",
+        "description": "Run a funnel query to analyze conversion rates through a sequence of steps. Funnel insights help understand user behavior as users navigate through a product. A funnel consists of a sequence of at least two events or actions, where some users progress to the next step while others drop off. Funnels use percentages as the primary aggregation type.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters and breakdowns.\n\nIMPORTANT: Funnels REQUIRE AT LEAST TWO series (events or actions).\n\nThe funnel insights have the following features:\n\n- Various visualization types (steps, time-to-convert, historical trends).\n- Filter data and apply exclusion steps (events only, not actions).\n- Break down data using a single property.\n- Specify conversion windows (default 14 days), step order (strict/ordered/unordered), and attribution settings.\n- Aggregate by users, sessions, or specific group types.\n- Track first-time conversions with special math aggregations.\n\nExamples of use cases include:\n\n- Conversion rates between steps.\n- Drop off steps (which step loses most users).\n- Steps with the highest friction and time to convert.\n- If product changes are improving their funnel over time.\n- Average/median/histogram of time to convert.\n- Conversion trends over time (using trends visualization type).\n- First-time user conversions (using first_time_for_user math).\n\nCRITICAL: Be minimalist. Only include filters, breakdowns, and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Funnel guidelines\n\n## Exclusion steps\n\nUsers may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events should not be included in the main sequence. You should include start and end indexes (0-based) for each exclusion where the minimum `funnelFromStep` is 0 (first step) and the maximum `funnelToStep` is the number of steps minus one. Exclusion events cannot be actions, only events.\n\nIMPORTANT: Exclusion steps filter out conversions where the exclusion event occurred BETWEEN the specified steps. This does NOT exclude users who completed the event before the funnel started or after it ended.\n\nFor example, there is a sequence with three steps: sign up (step 0), finish onboarding (step 1), purchase (step 2). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be `$pageleave` with `funnelFromStep: 0` and `funnelToStep: 1`.\n\n## Breakdown\n\nA breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user's question**. You should not add a breakdown if the question can be addressed without additional segmentation.\n\nWhen using breakdowns, you should:\n\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**.\n\nExamples of using a breakdown:\n\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.\n\n## Combining multiple events into a single step (`GroupNode`)\n\n**Use a `GroupNode`** when the user wants a single funnel step to match any of several events — e.g. \"Pageview OR Pageleave counts as one step\", or \"the user signed up via any of these channels\". Different filters per event are fine — put them on the inner nodes. Use separate steps instead when the user wants the events to occur in sequence. Only `OR` is supported.\n\nFunnel math (`first_time_for_user` etc.), `optionalInFunnel`, and step-wide property filters are not supported on a grouped step — filters must live on the inner nodes, and any math / optional handling must use a regular non-grouped step.\n\n**Where things live:**\n\n- On the group: only `name` (display label).\n- On each inner node: `event` (or action `id`), `properties`, `name` — all respected normally; per-node `properties` apply only to that node.\n\n### Example — funnel with a grouped step\n\nA 3-step funnel where the middle step matches either `$pageview` on Safari or `$pageleave` on Chrome:\n\n```json\n{\n  \"kind\": \"FunnelsQuery\",\n  \"series\": [\n    { \"kind\": \"EventsNode\", \"event\": \"sign up\" },\n    {\n      \"kind\": \"GroupNode\",\n      \"operator\": \"OR\",\n      \"name\": \"Pageview on Safari, Pageleave on Chrome\",\n      \"nodes\": [\n        {\n          \"kind\": \"EventsNode\",\n          \"event\": \"$pageview\",\n          \"name\": \"Pageview\",\n          \"properties\": [{ \"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Safari\"] }]\n        },\n        {\n          \"kind\": \"EventsNode\",\n          \"event\": \"$pageleave\",\n          \"name\": \"Pageleave\",\n          \"properties\": [{ \"key\": \"$browser\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Chrome\"] }]\n        }\n      ]\n    },\n    { \"kind\": \"EventsNode\", \"event\": \"purchase\" }\n  ],\n  \"dateRange\": { \"date_from\": \"-30d\" }\n}\n```\n\n# Examples\n\n## Conversion from first event ingested to insight saved for organizations over 6 months\n\n```json\n{\n  \"kind\": \"FunnelsQuery\",\n  \"series\": [\n    { \"kind\": \"EventsNode\", \"event\": \"first team event ingested\" },\n    { \"kind\": \"EventsNode\", \"event\": \"insight saved\" }\n  ],\n  \"dateRange\": { \"date_from\": \"-6m\" },\n  \"interval\": \"month\",\n  \"aggregation_group_type_index\": 0,\n  \"funnelsFilter\": {\n    \"funnelOrderType\": \"ordered\",\n    \"funnelVizType\": \"trends\",\n    \"funnelWindowInterval\": 14,\n    \"funnelWindowIntervalUnit\": \"day\"\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## Signup page CTA click rate within one hour, excluding page leaves, broken down by OS\n\n```json\n{\n  \"kind\": \"FunnelsQuery\",\n  \"series\": [\n    {\n      \"kind\": \"EventsNode\",\n      \"event\": \"$pageview\",\n      \"properties\": [{ \"key\": \"$current_url\", \"type\": \"event\", \"value\": \"signup\", \"operator\": \"icontains\" }]\n    },\n    {\n      \"kind\": \"EventsNode\",\n      \"event\": \"click subscribe button\",\n      \"properties\": [{ \"key\": \"$current_url\", \"type\": \"event\", \"value\": \"signup\", \"operator\": \"icontains\" }]\n    }\n  ],\n  \"dateRange\": { \"date_from\": \"-180d\" },\n  \"interval\": \"week\",\n  \"funnelsFilter\": {\n    \"funnelWindowInterval\": 1,\n    \"funnelWindowIntervalUnit\": \"hour\",\n    \"funnelOrderType\": \"ordered\",\n    \"exclusions\": [{ \"kind\": \"EventsNode\", \"event\": \"$pageleave\", \"funnelFromStep\": 0, \"funnelToStep\": 1 }]\n  },\n  \"breakdownFilter\": { \"breakdown_type\": \"event\", \"breakdown\": \"$os\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Credit card purchase rate from viewing a product with strict ordering (no events in between)\n\n```json\n{\n  \"kind\": \"FunnelsQuery\",\n  \"series\": [\n    { \"kind\": \"EventsNode\", \"event\": \"view product\" },\n    {\n      \"kind\": \"EventsNode\",\n      \"event\": \"purchase\",\n      \"properties\": [{ \"key\": \"paymentMethod\", \"type\": \"event\", \"value\": \"credit_card\", \"operator\": \"exact\" }]\n    }\n  ],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"funnelsFilter\": {\n    \"funnelOrderType\": \"strict\",\n    \"funnelWindowInterval\": 14,\n    \"funnelWindowIntervalUnit\": \"day\"\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## View product to buy button to purchase, using actions and events\n\n```json\n{\n  \"kind\": \"FunnelsQuery\",\n  \"series\": [\n    { \"kind\": \"ActionsNode\", \"id\": 8882, \"name\": \"view product\" },\n    { \"kind\": \"EventsNode\", \"event\": \"click buy button\" },\n    {\n      \"kind\": \"ActionsNode\",\n      \"id\": 573,\n      \"name\": \"purchase\",\n      \"properties\": [\n        { \"key\": \"shipping_method\", \"value\": \"express_delivery\", \"operator\": \"icontains\", \"type\": \"event\" }\n      ]\n    }\n  ],\n  \"funnelsFilter\": { \"funnelVizType\": \"steps\" },\n  \"filterTestAccounts\": true\n}\n```\n\n# Reminders\n\n- You MUST ALWAYS use AT LEAST TWO series (events or actions) in the funnel.\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.\n- The default funnel step order is `ordered` (events in sequence but with other events allowed in between). Use `strict` when events should happen consecutively with no events in between. Use `unordered` when order doesn't matter.\n- Exclusion events in funnels only exclude conversions where the event happened between the specified steps, not before or after the funnel.",
         "category": "Query wrappers",
         "feature": "insights",
         "summary": "Run a funnel query",
@@ -3814,7 +4018,7 @@
         }
     },
     "session-recording-summarize": {
-        "description": "Generate an AI-powered summary of one or more session recordings. Returns structured analysis including user journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis (frustration score, rage clicks, confusion signals). Use this instead of asking users to watch full recordings — it provides the key insights in seconds. Accepts up to 300 session IDs and an optional focus_area to guide the summary toward a specific aspect (e.g., \"checkout flow\" or \"error handling\"). WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average. Previously generated summaries are cached and return instantly. Warn the user about the wait before calling this tool.",
+        "description": "Generate an AI-powered summary of one or more session recordings. Returns structured analysis including user journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis (frustration score, rage clicks, confusion signals). Use this instead of asking users to watch full recordings — it provides the key insights in seconds. Accepts up to 300 session IDs and an optional focus_area to guide the summary toward a specific aspect (e.g., \"checkout flow\" or \"error handling\"). The response is a dict keyed by session ID. Successful entries contain the summary fields; failed entries contain an `error` (e.g. `recording_not_found`, `no_events_or_too_short`, `summary_failed`) and an `error_message` so callers can distinguish \"skipped on purpose\" from \"tool broke\". A bad session ID in the batch is reported as a per-session error and does not fail the whole request. WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average. Previously generated summaries are cached and return instantly. Warn the user about the wait before calling this tool.\n\nDEEP LINKS: Key actions include `session_id` and `milliseconds_since_start`. Build deep links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Summarize session recording",

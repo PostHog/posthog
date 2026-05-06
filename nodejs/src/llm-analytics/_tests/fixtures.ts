@@ -5,7 +5,7 @@ import { insertRow } from '~/tests/helpers/sql'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
-import { Evaluation, EvaluationConditionSet, EvaluationStatus } from '../types'
+import { Evaluation, EvaluationConditionSet, EvaluationStatus, Tagger } from '../types'
 
 export const createEvaluation = (evaluation: Partial<Evaluation>): Evaluation => {
     const enabled = evaluation.enabled !== undefined ? evaluation.enabled : true
@@ -54,6 +54,53 @@ export const insertEvaluation = async (
 
     const res = await insertRow(postgres, 'llm_analytics_evaluation', {
         ...created,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        created_by_id: 1001,
+        deleted: false,
+        description: created.description || '',
+    })
+    return res
+}
+
+export const createTagger = (tagger: Partial<Tagger> = {}): Tagger => {
+    return {
+        id: randomUUID(),
+        team_id: 1,
+        name: 'Test Tagger',
+        enabled: tagger.enabled !== undefined ? tagger.enabled : true,
+        tagger_config: {
+            prompt: 'Tag this',
+            tags: [{ name: 'billing' }, { name: 'analytics' }],
+            min_tags: 0,
+            max_tags: 2,
+        },
+        conditions: [
+            {
+                id: 'condition-1',
+                rollout_percentage: 100,
+                properties: [],
+            },
+        ],
+        created_at: DateTime.now().toISO(),
+        updated_at: DateTime.now().toISO(),
+        ...tagger,
+    }
+}
+
+export const insertTagger = async (
+    postgres: PostgresRouter,
+    team_id: Team['id'],
+    tagger: Partial<Tagger> = {}
+): Promise<Tagger> => {
+    const created = createTagger({
+        ...tagger,
+        team_id,
+    })
+
+    const res = await insertRow(postgres, 'llm_analytics_tagger', {
+        ...created,
+        tagger_type: 'llm',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         created_by_id: 1001,

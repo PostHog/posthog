@@ -80,11 +80,12 @@ function LineChartInner<Meta = unknown>({
     }, [percentStackView, hasAreaFill, series, labels])
 
     const chartConfig = useMemo(() => {
+        const base = { ...config, isPercent: percentStackView }
         if (!percentStackView || config?.yTickFormatter) {
-            return config
+            return base
         }
         return {
-            ...config,
+            ...base,
             yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
         }
     }, [config, percentStackView])
@@ -239,7 +240,6 @@ function LineChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
-            isPercent={percentStackView}
         >
             {children}
         </Chart>

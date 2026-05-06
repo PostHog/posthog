@@ -1,6 +1,7 @@
 import time
 import asyncio
 import tempfile
+from datetime import UTC, datetime
 
 from django.conf import settings
 
@@ -16,6 +17,7 @@ from posthog.schema import ReplayInactivityPeriod
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
+from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import track_uploaded_file
 from posthog.temporal.session_replay.session_summary.types.video import (
     UploadedVideo,
     UploadVideoToGeminiOutput,
@@ -28,8 +30,7 @@ from ee.hogai.videos.utils import get_video_duration_s
 logger = structlog.get_logger(__name__)
 
 
-# TODO: Comment to trigger the workers re-deployment.
-# Timeout: 5 minutes (activity timeout is 10 minutes, leaving buffer for other operations)
+# Activity timeout is 10 minutes; this leaves buffer for the rest of the activity body.
 MAX_PROCESSING_WAIT_SECONDS = 300
 
 
@@ -37,13 +38,15 @@ MAX_PROCESSING_WAIT_SECONDS = 300
 async def upload_video_to_gemini_activity(
     inputs: VideoSummarySingleSessionInputs, asset_id: int
 ) -> UploadVideoToGeminiOutput:
-    """Upload full video to Gemini for analysis and return file reference with duration."""
-    # display_name is read by the cleanup sweeper. The deployment prefix scopes ownership so that
-    # one cluster's sweeper can't delete another cluster's in-use files when they share a Gemini key.
-    deployment = settings.CLOUD_DEPLOYMENT or "local"
-    display_name = f"{deployment}:{temporalio.activity.info().workflow_id}"
+    """Upload full video to Gemini and return file reference with duration.
+
+    Tracking happens before the ACTIVE-wait so a polling timeout still leaves the file visible
+    to the sweep. On track failure the just-uploaded file is deleted inline.
+    """
+    workflow_id = temporalio.activity.info().workflow_id
+    if workflow_id is None:
+        raise RuntimeError("activity has no workflow_id")
     try:
-        # Get video bytes from ExportedAsset
         asset = await ExportedAsset.objects.aget(id=asset_id)
 
         video_bytes: bytes | None = None
@@ -57,14 +60,14 @@ async def upload_video_to_gemini_activity(
         if not video_bytes:
             raise ValueError(f"No video content found for asset {asset_id} for session {inputs.session_id}")
 
-        # Wrap sync MediaInfo call in thread pool to avoid blocking the event loop
         duration = await sync_to_async(get_video_duration_s, thread_sensitive=False)(video_bytes)
 
-        # Write video to temporary file for upload
+        # Lazy so asset-check failures don't require an API key.
+        raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
+
         with tempfile.NamedTemporaryFile() as tmp_file:
             tmp_file.write(video_bytes)
-            tmp_file.flush()  # Ensure data is flushed to disk before reading by path
-            # Upload to Gemini
+            tmp_file.flush()
             logger.debug(
                 f"Uploading full video to Gemini for session {inputs.session_id}",
                 duration=duration,
@@ -72,66 +75,86 @@ async def upload_video_to_gemini_activity(
                 video_size_bytes=len(video_bytes),
                 signals_type="session-summaries",
             )
-            raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
-            # Wrap sync Google API call in thread pool to avoid blocking the event loop
             uploaded_file = await sync_to_async(raw_client.files.upload, thread_sensitive=False)(
                 file=tmp_file.name,
-                config=types.UploadFileConfig(mime_type=asset.export_format, display_name=display_name),
-            )
-            # Wait for file to be ready
-            wait_start_time = time.time()
-            while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
-                elapsed = time.time() - wait_start_time
-                if elapsed >= MAX_PROCESSING_WAIT_SECONDS:
-                    raise RuntimeError(
-                        f"File processing timed out after {elapsed:.1f}s. "
-                        f"File may still be processing on Gemini's side. State: {uploaded_file.state.name}"
-                    )
-                await asyncio.sleep(0.5)
-                logger.debug(
-                    f"Waiting for file to be ready: {uploaded_file.state.name}",
-                    session_id=inputs.session_id,
-                    file_name=uploaded_file.name,
-                    file_state=uploaded_file.state.name,
-                    elapsed_seconds=elapsed,
-                    signals_type="session-summaries",
-                )
-                if not uploaded_file.name:
-                    raise RuntimeError("Uploaded file has no name for status polling")
-                # Wrap sync Google API call in thread pool to avoid blocking the event loop
-                uploaded_file = await sync_to_async(raw_client.files.get, thread_sensitive=False)(
-                    name=uploaded_file.name
-                )
-            final_state_name = uploaded_file.state.name if uploaded_file.state else None
-            if final_state_name != "ACTIVE":
-                raise RuntimeError(f"File processing failed. State: {final_state_name}")
-            if not uploaded_file.uri:
-                raise RuntimeError("Uploaded file has no URI")
-            logger.debug(
-                f"Video uploaded successfully to Gemini for session {inputs.session_id}",
-                session_id=inputs.session_id,
-                file_uri=uploaded_file.uri,
-                duration=duration,
-                signals_type="session-summaries",
+                config=types.UploadFileConfig(mime_type=asset.export_format, display_name=workflow_id),
             )
 
-            uploaded_video = UploadedVideo(
-                file_uri=uploaded_file.uri,
+        # Wrap both the missing-name guard and the track call in the same try so a Gemini
+        # response without `.name` can't sneak past tracking and orphan a file.
+        try:
+            if uploaded_file.name is None:
+                raise RuntimeError("Uploaded file has no name")
+            await track_uploaded_file(uploaded_file.name, workflow_id, datetime.now(UTC))
+        except Exception:
+            logger.exception(
+                "upload_video_to_gemini.track_failed_rolling_back",
+                session_id=inputs.session_id,
                 gemini_file_name=uploaded_file.name,
-                mime_type=uploaded_file.mime_type or MOMENT_VIDEO_EXPORT_FORMAT,
-                duration=duration,
+                signals_type="session-summaries",
             )
-            # Extract inactivity periods from export_context if available to avoid analyzing inactive segments
-            inactivity_periods = asset.export_context.get("inactivity_periods") if asset.export_context else None
-            return UploadVideoToGeminiOutput(
-                uploaded_video=uploaded_video,
-                # Converting to use proper types in calculations
-                inactivity_periods=(
-                    None
-                    if not inactivity_periods
-                    else [ReplayInactivityPeriod.model_validate(p) for p in inactivity_periods]
-                ),
+            if uploaded_file.name is not None:
+                try:
+                    await sync_to_async(raw_client.files.delete, thread_sensitive=False)(name=uploaded_file.name)
+                except Exception:
+                    logger.exception(
+                        "upload_video_to_gemini.rollback_delete_failed",
+                        session_id=inputs.session_id,
+                        gemini_file_name=uploaded_file.name,
+                        signals_type="session-summaries",
+                    )
+            raise
+
+        gemini_file_name = uploaded_file.name
+        assert gemini_file_name is not None  # narrowing for mypy; verified inside the try above
+
+        wait_start_time = time.time()
+        while uploaded_file.state and uploaded_file.state.name == "PROCESSING":
+            elapsed = time.time() - wait_start_time
+            if elapsed >= MAX_PROCESSING_WAIT_SECONDS:
+                raise RuntimeError(
+                    f"File processing timed out after {elapsed:.1f}s. "
+                    f"File may still be processing on Gemini's side. State: {uploaded_file.state.name}"
+                )
+            await asyncio.sleep(0.5)
+            logger.debug(
+                f"Waiting for file to be ready: {uploaded_file.state.name}",
+                session_id=inputs.session_id,
+                file_name=gemini_file_name,
+                file_state=uploaded_file.state.name,
+                elapsed_seconds=elapsed,
+                signals_type="session-summaries",
             )
+            uploaded_file = await sync_to_async(raw_client.files.get, thread_sensitive=False)(name=gemini_file_name)
+
+        final_state_name = uploaded_file.state.name if uploaded_file.state else None
+        if final_state_name != "ACTIVE":
+            raise RuntimeError(f"File processing failed. State: {final_state_name}")
+        if not uploaded_file.uri:
+            raise RuntimeError("Uploaded file has no URI")
+        logger.debug(
+            f"Video uploaded successfully to Gemini for session {inputs.session_id}",
+            session_id=inputs.session_id,
+            file_uri=uploaded_file.uri,
+            duration=duration,
+            signals_type="session-summaries",
+        )
+
+        uploaded_video = UploadedVideo(
+            file_uri=uploaded_file.uri,
+            gemini_file_name=gemini_file_name,
+            mime_type=uploaded_file.mime_type or MOMENT_VIDEO_EXPORT_FORMAT,
+            duration=duration,
+        )
+        inactivity_periods = asset.export_context.get("inactivity_periods") if asset.export_context else None
+        return UploadVideoToGeminiOutput(
+            uploaded_video=uploaded_video,
+            inactivity_periods=(
+                None
+                if not inactivity_periods
+                else [ReplayInactivityPeriod.model_validate(p) for p in inactivity_periods]
+            ),
+        )
 
     except Exception as e:
         logger.exception(

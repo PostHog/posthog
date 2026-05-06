@@ -67,8 +67,6 @@ function BarChartInner<Meta = unknown>({
         yScaleType = 'linear',
         showGrid = false,
         barLayout = 'stacked',
-        bandPadding = 0.2,
-        groupPadding = 0.1,
         barCornerRadius = 4,
         axisOrientation = 'vertical',
     } = config ?? {}
@@ -102,12 +100,13 @@ function BarChartInner<Meta = unknown>({
         return m
     }, [barLayout, series])
 
-    const chartConfig = useMemo<BarChartConfig | undefined>(() => {
+    const chartConfig = useMemo<BarChartConfig>(() => {
+        const base = { ...config, isPercent: barLayout === 'percent' }
         if (barLayout !== 'percent' || config?.yTickFormatter) {
-            return config
+            return base
         }
         return {
-            ...config,
+            ...base,
             yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
         }
     }, [config, barLayout])
@@ -128,8 +127,6 @@ function BarChartInner<Meta = unknown>({
                 scaleType: yScaleType,
                 barLayout,
                 axisOrientation,
-                bandPadding,
-                groupPadding,
                 stackedSeries,
             })
 
@@ -152,7 +149,7 @@ function BarChartInner<Meta = unknown>({
                 _private: barChartPrivate,
             }
         },
-        [yScaleType, barLayout, axisOrientation, bandPadding, groupPadding, stackedData, isHorizontal]
+        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal]
     )
 
     const drawStatic = useCallback(
@@ -266,7 +263,6 @@ function BarChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
-            isPercent={barLayout === 'percent'}
         >
             {children}
         </Chart>
