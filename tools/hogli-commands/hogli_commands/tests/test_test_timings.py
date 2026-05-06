@@ -191,6 +191,42 @@ def test_truncate_keeps_short_strings_and_clips_long_ones() -> None:
     assert out.startswith("...")
 
 
+@pytest.mark.parametrize(
+    "nodeid,expected_path",
+    [
+        # class-style nodeid: drop trailing PascalCase class
+        (
+            "posthog/hogql/test/test_resolver/TestResolver::test_x",
+            "posthog/hogql/test/test_resolver.py",
+        ),
+        # function-style nodeid: no class to drop
+        ("posthog/test_create::test_y", "posthog/test_create.py"),
+        # parametrized nodeid: bracket lives after `::`, doesn't change file
+        (
+            "posthog/test_create::test_y[param1]",
+            "posthog/test_create.py",
+        ),
+        # multi-dot class with underscore stays intact
+        (
+            "products/x/test_workflow/TestWorkflow::test_z",
+            "products/x/test_workflow.py",
+        ),
+        # snake_case last segment is treated as module, not class
+        (
+            "posthog/api/test/test_team::test_a",
+            "posthog/api/test/test_team.py",
+        ),
+    ],
+)
+def test_test_file_url_builds_github_blob_url(nodeid: str, expected_path: str) -> None:
+    url = test_timings._test_file_url(nodeid)
+    assert url == f"https://github.com/PostHog/posthog/blob/master/{expected_path}"
+
+
+def test_test_file_url_returns_none_for_nodeid_without_separator() -> None:
+    assert test_timings._test_file_url("no_separator_here") is None
+
+
 # ---------- regression detection ----------
 
 

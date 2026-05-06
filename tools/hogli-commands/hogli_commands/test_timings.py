@@ -162,6 +162,13 @@ def _coerce_segment(payload: dict, segment: str | None) -> dict[str, float]:
     return dict(segments.get(segment, {}))
 
 
+def _osc8(text: str, url: str) -> str:
+    """Wrap `text` in an OSC 8 hyperlink to `url` when stdout is a TTY."""
+    if not sys.stdout.isatty():
+        return text
+    return f"\033]8;;{url}\033\\{text}\033]8;;\033\\"
+
+
 def _run_url(run_id: str) -> str:
     return f"https://github.com/{REPO}/actions/runs/{run_id}"
 
@@ -173,10 +180,33 @@ def _run_link(run_id: str) -> str:
     render this as a clickable run id; other surfaces (pipes, files, dumb
     shells) fall through to the plain id.
     """
-    if not sys.stdout.isatty():
-        return run_id
-    url = _run_url(run_id)
-    return f"\033]8;;{url}\033\\{run_id}\033]8;;\033\\"
+    return _osc8(run_id, _run_url(run_id))
+
+
+def _test_file_url(nodeid: str) -> str | None:
+    """Best-effort URL to the test file on master.
+
+    nodeid looks like `posthog/hogql/test/test_resolver/TestResolver::test_x` or
+    `posthog/test_x::test_y`. Strategy: take everything before `::`, drop the
+    trailing segment if it looks like a Python class (PascalCase), append `.py`.
+    Returns None when we can't form a reasonable path.
+    """
+    if "::" not in nodeid:
+        return None
+    path_part, _, _ = nodeid.partition("::")
+    parts = path_part.split("/")
+    if not parts or not parts[0]:
+        return None
+    if len(parts) > 1 and parts[-1][:1].isupper() and "_" not in parts[-1]:
+        parts = parts[:-1]
+    return f"https://github.com/{REPO}/blob/master/{'/'.join(parts)}.py"
+
+
+def _test_link(nodeid: str, *, max_width: int) -> str:
+    """`nodeid` truncated to `max_width`, wrapped as OSC 8 link to its test file."""
+    text = _truncate(nodeid, max_width)
+    url = _test_file_url(nodeid)
+    return _osc8(text, url) if url else text
 
 
 def _format_seconds(value: float) -> str:
@@ -200,7 +230,7 @@ def _render_top_n(durations: dict[str, float], *, top: int, run_id: str, segment
     click.echo(f"{'#':>4}  {'duration':>9}  test")
     click.echo("-" * 100)
     for i, (nodeid, duration) in enumerate(items, 1):
-        click.echo(f"{i:>4}  {_format_seconds(duration)}  {_truncate(nodeid, 84)}")
+        click.echo(f"{i:>4}  {_format_seconds(duration)}  {_test_link(nodeid, max_width=84)}")
     total = sum(durations.values())
     click.echo("-" * 100)
     click.echo(f"  total testcase time across {len(durations)} tests: {total:.1f}s ({total / 60:.1f} min)")
@@ -258,7 +288,7 @@ def _render_compare(
         for nodeid, delta in regressions:
             click.echo(
                 f"  {f'+{delta:.2f}s':>8}  {_format_seconds(a[nodeid])}  "
-                f"{_format_seconds(b[nodeid])}  {_truncate(nodeid, 64)}"
+                f"{_format_seconds(b[nodeid])}  {_test_link(nodeid, max_width=64)}"
             )
     else:
         click.echo("  no regressions above threshold")
@@ -270,7 +300,7 @@ def _render_compare(
                 break
             click.echo(
                 f"  {f'{delta:.2f}s':>8}  {_format_seconds(a[nodeid])}  "
-                f"{_format_seconds(b[nodeid])}  {_truncate(nodeid, 64)}"
+                f"{_format_seconds(b[nodeid])}  {_test_link(nodeid, max_width=64)}"
             )
 
     only_a = set(a) - set(b)
@@ -322,7 +352,10 @@ def _render_regressions(
     click.echo(f"  {'now':>8}  {'median':>8}  {'factor':>7}  test")
     click.echo("-" * 100)
     for nodeid, current, median, factor in rows:
-        click.echo(f"  {_format_seconds(current)}  {_format_seconds(median)}  {factor:>6.2f}x  {_truncate(nodeid, 60)}")
+        click.echo(
+            f"  {_format_seconds(current)}  {_format_seconds(median)}  "
+            f"{factor:>6.2f}x  {_test_link(nodeid, max_width=60)}"
+        )
 
 
 # ---------- click commands ----------
