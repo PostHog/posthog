@@ -2925,6 +2925,96 @@
             "properties": {},
             "description": "No input required. Returns core data warehouse schemas."
         },
+        "ScoreDefinitionConfigSchema": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "options": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "key": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 128,
+                                        "description": "Stable option key — lowercase letters, numbers, underscores, hyphens. Sent back when this option is selected."
+                                    },
+                                    "label": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 256,
+                                        "description": "Human-readable label shown in the review UI."
+                                    }
+                                },
+                                "required": ["key", "label"]
+                            },
+                            "description": "Ordered categorical options. Must contain at least one option with unique keys."
+                        },
+                        "selection_mode": {
+                            "description": "Whether reviewers select one option or many. Defaults to \"single\".",
+                            "type": "string",
+                            "enum": ["single", "multiple"]
+                        },
+                        "min_selections": {
+                            "description": "Minimum selections required. Only valid when selection_mode is \"multiple\".",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                        },
+                        "max_selections": {
+                            "description": "Maximum selections allowed. Only valid when selection_mode is \"multiple\".",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                        }
+                    },
+                    "required": ["options"],
+                    "additionalProperties": false,
+                    "description": "Config shape used when kind is \"categorical\"."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "min": {
+                            "description": "Optional inclusive minimum score.",
+                            "type": "number"
+                        },
+                        "max": {
+                            "description": "Optional inclusive maximum score (must be ≥ min).",
+                            "type": "number"
+                        },
+                        "step": {
+                            "description": "Optional increment step for numeric input, e.g. 1 or 0.5.",
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                        }
+                    },
+                    "additionalProperties": false,
+                    "description": "Config shape used when kind is \"numeric\"."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "true_label": {
+                            "description": "Optional label shown for the true branch (e.g. \"Yes\").",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "false_label": {
+                            "description": "Optional label shown for the false branch (e.g. \"No\").",
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    },
+                    "additionalProperties": false,
+                    "description": "Config shape used when kind is \"boolean\"."
+                }
+            ],
+            "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
+        },
         "SurveyResponseCountsSchema": {
             "type": "object",
             "properties": {}
