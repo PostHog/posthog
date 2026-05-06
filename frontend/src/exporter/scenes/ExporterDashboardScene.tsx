@@ -3,9 +3,11 @@ import { useCallback, useEffect } from 'react'
 
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { scheduleSharedDashboardStaleAutoForceIfEligible } from 'scenes/dashboard/dashboardUtils'
+import {
+    AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+    scheduleSharedDashboardStaleAutoForceIfEligible,
+} from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardPlacement } from '~/types'
