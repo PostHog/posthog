@@ -155,10 +155,13 @@ tools:
             journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis
             (frustration score, rage clicks, confusion signals). Use this instead of asking users to watch full
             recordings — it provides the key insights in seconds. Accepts up to 300 session IDs and an optional
-            focus_area to guide the summary toward a specific aspect (e.g., "checkout flow" or "error handling").
-            WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average.
-            Previously generated summaries are cached and return instantly. Warn the user about the wait before calling
-            this tool.
+            focus_area to guide the summary toward a specific aspect (e.g., "checkout flow" or "error handling"). The
+            response is a dict keyed by session ID. Successful entries contain the summary fields; failed entries
+            contain an `error` (e.g. `recording_not_found`, `no_events_or_too_short`, `summary_failed`) and an
+            `error_message` so callers can distinguish "skipped on purpose" from "tool broke". A bad session ID in the
+            batch is reported as a per-session error and does not fail the whole request. WARNING: First-time summaries
+            call an AI model and are very slow — expect around 5 minutes on average. Previously generated summaries are
+            cached and return instantly. Warn the user about the wait before calling this tool.
 
 
             DEEP LINKS: Key actions include `session_id` and `milliseconds_since_start`. Build deep links as

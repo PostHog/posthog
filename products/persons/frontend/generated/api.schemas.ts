@@ -325,29 +325,6 @@ export interface PersonPropertiesAtTimeMetadataApi {
 }
 
 /**
- * The parameters passed to the query
- */
-export type PersonPropertiesAtTimeDebugApiParams = { [key: string]: unknown }
-
-export type PersonPropertiesAtTimeDebugApiEventsItem = { [key: string]: unknown }
-
-/**
- * Serializer for the debug information (only available to staff users).
- */
-export interface PersonPropertiesAtTimeDebugApi {
-    /** The ClickHouse query that was executed */
-    query: string
-    /** The parameters passed to the query */
-    params: PersonPropertiesAtTimeDebugApiParams
-    /** Number of events found */
-    events_found: number
-    /** Raw events that were used to build the properties */
-    events: PersonPropertiesAtTimeDebugApiEventsItem[]
-    /** Error message if debug query failed */
-    error?: string
-}
-
-/**
  * Serializer for the point-in-time person properties response.
  */
 export interface PersonPropertiesAtTimeResponseApi {
@@ -370,8 +347,6 @@ export interface PersonPropertiesAtTimeResponseApi {
     last_seen_at: string | null
     /** Metadata about the point-in-time query */
     point_in_time_metadata: PersonPropertiesAtTimeMetadataApi
-    /** Debug information (only available when debug=true and DEBUG=True) */
-    debug?: PersonPropertiesAtTimeDebugApi
 }
 
 export type PersonsListParams = {
@@ -661,10 +636,6 @@ export const PersonsLifecycleRetrieveFormat = {
 } as const
 
 export type PersonsPropertiesAtTimeRetrieveParams = {
-    /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */

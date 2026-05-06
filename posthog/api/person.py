@@ -4,7 +4,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
-from django.conf import settings
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 
@@ -331,18 +330,6 @@ class PersonPropertiesAtTimeMetadataSerializer(serializers.Serializer):
     distinct_ids_count = serializers.IntegerField(help_text="Number of distinct_ids associated with this person")
 
 
-class PersonPropertiesAtTimeDebugSerializer(serializers.Serializer):
-    """Serializer for the debug information (only available to staff users)."""
-
-    query = serializers.CharField(help_text="The ClickHouse query that was executed")
-    params = serializers.DictField(help_text="The parameters passed to the query")
-    events_found = serializers.IntegerField(help_text="Number of events found")
-    events = serializers.ListField(
-        child=serializers.DictField(), help_text="Raw events that were used to build the properties"
-    )
-    error = serializers.CharField(required=False, help_text="Error message if debug query failed")
-
-
 class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     """Serializer for the point-in-time person properties response."""
 
@@ -363,9 +350,6 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     # Additional fields for point-in-time response
     point_in_time_metadata = PersonPropertiesAtTimeMetadataSerializer(
         help_text="Metadata about the point-in-time query"
-    )
-    debug = PersonPropertiesAtTimeDebugSerializer(
-        required=False, help_text="Debug information (only available when debug=true and DEBUG=True)"
     )
 
 
@@ -1306,13 +1290,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description="Whether to handle $set_once operations (default: false)",
                 required=False,
             ),
-            OpenApiParameter(
-                name="debug",
-                type=bool,
-                location=OpenApiParameter.QUERY,
-                description="Whether to include debug information with raw events (only works when DEBUG=True, default: false)",
-                required=False,
-            ),
         ],
         responses={
             200: PersonPropertiesAtTimeResponseSerializer,
@@ -1334,7 +1311,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         - distinct_id: The distinct_id of the person
         - timestamp: ISO datetime string for the point in time (e.g., "2023-06-15T14:30:00Z")
         - include_set_once: Whether to handle $set_once operations (default: false)
-        - debug: Whether to include debug information with raw events (default: false)
         """
         from posthog.models.person.point_in_time_properties import (
             build_person_properties_at_time,
@@ -1345,7 +1321,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person_id = request.GET.get("person_id")
         timestamp_str = request.GET.get("timestamp")
         include_set_once = request.GET.get("include_set_once", "false").lower() == "true"
-        debug = request.GET.get("debug", "false").lower() == "true"
 
         # Validate parameters
         if distinct_id and person_id:
@@ -1401,33 +1376,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             # Build point-in-time properties using the pre-fetched distinct_ids
-            # If debug mode is enabled, get raw events to avoid duplicate query
-            debug_rows: list[Any] = []
-            debug_query: str = ""
-            debug_params: dict[str, Any] = {}
-            point_in_time_properties: dict[str, Any]
-            if debug and settings.DEBUG:
-                result = build_person_properties_at_time(
-                    team_id=self.team_id,
-                    timestamp=timestamp,
-                    distinct_ids=distinct_ids_queried,
-                    include_set_once=include_set_once,
-                    return_debug_info=True,
-                )
-                # Type cast to help mypy understand the tuple unpacking
-                point_in_time_properties, debug_rows, debug_query, debug_params = cast(
-                    tuple[dict[str, Any], list[Any], str, dict[str, Any]], result
-                )
-            else:
-                point_in_time_properties = cast(
-                    dict[str, Any],
-                    build_person_properties_at_time(
-                        team_id=self.team_id,
-                        timestamp=timestamp,
-                        distinct_ids=distinct_ids_queried,
-                        include_set_once=include_set_once,
-                    ),
-                )
+            tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY, team_id=self.team_id)
+            point_in_time_properties = build_person_properties_at_time(
+                team_id=self.team_id,
+                timestamp=timestamp,
+                distinct_ids=distinct_ids_queried,
+                include_set_once=include_set_once,
+            )
 
             # Serialize the person object
             person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
@@ -1445,18 +1400,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "distinct_ids_queried": distinct_ids_queried,
                 "distinct_ids_count": len(distinct_ids_queried),
             }
-
-            # Add debug information if requested and in debug mode
-            if debug and settings.DEBUG:
-                # Use the raw events, query, and params that were already fetched to avoid duplicate query
-                person_data["debug"] = {
-                    "query": debug_query,
-                    "params": debug_params,
-                    "events_found": len(debug_rows),
-                    "events": [
-                        {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows
-                    ],
-                }
 
             return response.Response(person_data)
 

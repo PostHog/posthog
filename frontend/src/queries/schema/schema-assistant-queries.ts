@@ -435,7 +435,7 @@ export interface AssistantBreakdownFilter {
 export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter {
     /**
      * Use this field to define breakdowns.
-     * @maxLength 3
+     * @maxItems 3
      */
     breakdowns: AssistantMultipleBreakdownFilter[]
     /**
@@ -1208,7 +1208,7 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 
     /**
      * Event or action to analyze. Lifecycle insights only support a single series.
-     * @maxLength 1
+     * @maxItems 1
      */
     series: AssistantLifecycleSeriesNode[]
 

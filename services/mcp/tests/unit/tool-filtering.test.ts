@@ -639,11 +639,12 @@ describe('Tool Filtering - Feature Flags', () => {
             expect.arrayContaining([
                 'logs-alerting',
                 'replay-video-based-summarization',
+                'tracing',
                 'visual-review',
                 'mcp-feedback-tool',
             ])
         )
-        expect(flags).toHaveLength(4)
+        expect(flags).toHaveLength(5)
     })
 
     // Test the filtering logic with a direct unit test approach using

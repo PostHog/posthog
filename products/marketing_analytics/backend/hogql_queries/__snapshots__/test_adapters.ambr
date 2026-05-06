@@ -85,6 +85,24 @@
   GROUP BY toString(metaads_campaigns.name), toString(metaads_campaigns.id)
   '''
 # ---
+# name: TestMarketingAnalyticsAdapters.test_meta_ads_query_at_hierarchy_levels_0_ad_group
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(metaads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(metaads_campaigns.id), 'unknown') AS id, toString('meta') AS source, toString(metaads_adsets.name) AS ad_group_name, toString(metaads_adsets.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(metaads_adset_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(metaads_adset_stats.clicks), 0))) AS clicks, SUM(ifNull(toFloat(metaads_adset_stats.spend), 0)) AS cost, 0 AS reported_conversion, 0 AS reported_conversion_value 
+  FROM metaads_adsets LEFT JOIN metaads_adset_stats ON equals(metaads_adsets.id, metaads_adset_stats.adset_id) LEFT JOIN metaads_campaigns ON equals(metaads_adsets.campaign_id, metaads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(metaads_adset_stats.date_stop), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(metaads_adset_stats.date_stop), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(metaads_campaigns.name), 'Unknown campaign'), coalesce(toString(metaads_campaigns.id), 'unknown'), toString(metaads_adsets.name), toString(metaads_adsets.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_meta_ads_query_at_hierarchy_levels_1_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(metaads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(metaads_campaigns.id), 'unknown') AS id, toString('meta') AS source, coalesce(toString(metaads_adsets.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(metaads_adsets.id), 'unknown') AS ad_group_id, toString(metaads_ads.name) AS ad_name, toString(metaads_ads.id) AS ad_id, toFloat(SUM(ifNull(toFloat(metaads_ad_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(metaads_ad_stats.clicks), 0))) AS clicks, SUM(ifNull(toFloat(metaads_ad_stats.spend), 0)) AS cost, 0 AS reported_conversion, 0 AS reported_conversion_value 
+  FROM metaads_ads LEFT JOIN metaads_ad_stats ON equals(metaads_ads.id, metaads_ad_stats.ad_id) LEFT JOIN metaads_adsets ON equals(metaads_ads.adset_id, metaads_adsets.id) LEFT JOIN metaads_campaigns ON equals(metaads_ads.campaign_id, metaads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(metaads_ad_stats.date_stop), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(metaads_ad_stats.date_stop), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(metaads_campaigns.name), 'Unknown campaign'), coalesce(toString(metaads_campaigns.id), 'unknown'), coalesce(toString(metaads_adsets.name), 'Unknown ad group'), coalesce(toString(metaads_adsets.id), 'unknown'), toString(metaads_ads.name), toString(metaads_ads.id)
+  '''
+# ---
 # name: TestMarketingAnalyticsAdapters.test_meta_ads_query_generation
   '''
   

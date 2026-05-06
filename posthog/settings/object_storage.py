@@ -41,3 +41,8 @@ QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUC
 
 # Video segment clustering workflow bucket - should have a 24h lifecycle rule for automatic cleanup
 VIDEO_SEGMENT_CLUSTERING_S3_BUCKET = os.getenv("VIDEO_SEGMENT_CLUSTERING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+
+# Billing usage report bucket — holds the daily JSONL chunks the billing
+# service consumes. Falls back to the general bucket if not set so dev /
+# self-hosted continue to work without extra configuration.
+BILLING_USAGE_REPORTS_S3_BUCKET = os.getenv("BILLING_USAGE_REPORTS_S3_BUCKET") or OBJECT_STORAGE_BUCKET

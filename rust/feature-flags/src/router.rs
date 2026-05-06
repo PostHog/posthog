@@ -33,6 +33,7 @@ use tower_http::{
 
 use crate::{
     api::{
+        concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
@@ -261,7 +262,19 @@ pub fn router(
     // 1. HandleErrorLayer (outermost): converts timeout errors into 503 responses.
     // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
     //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
-    // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
+    // 3. record_concurrency_enter: stamps the request with `Instant::now()`
+    //    just before permit acquisition. Inside `TimeoutLayer` so timeouts
+    //    still fire while the request is parked at the limiter.
+    // 4. ConcurrencyLimitLayer: bounds in-flight requests.
+    // 5. record_concurrency_wait (innermost): computes elapsed permit-wait
+    //    immediately after the layer hands off a permit, before the handler.
+    //
+    // Note: this entire chain wraps both `/flags|/decide` AND
+    // `/flags/definitions|/api/feature_flag/local_evaluation`. The shim pair
+    // is harmless on definitions (the handler never extracts the wait
+    // extension), but does add ~one extension-insert + one extension-read
+    // per definitions request. If that overhead ever becomes load-bearing,
+    // scope the shims to `/flags|/decide` via a dedicated sub-router.
     let mut flags_router = Router::new();
 
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
@@ -298,7 +311,15 @@ pub fn router(
     }
 
     let flags_router = flags_router
+        // Innermost: runs *after* `ConcurrencyLimitLayer` releases a
+        // permit, so it can compute the elapsed permit-wait before the
+        // handler runs.
+        .layer(axum::middleware::from_fn(record_concurrency_wait))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
+        // Sandwiched between `TimeoutLayer` and `ConcurrencyLimitLayer`:
+        // captures `Instant::now()` *after* timeout deadline propagation
+        // but *before* permit acquisition.
+        .layer(axum::middleware::from_fn(record_concurrency_enter))
         .layer(
             ServiceBuilder::new()
                 .layer(HandleErrorLayer::new(|err: tower::BoxError| async move {

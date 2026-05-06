@@ -187,10 +187,10 @@ describe('LineChart', () => {
             expect(getHogChartTooltip()?.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
         })
 
-        it('does not crash on hover for visibility.fromStack series', async () => {
+        it('does not crash on hover for overlay series', async () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { fromStack: true } },
+                { key: 'b', label: 'B', data: [5, 15, 25], overlay: true },
             ]
             const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
             hoverAtIndex(chart.element, 1, LABELS.length)
@@ -198,10 +198,10 @@ describe('LineChart', () => {
             expect(tooltip.textContent).toContain('Tue')
         })
 
-        it('omits a series from tooltip when visibility.fromTooltip is true', async () => {
+        it('omits a series from tooltip when visibility.tooltip is false', async () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { fromTooltip: true } },
+                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { tooltip: false } },
             ]
             const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
             hoverAtIndex(chart.element, 1, LABELS.length)
