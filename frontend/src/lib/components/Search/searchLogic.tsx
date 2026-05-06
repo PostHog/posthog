@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -113,6 +114,8 @@ export const searchLogic = kea<searchLogicType>([
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
             ['shortcutData as cachedStarred', 'shortcutDataHasLoaded', 'groupItems as treeGroupItems'],
+            organizationIntegrationsLogic,
+            ['organizationIntegrations'],
         ],
     })),
     actions({
@@ -627,8 +630,8 @@ export const searchLogic = kea<searchLogicType>([
             ],
         ],
         settingsItems: [
-            (s) => [s.featureFlags],
-            (featureFlags): SearchItem[] => {
+            (s) => [s.featureFlags, s.organizationIntegrations],
+            (featureFlags, organizationIntegrations): SearchItem[] => {
                 const items: SearchItem[] = []
 
                 const checkFlag = (flag: string): boolean => {
@@ -645,6 +648,14 @@ export const searchLogic = kea<searchLogicType>([
                     // Skip sections hidden from navigation (they are only accessible
                     // from their product's own configuration page)
                     if (section.hideFromNavigation) {
+                        continue
+                    }
+
+                    // Mirror sidebar gating: only surface organization integrations when any exist
+                    if (
+                        section.id === 'organization-integrations' &&
+                        (!organizationIntegrations || organizationIntegrations.length === 0)
+                    ) {
                         continue
                     }
 
@@ -693,7 +704,7 @@ export const searchLogic = kea<searchLogicType>([
                             : toSentenceCase(section.id.replace(/[-]/g, ' '))
 
                     const displayNameSuffix =
-                        displayName === 'General' || displayName === 'Danger zone'
+                        displayName === 'General' || displayName === 'Danger zone' || displayName === 'Integrations'
                             ? ` (${toSentenceCase(effectiveLevel)})`
                             : ''
 

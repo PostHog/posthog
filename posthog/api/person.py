@@ -1268,7 +1268,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, AttributeError):
             raise ValidationError("One or more UUIDs are invalid.")
 
-        persons = get_persons_by_uuids(self.team, uuids)
+        persons = get_persons_by_uuids(self.team_id, uuids)
 
         results: dict[str, Any] = {}
         for person in persons:

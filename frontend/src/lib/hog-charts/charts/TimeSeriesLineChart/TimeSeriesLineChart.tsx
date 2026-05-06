@@ -8,13 +8,18 @@ import type {
     TooltipConfig,
     TooltipContext,
 } from '../../core/types'
+import { AnomalyPointsLayer, type AnomalyMarker } from '../../overlays/AnomalyPointsLayer'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
+import { buildGoalLineReferenceLines, type GoalLineConfig } from '../../utils/goal-lines'
+import {
+    useXTickFormatter,
+    useYTickFormatter,
+    type XAxisConfig,
+    type YAxisConfig,
+} from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart'
-import { AnomalyPointsLayer, type AnomalyMarker } from './overlays/AnomalyPointsLayer'
-import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-lines'
 import { applyInProgressToSeries, type InProgressConfig } from './utils/in-progress'
-import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
 import {
     useDerivedSeries,
     type ConfidenceIntervalConfig,

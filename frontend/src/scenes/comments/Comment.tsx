@@ -5,11 +5,12 @@ import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { IconEllipsis, IconEye, IconPencil, IconShare, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonMenu, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import {
     DEFAULT_EXTENSIONS,
@@ -181,12 +182,19 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { disabledReasonFor } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, setReplyingComment } = useActions(commentsLogic)
 
+    const isCompleted = !!comment.completed_at
+
     return (
         <div className="flex items-center justify-between gap-2">
-            <div>
+            <div className="flex items-center gap-2">
                 <span className="ph-no-capture flex-1 font-semibold">
                     {comment.created_by?.first_name ?? 'Unknown user'}
                 </span>
+                {comment.is_task ? (
+                    <LemonTag size="small" type={isCompleted ? 'success' : 'warning'}>
+                        {isCompleted ? 'Completed' : 'Task'}
+                    </LemonTag>
+                ) : null}
             </div>
             <div className="flex items-center gap-1">
                 {comment.created_at ? (
@@ -224,7 +232,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
 
 const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { editingComment, replyingCommentId, selectedCommentId, commentContexts } = useValues(commentsLogic)
-    const { setSelectedComment } = useActions(commentsLogic)
+    const { setSelectedComment, completeComment, reopenComment } = useActions(commentsLogic)
     const contextText = commentContexts[comment.id]
     const isInlineComment = comment.item_context?.type === 'mark'
 
@@ -251,25 +259,51 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
             data-comment-id={comment.id}
             onClick={isEditing ? undefined : () => setSelectedComment(threadId)}
         >
-            <div className="flex flex-col justify-start gap-2">
-                <div className="flex-1 flex justify-start gap-2">
-                    <ProfilePicture size="xl" user={comment.created_by} />
+            <div className="flex items-center gap-3">
+                {comment.is_task ? (
+                    <>
+                        <Tooltip
+                            title={
+                                comment.completed_at
+                                    ? `Completed by ${comment.completed_by?.first_name ?? 'Unknown user'}`
+                                    : 'Mark as complete'
+                            }
+                        >
+                            <span className="flex items-center scale-125 ml-1">
+                                <LemonCheckbox
+                                    checked={!!comment.completed_at}
+                                    onChange={() =>
+                                        comment.completed_at ? reopenComment(comment) : completeComment(comment)
+                                    }
+                                    data-attr="comment-task-checkbox"
+                                />
+                            </span>
+                        </Tooltip>
+                        <LemonDivider vertical className="self-stretch" />
+                    </>
+                ) : null}
+                <div className="flex flex-col justify-start gap-2 flex-1 min-w-0">
+                    <div className="flex-1 flex justify-start items-start gap-2">
+                        <ProfilePicture size="xl" user={comment.created_by} />
 
-                    <div className="flex flex-col flex-1 min-w-0">
-                        <CommentTopRow comment={comment} />
-                        {contextText && !isEditing && isInlineComment && (
-                            <div className="border-l-2 border-border pl-2 my-2">
-                                <span className="block text-muted truncate text-sm">{contextText}</span>
-                            </div>
-                        )}
-                        {isEditing ? (
-                            <CommentEditingForm comment={comment} />
-                        ) : (
-                            <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
-                        )}
+                        <div className="flex flex-col flex-1 min-w-0">
+                            <CommentTopRow comment={comment} />
+                            {contextText && !isEditing && isInlineComment && (
+                                <div className="border-l-2 border-border pl-2 my-2">
+                                    <span className="block text-muted truncate text-sm">{contextText}</span>
+                                </div>
+                            )}
+                            {isEditing ? (
+                                <CommentEditingForm comment={comment} />
+                            ) : (
+                                <div className={clsx(comment.completed_at && 'line-through text-secondary')}>
+                                    <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
+                                </div>
+                            )}
+                        </div>
                     </div>
+                    {!isEditing && <CommentBottomRow comment={comment} />}
                 </div>
-                {!isEditing && <CommentBottomRow comment={comment} />}
             </div>
         </div>
     )

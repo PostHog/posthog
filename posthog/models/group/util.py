@@ -72,6 +72,43 @@ def create_group(
         timestamp,
         timestamp=timestamp,
     )
+
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_group_to_model
+    from posthog.personhog_client.proto import CreateGroupRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.create_group(
+                CreateGroupRequest(
+                    team_id=team_id,
+                    group_type_index=group_type_index,
+                    group_key=group_key,
+                    group_properties=json.dumps(properties).encode(),
+                    created_at=int(timestamp.timestamp() * 1000),
+                )
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="create_group", source="personhog", client_name=get_client_name()
+            ).inc()
+            return proto_group_to_model(resp.group)
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="create_group",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_create_group_failure",
+                team_id=team_id,
+                group_type_index=group_type_index,
+                group_key=group_key,
+                exc_info=True,
+            )
+
+    PERSONHOG_ROUTING_TOTAL.labels(operation="create_group", source="django_orm", client_name=get_client_name()).inc()
     group = Group.objects.create(  # nosemgrep: no-direct-persons-db-orm
         team_id=team_id,
         group_type_index=group_type_index,
@@ -81,6 +118,49 @@ def create_group(
         version=0,
     )
     return group
+
+
+def save_group(group: Group, *, operation: str = "group_save") -> None:
+    """Save a Group's group_properties via personhog, falling back to ORM.
+
+    Only group_properties is synced on the personhog path. The ORM fallback
+    calls group.save() which persists all fields, but once the fallback is
+    removed this will only write group_properties.
+    """
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import UpdateGroupRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            client.update_group(
+                UpdateGroupRequest(
+                    team_id=group.team_id,
+                    group_type_index=group.group_type_index,
+                    group_key=group.group_key,
+                    update_mask=["group_properties"],
+                    group_properties=json.dumps(group.group_properties).encode(),
+                )
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
+            return
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation=operation,
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_save_group_failure",
+                team_id=group.team_id,
+                group_type_index=group.group_type_index,
+                group_key=group.group_key,
+                exc_info=True,
+            )
+
+    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="django_orm", client_name=get_client_name()).inc()
+    group.save()
 
 
 def get_group_by_key(team_id: int, group_type_index: int, group_key: str) -> Group | None:

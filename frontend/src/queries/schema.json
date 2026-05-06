@@ -2426,7 +2426,7 @@
                     "items": {
                         "$ref": "#/definitions/AssistantLifecycleSeriesNode"
                     },
-                    "maxLength": 1,
+                    "maxItems": 1,
                     "type": "array"
                 }
             },
@@ -3733,7 +3733,7 @@
                     "items": {
                         "$ref": "#/definitions/AssistantMultipleBreakdownFilter"
                     },
-                    "maxLength": 3,
+                    "maxItems": 3,
                     "type": "array"
                 }
             },

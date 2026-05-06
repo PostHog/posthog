@@ -60,7 +60,6 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
-from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -684,14 +683,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
-            # Will be migrated with the personhog write path
-            group_type_mapping = GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
-            ).first()
-            if group_type_mapping:
-                group_type_mapping.detail_dashboard_id = None
-                group_type_mapping.save()
-                invalidate_group_types_cache(instance.team.project_id)
+            from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
+
+            clear_dashboard_from_group_type_mapping(
+                team_id=instance.team_id, dashboard_id=instance.id, project_id=instance.team.project_id
+            )
 
         request_filters = initial_data.get("filters")
         if request_filters:

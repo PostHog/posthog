@@ -64,16 +64,15 @@ export type { ValueLabelsProps } from './overlays/ValueLabels'
 // Helper for adapters that need to align with the same x-axis tick selection the chart draws.
 export { computeVisibleXLabels } from './overlays/AxisLabels'
 
-// Timeseries overlays
-export { AnomalyPointsLayer } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
-export type { AnomalyMarker } from './charts/TimeSeriesLineChart/overlays/AnomalyPointsLayer'
+export { AnomalyPointsLayer } from './overlays/AnomalyPointsLayer'
+export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
 export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
 
 // Timeseries utils
-export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'
-export type { TimeInterval } from './charts/TimeSeriesLineChart/utils/dates'
-export { buildYTickFormatter } from './charts/TimeSeriesLineChart/utils/y-formatters'
-export type { YAxisFormat, YFormatterConfig } from './charts/TimeSeriesLineChart/utils/y-formatters'
-export type { XAxisConfig, YAxisConfig } from './charts/TimeSeriesLineChart/utils/use-axis-formatters'
-export { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from './charts/TimeSeriesLineChart/utils/goal-lines'
-export type { GoalLineConfig } from './charts/TimeSeriesLineChart/utils/goal-lines'
+export { createXAxisTickCallback, parseDateForAxis } from './utils/dates'
+export type { TimeInterval } from './utils/dates'
+export { buildYTickFormatter } from './utils/y-formatters'
+export type { YAxisFormat, YFormatterConfig } from './utils/y-formatters'
+export type { XAxisConfig, YAxisConfig } from './utils/use-axis-formatters'
+export { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from './utils/goal-lines'
+export type { GoalLineConfig } from './utils/goal-lines'
