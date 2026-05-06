@@ -577,19 +577,3 @@ expose = [
 from = [
     "products.access_control",
 ]
-
-[[interfaces]]
-expose = [
-    "backend\\.models.*",
-]
-from = [
-    "posthog",
-]
-
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-]
-from = [
-    "ee",
-]
