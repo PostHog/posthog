@@ -26,10 +26,11 @@ AI_EVENTS_QUERY_DURATION_SECONDS = Histogram(
 )
 
 if TYPE_CHECKING:
-    from posthog.hogql.constants import LimitContext
+    from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
     from posthog.hogql.modifiers import HogQLQueryModifiers
     from posthog.hogql.timings import HogQLTimings
 
+    from posthog.clickhouse.client.connection import Workload
     from posthog.models import Team
 
 
@@ -56,6 +57,8 @@ def execute_with_ai_events_fallback(
     timings: HogQLTimings | None = None,
     modifiers: HogQLQueryModifiers | None = None,
     limit_context: LimitContext | None = None,
+    settings: HogQLGlobalSettings | None = None,
+    workload: Workload | None = None,
 ) -> Any:
     """Execute a query written against ai_events, falling back to events if no results.
 
@@ -64,6 +67,12 @@ def execute_with_ai_events_fallback(
     which are rewritten to native columns for ai_events and back for the events fallback.
 
     When the kill switch (is_ai_events_enabled) is off, skips the ai_events attempt entirely.
+
+    `workload` should be specified explicitly for batch / scheduled callers (e.g. usage
+    reports). Inside a Celery task the `task_prerun` signal sets `Workload.OFFLINE` on
+    the thread default, but outside Celery (Django shell, pytest, management commands)
+    that signal does not fire — so callers that must run on a specific pool should not
+    rely on it implicitly.
     """
     kwargs: dict[str, Any] = {"query_type": query_type, "team": team}
     if timings is not None:
@@ -72,6 +81,10 @@ def execute_with_ai_events_fallback(
         kwargs["modifiers"] = modifiers
     if limit_context is not None:
         kwargs["limit_context"] = limit_context
+    if settings is not None:
+        kwargs["settings"] = settings
+    if workload is not None:
+        kwargs["workload"] = workload
 
     with tags_context(product=Product.LLM_ANALYTICS):
         if is_ai_events_enabled(team):

@@ -40,6 +40,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -102,6 +103,7 @@ import {
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
+    scheduleSharedDashboardStaleAutoForceIfEligible,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -279,6 +281,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource) => ({ mode, source }),
+        /** Exit edit mode, prompting to confirm if there are unsaved changes. */
+        cancelEditMode: true,
         /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
@@ -1240,6 +1244,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard, s.urlVariables],
             (dashboard, urlVariables) => ({ ...dashboard?.persisted_variables, ...urlVariables }),
         ],
+        hasUnsavedLayoutChanges: [
+            (s) => [s.dashboard, s.dashboardLayouts],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
+            ): boolean => {
+                if (!dashboard) {
+                    return false
+                }
+                return (dashboard.tiles || []).some((tile: DashboardTile<QueryBasedInsightModel>) => {
+                    const originalSm = dashboardLayouts?.[tile.id]?.sm
+                    const currentSm = tile.layouts?.sm
+                    return !equal(originalSm || {}, currentSm || {})
+                })
+            },
+        ],
         effectiveVariablesAndAssociatedInsights: [
             (s) => [s.dashboard, s.variables, s.urlVariables],
             (
@@ -1742,6 +1762,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         updateTileColor: async ({ tileId, color }) => {
+            if (isSharedView()) {
+                return
+            }
             const previousColor = values.tiles.find((tile) => tile.id === tileId)?.color
             actions.setTileProperty(tileId, { color })
             try {
@@ -1754,6 +1777,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         toggleTileDescription: async ({ tileId }) => {
+            if (isSharedView()) {
+                return
+            }
             const matchingTile = values.tiles.find((tile) => tile.id === tileId)
             const previousValue = matchingTile?.show_description
             const newValue = previousValue === false
@@ -2172,6 +2198,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 }
             }
+
+            if (
+                isInitialLoad &&
+                !forceRefresh &&
+                tilesErroredCount === 0 &&
+                tilesAbortedCount === 0 &&
+                values.placement === DashboardPlacement.Public
+            ) {
+                scheduleSharedDashboardStaleAutoForceIfEligible({
+                    effectiveLastRefresh: values.effectiveLastRefresh,
+                    triggerDashboardRefresh: () => {
+                        void actions.triggerDashboardRefresh()
+                    },
+                })
+            }
         },
         saveEditModeChanges: () => {
             if (
@@ -2204,6 +2245,36 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     forceRefresh: false,
                 })
             }
+        },
+        cancelEditMode: () => {
+            const discard = (): void =>
+                actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            const promptEnabled = !!values.featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT]
+            if (!promptEnabled || !values.hasUnsavedLayoutChanges) {
+                discard()
+                return
+            }
+            eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
+            LemonDialog.open({
+                title: 'Discard layout changes?',
+                description:
+                    'You have moved tiles around but not saved. If you discard now, the layout will revert to its last saved state.',
+                primaryButton: {
+                    children: 'Discard changes',
+                    status: 'danger',
+                    onClick: () => {
+                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
+                        discard()
+                    },
+                    'data-attr': 'dashboard-edit-mode-discard-confirm',
+                },
+                secondaryButton: {
+                    children: 'Keep editing',
+                    onClick: () => {
+                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
+                    },
+                },
+            })
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
@@ -2302,7 +2373,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 .map((insight: QueryBasedInsightModel) => insight?.id)
                 .filter((id): id is number => !!id)
 
-            if (insightIds.length > 0 && values.currentTeamId) {
+            if (insightIds.length > 0 && values.currentTeamId && !isSharedView()) {
                 void api.create(`api/environments/${values.currentTeamId}/insights/viewed`, {
                     insight_ids: insightIds,
                 })

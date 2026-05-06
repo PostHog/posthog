@@ -20,6 +20,7 @@ from uuid import UUID
 from django.contrib.auth import get_user_model
 
 from .. import logic
+from ..diff_metadata import DiffMetadata
 from . import contracts
 from .enums import ReviewDecision
 
@@ -55,10 +56,45 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
+def _parse_diff_metadata(
+    diff_metadata_raw: dict | None,
+) -> tuple[contracts.ClusterSummary | None, bool]:
+    """Translate the compact storage shape into the verbose wire shape.
+
+    Returns `(cluster_summary, size_mismatch)`. The cluster_summary side
+    is None for legacy rows and identical-pair rows; size_mismatch
+    defaults to False everywhere it isn't explicitly recorded.
+    """
+    if not diff_metadata_raw:
+        return None, False
+    parsed = DiffMetadata.model_validate(diff_metadata_raw)
+    cluster_summary: contracts.ClusterSummary | None = None
+    if parsed.cluster_summary is not None:
+        cs = parsed.cluster_summary
+        cluster_summary = contracts.ClusterSummary(
+            items=[
+                contracts.DiffCluster(
+                    x=c.bbox[0],
+                    y=c.bbox[1],
+                    width=c.bbox[2],
+                    height=c.bbox[3],
+                    pixel_count=c.px,
+                    centroid_x=c.centroid[0],
+                    centroid_y=c.centroid[1],
+                )
+                for c in cs.items
+            ],
+            total=cs.total,
+            truncated=cs.truncated,
+        )
+    return cluster_summary, parsed.size_mismatch
+
+
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
+    cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
         identifier=snapshot.identifier,
@@ -76,6 +112,10 @@ def _to_snapshot(
         is_quarantined=snapshot.is_quarantined,
         reviewed_by=reviewed_by,
         metadata=snapshot.metadata or {},
+        ssim_score=snapshot.ssim_score,
+        change_kind=snapshot.change_kind or "",
+        cluster_summary=cluster_summary,
+        size_mismatch=size_mismatch,
     )
 
 
@@ -168,16 +208,81 @@ def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
     return logic.read_thumbnail_bytes(repo_id, content_hash)
 
 
+def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
+    """Universe of identifiers with a current baseline, plus aggregates.
+
+    Backs the snapshots overview page. See `logic.get_baselines_overview` for
+    query shape and performance notes.
+    """
+    raw = logic.get_baselines_overview(repo_id)
+
+    entries: list[contracts.BaselineEntry] = []
+    for snapshot in raw.entries:
+        identifier = snapshot.identifier
+        run = snapshot.run
+        artifact = snapshot.current_artifact
+        thumbnail = artifact.thumbnail if artifact is not None else None
+        # `(run_type, identifier)` keys because the same identifier in
+        # different run types is a different baseline.
+        key = (run.run_type, identifier)
+        metadata = snapshot.metadata or {}
+        entries.append(
+            contracts.BaselineEntry(
+                identifier=identifier,
+                run_type=run.run_type,
+                browser=metadata.get("browser") if isinstance(metadata, dict) else None,
+                thumbnail_hash=thumbnail.content_hash if thumbnail is not None else None,
+                width=artifact.width if artifact is not None else None,
+                height=artifact.height if artifact is not None else None,
+                tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
+                tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
+                is_quarantined=key in raw.quarantined_ids,
+                last_run_at=run.completed_at or run.created_at,
+                baseline_change_count=raw.change_count_by_key.get(key, 0),
+                recent_drift_avg=raw.recent_drift_by_key.get(key),
+            )
+        )
+
+    totals = contracts.BaselineTotals(
+        all_snapshots=raw.totals_all,
+        recently_tolerated=raw.totals_recent,
+        frequently_tolerated=raw.totals_frequent,
+        currently_quarantined=raw.totals_quarantined,
+        by_run_type=raw.by_run_type,
+    )
+
+    return contracts.BaselineOverview(
+        entries=entries,
+        totals=totals,
+        truncated=raw.truncated,
+        generated_at=raw.generated_at,
+    )
+
+
 # --- Run API ---
 
 
-def list_runs(team_id: int, review_state: str | None = None) -> list[contracts.Run]:
-    runs = logic.list_runs_for_team(team_id, review_state=review_state)
+def list_runs(
+    team_id: int,
+    review_state: str | None = None,
+    repo_id: UUID | None = None,
+    pr_number: int | None = None,
+    commit_sha: str | None = None,
+    branch: str | None = None,
+) -> list[contracts.Run]:
+    runs = logic.list_runs_for_team(
+        team_id,
+        review_state=review_state,
+        repo_id=repo_id,
+        pr_number=pr_number,
+        commit_sha=commit_sha,
+        branch=branch,
+    )
     return [_to_run(r) for r in runs]
 
 
-def get_review_state_counts(team_id: int) -> dict[str, int]:
-    return logic.get_review_state_counts(team_id)
+def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
+    return logic.get_review_state_counts(team_id, repo_id=repo_id)
 
 
 def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.CreateRunResult:
@@ -277,6 +382,13 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
             diff_percentage=e.diff_percentage,
             review_state=e.review_state,
             current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
+            ssim_score=e.ssim_score,
+            change_kind=e.change_kind or "",
+            # Read the flag directly instead of round-tripping through the
+            # full Pydantic parse — `cluster_summary` isn't on the history
+            # entry contract and we'd just be allocating cluster dataclasses
+            # to throw away. The default mirrors `DiffMetadata.size_mismatch`.
+            size_mismatch=bool((e.diff_metadata or {}).get("size_mismatch", False)),
         )
         for e in entries
     ]

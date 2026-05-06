@@ -15,6 +15,10 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
         "@posthog/products-error-tracking": "workspace:*",
         "@storybook/react": "*",

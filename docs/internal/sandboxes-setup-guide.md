@@ -30,13 +30,24 @@ Steps:
 1. GitHub → Settings → Developer Settings → GitHub Apps → New GitHub App
 2. Set the **Setup URL** (NOT the Callback or Homepage URL) to
    `http://localhost:8010/integrations/github/callback`
-3. Set the permissions above
-4. Generate and download a private key
-5. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
-6. Add to your `.env`:
+3. Set a **Callback URL** — `http://localhost:8010/complete/github-link/`
+   works for the personal user-link flow used by Code. Any URL under your
+   localhost is fine; the value just has to be a valid URL since it's
+   required when creating the App.
+4. Set the permissions above
+5. Generate a **client secret** under "Client secrets" on the App page —
+   this is required (added a couple of releases back). If your local setup
+   stopped working recently, this is most likely what's missing.
+6. Generate a private key
+7. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
+8. Add to your `.env`:
 
 ```bash
-GITHUB_APP_CLIENT_ID=your_app_id
+# The OAuth Client ID (starts with Iv1 or Iv23) — NOT the numeric App ID.
+# Both fields are visible on the GitHub App settings page; the App ID is the
+# small grey number at the top, the Client ID is the labelled field below.
+GITHUB_APP_CLIENT_ID=Iv1.xxxxxxxxxxxxxxxx
+GITHUB_APP_CLIENT_SECRET=your_client_secret
 GITHUB_APP_SLUG=your-app-slug
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 ```

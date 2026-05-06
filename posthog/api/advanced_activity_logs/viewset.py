@@ -15,6 +15,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
 from posthog.models.activity_logging.activity_log import (
@@ -23,6 +24,7 @@ from posthog.models.activity_logging.activity_log import (
     apply_activity_visibility_restrictions,
 )
 from posthog.models.exported_asset import ExportedAsset
+from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
@@ -144,6 +146,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
     filter_rewrite_rules = {"project_id": "team_id"}
+    permission_classes = [PremiumFeaturePermission]
+    premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
 
     @extend_schema(parameters=[ActivityLogQueryParamsSerializer])
     def list(self, request, *args, **kwargs):
@@ -282,6 +286,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "activity_log"
     scope_object_read_actions = ["list", "retrieve", "available_filters"]
     queryset = ActivityLog.objects.all()
+    permission_classes = [PremiumFeaturePermission]
+    premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
 
     def _should_skip_parents_filter(self) -> bool:
         """

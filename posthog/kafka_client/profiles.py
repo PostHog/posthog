@@ -15,3 +15,4 @@ class KafkaClusterProfile(StrEnum):
     INGESTION = "ingestion"
     CALCULATED_EVENTS = "calculated_events"
     SHARED = "shared"
+    REPLAY = "replay"

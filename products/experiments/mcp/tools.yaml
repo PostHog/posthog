@@ -32,7 +32,7 @@ tools:
         title: Archive experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Archive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date
@@ -126,6 +126,9 @@ tools:
             idempotent: false
         title: Duplicate experiment
         description: >
+            Load the managing-experiment-lifecycle skill for preconditions and side effects.
+
+
             Create a copy of an experiment as a new draft. The duplicate includes the original's metrics, parameters,
             and configuration but starts fresh with no dates or results. Rejects experiments that use legacy metrics
             (ExperimentTrendsQuery/ExperimentFunnelsQuery).
@@ -149,7 +152,7 @@ tools:
         title: End experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             End a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped.
@@ -221,7 +224,7 @@ tools:
         title: Launch experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Launch a draft experiment. Validates the feature flag has at least 2 multivariate variants with "control" as
@@ -290,7 +293,7 @@ tools:
         title: Pause experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Pause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer
@@ -319,7 +322,7 @@ tools:
         title: Reset experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Reset an experiment back to draft state. Clears start_date, end_date, conclusion, conclusion_comment, and
@@ -349,7 +352,7 @@ tools:
         title: Resume experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Resume a paused experiment by reactivating its feature flag (sets flag active=true). Users are re-bucketed
@@ -395,7 +398,7 @@ tools:
         title: Ship experiment variant
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Ship a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant
@@ -464,7 +467,7 @@ tools:
         title: Unarchive experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Unarchive an archived experiment to restore it to the default list view.

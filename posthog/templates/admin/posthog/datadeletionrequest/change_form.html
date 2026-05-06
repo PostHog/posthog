@@ -83,4 +83,14 @@
         <button type="submit" formaction="{{ revert_to_draft_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px;">Move to draft</button>
     </div>
     {% endif %}
+
+    {% if can_retry %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #d9534f; display: flex; align-items: center; gap: 10px;">
+        <div class="info">
+            This request <strong>failed</strong> after {{ original.attempt_count }} attempt{{ original.attempt_count|pluralize }}.
+            Retry to re-queue it for execution — the original approval is preserved.
+        </div>
+        <button type="submit" formaction="{{ retry_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #d9534f; color: white;" onclick="return confirm('Retry this failed request? It will be re-queued for execution.');">Retry execution</button>
+    </div>
+    {% endif %}
 {% endblock %}

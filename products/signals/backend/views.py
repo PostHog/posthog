@@ -28,7 +28,8 @@ from django.db.models.functions import Cast, Coalesce
 import structlog
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -61,6 +62,8 @@ from products.signals.backend.models import (
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
     get_org_member_github_logins_by_user_uuid,
+    normalized_github_logins_from_suggested_reviewer_artefacts,
+    resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
@@ -308,8 +311,6 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema_view(
-    list=extend_schema(exclude=True),
-    retrieve=extend_schema(exclude=True),
     destroy=extend_schema(exclude=True),
 )
 class SignalReportViewSet(
@@ -524,6 +525,7 @@ class SignalReportViewSet(
         # and checking jsonb containment on the artefact content list. This stays fresh
         # even when a user connects their GitHub account after the report was generated.
         # Never true for ready + not_actionable — there is nothing actionable to review.
+        # Failed reports are excluded too — pipelines that errored should not bubble as "needs your review".
         github_login = self._get_github_login(self.request.user)
         if not github_login:
             return queryset.annotate(is_suggested_reviewer=Value(False))
@@ -542,6 +544,7 @@ class SignalReportViewSet(
         return queryset.annotate(
             is_suggested_reviewer=Case(
                 When(self._Q_READY_NOT_ACTIONABLE, then=Value(False)),
+                When(status=SignalReport.Status.FAILED, then=Value(False)),
                 default=suggested_exists,
                 output_field=BooleanField(),
             ),
@@ -631,7 +634,59 @@ class SignalReportViewSet(
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of statuses to include. "
+                    "Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. "
+                    "Defaults to all statuses except suppressed."
+                ),
+            ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring match against report title and summary.",
+            ),
+            OpenApiParameter(
+                name="source_product",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of source products to include. Reports are kept if at least one of "
+                    "their contributing signals comes from one of these products (e.g. error_tracking, session_replay)."
+                ),
+            ),
+            OpenApiParameter(
+                name="suggested_reviewers",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers "
+                    "include any of the given users."
+                ),
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
+                    "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
+                    "priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
+                ),
+            ),
+        ],
+    )
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
@@ -721,14 +776,19 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
-        artefacts = report.artefacts.all().order_by("-created_at")
-        serializer = SignalReportArtefactSerializer(artefacts, many=True)
-        return Response(
-            {
-                "results": serializer.data,
-                "count": len(serializer.data),
-            }
+        artefacts = list(report.artefacts.all().order_by("-created_at"))
+        logins_union = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
+        login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
+        serializer = SignalReportArtefactSerializer(
+            artefacts,
+            many=True,
+            context={
+                **self.get_serializer_context(),
+                "signals_github_login_to_user_map": login_map,
+            },
         )
+        results = serializer.data
+        return Response({"results": results, "count": len(results)})
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
