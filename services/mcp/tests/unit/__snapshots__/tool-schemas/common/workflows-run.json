@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "current_action_id": {
+            "description": "Start execution from a specific action node ID instead of the trigger. Useful for testing mid-workflow actions.",
+            "type": "string"
+        },
+        "globals": {
+            "additionalProperties": {},
+            "description": "Test event data to trigger the workflow with. Object with keys like 'event', 'person', 'groups' matching the event shape.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "id": {
+            "description": "A UUID string identifying this hog flow.",
+            "type": "string"
+        },
+        "mock_async_functions": {
+            "default": true,
+            "description": "When true (default), async actions (HTTP requests, emails) are simulated rather than executed for safety.",
+            "type": "boolean"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

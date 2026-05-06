@@ -1,0 +1,219 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "actions": {
+            "description": "Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'.",
+            "items": {
+                "properties": {
+                    "config": {
+                        "description": "Type-specific configuration. For triggers: {type, filters}. For functions: {template_id, inputs}. For delays: {delay_duration, e.g. '30m', '2h', '1d'}. For conditional branches: {conditions}."
+                    },
+                    "created_at": {
+                        "description": "Unix epoch milliseconds when the action was added. Auto-managed by the frontend.",
+                        "type": "number"
+                    },
+                    "description": {
+                        "default": "",
+                        "description": "Optional description of what this action does.",
+                        "type": "string"
+                    },
+                    "filters": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "actions": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "bytecode": {
+                                        "anyOf": [
+                                            {},
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "bytecode_error": {
+                                        "type": "string"
+                                    },
+                                    "data_warehouse": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "events": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "filter_test_accounts": {
+                                        "type": "boolean"
+                                    },
+                                    "properties": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "source": {
+                                        "default": "events",
+                                        "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                        "enum": ["events", "person-updates", "data-warehouse-table"],
+                                        "type": "string"
+                                    },
+                                    "transpiled": {}
+                                },
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Property filters that gate execution of this action."
+                    },
+                    "id": {
+                        "description": "Unique identifier for this action node within the workflow graph.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Human-readable name for the action node.",
+                        "maxLength": 400,
+                        "type": "string"
+                    },
+                    "on_error": {
+                        "anyOf": [
+                            {
+                                "anyOf": [
+                                    {
+                                        "description": "* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch",
+                                        "enum": ["continue", "abort", "complete", "branch"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": null,
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).\n\n* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch"
+                    },
+                    "output_variable": {
+                        "anyOf": [
+                            {},
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Variable definition to store this action's output for use by downstream actions."
+                    },
+                    "type": {
+                        "description": "Action type: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, random_cohort_branch, exit.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "description": "Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend.",
+                        "type": "number"
+                    }
+                },
+                "required": ["id", "name", "type", "config"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "description": {
+            "description": "Optional description of the workflow's purpose.",
+            "type": "string"
+        },
+        "edges": {
+            "description": "Graph edges connecting action nodes. Array of {source, target} objects defining the execution flow between actions."
+        },
+        "exit_condition": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End",
+                            "enum": [
+                                "exit_on_conversion",
+                                "exit_on_trigger_not_matched",
+                                "exit_on_trigger_not_matched_or_conversion",
+                                "exit_only_at_end"
+                            ],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "When a person exits the workflow: exit_on_conversion, exit_on_trigger_not_matched, exit_on_trigger_not_matched_or_conversion, or exit_only_at_end.\n\n* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End"
+        },
+        "id": {
+            "description": "A UUID string identifying this hog flow.",
+            "type": "string"
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable name for the workflow."
+        },
+        "status": {
+            "description": "Workflow state: draft (editing), active (live and processing events), or archived (soft-deleted).\n\n* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
+            "enum": ["draft", "active", "archived"],
+            "type": "string"
+        },
+        "variables": {
+            "description": "Workflow-level variables that persist across actions. Each variable has a key, type, and default value. Total size must be under 5KB.",
+            "items": {
+                "additionalProperties": {
+                    "type": "string"
+                },
+                "description": "Variable definition with keys: 'key' (unique identifier), 'type' (string/number/boolean), 'default' (initial value).",
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
