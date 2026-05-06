@@ -116,6 +116,43 @@ tools:
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
         enabled: false
+    workflows-create:
+        operation: hog_flows_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: hog-{id}
+        title: Create workflow
+        description: >
+            Create a new workflow. Requires an actions array containing exactly one trigger action (type='trigger')
+            with a config specifying the trigger type (event, webhook, manual, batch, schedule, tracking_pixel).
+            Additional actions define the workflow steps: function (call a template), delay (pause execution),
+            conditional_branch (if/else routing), wait_until_condition (pause until a condition is met). Connect
+            actions via the edges array [{source, target}]. New workflows default to 'draft' status — set status
+            to 'active' to enable live execution.
+        exclude_params:
+            - trigger
+            - trigger_masking
+            - conversion
+        ui_app: workflow
+    workflows-delete:
+        operation: hog_flows_destroy
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete workflow
+        description: >
+            Permanently delete a workflow by ID. This removes the workflow definition and all associated data.
+            Consider archiving (set status to 'archived' via update) instead of deleting if you may need to
+            restore it later.
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true
@@ -146,3 +183,41 @@ tools:
             List all workflows in the project. Returns workflows with their name, description, status
             (draft/active/archived), version, trigger configuration, and timestamps.
         ui_app: workflow-list
+    workflows-run:
+        operation: hog_flows_invocations_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Test-run workflow
+        description: >
+            Execute a test invocation of a workflow. Sends the workflow to the execution engine for a dry-run
+            with the provided test event data. By default, async functions (HTTP calls, emails, SMS) are mocked
+            for safety. Use globals to provide test event data matching your trigger type. Optionally pass
+            current_action_id to start from a specific node. Returns the execution trace showing which actions
+            ran and their outputs.
+        exclude_params:
+            - configuration
+    workflows-update:
+        operation: hog_flows_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: hog-{id}
+        title: Update workflow
+        description: >
+            Update an existing workflow by ID. Supports partial updates — only include fields you want to change.
+            Common operations: change status (draft to active to publish, active to archived to disable), update
+            actions array (must still contain exactly one trigger), modify edges, or update exit_condition.
+        exclude_params:
+            - trigger
+            - trigger_masking
+            - conversion
+        ui_app: workflow
