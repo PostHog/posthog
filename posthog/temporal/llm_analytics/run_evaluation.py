@@ -611,7 +611,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
 
     # Extract input/output based on event type
     input_raw, output_raw = extract_event_io(event_type, properties)
-    tools_raw = extract_event_tools(event_type, properties)
+    tools_raw = extract_event_tools(properties)
 
     # Extract readable text from message structures
     input_data = extract_text_from_messages(input_raw)
@@ -770,18 +770,15 @@ def extract_event_io(event_type: str, properties: dict[str, Any]) -> tuple[Any, 
     return input_raw, output_raw
 
 
-def extract_event_tools(event_type: str, properties: dict[str, Any]) -> Any:
+def extract_event_tools(properties: dict[str, Any]) -> Any:
     """Extract the tool catalog (`$ai_tools`) captured on the event, regardless
     of event type.
 
     `$ai_generation` is the canonical carrier today, but custom span/trace
     events (e.g. an agent loop's `run_summary`) may also forward the catalog,
-    and the judge prompt benefits from it for any event shape. `event_type`
-    is kept on the signature for parity with `extract_event_io` and so the
-    callsite stays self-documenting; we ignore it for now and let presence
-    of `$ai_tools` drive whether the section renders.
+    and the judge prompt benefits from it for any event shape. Presence of
+    `$ai_tools` drives whether the Tools section renders.
     """
-    del event_type
     return properties.get("$ai_tools")
 
 

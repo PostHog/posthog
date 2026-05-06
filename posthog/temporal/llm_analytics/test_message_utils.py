@@ -202,8 +202,8 @@ class TestExtractTextFromMessages:
         assert "assistant: Done." in result
 
     def test_tool_call_id_correlation_across_parallel_calls(self):
-        """When the model issues two parallel tool calls, the rendered output
-        should let the judge pair each result back to its originating call."""
+        # When the model issues two parallel tool calls, the rendered output
+        # should let the judge pair each result back to its originating call.
         messages = [
             {
                 "role": "assistant",
@@ -329,9 +329,11 @@ class TestFormatToolDefinitions:
         assert "- send_email" in result
         assert "Send an email to a recipient." in result
         # Parameter names are surfaced compactly with `?` for optional ones,
-        # rather than dumping the full JSON schema.
+        # rather than dumping the full JSON schema. Specifically, the per-property
+        # type info should not leak into the prompt.
         assert "(to, body, subject?)" in result
-        assert "type" not in result  # full schema should not leak
+        assert '"type": "string"' not in result
+        assert '"required"' not in result
 
     def test_anthropic_input_schema_shape(self):
         tools = [
@@ -378,8 +380,8 @@ class TestFormatToolDefinitions:
         assert format_tool_definitions(tools) == "- noop"
 
     def test_dict_of_tools_is_flattened(self):
-        """A `{tool_name: tool_spec}` mapping should render each value as its
-        own tool rather than being treated as a single nameless tool."""
+        # A `{tool_name: tool_spec}` mapping should render each value as its
+        # own tool rather than being treated as a single nameless tool.
         tools = {
             "lov-view": {"name": "lov-view", "description": "View something"},
             "supabase-migration": {"name": "supabase-migration", "description": "Run a migration"},
@@ -433,8 +435,8 @@ class TestFormatToolDefinitions:
         assert "(id)" in result
 
     def test_dict_of_tools_with_name_in_key_only(self):
-        """When tools come as `{tool_name: {description, inputSchema}}` with no
-        explicit `name` key on the value, fall back to using the mapping key."""
+        # When tools come as `{tool_name: {description, inputSchema}}` with no
+        # explicit `name` key on the value, fall back to using the mapping key.
         tools = {
             "search_docs": {
                 "description": "Search docs",
@@ -450,9 +452,9 @@ class TestFormatToolDefinitions:
         assert "(query)" in result
 
     def test_compact_params_omits_full_schema_payload(self):
-        """The full JSON schema (types, descriptions per property, etc.) must
-        not leak into the prompt — we only want parameter names, since dumping
-        a full schema for every tool can blow past the judge's context."""
+        # The full JSON schema (types, descriptions per property, etc.) must
+        # not leak into the prompt — we only want parameter names, since
+        # dumping a full schema for every tool can blow past the judge's context.
         tools = [
             {
                 "name": "do_thing",

@@ -1262,25 +1262,14 @@ class TestSendEvaluationDisabledEmailActivity:
 
 
 class TestExtractEventTools:
-    def test_returns_tools_for_ai_generation(self):
+    def test_returns_tools_when_property_present(self):
         properties = {
             "$ai_tools": [{"type": "function", "function": {"name": "send_email", "description": "Send email"}}],
         }
-        tools = extract_event_tools("$ai_generation", properties)
+        tools = extract_event_tools(properties)
         assert tools is not None
         assert isinstance(tools, list)
         assert tools[0]["function"]["name"] == "send_email"
 
-    def test_returns_tools_for_non_generation_events(self):
-        # Custom trace/span events (e.g. agent-loop `run_summary`) may also
-        # forward the catalog. The judge benefits from it regardless of event
-        # type, so presence of `$ai_tools` — not the event name — drives the
-        # Tools section.
-        properties = {"$ai_tools": [{"type": "function", "function": {"name": "x"}}]}
-        assert extract_event_tools("$ai_trace", properties) is not None
-        assert extract_event_tools("$ai_span", properties) is not None
-        assert extract_event_tools("run_summary", properties) is not None
-
     def test_returns_none_when_property_missing(self):
-        assert extract_event_tools("$ai_generation", {}) is None
-        assert extract_event_tools("$ai_trace", {}) is None
+        assert extract_event_tools({}) is None

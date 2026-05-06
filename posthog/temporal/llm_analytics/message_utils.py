@@ -209,15 +209,15 @@ def format_tool_definitions(tools: Any) -> str:
 
 def _format_single_tool_definition(tool: dict) -> str:
     # OpenAI nests the spec under `function`; Anthropic / Gemini-unwrapped lay
-    # it out at the top level. Pull from either, falling back to the tool dict
-    # itself so the lookups below find name/description regardless of nesting.
-    fn = tool.get("function") if isinstance(tool.get("function"), dict) else tool
+    # it out at the top level. Read from the nested dict when present, falling
+    # back to the top-level tool dict for each individual field.
+    fn = tool.get("function") if isinstance(tool.get("function"), dict) else {}
     name = fn.get("name") or tool.get("name") or ""
     description = fn.get("description") or tool.get("description") or ""
     # Schema lives under different keys across providers: `parameters` for OpenAI
     # function-calling and Gemini, `input_schema` for Anthropic, and `inputSchema`
     # for the camelCase OpenAI Responses API variant.
-    parameters = fn.get("parameters") or tool.get("input_schema") or tool.get("inputSchema")
+    parameters = fn.get("parameters") or tool.get("parameters") or tool.get("input_schema") or tool.get("inputSchema")
 
     if not name:
         # Unrecognized shape — stringify so the judge still sees something.
