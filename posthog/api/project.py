@@ -17,6 +17,7 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
+    ORG_ADMIN_ONLY_TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_FIELDS_SET,
     TeamSerializer,
     get_or_mint_live_events_token,
@@ -692,7 +693,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             if is_session_auth:
                 request_fields = set(request.data.keys())
                 non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-                if not non_team_config_fields and "can_query_across_organization_projects" not in request_fields:
+                if not non_team_config_fields and not request_fields.intersection(ORG_ADMIN_ONLY_TEAM_CONFIG_FIELDS):
                     return ["project:read"]
 
         # Fall back to the default behavior

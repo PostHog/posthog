@@ -100,8 +100,6 @@ class HogQLContext:
 
         return get_scoped_team_ids(
             team=self.team,
-            user=self.user,
-            teams_to_query=self.modifiers.teamsToQuery,
         )
 
     @cached_property

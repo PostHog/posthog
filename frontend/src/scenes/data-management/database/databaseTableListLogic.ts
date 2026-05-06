@@ -52,7 +52,6 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setConnection: (connectionId: string | null) => ({ connectionId }),
-        setTeamsToQuery: (teamsToQuery: 'all' | 'self' | number[] | null) => ({ teamsToQuery }),
     }),
     loaders(({ values }) => ({
         database: [
@@ -60,11 +59,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             {
                 loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
                     const requestConnectionId = isDirectQueryEnabled() ? (values.connectionId ?? undefined) : undefined
-                    const requestTeamsToQuery = values.teamsToQuery
-                    const requestKey = JSON.stringify({
-                        connectionId: requestConnectionId ?? '__posthog__',
-                        teamsToQuery: requestTeamsToQuery ?? 'self',
-                    })
+                    const requestKey = requestConnectionId ?? '__posthog__'
 
                     if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
                         const result = await inFlightDatabaseLoadPromise
@@ -78,9 +73,6 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                         setLatestVersionsOnQuery({
                             kind: NodeKind.DatabaseSchemaQuery,
                             connectionId: requestConnectionId,
-                            modifiers: {
-                                teamsToQuery: requestTeamsToQuery ?? undefined,
-                            },
                         }) as DatabaseSchemaQuery
                     )
 
@@ -103,8 +95,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     }
 
                     const currentConnectionId = isDirectQueryEnabled() ? (values.connectionId ?? undefined) : undefined
-                    const currentTeamsToQuery = values.teamsToQuery
-                    if (currentConnectionId !== requestConnectionId || currentTeamsToQuery !== requestTeamsToQuery) {
+                    if (currentConnectionId !== requestConnectionId) {
                         return values.database
                     }
 
@@ -116,10 +107,6 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     reducers({
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
         connectionId: [null as string | null, { setConnection: (_, { connectionId }) => connectionId }],
-        teamsToQuery: [
-            null as 'all' | 'self' | number[] | null,
-            { setTeamsToQuery: (_, { teamsToQuery }) => teamsToQuery },
-        ],
     }),
     selectors({
         allPosthogTables: [

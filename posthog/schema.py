@@ -7170,14 +7170,6 @@ class HogQLQueryModifiers(BaseModel):
     sessionTableVersion: SessionTableVersion | None = None
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
-    teamsToQuery: Literal["all"] | Literal["self"] | list[int] | None = Field(
-        default=None,
-        description=(
-            "Controls which PostHog team IDs are included in team-scoped ClickHouse queries. "
-            "'self' keeps the current team only, 'all' expands to all teams in the current organization that the "
-            "request is allowed to query, and a list scopes the query to the provided team IDs."
-        ),
-    )
     useMaterializedViews: bool | None = None
     usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(

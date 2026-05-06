@@ -138,7 +138,7 @@ class TestInCohort(BaseTest):
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
             user=self.user,
-            modifiers=HogQLQueryModifiers(teamsToQuery="all", inCohortVia=InCohortVia.LEFTJOIN),
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
             pretty=False,
         )
 

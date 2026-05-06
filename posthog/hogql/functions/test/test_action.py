@@ -1,8 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest, _create_action, _create_event, _create_person, flush_persons_and_events
 
-from posthog.schema import HogQLQueryModifiers
-
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
@@ -114,7 +112,6 @@ class TestAction(BaseTest):
             f"SELECT event FROM events WHERE matchesAction('{random_uuid}')",
             self.team,
             user=self.user,
-            modifiers=HogQLQueryModifiers(teamsToQuery="all"),
         )
 
         assert response.results is not None

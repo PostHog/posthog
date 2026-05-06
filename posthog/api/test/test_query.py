@@ -30,7 +30,6 @@ from posthog.schema import (
     HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
-    HogQLQueryModifiers,
     InsightVizNode,
     MeanRetentionCalculation,
     PersonPropertyFilter,
@@ -73,7 +72,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = InsightVizNode(
             source=TrendsQuery(
                 series=[EventsNode(event="$pageview", name="Pageview")],
-                modifiers=HogQLQueryModifiers(teamsToQuery="all"),
             )
         )
 
@@ -83,8 +81,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert response_data["results"] is not None
         assert len(response_data["results"]) == 1
         assert "data" in response_data["results"][0]
-        assert response_data["modifiers"] is not None
-        assert response_data["modifiers"]["teamsToQuery"] == "all"
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):

@@ -14,7 +14,6 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
-import { InsightTeamsToQueryFilter } from '../filters/InsightTeamsToQueryFilter'
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
@@ -74,11 +73,6 @@ export function PropertyGroupFilters({
                         <div className="order-1 @lg:order-none">
                             <div className="flex flex-wrap items-center gap-2">
                                 <InsightTestAccountFilter
-                                    disabledReason={disabledReason}
-                                    query={query}
-                                    setQuery={setQuery as (node: InsightQueryNode) => void}
-                                />
-                                <InsightTeamsToQueryFilter
                                     disabledReason={disabledReason}
                                     query={query}
                                     setQuery={setQuery as (node: InsightQueryNode) => void}
