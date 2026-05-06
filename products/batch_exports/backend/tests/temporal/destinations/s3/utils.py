@@ -19,11 +19,18 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AwsS3BatchExportInputs,
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+    S3BatchExportInputs,
+    S3CompatibleBatchExportInputs,
+    S3FamilyBaseInputs,
+)
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
-    S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
     insert_into_s3_activity_from_stage,
@@ -37,6 +44,12 @@ from products.batch_exports.backend.temporal.record_batch_model import SessionsR
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_file_in_s3, assert_no_files_in_s3
+
+_INPUTS_BY_DESTINATION_TYPE: dict[str, type[S3BatchExportInputs] | type[S3FamilyBaseInputs]] = {
+    "S3": S3BatchExportInputs,
+    "AwsS3": AwsS3BatchExportInputs,
+    "S3Compatible": S3CompatibleBatchExportInputs,
+}
 
 COMPRESSION_OPTIONS = [*COMPRESSION_EXTENSIONS.keys(), None]
 
@@ -314,10 +327,16 @@ async def run_s3_batch_export_workflow(
     s3_client,
     backfill_details: BackfillDetails | None = None,
     expect_no_data: bool = False,
+    destination_type: str = "S3",
 ):
     """Run the S3 batch export workflow and assert it completes successfully.
 
     This is a shared helper function used by tests for S3, GCS, and MinIO buckets.
+
+    `destination_type` selects which input dataclass is constructed and passed
+    to the workflow — exercising the per-destination → canonical-inputs adaptation
+    that happens in production. Defaults to the legacy "S3" type for backwards
+    compatibility with any callers that still need it.
     """
     batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
@@ -343,7 +362,8 @@ async def run_s3_batch_export_workflow(
     )
 
     workflow_id = str(uuid.uuid4())
-    inputs = S3BatchExportInputs(
+    inputs_cls = _INPUTS_BY_DESTINATION_TYPE[destination_type]
+    inputs = inputs_cls(
         team_id=ateam.pk,
         batch_export_id=batch_export_id,
         data_interval_end=data_interval_end.isoformat(),
