@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import copy
 import json
 import math
 import time
@@ -770,6 +771,8 @@ class FeatureFlagSerializer(
         """Validate feature flag creation/update including evaluation tag requirements."""
         attrs = super().validate(attrs)
 
+        self._validate_encrypted_payloads_require_remote_config(attrs)
+
         # Validate team-wide flag count limit before any early returns, since it
         # applies to all creates regardless of creation context (surveys, etc.)
         self._validate_flag_limits()
@@ -824,6 +827,21 @@ class FeatureFlagSerializer(
                     )
 
         return attrs
+
+    def _validate_encrypted_payloads_require_remote_config(self, attrs: dict) -> None:
+        """Encrypted payloads are only valid on remote configuration flags."""
+        # Resolve effective values: use incoming attrs, falling back to instance for updates
+        has_encrypted = attrs.get(
+            "has_encrypted_payloads",
+            getattr(self.instance, "has_encrypted_payloads", False) if self.instance else False,
+        )
+        is_remote = attrs.get(
+            "is_remote_configuration",
+            getattr(self.instance, "is_remote_configuration", False) if self.instance else False,
+        )
+
+        if has_encrypted and not is_remote:
+            raise serializers.ValidationError("Encrypted payloads require the flag to be a remote configuration.")
 
     def validate_key(self, value):
         exclude_kwargs = {}
@@ -1514,12 +1532,61 @@ class FeatureFlagSerializer(
             filters = validated_data.get("filters", instance.filters) or {}
             validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
 
-        if validated_data.get("has_encrypted_payloads", False):
-            if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
-                # Don't write the redacted payload to the db, keep the current value instead
-                validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
+        # Resolve `has_encrypted_payloads` against the instance so a partial PATCH
+        # that omits the boolean still routes through the right path.
+        effective_has_encrypted = validated_data.get("has_encrypted_payloads", instance.has_encrypted_payloads)
+
+        if effective_has_encrypted:
+            # Ensure downstream helpers (e.g. encrypt_flag_payloads) see the
+            # flag even when the client didn't echo it back in this PATCH.
+            validated_data["has_encrypted_payloads"] = True
+            filters = validated_data.get("filters")
+            new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
+
+            if not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
+                # Preserve the existing encrypted payload when the request didn't
+                # supply a fresh one — either because `filters.payloads` was
+                # omitted (partial PATCH from the V2 form), the redacted
+                # placeholder was echoed back, or an empty string slipped past
+                # `validate_filters` (defense in depth: the public API rejects
+                # `""` as invalid JSON upstream, but direct serializer callers
+                # could still land here). Only re-inject when `filters` is
+                # being sent, so a filters-less PATCH stays a partial update.
+                if filters is not None:
+                    existing_true_payload = (instance.filters or {}).get("payloads", {}).get("true")
+                    if not existing_true_payload:
+                        raise exceptions.ValidationError(
+                            "An encrypted payload is required when has_encrypted_payloads is true."
+                        )
+                    payloads = filters.get("payloads") or {}
+                    payloads["true"] = existing_true_payload
+                    filters["payloads"] = payloads
             else:
                 encrypt_flag_payloads(validated_data)
+
+        elif instance.has_encrypted_payloads:
+            # Downgrading from encrypted to non-encrypted. Strip leftover
+            # ciphertext so a partial PATCH that only flipped the bit doesn't
+            # leave the prior encrypted blob exposed as a normal payload on
+            # subsequent reads (redaction is gated on has_encrypted_payloads).
+            filters = validated_data.get("filters")
+            if filters is None:
+                # Client didn't send filters; inject a copy of instance.filters
+                # with the encrypted "true" payload removed.
+                new_filters = copy.deepcopy(instance.filters or {})
+                payloads = new_filters.get("payloads") or {}
+                payloads.pop("true", None)
+                new_filters["payloads"] = payloads
+                validated_data["filters"] = new_filters
+            else:
+                # Client sent filters. Drop an empty/missing/redacted echo at
+                # "true"; a fresh non-empty plaintext is left alone (the user
+                # explicitly set a new payload during the downgrade).
+                payloads = filters.get("payloads") or {}
+                true_val = payloads.get("true")
+                if not true_val or true_val == REDACTED_PAYLOAD_VALUE:
+                    payloads.pop("true", None)
+                filters["payloads"] = payloads
 
         # Opportunistically strip legacy holdout_groups key (replaced by holdout in Phase 1-4).
         # Uses the same inject-into-validated_data pattern as _update_super_groups_for_key_change.

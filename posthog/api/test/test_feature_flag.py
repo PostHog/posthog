@@ -26,6 +26,7 @@ from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
 from posthog.constants import AvailableFeature
+from posthog.helpers.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
@@ -898,6 +899,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
                 instance = FeatureFlag.objects.get(id=response_data["id"])
                 self.assertEqual(instance.filters["groups"][0]["rollout_percentage"], 100)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_encrypted_payloads_requires_remote_configuration(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "encrypted-without-remote",
+                "name": "Encrypted Without Remote",
+                "has_encrypted_payloads": True,
+                "is_remote_configuration": False,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"secret"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("remote configuration", response.json()["detail"])
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_encrypted_payloads_with_remote_configuration_succeeds(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "encrypted-with-remote",
+                "name": "Encrypted With Remote",
+                "has_encrypted_payloads": True,
+                "is_remote_configuration": True,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"secret"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_update_remote_config_flag_to_non_remote_with_encrypted_payloads_fails(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "rc-encrypted",
+                "name": "RC Encrypted",
+                "has_encrypted_payloads": True,
+                "is_remote_configuration": True,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"secret"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("remote configuration", response.json()["detail"])
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_update_non_remote_flag_to_encrypted_payloads_fails(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "non-remote-flag",
+                "name": "Non Remote",
+                "is_remote_configuration": False,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"data"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"has_encrypted_payloads": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("remote configuration", response.json()["detail"])
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
@@ -1936,6 +2015,189 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_remote_config_returns_not_found_for_unknown_flag(self):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/nonexistent_key/remote_config")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def _create_encrypted_flag(self, stored_payload: str = "original-encrypted-value") -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="my-encrypted-flag",
+            name="Encrypted Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": stored_payload},
+            },
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "filters_omitted",
+                {"name": "Updated Name"},
+            ),
+            (
+                "payloads_omitted",
+                {
+                    "has_encrypted_payloads": True,
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                },
+            ),
+            (
+                "true_key_missing",
+                {
+                    "has_encrypted_payloads": True,
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                        "payloads": {},
+                    },
+                },
+            ),
+            (
+                "redacted_placeholder_echoed",
+                {
+                    "has_encrypted_payloads": True,
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                        "payloads": {"true": REDACTED_PAYLOAD_VALUE},
+                    },
+                },
+            ),
+        ]
+    )
+    def test_update_encrypted_flag_preserves_payload(self, _name: str, patch_body: dict) -> None:
+        flag = self._create_encrypted_flag()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            patch_body,
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["payloads"]["true"], "original-encrypted-value")
+        self.assertTrue(flag.has_encrypted_payloads)
+
+    def test_update_encrypted_flag_encrypts_fresh_plaintext_payload(self):
+        flag = self._create_encrypted_flag()
+
+        plaintext = '"new-secret-value"'
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "has_encrypted_payloads": True,
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": plaintext},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        stored = flag.filters["payloads"]["true"]
+        self.assertNotEqual(stored, plaintext)
+        self.assertNotEqual(stored, "original-encrypted-value")
+        # Verify the stored ciphertext actually round-trips back to the plaintext.
+        decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
+        self.assertEqual(decrypted, plaintext)
+
+    def test_update_encrypted_flag_downgrade_clears_payload(self):
+        flag = self._create_encrypted_flag()
+
+        # Mirrors what the frontend sends after `resetEncryptedPayload`: the
+        # form's prepare step (`indexToVariantKeyFeatureFlagPayloads`) strips
+        # the falsy `true` key, so the wire body has an empty `payloads` dict.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "has_encrypted_payloads": False,
+                "is_remote_configuration": False,
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertFalse(flag.has_encrypted_payloads)
+        self.assertFalse(flag.is_remote_configuration)
+        # The prior ciphertext must not survive a downgrade.
+        self.assertNotIn("true", flag.filters["payloads"])
+
+    def test_update_encrypted_flag_partial_downgrade_clears_ciphertext(self):
+        # Even when the client sends only the boolean flip and no filters,
+        # the server must strip the leftover ciphertext so it is not served
+        # unredacted on subsequent reads (redaction is gated on
+        # has_encrypted_payloads).
+        flag = self._create_encrypted_flag()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"has_encrypted_payloads": False, "is_remote_configuration": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertFalse(flag.has_encrypted_payloads)
+        self.assertNotIn("true", (flag.filters or {}).get("payloads", {}))
+
+    def test_update_encrypted_flag_encrypts_when_boolean_omitted(self):
+        # A partial PATCH that supplies a fresh `payloads.true` plaintext but
+        # omits `has_encrypted_payloads` must still encrypt; the instance is
+        # already encrypted, and falling through to the un-encrypted branch
+        # would write plaintext on a row marked as encrypted.
+        flag = self._create_encrypted_flag()
+
+        plaintext = '"another-secret"'
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": plaintext},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        stored = flag.filters["payloads"]["true"]
+        self.assertNotEqual(stored, plaintext)
+        decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
+        self.assertEqual(decrypted, plaintext)
+
+    def test_update_encrypted_flag_rejects_enabling_without_payload(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="my-flag",
+            name="Flag",
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "has_encrypted_payloads": True,
+                "is_remote_configuration": True,
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": REDACTED_PAYLOAD_VALUE},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
     def test_get_conflicting_changes(self):
         feature_flag = FeatureFlag.objects.create(
