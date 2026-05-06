@@ -99,6 +99,8 @@ export interface TooltipContext<Meta = unknown> {
     seriesData: { series: Series<Meta>; value: number; color: string }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip. */
     position: { x: number; y: number }
+    /** Cursor position in canvas pixels, or `null` for non-mousemove snapshots (e.g. pinned rebuild). */
+    hoverPosition: { x: number; y: number } | null
     /** Bounding rect of the canvas element, useful for portal-based tooltip positioning. */
     canvasBounds: DOMRect
     /** Whether the tooltip is pinned (clicked). When pinned, the tooltip stays visible
@@ -200,6 +202,8 @@ export interface ChartDrawArgs {
     labels: string[]
     /** Index of the currently hovered data point, or -1. */
     hoverIndex: number
+    /** Cursor position in canvas pixels, or `null` for non-hover redraws (static layer / post-mouseleave). */
+    hoverPosition: { x: number; y: number } | null
     /** Chart theme colors. */
     theme: ChartTheme
 }

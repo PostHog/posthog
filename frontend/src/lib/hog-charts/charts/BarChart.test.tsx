@@ -180,16 +180,21 @@ describe('BarChart', () => {
             expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 1, label: 'Tue' }))
         })
 
-        it('passes hovered seriesData to a custom tooltip render prop', async () => {
+        it('narrows seriesData to the bar under the cursor in the tooltip render prop', async () => {
+            // Cursor at plot mid-y lands inside the upper stacked segment, so only `b` is hit.
             const tooltip = (ctx: TooltipContext): React.ReactNode => (
-                <div data-attr="custom-tooltip">{ctx.seriesData.length}</div>
+                <div data-attr="custom-tooltip" data-keys={ctx.seriesData.map((s) => s.series.key).join(',')}>
+                    {ctx.seriesData.length}
+                </div>
             )
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} />
             )
             hoverAtIndex(chart.element, 1, LABELS.length)
             const node = await waitForHogChartTooltip()
-            expect(node.querySelector('[data-attr="custom-tooltip"]')?.textContent).toBe(String(SERIES.length))
+            const ttip = node.querySelector('[data-attr="custom-tooltip"]')
+            expect(ttip?.textContent).toBe('1')
+            expect(ttip?.getAttribute('data-keys')).toBe('b')
         })
 
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {

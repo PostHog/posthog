@@ -79,7 +79,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
     })
 
-    it('shows current and previous period rows in compare mode', async () => {
+    it('shows the hovered period row in compare mode', async () => {
         renderInsight({
             query: trendsBar({ compareFilter: { compare: true } }),
             featureFlags: HOG_CHARTS_FLAG,
@@ -91,11 +91,8 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
         const tooltip = await chart.hoverTooltip(2)
 
-        // Stacked bars surface stacked-top values in tooltip rows, not raw series values, so we
-        // only assert that both compare rows are present — the dimming is enforced by the
-        // transforms unit test.
-        expect(tooltip.row('Current')).toBeTruthy()
-        expect(tooltip.row('Previous')).toBeTruthy()
+        // Per-bar narrowing — tooltip shows just the segment the cursor's y lands inside.
+        expect(tooltip.element.querySelectorAll('tbody tr')).toHaveLength(1)
     })
 
     it('formats values as percentages in percent stack view', async () => {
