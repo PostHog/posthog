@@ -25,6 +25,8 @@ from posthog.models.team.team import Team
 from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
+from products.logs.backend.demo_data import generate_demo_logs
+
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
@@ -108,6 +110,18 @@ class Command(BaseCommand):
             help="Skip creating UserProductList entries after data generation",
         )
         parser.add_argument(
+            "--skip-logs",
+            action="store_true",
+            default=False,
+            help="Skip seeding the logs ClickHouse table with realistic demo log entries",
+        )
+        parser.add_argument(
+            "--logs-per-minute",
+            type=int,
+            default=6,
+            help="Approximate log entries per minute across the demo time window (default: 6)",
+        )
+        parser.add_argument(
             "--say-on-complete",
             action="store_true",
             default=sys.platform == "darwin",
@@ -186,6 +200,25 @@ class Command(BaseCommand):
                         gen_issues(team_for_issues)
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
+
+            if not options.get("skip_logs"):
+                logs_team_id = self._resolve_logs_team_id(existing_team_id, team)
+                if logs_team_id is not None:
+                    print(f"Seeding demo logs for team {logs_team_id}...")
+                    try:
+                        inserted = generate_demo_logs(
+                            logs_team_id,
+                            now=now,
+                            days_past=options["days_past"],
+                            seed=seed,
+                            logs_per_minute=options["logs_per_minute"],
+                        )
+                        print(f"Inserted {inserted} demo log rows.")
+                    except Exception as e:
+                        print(f"Demo logs seeding failed: {e}")
+                        print("Continuing anyway...")
+            else:
+                print("Skipping demo logs seeding.")
 
             if not options.get("skip_materialization"):
                 print("Materializing common columns...")
@@ -373,6 +406,18 @@ class Command(BaseCommand):
             if created:
                 created_count += 1
         print(f"Created {created_count} UserProductList entries for {len(product_paths)} products.")
+
+    @staticmethod
+    def _resolve_logs_team_id(existing_team_id: Optional[int], team: Optional[Team]) -> Optional[int]:
+        """The logs table is keyed by team_id. Resolve which team to seed against:
+        the explicit --team-id (including 0 for the master project), otherwise the
+        team created during this run.
+        """
+        if existing_team_id is not None:
+            return existing_team_id
+        if team is not None:
+            return team.pk
+        return None
 
     @staticmethod
     def complete_all_quick_start_tasks(team: Team) -> None:
