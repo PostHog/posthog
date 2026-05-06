@@ -80,7 +80,6 @@ import {
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import {
     ActiveHoursTab,
-    BotTrafficFilter,
     ConversionGoalWarning,
     DeviceTab,
     DeviceType,
@@ -211,7 +210,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
-        setBotTrafficFilter: (botTrafficFilter: BotTrafficFilter) => ({ botTrafficFilter }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -427,14 +425,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     clearFilters: () => false,
                 },
             ],
-            botTrafficFilter: [
-                'regular' as BotTrafficFilter,
-                persistConfig,
-                {
-                    setBotTrafficFilter: (_, { botTrafficFilter }) => botTrafficFilter,
-                    clearFilters: () => 'regular' as BotTrafficFilter,
-                },
-            ],
             shouldStripQueryParams: [
                 false as boolean,
                 persistConfig,
@@ -615,55 +605,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         webAnalyticsFilters: [
-            (s) => [
-                s.rawWebAnalyticsFilters,
-                s.isPathCleaningEnabled,
-                s.selectedHost,
-                s.deviceTypeFilter,
-                s.botTrafficFilter,
-                s.featureFlags,
-            ],
+            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.selectedHost, s.deviceTypeFilter],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
                 selectedHost: string | null,
-                deviceTypeFilter: DeviceType | null,
-                botTrafficFilter: BotTrafficFilter,
-                featureFlags: Record<string, boolean | string | undefined>
+                deviceTypeFilter: DeviceType | null
             ) => {
                 let filters = rawWebAnalyticsFilters
-
-                // Add bot traffic filter (only when feature flag is enabled)
-                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
-                    if (botTrafficFilter === 'regular') {
-                        filters = [
-                            ...filters,
-                            {
-                                key: '$virt_is_bot',
-                                value: ['false'],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]
-                    } else if (botTrafficFilter === 'bot') {
-                        filters = [
-                            ...filters,
-                            {
-                                key: '$virt_is_bot',
-                                value: ['true'],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                            {
-                                // Exclude events with no user agent — these are missing data, not confirmed bots
-                                key: '$virt_traffic_category',
-                                value: ['no_user_agent'],
-                                operator: PropertyOperator.IsNot,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]
-                    }
-                }
 
                 if (selectedHost) {
                     filters = [
