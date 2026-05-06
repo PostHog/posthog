@@ -175,8 +175,15 @@ def format_tool_definitions(tools: Any) -> str:
     if isinstance(tools, dict):
         # A bare dict is either a single tool spec (has `function` or `name`)
         # or a `{tool_name: tool_spec, ...}` mapping — flatten the latter into
-        # a list of values so each tool is rendered individually.
-        tools = [tools] if "function" in tools or "name" in tools else list(tools.values())
+        # a list of specs, carrying the mapping key over as the tool's name
+        # when the value itself doesn't declare one.
+        if "function" in tools or "name" in tools:
+            tools = [tools]
+        else:
+            tools = [
+                {**spec, "name": spec.get("name") or key} if isinstance(spec, dict) else spec
+                for key, spec in tools.items()
+            ]
 
     if not isinstance(tools, list):
         return json.dumps(tools, default=str)
@@ -219,6 +226,25 @@ def _format_single_tool_definition(tool: dict) -> str:
     line = f"- {name}"
     if description:
         line += f": {description}"
-    if parameters:
-        line += f" (params: {json.dumps(parameters, default=str)})"
+    params_summary = _compact_params(parameters)
+    if params_summary:
+        line += f" ({params_summary})"
     return line
+
+
+def _compact_params(parameters: Any) -> str:
+    """Summarise a JSON-schema-style `parameters` block as `arg1, arg2?, arg3`.
+
+    Tool catalogs can be large — dumping the full schema for every tool can
+    push the judge prompt over context limits. For evaluating "did the agent
+    call the right tool with the right info?", the parameter *names* (and
+    which are optional) are usually all the judge needs.
+    """
+    if not isinstance(parameters, dict):
+        return ""
+    properties = parameters.get("properties")
+    if not isinstance(properties, dict) or not properties:
+        return ""
+    required = parameters.get("required") or []
+    required_set = set(required) if isinstance(required, list) else set()
+    return ", ".join(key if key in required_set else f"{key}?" for key in properties)

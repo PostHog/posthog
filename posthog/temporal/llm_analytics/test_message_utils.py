@@ -315,7 +315,11 @@ class TestFormatToolDefinitions:
                     "description": "Send an email to a recipient.",
                     "parameters": {
                         "type": "object",
-                        "properties": {"to": {"type": "string"}, "body": {"type": "string"}},
+                        "properties": {
+                            "to": {"type": "string"},
+                            "body": {"type": "string"},
+                            "subject": {"type": "string"},
+                        },
                         "required": ["to", "body"],
                     },
                 },
@@ -324,21 +328,27 @@ class TestFormatToolDefinitions:
         result = format_tool_definitions(tools)
         assert "- send_email" in result
         assert "Send an email to a recipient." in result
-        assert '"to"' in result
-        assert '"body"' in result
+        # Parameter names are surfaced compactly with `?` for optional ones,
+        # rather than dumping the full JSON schema.
+        assert "(to, body, subject?)" in result
+        assert "type" not in result  # full schema should not leak
 
     def test_anthropic_input_schema_shape(self):
         tools = [
             {
                 "name": "lookup_user",
                 "description": "Look up a user by id.",
-                "input_schema": {"type": "object", "properties": {"id": {"type": "string"}}},
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                },
             }
         ]
         result = format_tool_definitions(tools)
         assert "- lookup_user" in result
         assert "Look up a user by id." in result
-        assert '"id"' in result
+        assert "(id)" in result
 
     def test_multiple_tools_each_on_own_line(self):
         tools = [
@@ -402,21 +412,65 @@ class TestFormatToolDefinitions:
         assert len(lines) == 2
         assert lines[0].startswith("- send_email")
         assert lines[1].startswith("- lookup_user")
-        assert '"to"' in result
-        assert '"id"' in result
+        assert "(to?)" in result
+        assert "(id?)" in result
 
     def test_openai_camel_case_input_schema_shape(self):
         tools = [
             {
                 "name": "lookup_user",
                 "description": "Look up a user by id.",
-                "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}},
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                },
             }
         ]
         result = format_tool_definitions(tools)
         assert "- lookup_user" in result
         assert "Look up a user by id." in result
-        assert '"id"' in result
+        assert "(id)" in result
+
+    def test_dict_of_tools_with_name_in_key_only(self):
+        """When tools come as `{tool_name: {description, inputSchema}}` with no
+        explicit `name` key on the value, fall back to using the mapping key."""
+        tools = {
+            "search_docs": {
+                "description": "Search docs",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+            }
+        }
+        result = format_tool_definitions(tools)
+        assert result.startswith("- search_docs: Search docs")
+        assert "(query)" in result
+
+    def test_compact_params_omits_full_schema_payload(self):
+        """The full JSON schema (types, descriptions per property, etc.) must
+        not leak into the prompt — we only want parameter names, since dumping
+        a full schema for every tool can blow past the judge's context."""
+        tools = [
+            {
+                "name": "do_thing",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "string", "description": "A long description that should not appear"},
+                        "b": {"type": "integer", "minimum": 0, "maximum": 100},
+                    },
+                    "required": ["a"],
+                },
+            }
+        ]
+        result = format_tool_definitions(tools)
+        assert "(a, b?)" in result
+        assert "long description" not in result
+        assert "minimum" not in result
+        assert "integer" not in result
 
     def test_empty_parameters_dict_is_skipped(self):
         # Locking current behavior: an explicitly-empty schema (`{}`) is
