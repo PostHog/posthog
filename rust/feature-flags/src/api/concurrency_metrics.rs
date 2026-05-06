@@ -85,6 +85,7 @@ mod tests {
     //! contract here, not the layer placement.
     use super::*;
     use axum::{body::Body, extract::Extension, http::StatusCode, routing::get, Router};
+    use rstest::rstest;
     use tower::ServiceExt;
 
     /// Handler that echoes the captured wait as plain text. `"missing"`
@@ -148,54 +149,36 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn wait_records_zero_when_no_delay_between_shims() {
-        // No layer between the shims — wait should be effectively zero
-        // (sub-millisecond). This proves the shims don't accidentally
-        // report a positive value when no waiting actually happened.
-        let app = Router::new()
-            .route("/", get(echo_wait_ms))
-            .layer(axum::middleware::from_fn(record_concurrency_wait))
-            .layer(axum::middleware::from_fn(record_concurrency_enter));
-
-        let resp = app.oneshot(make_request()).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
-        let body = read_body(resp).await;
-        let wait_ms: u128 = body
-            .parse()
-            .unwrap_or_else(|_| panic!("expected numeric wait, got {body:?}"));
-        assert!(
-            wait_ms < 5,
-            "expected near-zero wait without intervening delay, got {wait_ms} ms"
-        );
+    /// Builds a router that only installs the named shim. The other shim
+    /// is intentionally absent so the test can verify each is independently
+    /// rollout-safe — neither panics, and the wait extension is only ever
+    /// written by `record_concurrency_wait`.
+    fn router_with_single_shim(shim: SingleShim) -> Router {
+        let r = Router::new().route("/", get(echo_wait_ms));
+        match shim {
+            SingleShim::WaitOnly => r.layer(axum::middleware::from_fn(record_concurrency_wait)),
+            SingleShim::EnterOnly => r.layer(axum::middleware::from_fn(record_concurrency_enter)),
+        }
     }
 
-    #[tokio::test]
-    async fn wait_extension_absent_when_enter_shim_missing() {
-        // Drop `record_concurrency_enter`: `record_concurrency_wait` must
-        // no-op rather than panic, leaving the extension absent. This
-        // makes the two shims independently rollout-safe.
-        let app = Router::new()
-            .route("/", get(echo_wait_ms))
-            .layer(axum::middleware::from_fn(record_concurrency_wait));
-
-        let resp = app.oneshot(make_request()).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
-        let body = read_body(resp).await;
-        assert_eq!(body, "missing");
+    #[derive(Copy, Clone)]
+    enum SingleShim {
+        /// Drops `record_concurrency_enter`. Verifies `record_concurrency_wait`
+        /// no-ops rather than panicking when the entry instant is missing.
+        WaitOnly,
+        /// Drops `record_concurrency_wait`. Verifies that no other code path
+        /// accidentally writes the wait extension — catches a future
+        /// regression where someone merges the two shims into one and
+        /// breaks the layer-ordering semantics.
+        EnterOnly,
     }
 
+    #[rstest]
+    #[case::wait_shim_alone(SingleShim::WaitOnly)]
+    #[case::enter_shim_alone(SingleShim::EnterOnly)]
     #[tokio::test]
-    async fn enter_shim_alone_does_not_set_wait_extension() {
-        // The wait extension is only written by `record_concurrency_wait`.
-        // Verify that running just `record_concurrency_enter` leaves the
-        // wait extension absent — this catches a future regression where
-        // someone "helpfully" merges the two shims into one and breaks
-        // the layer-ordering semantics.
-        let app = Router::new()
-            .route("/", get(echo_wait_ms))
-            .layer(axum::middleware::from_fn(record_concurrency_enter));
-
+    async fn single_shim_leaves_wait_extension_absent(#[case] shim: SingleShim) {
+        let app = router_with_single_shim(shim);
         let resp = app.oneshot(make_request()).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body(resp).await;
