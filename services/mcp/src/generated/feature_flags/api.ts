@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 17 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -781,6 +781,28 @@ export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ 
     groups: zod
         .string()
         .default(featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault)
+        .describe('Groups for feature flag evaluation (JSON object string)'),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsMyFlagsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsMyFlagsRetrieveQueryGroupsDefault = `{}`
+
+export const FeatureFlagsMyFlagsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    groups: zod
+        .string()
+        .default(featureFlagsMyFlagsRetrieveQueryGroupsDefault)
         .describe('Groups for feature flag evaluation (JSON object string)'),
 })
 

@@ -11,6 +11,7 @@ import {
     FeatureFlagsDestroyParams,
     FeatureFlagsEvaluationReasonsRetrieveQueryParams,
     FeatureFlagsListQueryParams,
+    FeatureFlagsMyFlagsRetrieveQueryParams,
     FeatureFlagsPartialUpdateBody,
     FeatureFlagsPartialUpdateParams,
     FeatureFlagsRetrieveParams,
@@ -240,6 +241,39 @@ const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
             },
         })
         return result
+    },
+})
+
+const FeatureFlagsMyFlagsRetrieveSchema = FeatureFlagsMyFlagsRetrieveQueryParams
+
+const featureFlagsMyFlagsRetrieve = (): ToolBase<
+    typeof FeatureFlagsMyFlagsRetrieveSchema,
+    WithPostHogUrl<Schemas.MyFlagsResponse[]>
+> => ({
+    name: 'feature-flags-my-flags-retrieve',
+    schema: FeatureFlagsMyFlagsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsMyFlagsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.MyFlagsResponse[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/my_flags/`,
+            query: {
+                groups: params.groups,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'feature_flag.id',
+                    'feature_flag.key',
+                    'feature_flag.name',
+                    'feature_flag.active',
+                    'value',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/feature_flags')
     },
 })
 
@@ -478,6 +512,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
     'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
     'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,
+    'feature-flags-my-flags-retrieve': featureFlagsMyFlagsRetrieve,
     'feature-flags-status-retrieve': featureFlagsStatusRetrieve,
     'feature-flags-user-blast-radius-create': featureFlagsUserBlastRadiusCreate,
     'scheduled-changes-create': scheduledChangesCreate,

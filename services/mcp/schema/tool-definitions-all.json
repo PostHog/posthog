@@ -2341,6 +2341,21 @@
             "readOnlyHint": true
         }
     },
+    "feature-flags-my-flags-retrieve": {
+        "description": "List all feature flags in the current project along with their evaluated value for the authenticated user (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple flags, variant key string for multivariate flags, false if disabled). Optionally pass `groups` as a JSON object to evaluate group-based flags.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get my evaluated feature flags",
+        "title": "Get my evaluated feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "feature-flags-status-retrieve": {
         "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status.",
         "category": "Feature flags",
