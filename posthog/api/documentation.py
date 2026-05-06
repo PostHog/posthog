@@ -796,6 +796,13 @@ def _fix_pydantic_schema_for_openapi(schema):
     - Collapses ``{"allOf": [{"$ref": "..."}]}`` to just the ``$ref`` — drf-spectacular's
       ``safe_ref()`` wraps refs in single-entry ``allOf`` for safety; once siblings are
       stripped the wrapping is unnecessary and vacuum's ``no-unnecessary-combinator`` flags it.
+    - Converts any leftover ``"nullable": true`` to the 3.1 idiom. drf-spectacular runs this
+      transform itself (in ``append_meta``) for schemas it builds from DRF fields, but it
+      doesn't re-process schemas that come from external sources — DRF's
+      ``get_paginated_response_schema()`` hard-codes ``nullable: true`` on its
+      ``next``/``previous`` URLs, and hand-written ``@extend_schema_field`` annotations using
+      the old 3.0 spelling slip through the same gap.  We normalise both here so vacuum's
+      ``oas3-schema`` rule stops firing on the 3.1 spec.
     """
     if not isinstance(schema, dict):
         return schema
@@ -809,6 +816,27 @@ def _fix_pydantic_schema_for_openapi(schema):
         entries = schema.get(combinator)
         if entries == [{}, {"type": "null"}] or entries == [{"type": "null"}, {}]:
             schema.pop(combinator)
+
+    # Normalise leftover ``"nullable": true`` to OpenAPI 3.1 form. Mirrors the conversion
+    # drf-spectacular's ``append_meta`` performs for its own output; needed here because
+    # DRF pagination and hand-written ``@extend_schema_field`` schemas bypass that path.
+    if schema.pop("nullable", None) is True:
+        if isinstance(schema.get("type"), str):
+            schema["type"] = [schema["type"], "null"]
+        elif isinstance(schema.get("type"), list):
+            if "null" not in schema["type"]:
+                schema["type"] = [*schema["type"], "null"]
+        elif "$ref" in schema:
+            ref = schema.pop("$ref")
+            schema["oneOf"] = [{"$ref": ref}, {"type": "null"}]
+        elif isinstance(schema.get("oneOf"), list):
+            if not any(isinstance(e, dict) and e.get("type") == "null" for e in schema["oneOf"]):
+                schema["oneOf"] = [*schema["oneOf"], {"type": "null"}]
+        elif isinstance(schema.get("anyOf"), list):
+            if not any(isinstance(e, dict) and e.get("type") == "null" for e in schema["anyOf"]):
+                schema["anyOf"] = [*schema["anyOf"], {"type": "null"}]
+        # Bare ``{"nullable": true}`` (no type, no combinator) means "any value or null", which
+        # an empty schema already expresses — nothing to add.
 
     # Recursively fix nested schemas
     if "anyOf" in schema:

@@ -23,7 +23,9 @@ export interface CustomerJourneyApi {
 
 export interface PaginatedCustomerJourneyListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: CustomerJourneyApi[]
 }
@@ -60,7 +62,9 @@ export interface CustomerProfileConfigApi {
 
 export interface PaginatedCustomerProfileConfigListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: CustomerProfileConfigApi[]
 }
@@ -149,7 +153,9 @@ export interface GroupUsageMetricApi {
 
 export interface PaginatedGroupUsageMetricListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: GroupUsageMetricApi[]
 }

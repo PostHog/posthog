@@ -123,7 +123,9 @@ export interface ConversationMinimalApi {
 
 export interface PaginatedConversationMinimalListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ConversationMinimalApi[]
 }
@@ -295,7 +297,9 @@ export interface TicketViewApi {
 
 export interface PaginatedTicketViewListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: TicketViewApi[]
 }
@@ -478,7 +482,9 @@ export interface TicketApi {
 
 export interface PaginatedTicketListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: TicketApi[]
 }

@@ -117,7 +117,9 @@ export interface EnterpriseEventDefinitionApi {
 
 export interface PaginatedEnterpriseEventDefinitionListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: EnterpriseEventDefinitionApi[]
 }

@@ -44,7 +44,9 @@ export interface MCPServerInstallationApi {
 
 export interface PaginatedMCPServerInstallationListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: MCPServerInstallationApi[]
 }
@@ -86,7 +88,9 @@ export interface MCPServerInstallationToolApi {
 
 export interface PaginatedMCPServerInstallationToolListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: MCPServerInstallationToolApi[]
 }
@@ -194,7 +198,9 @@ export interface MCPServerTemplateApi {
 
 export interface PaginatedMCPServerTemplateListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: MCPServerTemplateApi[]
 }

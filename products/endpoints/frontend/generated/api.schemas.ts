@@ -178,7 +178,9 @@ export interface EndpointResponseApi {
 
 export interface PaginatedEndpointResponseListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: EndpointResponseApi[]
 }
@@ -791,7 +793,9 @@ Unknown variable names will return a 400 error. */
 
 export interface PaginatedEndpointVersionResponseListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: EndpointVersionResponseApi[]
 }

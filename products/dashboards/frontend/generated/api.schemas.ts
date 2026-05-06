@@ -114,7 +114,9 @@ export interface DashboardTemplateApi {
 
 export interface PaginatedDashboardTemplateListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DashboardTemplateApi[]
 }
@@ -202,7 +204,9 @@ export interface DashboardBasicApi {
 
 export interface PaginatedDashboardBasicListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DashboardBasicApi[]
 }
@@ -509,7 +513,9 @@ export interface DataColorThemeApi {
 
 export interface PaginatedDataColorThemeListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DataColorThemeApi[]
 }

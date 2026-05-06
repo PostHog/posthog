@@ -32,7 +32,9 @@ export interface ErrorTrackingAssignmentRuleApi {
 
 export interface PaginatedErrorTrackingAssignmentRuleListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingAssignmentRuleApi[]
 }
@@ -393,7 +395,9 @@ export interface ErrorTrackingExternalReferenceResultApi {
 
 export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingExternalReferenceResultApi[]
 }
@@ -407,7 +411,9 @@ export interface ErrorTrackingFingerprintApi {
 
 export interface PaginatedErrorTrackingFingerprintListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingFingerprintApi[]
 }
@@ -566,7 +572,9 @@ export interface ErrorTrackingIssueFullApi {
 
 export interface PaginatedErrorTrackingIssueFullListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingIssueFullApi[]
 }
@@ -641,7 +649,9 @@ export interface ErrorTrackingRecommendationApi {
 
 export interface PaginatedErrorTrackingRecommendationListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingRecommendationApi[]
 }
@@ -754,7 +764,9 @@ export interface ErrorTrackingSpikeEventApi {
 
 export interface PaginatedErrorTrackingSpikeEventListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingSpikeEventApi[]
 }
@@ -783,7 +795,9 @@ export interface ErrorTrackingStackFrameApi {
 
 export interface PaginatedErrorTrackingStackFrameListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingStackFrameApi[]
 }
@@ -804,7 +818,9 @@ export interface ErrorTrackingSuppressionRuleApi {
 
 export interface PaginatedErrorTrackingSuppressionRuleListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingSuppressionRuleApi[]
 }
@@ -836,7 +852,9 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
 
 export interface PaginatedErrorTrackingReleaseListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingReleaseApi[]
 }
@@ -887,7 +905,9 @@ export interface ErrorTrackingSymbolSetApi {
 
 export interface PaginatedErrorTrackingSymbolSetListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ErrorTrackingSymbolSetApi[]
 }

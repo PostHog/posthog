@@ -136,7 +136,9 @@ export interface RoleExternalReferenceApi {
 
 export interface PaginatedRoleExternalReferenceListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: RoleExternalReferenceApi[]
 }
@@ -238,7 +240,9 @@ export interface IntegrationConfigApi {
 
 export interface PaginatedIntegrationConfigListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: IntegrationConfigApi[]
 }
@@ -350,7 +354,9 @@ export interface UserGitHubIntegrationListResponseApi {
 
 export interface PaginatedUserGitHubIntegrationListResponseListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: UserGitHubIntegrationListResponseApi[]
 }

@@ -28,7 +28,9 @@ export interface DataWarehouseSavedQueryDraftApi {
 
 export interface PaginatedDataWarehouseSavedQueryDraftListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DataWarehouseSavedQueryDraftApi[]
 }
@@ -90,7 +92,9 @@ export interface DataModelingJobApi {
 }
 
 export interface PaginatedDataModelingJobListApi {
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DataModelingJobApi[]
 }
@@ -309,7 +313,9 @@ export interface ExternalDataSchemaApi {
 
 export interface PaginatedExternalDataSchemaListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ExternalDataSchemaApi[]
 }
@@ -782,7 +788,9 @@ export interface ExternalDataSourceSerializersApi {
 
 export interface PaginatedExternalDataSourceSerializersListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ExternalDataSourceSerializersApi[]
 }
@@ -1077,7 +1085,9 @@ export interface ExternalDataSourceConnectionOptionApi {
 
 export interface PaginatedExternalDataSourceConnectionOptionListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ExternalDataSourceConnectionOptionApi[]
 }
@@ -1292,7 +1302,9 @@ export interface InsightVariableApi {
 
 export interface PaginatedInsightVariableListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: InsightVariableApi[]
 }
@@ -1344,7 +1356,9 @@ export interface QueryTabStateApi {
 
 export interface PaginatedQueryTabStateListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: QueryTabStateApi[]
 }
@@ -1431,7 +1445,9 @@ export interface DataWarehouseModelPathApi {
 
 export interface PaginatedDataWarehouseModelPathListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DataWarehouseModelPathApi[]
 }
@@ -1523,7 +1539,9 @@ export interface DataWarehouseSavedQueryMinimalApi {
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DataWarehouseSavedQueryMinimalApi[]
 }
@@ -1816,7 +1834,9 @@ export interface TableApi {
 
 export interface PaginatedTableListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: TableApi[]
 }
@@ -1842,7 +1862,9 @@ export interface ViewLinkApi {
 
 export interface PaginatedViewLinkListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ViewLinkApi[]
 }

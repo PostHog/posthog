@@ -88,7 +88,9 @@ export interface NotebookMinimalApi {
 
 export interface PaginatedNotebookMinimalListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: NotebookMinimalApi[]
 }

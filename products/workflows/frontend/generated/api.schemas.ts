@@ -159,7 +159,9 @@ export interface HogFlowTemplateApi {
 
 export interface PaginatedHogFlowTemplateListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: HogFlowTemplateApi[]
 }
@@ -297,7 +299,9 @@ export interface HogFlowMinimalApi {
 
 export interface PaginatedHogFlowMinimalListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: HogFlowMinimalApi[]
 }
@@ -417,7 +421,9 @@ export interface HogFlowScheduleApi {
 
 export interface PaginatedHogFlowScheduleListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: HogFlowScheduleApi[]
 }

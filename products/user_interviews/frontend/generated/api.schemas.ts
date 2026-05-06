@@ -74,7 +74,9 @@ export interface UserInterviewApi {
 
 export interface PaginatedUserInterviewListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: UserInterviewApi[]
 }

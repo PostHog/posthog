@@ -60,7 +60,9 @@ export interface MCPAnalyticsSubmissionApi {
 
 export interface PaginatedMCPAnalyticsSubmissionListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: MCPAnalyticsSubmissionApi[]
 }

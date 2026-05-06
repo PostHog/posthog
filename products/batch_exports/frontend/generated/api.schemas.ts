@@ -970,7 +970,9 @@ export interface BatchExportApi {
 
 export interface PaginatedBatchExportListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: BatchExportApi[]
 }
@@ -1093,8 +1095,11 @@ export const BatchExportBackfillStatusEnumApi = {
  * @nullable
  */
 export type BatchExportBackfillApiProgress = {
+    /** @nullable */
     readonly total_runs?: number | null
+    /** @nullable */
     readonly finished_runs?: number | null
+    /** @nullable */
     readonly progress?: number | null
 } | null | null
 
@@ -1152,13 +1157,17 @@ export interface BatchExportBackfillApi {
 }
 
 export interface PaginatedBatchExportBackfillListApi {
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: BatchExportBackfillApi[]
 }
 
 export interface PaginatedBatchExportRunListApi {
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: BatchExportRunApi[]
 }

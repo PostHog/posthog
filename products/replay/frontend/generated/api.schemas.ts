@@ -129,7 +129,9 @@ export interface SessionRecordingPlaylistApi {
 
 export interface PaginatedSessionRecordingPlaylistListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: SessionRecordingPlaylistApi[]
 }
@@ -261,7 +263,9 @@ export interface SessionRecordingApi {
 
 export interface PaginatedSessionRecordingListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: SessionRecordingApi[]
 }

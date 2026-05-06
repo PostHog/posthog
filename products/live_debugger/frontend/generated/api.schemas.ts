@@ -26,7 +26,9 @@ export interface LiveDebuggerBreakpointApi {
 
 export interface PaginatedLiveDebuggerBreakpointListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: LiveDebuggerBreakpointApi[]
 }

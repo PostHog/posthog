@@ -199,7 +199,9 @@ export interface PersonRecordApi {
 }
 
 export interface PaginatedPersonRecordListApi {
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     count?: number
     results?: PersonRecordApi[]
@@ -279,7 +281,9 @@ export interface AsyncDeletionStatusApi {
 }
 
 export interface PaginatedAsyncDeletionStatusListApi {
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     count?: number
     results?: AsyncDeletionStatusApi[]

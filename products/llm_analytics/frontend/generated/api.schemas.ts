@@ -223,7 +223,9 @@ export interface EvaluationApi {
 
 export interface PaginatedEvaluationListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: EvaluationApi[]
 }
@@ -373,7 +375,9 @@ export interface ClusteringJobApi {
 
 export interface PaginatedClusteringJobListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ClusteringJobApi[]
 }
@@ -669,7 +673,9 @@ export interface EvaluationReportApi {
 
 export interface PaginatedEvaluationReportListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: EvaluationReportApi[]
 }
@@ -779,7 +785,9 @@ export interface EvaluationReportRunApi {
 
 export interface PaginatedEvaluationReportRunListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: EvaluationReportRunApi[]
 }
@@ -858,7 +866,9 @@ export interface LLMModelsListResponseApi {
 
 export interface PaginatedLLMProviderKeyListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: LLMProviderKeyApi[]
 }
@@ -915,7 +925,9 @@ export interface ReviewQueueItemApi {
 
 export interface PaginatedReviewQueueItemListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ReviewQueueItemApi[]
 }
@@ -951,7 +963,9 @@ export interface ReviewQueueApi {
 
 export interface PaginatedReviewQueueListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ReviewQueueApi[]
 }
@@ -1081,7 +1095,9 @@ export interface ScoreDefinitionApi {
 
 export interface PaginatedScoreDefinitionListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ScoreDefinitionApi[]
 }
@@ -1448,7 +1464,9 @@ export interface TraceReviewApi {
 
 export interface PaginatedTraceReviewListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: TraceReviewApi[]
 }
@@ -1566,7 +1584,9 @@ export interface LLMPromptListApi {
 
 export interface PaginatedLLMPromptListListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: LLMPromptListApi[]
 }
@@ -1712,7 +1732,9 @@ export interface LLMSkillListApi {
 
 export interface PaginatedLLMSkillListListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: LLMSkillListApi[]
 }
@@ -2025,7 +2047,9 @@ export interface TaggerApi {
 
 export interface PaginatedTaggerListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: TaggerApi[]
 }
@@ -2059,7 +2083,9 @@ export interface DatasetItemApi {
 
 export interface PaginatedDatasetItemListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DatasetItemApi[]
 }
@@ -2109,7 +2135,9 @@ export interface DatasetApi {
 
 export interface PaginatedDatasetListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DatasetApi[]
 }

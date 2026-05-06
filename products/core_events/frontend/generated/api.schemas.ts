@@ -58,7 +58,9 @@ export interface CoreEventApi {
 
 export interface PaginatedCoreEventListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: CoreEventApi[]
 }

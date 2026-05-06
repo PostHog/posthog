@@ -158,7 +158,9 @@ export interface ProductTourApi {
 
 export interface PaginatedProductTourListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ProductTourApi[]
 }

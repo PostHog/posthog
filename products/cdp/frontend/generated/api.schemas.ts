@@ -82,7 +82,9 @@ export interface HogFunctionTemplateApi {
 
 export interface PaginatedHogFunctionTemplateListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: HogFunctionTemplateApi[]
 }
@@ -190,7 +192,9 @@ export interface HogFunctionMinimalApi {
 
 export interface PaginatedHogFunctionMinimalListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: HogFunctionMinimalApi[]
 }

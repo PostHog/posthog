@@ -29,7 +29,9 @@ export interface DagApi {
 
 export interface PaginatedDAGListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: DagApi[]
 }
@@ -48,7 +50,9 @@ export interface EdgeApi {
 
 export interface PaginatedEdgeListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: EdgeApi[]
 }
@@ -96,7 +100,9 @@ export interface NodeApi {
 
 export interface PaginatedNodeListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: NodeApi[]
 }

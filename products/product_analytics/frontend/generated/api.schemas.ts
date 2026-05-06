@@ -40,7 +40,9 @@ export interface ColumnConfigurationApi {
 
 export interface PaginatedColumnConfigurationListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ColumnConfigurationApi[]
 }
@@ -111,7 +113,9 @@ export interface ElementApi {
 
 export interface PaginatedElementListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ElementApi[]
 }
@@ -6808,7 +6812,9 @@ export interface InsightApi {
 
 export interface PaginatedInsightListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: InsightApi[]
 }

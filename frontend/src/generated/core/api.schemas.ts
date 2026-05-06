@@ -75,7 +75,9 @@ export interface SubscriptionDeliveryApi {
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: SubscriptionDeliveryApi[]
 }
@@ -117,7 +119,9 @@ export interface OrganizationDomainApi {
 
 export interface PaginatedOrganizationDomainListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: OrganizationDomainApi[]
 }
@@ -249,7 +253,9 @@ export interface OrganizationInviteApi {
 
 export interface PaginatedOrganizationInviteListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: OrganizationInviteApi[]
 }
@@ -287,7 +293,9 @@ export interface OrganizationOAuthApplicationApi {
 
 export interface PaginatedOrganizationOAuthApplicationListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: OrganizationOAuthApplicationApi[]
 }
@@ -314,7 +322,9 @@ export interface ProjectBackwardCompatBasicApi {
 
 export interface PaginatedProjectBackwardCompatBasicListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ProjectBackwardCompatBasicApi[]
 }
@@ -326,6 +336,7 @@ export type ProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown 
 export type ProjectBackwardCompatApiProductIntentsItem = {
     product_type?: string
     created_at?: string
+    /** @nullable */
     onboarding_completed_at?: string | null
     updated_at?: string
 }
@@ -1308,6 +1319,7 @@ export type PatchedProjectBackwardCompatApiDefaultModifiers = { [key: string]: u
 export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     product_type?: string
     created_at?: string
+    /** @nullable */
     onboarding_completed_at?: string | null
     updated_at?: string
 }
@@ -2228,7 +2240,9 @@ export interface ExportedAssetApi {
 
 export interface PaginatedExportedAssetListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ExportedAssetApi[]
 }
@@ -2257,7 +2271,9 @@ export interface FileSystemApi {
 
 export interface PaginatedFileSystemListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: FileSystemApi[]
 }
@@ -2334,7 +2350,9 @@ export interface ProjectSecretAPIKeyApi {
 
 export interface PaginatedProjectSecretAPIKeyListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ProjectSecretAPIKeyApi[]
 }
@@ -2399,7 +2417,9 @@ export interface EnterprisePropertyDefinitionApi {
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: EnterprisePropertyDefinitionApi[]
 }
@@ -2623,7 +2643,9 @@ export interface SubscriptionApi {
 
 export interface PaginatedSubscriptionListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: SubscriptionApi[]
 }
@@ -3059,7 +3081,9 @@ export interface UserApi {
 
 export interface PaginatedUserListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: UserApi[]
 }
@@ -3436,6 +3460,7 @@ export const SubscriptionsListTargetType = {
 
 export type SubscriptionsSummaryQuotaRetrieve200 = {
     active_count: number
+    /** @nullable */
     limit: number | null
     at_limit: boolean
 }

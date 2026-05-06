@@ -490,7 +490,9 @@ export interface AlertApi {
 
 export interface PaginatedAlertListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: AlertApi[]
 }

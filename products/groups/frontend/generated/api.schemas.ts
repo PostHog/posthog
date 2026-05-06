@@ -20,7 +20,9 @@ export interface GroupApi {
 }
 
 export interface PaginatedGroupListApi {
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: GroupApi[]
 }

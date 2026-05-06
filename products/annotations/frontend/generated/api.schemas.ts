@@ -138,7 +138,9 @@ export interface AnnotationApi {
 
 export interface PaginatedAnnotationListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: AnnotationApi[]
 }

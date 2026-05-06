@@ -209,7 +209,9 @@ export interface CohortApi {
 
 export interface PaginatedCohortListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: CohortApi[]
 }

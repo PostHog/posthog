@@ -115,7 +115,9 @@ export interface SandboxEnvironmentListApi {
 
 export interface PaginatedSandboxEnvironmentListListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: SandboxEnvironmentListApi[]
 }
@@ -181,7 +183,9 @@ export interface TaskAutomationApi {
 
 export interface PaginatedTaskAutomationListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: TaskAutomationApi[]
 }
@@ -274,7 +278,9 @@ export interface TaskApi {
 
 export interface PaginatedTaskListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: TaskApi[]
 }
@@ -857,7 +863,9 @@ export interface TaskRunDetailApi {
 
 export interface PaginatedTaskRunDetailListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: TaskRunDetailApi[]
 }
@@ -1436,7 +1444,9 @@ export interface TaskSummaryApi {
 
 export interface PaginatedTaskSummaryListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: TaskSummaryApi[]
 }

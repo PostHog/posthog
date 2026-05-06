@@ -92,7 +92,9 @@ export interface LogsViewApi {
 
 export interface PaginatedLogsViewListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: LogsViewApi[]
 }
@@ -277,7 +279,9 @@ export interface LogsAlertConfigurationApi {
 
 export interface PaginatedLogsAlertConfigurationListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: LogsAlertConfigurationApi[]
 }
@@ -446,7 +450,9 @@ export interface LogsAlertEventApi {
 
 export interface PaginatedLogsAlertEventListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: LogsAlertEventApi[]
 }
@@ -888,7 +894,9 @@ export interface LogsSamplingRuleApi {
 
 export interface PaginatedLogsSamplingRuleListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: LogsSamplingRuleApi[]
 }
@@ -1131,7 +1139,9 @@ export interface PluginLogEntryApi {
 
 export interface PaginatedPluginLogEntryListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: PluginLogEntryApi[]
 }

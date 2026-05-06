@@ -563,7 +563,9 @@ export interface ActionApi {
 
 export interface PaginatedActionListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ActionApi[]
 }

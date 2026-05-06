@@ -82,7 +82,9 @@ export interface ApprovalPolicyApi {
 
 export interface PaginatedApprovalPolicyListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ApprovalPolicyApi[]
 }
@@ -181,7 +183,9 @@ export interface ChangeRequestApi {
 
 export interface PaginatedChangeRequestListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ChangeRequestApi[]
 }
@@ -289,7 +293,9 @@ export interface OrganizationApi {
 
 export interface PaginatedOrganizationListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: OrganizationApi[]
 }
@@ -386,7 +392,9 @@ export interface OrganizationMemberApi {
 
 export interface PaginatedOrganizationMemberListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: OrganizationMemberApi[]
 }
@@ -417,7 +425,9 @@ export interface RoleApi {
 
 export interface PaginatedRoleListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: RoleApi[]
 }
@@ -447,7 +457,9 @@ export interface RoleMembershipApi {
 
 export interface PaginatedRoleMembershipListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: RoleMembershipApi[]
 }
@@ -549,7 +561,9 @@ export interface ActivityLogApi {
 
 export interface PaginatedActivityLogListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ActivityLogApi[]
 }
@@ -619,7 +633,9 @@ export interface CommentApi {
 }
 
 export interface PaginatedCommentListApi {
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: CommentApi[]
 }

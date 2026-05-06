@@ -79,7 +79,9 @@ export interface ExperimentHoldoutApi {
 
 export interface PaginatedExperimentHoldoutListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ExperimentHoldoutApi[]
 }
@@ -125,7 +127,9 @@ export interface ExperimentSavedMetricApi {
 
 export interface PaginatedExperimentSavedMetricListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ExperimentSavedMetricApi[]
 }
@@ -461,7 +465,9 @@ export interface ExperimentApi {
 
 export interface PaginatedExperimentListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ExperimentApi[]
 }

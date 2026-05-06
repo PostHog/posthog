@@ -358,7 +358,9 @@ export interface SurveyApi {
 
 export interface PaginatedSurveyListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: SurveyApi[]
 }

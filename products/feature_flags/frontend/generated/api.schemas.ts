@@ -234,7 +234,9 @@ export interface FeatureFlagApi {
 
 export interface PaginatedFeatureFlagListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: FeatureFlagApi[]
 }
@@ -1108,7 +1110,9 @@ export interface ScheduledChangeApi {
 
 export interface PaginatedScheduledChangeListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: ScheduledChangeApi[]
 }

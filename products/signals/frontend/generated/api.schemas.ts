@@ -17,7 +17,9 @@ export interface PauseStateResponseApi {
 
 export interface PaginatedPauseStateResponseListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: PauseStateResponseApi[]
 }
@@ -97,7 +99,9 @@ export interface SignalReportApi {
 
 export interface PaginatedSignalReportListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: SignalReportApi[]
 }
@@ -159,7 +163,9 @@ export interface SignalSourceConfigApi {
 
 export interface PaginatedSignalSourceConfigListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: SignalSourceConfigApi[]
 }

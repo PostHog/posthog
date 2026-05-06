@@ -36,7 +36,9 @@ export interface MessageCategoryApi {
 
 export interface PaginatedMessageCategoryListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: MessageCategoryApi[]
 }
@@ -138,7 +140,9 @@ export interface MessageTemplateApi {
 
 export interface PaginatedMessageTemplateListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: MessageTemplateApi[]
 }

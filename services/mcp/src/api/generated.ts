@@ -5916,8 +5916,11 @@ export namespace Schemas {
      * @nullable
      */
     export type BatchExportBackfillProgress = {
+      /** @nullable */
       readonly total_runs?: number | null;
+      /** @nullable */
       readonly finished_runs?: number | null;
+      /** @nullable */
       readonly progress?: number | null;
     } | null | null;
 
@@ -19643,707 +19646,910 @@ export namespace Schemas {
 
     export interface PaginatedActionList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Action[];
     }
 
     export interface PaginatedActivityLogList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ActivityLog[];
     }
 
     export interface PaginatedAlertList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Alert[];
     }
 
     export interface PaginatedAnnotationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Annotation[];
     }
 
     export interface PaginatedApprovalPolicyList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ApprovalPolicy[];
     }
 
     export interface PaginatedAsyncDeletionStatusList {
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       count?: number;
       results?: AsyncDeletionStatus[];
     }
 
     export interface PaginatedBatchExportBackfillList {
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: BatchExportBackfill[];
     }
 
     export interface PaginatedBatchExportList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: BatchExport[];
     }
 
     export interface PaginatedBatchExportRunList {
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: BatchExportRun[];
     }
 
     export interface PaginatedBatchImportList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: BatchImport[];
     }
 
     export interface PaginatedChangeRequestList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ChangeRequest[];
     }
 
     export interface PaginatedClickhouseEventList {
+      /** @nullable */
       next?: string | null;
       results?: ClickhouseEvent[];
     }
 
     export interface PaginatedClusteringJobList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ClusteringJob[];
     }
 
     export interface PaginatedCohortList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Cohort[];
     }
 
     export interface PaginatedColumnConfigurationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ColumnConfiguration[];
     }
 
     export interface PaginatedCommentList {
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Comment[];
     }
 
     export interface PaginatedConversationMinimalList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ConversationMinimal[];
     }
 
     export interface PaginatedCoreEventList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: CoreEvent[];
     }
 
     export interface PaginatedCustomerJourneyList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: CustomerJourney[];
     }
 
     export interface PaginatedCustomerProfileConfigList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: CustomerProfileConfig[];
     }
 
     export interface PaginatedDAGList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Dag[];
     }
 
     export interface PaginatedDashboardBasicList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: DashboardBasic[];
     }
 
     export interface PaginatedDashboardTemplateList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: DashboardTemplate[];
     }
 
     export interface PaginatedDataColorThemeList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: DataColorTheme[];
     }
 
     export interface PaginatedDataModelingJobList {
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: DataModelingJob[];
     }
 
     export interface PaginatedDataWarehouseModelPathList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: DataWarehouseModelPath[];
     }
 
     export interface PaginatedDataWarehouseSavedQueryDraftList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: DataWarehouseSavedQueryDraft[];
     }
 
     export interface PaginatedDataWarehouseSavedQueryMinimalList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: DataWarehouseSavedQueryMinimal[];
     }
 
     export interface PaginatedDatasetItemList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: DatasetItem[];
     }
 
     export interface PaginatedDatasetList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Dataset[];
     }
 
     export interface PaginatedDesktopRecordingList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: DesktopRecording[];
     }
 
     export interface PaginatedEarlyAccessFeatureList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: EarlyAccessFeature[];
     }
 
     export interface PaginatedEdgeList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Edge[];
     }
 
     export interface PaginatedElementList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Element[];
     }
 
     export interface PaginatedEndpointResponseList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: EndpointResponse[];
     }
 
     export interface PaginatedEndpointVersionResponseList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: EndpointVersionResponse[];
     }
 
     export interface PaginatedEnterpriseEventDefinitionList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: EnterpriseEventDefinition[];
     }
 
     export interface PaginatedEnterprisePropertyDefinitionList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: EnterprisePropertyDefinition[];
     }
 
     export interface PaginatedErrorTrackingAssignmentRuleList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingAssignmentRule[];
     }
 
     export interface PaginatedErrorTrackingExternalReferenceResultList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingExternalReferenceResult[];
     }
 
     export interface PaginatedErrorTrackingFingerprintList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingFingerprint[];
     }
 
     export interface PaginatedErrorTrackingIssueFullList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingIssueFull[];
     }
 
     export interface PaginatedErrorTrackingRecommendationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingRecommendation[];
     }
 
     export interface PaginatedErrorTrackingReleaseList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingRelease[];
     }
 
     export interface PaginatedErrorTrackingSpikeEventList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingSpikeEvent[];
     }
 
     export interface PaginatedErrorTrackingStackFrameList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingStackFrame[];
     }
 
     export interface PaginatedErrorTrackingSuppressionRuleList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingSuppressionRule[];
     }
 
     export interface PaginatedErrorTrackingSymbolSetList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingSymbolSet[];
     }
 
     export interface PaginatedEvaluationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Evaluation[];
     }
 
     export interface PaginatedEvaluationReportList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: EvaluationReport[];
     }
 
     export interface PaginatedEvaluationReportRunList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: EvaluationReportRun[];
     }
 
     export interface PaginatedEventSchemaList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: EventSchema[];
     }
 
     export interface PaginatedExperimentHoldoutList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ExperimentHoldout[];
     }
 
     export interface PaginatedExperimentList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Experiment[];
     }
 
     export interface PaginatedExperimentSavedMetricList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ExperimentSavedMetric[];
     }
 
     export interface PaginatedExportedAssetList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ExportedAsset[];
     }
 
     export interface PaginatedExternalDataSchemaList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ExternalDataSchema[];
     }
 
     export interface PaginatedExternalDataSourceConnectionOptionList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ExternalDataSourceConnectionOption[];
     }
 
     export interface PaginatedExternalDataSourceSerializersList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ExternalDataSourceSerializers[];
     }
 
     export interface PaginatedFeatureFlagList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: FeatureFlag[];
     }
 
     export interface PaginatedFileSystemList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: FileSystem[];
     }
 
     export interface PaginatedFileSystemShortcutList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: FileSystemShortcut[];
     }
 
     export interface PaginatedGroupList {
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Group[];
     }
 
     export interface PaginatedGroupUsageMetricList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: GroupUsageMetric[];
     }
 
     export interface PaginatedHealthIssueList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: HealthIssue[];
     }
 
     export interface PaginatedHeatmapScreenshotResponseList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: HeatmapScreenshotResponse[];
     }
 
     export interface PaginatedHeatmapsResponseList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: HeatmapsResponse[];
     }
 
     export interface PaginatedHogFlowMinimalList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: HogFlowMinimal[];
     }
 
     export interface PaginatedHogFlowScheduleList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: HogFlowSchedule[];
     }
 
     export interface PaginatedHogFlowTemplateList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: HogFlowTemplate[];
     }
 
     export interface PaginatedHogFunctionMinimalList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: HogFunctionMinimal[];
     }
 
     export interface PaginatedHogFunctionTemplateList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: HogFunctionTemplate[];
     }
 
     export interface PaginatedInsightList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Insight[];
     }
 
     export interface PaginatedInsightVariableList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: InsightVariable[];
     }
 
     export interface PaginatedIntegrationConfigList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: IntegrationConfig[];
     }
 
     export interface PaginatedLLMPromptListList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: LLMPromptList[];
     }
 
     export interface PaginatedLLMProviderKeyList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: LLMProviderKey[];
     }
 
     export interface PaginatedLLMSkillListList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: LLMSkillList[];
     }
 
     export interface PaginatedLegalDocumentDTOList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: LiveDebuggerBreakpoint[];
     }
 
     export interface PaginatedLogsAlertConfigurationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: LogsAlertConfiguration[];
     }
 
     export interface PaginatedLogsAlertEventList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: LogsAlertEvent[];
     }
 
     export interface PaginatedLogsSamplingRuleList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: LogsSamplingRule[];
     }
 
     export interface PaginatedLogsViewList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: LogsView[];
     }
 
     export interface PaginatedMCPAnalyticsSubmissionList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: MCPAnalyticsSubmission[];
     }
 
     export interface PaginatedMCPServerInstallationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: MCPServerInstallation[];
     }
 
     export interface PaginatedMCPServerInstallationToolList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: MCPServerInstallationTool[];
     }
 
     export interface PaginatedMCPServerTemplateList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: MCPServerTemplate[];
     }
 
     export interface PaginatedMaterializedColumnSlotList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: MaterializedColumnSlot[];
     }
 
     export interface PaginatedMaxCoreMemoryList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: MaxCoreMemory[];
     }
 
     export interface PaginatedMessageCategoryList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: MessageCategory[];
     }
 
     export interface PaginatedMessageTemplateList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: MessageTemplate[];
     }
 
     export interface PaginatedNodeList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Node[];
     }
 
     export interface PaginatedNotebookMinimalList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: NotebookMinimal[];
     }
 
     export interface PaginatedNotificationEventList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: NotificationEvent[];
     }
 
     export interface PaginatedObjectMediaPreviewList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ObjectMediaPreview[];
     }
 
     export interface PaginatedOrganizationDomainList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: OrganizationDomain[];
     }
 
     export interface PaginatedOrganizationIntegrationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: OrganizationIntegration[];
     }
 
     export interface PaginatedOrganizationInviteList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: OrganizationInvite[];
     }
 
     export interface PaginatedOrganizationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Organization[];
     }
 
     export interface PaginatedOrganizationMemberList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: OrganizationMember[];
     }
 
     export interface PaginatedOrganizationOAuthApplicationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: OrganizationOAuthApplication[];
     }
@@ -20358,7 +20564,9 @@ export namespace Schemas {
 
     export interface PaginatedPauseStateResponseList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: PauseStateResponse[];
     }
@@ -20389,7 +20597,9 @@ export namespace Schemas {
 
     export interface PaginatedPersistedFolderList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: PersistedFolder[];
     }
@@ -20414,7 +20624,9 @@ export namespace Schemas {
     }
 
     export interface PaginatedPersonRecordList {
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       count?: number;
       results?: PersonRecord[];
@@ -20466,7 +20678,9 @@ export namespace Schemas {
 
     export interface PaginatedPluginLogEntryList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: PluginLogEntry[];
     }
@@ -20508,7 +20722,9 @@ export namespace Schemas {
 
     export interface PaginatedProductTourList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ProductTour[];
     }
@@ -20535,7 +20751,9 @@ export namespace Schemas {
 
     export interface PaginatedProjectBackwardCompatBasicList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ProjectBackwardCompatBasic[];
     }
@@ -20559,7 +20777,9 @@ export namespace Schemas {
 
     export interface PaginatedProjectSecretAPIKeyList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ProjectSecretAPIKey[];
     }
@@ -20578,7 +20798,9 @@ export namespace Schemas {
 
     export interface PaginatedQuarantinedIdentifierEntryList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: QuarantinedIdentifierEntry[];
     }
@@ -20596,7 +20818,9 @@ export namespace Schemas {
 
     export interface PaginatedQueryTabStateList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: QueryTabState[];
     }
@@ -20628,7 +20852,9 @@ export namespace Schemas {
 
     export interface PaginatedQuickFilterList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: QuickFilter[];
     }
@@ -20647,7 +20873,9 @@ export namespace Schemas {
 
     export interface PaginatedRepoList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Repo[];
     }
@@ -20670,7 +20898,9 @@ export namespace Schemas {
 
     export interface PaginatedReviewQueueItemList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ReviewQueueItem[];
     }
@@ -20691,7 +20921,9 @@ export namespace Schemas {
 
     export interface PaginatedReviewQueueList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ReviewQueue[];
     }
@@ -20732,7 +20964,9 @@ export namespace Schemas {
 
     export interface PaginatedRoleExternalReferenceList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: RoleExternalReference[];
     }
@@ -20752,7 +20986,9 @@ export namespace Schemas {
 
     export interface PaginatedRoleList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Role[];
     }
@@ -20769,14 +21005,18 @@ export namespace Schemas {
 
     export interface PaginatedRoleMembershipList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: RoleMembership[];
     }
 
     export interface PaginatedRunList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Run[];
     }
@@ -20801,7 +21041,9 @@ export namespace Schemas {
 
     export interface PaginatedSandboxEnvironmentListList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SandboxEnvironmentList[];
     }
@@ -20875,14 +21117,18 @@ export namespace Schemas {
 
     export interface PaginatedScheduledChangeList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ScheduledChange[];
     }
 
     export interface PaginatedSchemaPropertyGroupList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SchemaPropertyGroup[];
     }
@@ -20909,7 +21155,9 @@ export namespace Schemas {
 
     export interface PaginatedScoreDefinitionList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ScoreDefinition[];
     }
@@ -20925,7 +21173,9 @@ export namespace Schemas {
 
     export interface PaginatedSessionGroupSummaryMinimalList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SessionGroupSummaryMinimal[];
     }
@@ -20964,7 +21214,9 @@ export namespace Schemas {
 
     export interface PaginatedSessionRecordingExternalRefList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SessionRecordingExternalRef[];
     }
@@ -21022,7 +21274,9 @@ export namespace Schemas {
 
     export interface PaginatedSessionRecordingList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SessionRecording[];
     }
@@ -21080,7 +21334,9 @@ export namespace Schemas {
 
     export interface PaginatedSessionRecordingPlaylistList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SessionRecordingPlaylist[];
     }
@@ -21149,7 +21405,9 @@ export namespace Schemas {
 
     export interface PaginatedSignalReportList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SignalReport[];
     }
@@ -21212,7 +21470,9 @@ export namespace Schemas {
 
     export interface PaginatedSignalSourceConfigList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SignalSourceConfig[];
     }
@@ -21238,7 +21498,9 @@ export namespace Schemas {
 
     export interface PaginatedSnapshotHistoryEntryList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SnapshotHistoryEntry[];
     }
@@ -21275,7 +21537,9 @@ export namespace Schemas {
 
     export interface PaginatedSnapshotList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Snapshot[];
     }
@@ -21348,7 +21612,9 @@ export namespace Schemas {
     }
 
     export interface PaginatedSubscriptionDeliveryList {
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: SubscriptionDelivery[];
     }
@@ -21506,7 +21772,9 @@ export namespace Schemas {
 
     export interface PaginatedSubscriptionList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Subscription[];
     }
@@ -21749,7 +22017,9 @@ export namespace Schemas {
 
     export interface PaginatedSurveyList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Survey[];
     }
@@ -21821,7 +22091,9 @@ export namespace Schemas {
 
     export interface PaginatedTableList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Table[];
     }
@@ -21832,7 +22104,9 @@ export namespace Schemas {
 
     export interface PaginatedTaggedItemList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: TaggedItem[];
     }
@@ -21900,7 +22174,9 @@ export namespace Schemas {
 
     export interface PaginatedTaggerList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Tagger[];
     }
@@ -21940,7 +22216,9 @@ export namespace Schemas {
 
     export interface PaginatedTaskAutomationList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: TaskAutomation[];
     }
@@ -22010,7 +22288,9 @@ export namespace Schemas {
 
     export interface PaginatedTaskList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Task[];
     }
@@ -22141,7 +22421,9 @@ export namespace Schemas {
 
     export interface PaginatedTaskRunDetailList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: TaskRunDetail[];
     }
@@ -22163,7 +22445,9 @@ export namespace Schemas {
 
     export interface PaginatedTaskSummaryList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: TaskSummary[];
     }
@@ -22193,7 +22477,9 @@ export namespace Schemas {
 
     export interface PaginatedTeamBasicList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: TeamBasic[];
     }
@@ -22210,7 +22496,9 @@ export namespace Schemas {
 
     export interface PaginatedThresholdWithAlertList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ThresholdWithAlert[];
     }
@@ -22355,7 +22643,9 @@ export namespace Schemas {
 
     export interface PaginatedTicketList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: Ticket[];
     }
@@ -22378,7 +22668,9 @@ export namespace Schemas {
 
     export interface PaginatedTicketViewList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: TicketView[];
     }
@@ -22397,7 +22689,9 @@ export namespace Schemas {
 
     export interface PaginatedToleratedHashEntryList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ToleratedHashEntry[];
     }
@@ -22457,7 +22751,9 @@ export namespace Schemas {
 
     export interface PaginatedTraceReviewList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: TraceReview[];
     }
@@ -22502,7 +22798,9 @@ export namespace Schemas {
 
     export interface PaginatedUserGitHubIntegrationListResponseList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: UserGitHubIntegrationListResponse[];
     }
@@ -22519,7 +22817,9 @@ export namespace Schemas {
 
     export interface PaginatedUserInterviewList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: UserInterview[];
     }
@@ -22673,7 +22973,9 @@ export namespace Schemas {
 
     export interface PaginatedUserList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: User[];
     }
@@ -22716,7 +23018,9 @@ export namespace Schemas {
 
     export interface PaginatedUserProductListList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: UserProductList[];
     }
@@ -22742,7 +23046,9 @@ export namespace Schemas {
 
     export interface PaginatedViewLinkList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: ViewLink[];
     }
@@ -22764,7 +23070,9 @@ export namespace Schemas {
 
     export interface PaginatedWebAnalyticsFilterPresetList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: WebAnalyticsFilterPreset[];
     }
@@ -22798,7 +23106,9 @@ export namespace Schemas {
 
     export interface PaginatedWebExperimentsAPIList {
       count: number;
+      /** @nullable */
       next?: string | null;
+      /** @nullable */
       previous?: string | null;
       results: WebExperimentsAPI[];
     }
@@ -25599,6 +25909,7 @@ export namespace Schemas {
     export type PatchedProjectBackwardCompatProductIntentsItem = {
       product_type?: string;
       created_at?: string;
+      /** @nullable */
       onboarding_completed_at?: string | null;
       updated_at?: string;
     };
@@ -28358,6 +28669,7 @@ export namespace Schemas {
     export type ProjectBackwardCompatProductIntentsItem = {
       product_type?: string;
       created_at?: string;
+      /** @nullable */
       onboarding_completed_at?: string | null;
       updated_at?: string;
     };
@@ -36108,6 +36420,7 @@ export namespace Schemas {
 
     export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;
+      /** @nullable */
       limit: number | null;
       at_limit: boolean;
     };
@@ -41150,6 +41463,7 @@ export namespace Schemas {
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;
+      /** @nullable */
       limit: number | null;
       at_limit: boolean;
     };

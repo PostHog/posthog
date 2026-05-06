@@ -54,7 +54,9 @@ export interface NotificationEventApi {
 
 export interface PaginatedNotificationEventListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: NotificationEventApi[]
 }

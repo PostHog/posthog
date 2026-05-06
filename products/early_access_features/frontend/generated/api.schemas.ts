@@ -127,7 +127,9 @@ export interface EarlyAccessFeatureApi {
 
 export interface PaginatedEarlyAccessFeatureListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: EarlyAccessFeatureApi[]
 }

@@ -46,7 +46,9 @@ export interface BatchImportApi {
 
 export interface PaginatedBatchImportListApi {
     count: number
+    /** @nullable */
     next?: string | null
+    /** @nullable */
     previous?: string | null
     results: BatchImportApi[]
 }
