@@ -83,7 +83,7 @@ def handle_workflow_rate_limited(
             target_id=target_id,
             resource_type=NotificationOnlyResourceType.WORKFLOW,
             resource_id=str(hog_flow_id),
-            source_url=f"/workflows/{hog_flow_id}/workflow",
+            source_url=f"/workflows/{hog_flow_id}/logs",
             source_type=SourceType.WORKFLOW,
             source_id=str(hog_flow_id),
         )

@@ -92,6 +92,14 @@ describe('NotificationService', () => {
         expect(mockRedisDel).toHaveBeenCalledWith('@posthog/notification/hog_flow/workflow_rate_limited/1/flow-123')
     })
 
+    it('should clear debounce key when Django returns a 500 response', async () => {
+        mockFetch.mockResolvedValue({ fetchError: null, fetchResponse: { status: 500 } })
+
+        await service.notify('hog_flow', payload)
+
+        expect(mockRedisDel).toHaveBeenCalledWith('@posthog/notification/hog_flow/workflow_rate_limited/1/flow-123')
+    })
+
     it('should not throw when Redis fails', async () => {
         mockRedisUseClient.mockRejectedValue(new Error('Redis down'))
 

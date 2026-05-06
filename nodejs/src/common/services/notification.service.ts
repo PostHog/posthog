@@ -65,7 +65,7 @@ export class NotificationService {
                     const urlTemplate = SCOPE_URL_MAP[scope]
                     const urlPath = urlTemplate.replace('{teamId}', String(payload.teamId))
 
-                    const { fetchError } = await this.internalFetchService.fetch({
+                    const { fetchError, fetchResponse } = await this.internalFetchService.fetch({
                         urlPath: urlPath as `/${string}`,
                         fetchParams: {
                             method: 'POST',
@@ -81,12 +81,16 @@ export class NotificationService {
                         },
                     })
 
-                    if (fetchError) {
+                    const failed = fetchError || (fetchResponse && fetchResponse.status >= 400)
+
+                    if (failed) {
                         // Delete debounce key so the next rate-limit hit retries delivery
                         await client.del(debounceKey)
-                        captureException(fetchError)
+                        const err = fetchError ?? new Error(`HTTP ${fetchResponse?.status}`)
+                        captureException(err)
                         logger.error('🔴', 'Failed to send notification, debounce key cleared', {
-                            err: fetchError,
+                            err,
+                            status: fetchResponse?.status,
                             scope,
                             type: payload.type,
                         })

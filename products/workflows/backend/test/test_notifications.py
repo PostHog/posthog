@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models.hog_flow.hog_flow import HogFlow
 
 from products.workflows.backend.services.notifications import handle_workflow_rate_limited
@@ -39,7 +41,7 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
         assert data.target_id == str(self.user.id)
         assert data.resource_type == "workflow"
         assert data.resource_id == str(hog_flow.id)
-        assert data.source_url == f"/workflows/{hog_flow.id}/workflow"
+        assert data.source_url == f"/workflows/{hog_flow.id}/logs"
         assert data.source_type == "workflow"
 
     @patch("products.workflows.backend.services.notifications.create_notification")
@@ -95,8 +97,15 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
 
         mock_create.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("normal_priority", {"priority": "normal"}, "priority", "normal"),
+            ("critical_priority", {"priority": "critical"}, "priority", "critical"),
+            ("target_team_type", {"target": "team"}, "target_type", "team"),
+        ]
+    )
     @patch("products.workflows.backend.services.notifications.create_notification")
-    def test_respects_normal_priority(self, mock_create):
+    def test_respects_priority_and_target_options(self, _name, kwargs, field, expected, mock_create):
         hog_flow = HogFlow.objects.create(
             team=self.team,
             name="My Workflow",
@@ -111,34 +120,11 @@ class TestHandleWorkflowRateLimited(APIBaseTest):
             hog_flow_id=str(hog_flow.id),
             hog_flow_name="My Workflow",
             created_by_id=self.user.id,
-            priority="normal",
+            **kwargs,
         )
 
         data = mock_create.call_args[0][0]
-        assert data.priority == "normal"
-
-    @patch("products.workflows.backend.services.notifications.create_notification")
-    def test_targets_team_when_requested(self, mock_create):
-        hog_flow = HogFlow.objects.create(
-            team=self.team,
-            name="My Workflow",
-            status="active",
-            created_by=self.user,
-            trigger={"type": "event", "filters": {}},
-            actions=[],
-        )
-
-        handle_workflow_rate_limited(
-            team_id=self.team.id,
-            hog_flow_id=str(hog_flow.id),
-            hog_flow_name="My Workflow",
-            created_by_id=self.user.id,
-            target="team",
-        )
-
-        data = mock_create.call_args[0][0]
-        assert data.target_type == "team"
-        assert data.target_id == str(self.team.id)
+        assert getattr(data, field) == expected
 
 
 @override_settings(INTERNAL_API_SECRET="test-secret")
@@ -198,6 +184,14 @@ class TestInternalNotifyEndpoint(APIBaseTest):
         response = self._post(data={"type": "unknown_type", "hog_flow_id": "abc"})
         assert response.status_code == 400
         assert "Unknown notification type" in response.json()["error"]
+
+    def test_rejects_invalid_team_id(self):
+        response = self._post(
+            team_id=999999,
+            data={"type": "workflow_rate_limited", "hog_flow_id": "abc"},
+        )
+        # Auth layer rejects before reaching view for non-existent teams
+        assert response.status_code in (401, 404)
 
     def test_rejects_unauthenticated_requests(self):
         url = self.INTERNAL_URL_TEMPLATE.format(team_id=self.team.id)
