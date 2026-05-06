@@ -22,16 +22,16 @@ const EveryHero: React.FC = () => {
 
 export const everyCampaign: CampaignConfig = {
     name: 'Every Goodie Bag',
-    heroTitle: '5x PostHog AI free allowance for 12 months',
+    heroTitle: '5x your free PostHog AI credits for 12 months',
     heroSubtitle: 'An exclusive PostHog offer for Every Goodie Bag annual subscribers',
     HeroImage: EveryHero,
     benefits: [
         {
-            title: '5x PostHog AI allowance',
+            title: '5x PostHog AI credits',
             description: 'Get 5x the standard monthly free allowance for PostHog AI after redeeming your code.',
         },
         {
-            title: '$2K credits for eligible PostHog organizations',
+            title: '$2K credits to spend across any product',
             description: `Organizations without paid invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} also receive $2K in PostHog credits.`,
         },
         {
