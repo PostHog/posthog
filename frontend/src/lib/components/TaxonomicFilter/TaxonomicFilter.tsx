@@ -59,6 +59,7 @@ export function TaxonomicFilter({
     hideSearchInput,
     searchQuery: controlledSearchQuery,
     enableKeywordShortcuts,
+    selectingKeyOnly,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -104,6 +105,7 @@ export function TaxonomicFilter({
         minSearchQueryLength,
         suggestedFiltersLabel: resolvedSuggestedFiltersLabel,
         enableKeywordShortcuts,
+        selectingKeyOnly,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -204,6 +206,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
+        markUserInteraction,
         recordPaste,
         moveUp,
         moveDown,
@@ -213,6 +216,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
     } = useActions(taxonomicFilterLogic)
 
     const _onChange = (query: string): void => {
+        // Only the input's onChange path counts as user interaction. The controlled-prop
+        // useEffect above also calls setSearchQuery directly, but that's programmatic and
+        // shouldn't unmute the `taxonomic filter closed` capture — keep this dispatch separate.
+        markUserInteraction()
         setTaxonomicSearchQuery(query)
         onChange?.(query)
     }

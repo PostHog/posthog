@@ -1,3 +1,4 @@
+import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
@@ -125,30 +126,39 @@ export function createExecTool(
 
                 case 'info': {
                     if (!rest) {
-                        throw new Error('Usage: info <tool_name>')
+                        throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, rest)
+                    const forceJson = rest.startsWith('--json ') || rest === '--json'
+                    const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    if (!infoArgs) {
+                        throw new Error('Usage: info [--json] <tool_name>')
+                    }
+                    const tool = findTool(allTools, infoArgs)
                     const fullSchema = z.toJSONSchema(tool.schema)
-                    const fullOutput = JSON.stringify({
+                    // YAML for the top shape, but inputSchema stays as a JSON
+                    // string dumped inside the YAML — JSON Schema is conventionally
+                    // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
+                    const serialize = (payload: Record<string, unknown>, schema: unknown): string => {
+                        if (forceJson) {
+                            return JSON.stringify({ ...payload, inputSchema: schema })
+                        }
+                        return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })
+                    }
+
+                    const topShape = {
                         name: tool.name,
                         title: tool.title,
                         description: tool.description,
                         annotations: tool.annotations,
-                        inputSchema: fullSchema,
-                    })
+                    }
+                    const fullOutput = serialize(topShape, fullSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
                         return fullOutput
                     }
 
                     // Schema too large — return summary with drill-down hints
-                    return JSON.stringify({
-                        name: tool.name,
-                        title: tool.title,
-                        description: tool.description,
-                        annotations: tool.annotations,
-                        inputSchema: summarizeSchema(fullSchema as Record<string, unknown>, tool.name),
-                    })
+                    return serialize(topShape, summarizeSchema(fullSchema as Record<string, unknown>, tool.name))
                 }
 
                 case 'schema': {

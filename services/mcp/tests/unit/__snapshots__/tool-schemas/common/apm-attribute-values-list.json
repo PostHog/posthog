@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "attribute_type": {
+            "description": "Type of attribute: \"span\" or \"resource\".\n\n* `span` - span\n* `resource` - resource",
+            "enum": ["span", "resource"],
+            "type": "string"
+        },
+        "key": {
+            "description": "The attribute key to get values for.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "description": "Max results (default: 100).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "description": "Pagination offset (default: 0).",
+            "minimum": 0,
+            "type": "number"
+        },
+        "value": {
+            "description": "Search filter for attribute values.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["key"],
+    "type": "object"
+}

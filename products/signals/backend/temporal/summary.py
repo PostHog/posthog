@@ -206,7 +206,10 @@ class SignalReportSummaryWorkflow:
                     report_id=inputs.report_id,
                     signals=fetch_result.signals,
                 ),
-                start_to_close_timeout=timedelta(minutes=30),
+                # Budget = heavy-cache warmup (cold, ≤1000 repos, rate-limit backoffs) +
+                # follower lock wait (≤20m) + agent poll window (≤30m). 45m fits all three.
+                start_to_close_timeout=timedelta(minutes=45),
+                heartbeat_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             if repo_result.repository is None:

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from posthog.models.group.group import Group
     from posthog.models.person import Person
     from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2, person_pb2
 
@@ -70,10 +71,32 @@ def proto_person_to_model(
         is_identified=person.is_identified,
         created_at=datetime.fromtimestamp(person.created_at / 1000, tz=UTC) if person.created_at else datetime.now(UTC),
         last_seen_at=datetime.fromtimestamp(person.last_seen_at / 1000, tz=UTC) if person.last_seen_at else None,
+        version=person.version if person.version is not None else 0,
     )
     if distinct_ids is not None:
         obj._distinct_ids = distinct_ids
     return obj
+
+
+def proto_group_to_model(group: group_pb2.Group) -> Group:
+    """Convert a proto Group to a Django Group model instance (unsaved)."""
+    from posthog.models.group.group import Group as GroupModel
+
+    return GroupModel(
+        id=group.id,
+        team_id=group.team_id,
+        group_type_index=group.group_type_index,
+        group_key=group.group_key,
+        group_properties=json.loads(group.group_properties) if group.group_properties else {},
+        created_at=datetime.fromtimestamp(group.created_at / 1000, tz=UTC) if group.created_at else datetime.now(UTC),
+        properties_last_updated_at=json.loads(group.properties_last_updated_at)
+        if group.properties_last_updated_at
+        else {},
+        properties_last_operation=json.loads(group.properties_last_operation)
+        if group.properties_last_operation
+        else {},
+        version=group.version,
+    )
 
 
 def fetch_group_type_mapping_result(project_id: int, group_type_index: int) -> GroupTypeMappingResult | None:

@@ -686,6 +686,36 @@ pub struct Config {
 
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
+
+    // Shadow-keyspace writer for reconciliation. Off by default.
+    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_ENABLED", default = "false")]
+    pub billing_aggregator_enabled: FlexBool,
+
+    // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
+    // rejects zero values at boot — see the module docs on
+    // `src/billing/aggregator.rs` for the durability trade-offs that hang
+    // off these knobs.
+    //
+    // How often the flusher drains the in-memory map (milliseconds). Must
+    // stay well below `CACHE_BUCKET_SIZE` (120s) so bucket rollover doesn't
+    // collapse counts. Also directly bounds the worst-case crash-loss
+    // window: a SIGKILL or OOM-kill past the shutdown grace period loses
+    // up to one interval of records per pod.
+    #[envconfig(from = "FLAGS_BILLING_FLUSH_INTERVAL_MS", default = "10000")]
+    pub billing_flush_interval_ms: u64,
+
+    // Safety cap on pending entries — tripwire, not a working-set estimate.
+    #[envconfig(from = "FLAGS_BILLING_MAX_PENDING_ENTRIES", default = "500000")]
+    pub billing_max_pending_entries: usize,
+
+    // Maximum `HIncrBy` commands per pipeline round-trip during a flush.
+    #[envconfig(from = "FLAGS_BILLING_PER_FLUSH_BATCH_SIZE", default = "200")]
+    pub billing_per_flush_batch_size: usize,
+
+    // Upper bound on the graceful-shutdown flush (milliseconds). Should stay
+    // comfortably within the pod's `terminationGracePeriodSeconds`.
+    #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
+    pub billing_shutdown_flush_timeout_ms: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -896,6 +926,11 @@ impl Config {
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
+            billing_aggregator_enabled: FlexBool(false),
+            billing_flush_interval_ms: 10_000,
+            billing_max_pending_entries: 500_000,
+            billing_per_flush_batch_size: 200,
+            billing_shutdown_flush_timeout_ms: 15_000,
         }
     }
 
