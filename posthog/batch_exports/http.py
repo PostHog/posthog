@@ -425,6 +425,12 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             "they live in the linked Integration. Secret fields are stripped from responses."
         ),
     )
+    integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="The integration for this destination.",
+    )
     integration_id = TeamScopedPrimaryKeyRelatedField(
         write_only=True,
         queryset=Integration.objects.all(),

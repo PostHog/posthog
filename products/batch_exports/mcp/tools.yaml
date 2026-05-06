@@ -36,6 +36,7 @@ tools:
             - hogql_query
             - start_at
             - end_at
+            - integration
     batch-export-delete:
         operation: batch_exports_destroy
         enabled: true
@@ -86,6 +87,7 @@ tools:
             - latest_runs
             - filters
             - hogql_query
+            - integration
     batch-exports-backfills-cancel-create:
         operation: batch_exports_backfills_cancel_create
         enabled: false
