@@ -117,9 +117,9 @@ describe('OverflowLaneOverflowRedirect', () => {
         })
     })
 
-    describe('shutdown', () => {
+    describe('stop', () => {
         it('completes without error', async () => {
-            await expect(service.shutdown()).resolves.toBeUndefined()
+            await expect(service.stop()).resolves.toBeUndefined()
         })
     })
 })

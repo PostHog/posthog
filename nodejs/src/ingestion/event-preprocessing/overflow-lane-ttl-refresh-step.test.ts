@@ -13,7 +13,8 @@ const createMockEvent = (token: string, distinctId: string, now?: Date): RateLim
 const createMockService = (): jest.Mocked<OverflowRedirectService> => ({
     handleEventBatch: jest.fn().mockResolvedValue(new Set()),
     healthCheck: jest.fn(),
-    shutdown: jest.fn(),
+    start: jest.fn(),
+    stop: jest.fn(),
 })
 
 describe('createOverflowLaneTTLRefreshStep', () => {

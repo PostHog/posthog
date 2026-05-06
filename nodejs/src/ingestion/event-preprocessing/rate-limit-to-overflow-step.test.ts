@@ -15,7 +15,8 @@ const createMockOverflowRedirectService = (
 ): jest.Mocked<OverflowRedirectService> => ({
     handleEventBatch: jest.fn().mockResolvedValue(keysToRedirect),
     healthCheck: jest.fn(),
-    shutdown: jest.fn(),
+    start: jest.fn(),
+    stop: jest.fn(),
 })
 
 describe('createRateLimitToOverflowStep', () => {

@@ -223,15 +223,15 @@ describe('MainLaneOverflowRedirect', () => {
         })
     })
 
-    describe('shutdown', () => {
+    describe('stop', () => {
         it('clears local cache', async () => {
             // Populate cache
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
             await service.handleEventBatch('events', [createBatch('token1', 'user1', 1)])
 
-            await service.shutdown()
+            await service.stop()
 
-            // After shutdown, cache should be cleared
+            // After stop, cache should be cleared
             // Next call should check repository again
             mockRepository.batchCheck.mockClear()
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', false]]))

@@ -205,7 +205,11 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         return this.redisRepository.healthCheck()
     }
 
-    shutdown(): Promise<void> {
+    start(): Promise<void> {
+        return Promise.resolve()
+    }
+
+    stop(): Promise<void> {
         this.localCache.clear()
         return Promise.resolve()
     }

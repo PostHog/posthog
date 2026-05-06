@@ -52,7 +52,12 @@ export class OverflowLaneOverflowRedirect implements OverflowRedirectService {
         return this.redisRepository.healthCheck()
     }
 
-    async shutdown(): Promise<void> {
+    start(): Promise<void> {
+        return Promise.resolve()
+    }
+
+    stop(): Promise<void> {
         // No local state to clean up in overflow lane implementation
+        return Promise.resolve()
     }
 }

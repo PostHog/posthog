@@ -357,9 +357,9 @@ export class ErrorTrackingConsumer {
             }
         }
 
-        // Shutdown overflow services
-        await this.overflowRedirectService?.shutdown()
-        await this.overflowLaneTTLRefreshService?.shutdown()
+        // Stop overflow services
+        await this.overflowRedirectService?.stop()
+        await this.overflowLaneTTLRefreshService?.stop()
 
         // Stop Hog transformer service
         await this.deps.hogTransformer.stop()

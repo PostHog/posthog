@@ -37,7 +37,9 @@ export interface OverflowRedirectService {
     healthCheck(): Promise<HealthCheckResult>
 
     /**
-     * Graceful shutdown
+     * Lifecycle hooks honored by the consumer builder. start() is called before
+     * the kafka consumer connects; stop() is called after disconnect.
      */
-    shutdown(): Promise<void>
+    start(): Promise<void>
+    stop(): Promise<void>
 }
