@@ -47,9 +47,8 @@ tools:
             idempotent: true
         title: Delete batch export
         description: >
-            Soft-delete a batch export. Stops all future scheduled runs and hides the export from
-            list and get operations. Historic run records remain attached to the deleted export in
-            the database.
+            Soft-delete a batch export. Stops all future scheduled runs and hides the export from list and get
+            operations. Historic run records remain attached to the deleted export in the database.
     batch-export-get:
         operation: batch_exports_retrieve
         enabled: true
