@@ -12,9 +12,6 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
-        },
-        "short_id": {
-            "type": "string"
         }
     },
     "type": "object"
