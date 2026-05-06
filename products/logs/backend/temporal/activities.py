@@ -628,10 +628,11 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
     except Exception as e:
         team_id = cohort.team_id
         cohort_size = len(cohort.alerts)
-        alert_ids = [str(a.id) for a in cohort.alerts]
 
         if cohort_size == 1:
             return _CohortQueryResult(per_alert={str(cohort.alerts[0].id): _PrefetchedQuery(error=e)})
+
+        alert_ids = [str(a.id) for a in cohort.alerts]
 
         classified = classify_alert_error(e)
         if classified.is_transient:
