@@ -531,7 +531,7 @@ def _run_data_imports_verification_checks(
             )
             continue
 
-        raw_value = row[0]
+        raw_value = typing.cast(str | bytes | int | float, row[0])
         try:
             observed = float(raw_value)
         except (TypeError, ValueError):
