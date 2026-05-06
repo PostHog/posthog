@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -33,15 +33,16 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
-from posthog.models.group.util import create_group, raw_create_group_ch
+from posthog.models.group.util import create_group, raw_create_group_ch, save_group
 from posthog.models.group_type_mapping import (
     GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
     GroupTypeMapping,
+    delete_group_type_mapping,
     invalidate_group_types_cache,
+    update_group_type_mapping_fields,
 )
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -122,7 +123,13 @@ class GroupsTypesViewSet(
             instance.team = self.team
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
-            serializer.save()
+            fields: dict[str, Any] = {}
+            if "name_singular" in serializer.validated_data:
+                fields["name_singular"] = serializer.validated_data["name_singular"]
+            if "name_plural" in serializer.validated_data:
+                fields["name_plural"] = serializer.validated_data["name_plural"]
+            if fields:
+                update_group_type_mapping_fields(instance, fields=fields, operation="group_type_update_metadata")
 
         invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
@@ -143,13 +150,17 @@ class GroupsTypesViewSet(
             )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
+        update_group_type_mapping_fields(
+            group_type_mapping,
+            fields={"detail_dashboard_id": dashboard.id},
+            operation="group_type_create_detail_dashboard",
+        )
         group_type_mapping.detail_dashboard_id = dashboard.id
-        group_type_mapping.save()
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
     def perform_destroy(self, instance):
-        super().perform_destroy(instance)
+        delete_group_type_mapping(instance)
         invalidate_group_types_cache(self.team.project_id)
 
     @action(methods=["PUT"], detail=False)
@@ -161,8 +172,12 @@ class GroupsTypesViewSet(
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
 
+        update_group_type_mapping_fields(
+            group_type_mapping,
+            fields={"default_columns": request.data["default_columns"]},
+            operation="group_type_set_default_columns",
+        )
         group_type_mapping.default_columns = request.data["default_columns"]
-        group_type_mapping.save()
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
@@ -238,44 +253,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         return get_object_or_404(queryset)
 
     def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
-        from posthog.personhog_client.converters import fetch_group_type_mapping_result
-        from posthog.personhog_client.gate import use_personhog
+        from posthog.models.group_type_mapping import get_group_types_for_project
 
-        if use_personhog():
-            try:
-                result = fetch_group_type_mapping_result(self.team.project_id, group_type_index)
-                if result is not None:
-                    PERSONHOG_ROUTING_TOTAL.labels(
-                        operation="get_group_type_mapping_or_404", source="personhog", client_name=get_client_name()
-                    ).inc()
-                    return result
-                raise NotFound()
-            except NotFound:
-                raise
-            except Exception:
-                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                    operation="get_group_type_mapping_or_404",
-                    source="personhog",
-                    error_type="grpc_error",
-                    client_name=get_client_name(),
-                ).inc()
-                logger.warning(
-                    "personhog_group_type_mapping_failure",
-                    project_id=self.team.project_id,
-                    group_type_index=group_type_index,
-                    exc_info=True,
-                )
-
-        try:
-            obj = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
-                project_id=self.team.project_id, group_type_index=group_type_index
-            )  # nosemgrep: no-direct-persons-db-orm
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_group_type_mapping_or_404", source="django_orm", client_name=get_client_name()
-            ).inc()
-            return GroupTypeMappingResult(group_type=obj.group_type, group_type_index=obj.group_type_index)
-        except GroupTypeMapping.DoesNotExist:
-            raise NotFound()
+        for m in get_group_types_for_project(self.team.project_id):
+            if m["group_type_index"] == group_type_index:
+                return GroupTypeMappingResult(group_type=m["group_type"], group_type_index=m["group_type_index"])
+        raise NotFound()
 
     def trigger_group_identify(self, group: Group, operation: str, group_properties: Optional[dict] = None):
         group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
@@ -487,7 +470,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             create_or_update = "update" if property_key in group.group_properties else "create"
             original_value = group.group_properties.get(property_key, None)
             group.group_properties[property_key] = property_value
-            group.save()
+            save_group(group, operation="group_update_property")
 
             create_property_definition(
                 team_id=self.team.pk,
@@ -570,7 +553,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
             original_value = group.group_properties[property_key]
             del group.group_properties[property_key]
-            group.save()
+            save_group(group, operation="group_delete_property")
 
             # Need to update ClickHouse too
             timestamp = timezone.now()

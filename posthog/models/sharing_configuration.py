@@ -34,6 +34,13 @@ class SharingConfiguration(models.Model):
         null=True,
         blank=True,
     )
+    notebook = models.ForeignKey(
+        "notebooks.Notebook",
+        related_name="sharing_configurations",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
@@ -62,6 +69,7 @@ class SharingConfiguration(models.Model):
             dashboard=self.dashboard,
             insight=self.insight,
             recording=self.recording,
+            notebook=self.notebook,
             enabled=self.enabled,
             settings=self.settings,
             password_required=self.password_required,
@@ -115,10 +123,10 @@ class SharingConfiguration(models.Model):
         if obj.team_id != self.team_id:  # type: ignore
             return False
 
-        if obj._meta.object_name == "Insight" and self.dashboard:
+        if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
             return cast(Insight, obj).id in self.get_connected_insight_ids()
 
-        for comparison in [self.insight, self.dashboard, self.recording]:
+        for comparison in [self.insight, self.dashboard, self.recording, self.notebook]:
             if comparison and comparison == obj:
                 return True
 
@@ -134,4 +142,21 @@ class SharingConfiguration(models.Model):
                 return []
             # Check whether this sharing configuration's dashboard contains this insight
             return list(self.dashboard.tiles.exclude(insight__deleted=True).values_list("insight__id", flat=True))
+        elif self.notebook:
+            # Recompute on every call so that edits to the notebook automatically grant/revoke access
+            # to the insights it embeds. Mirrors dashboard semantics.
+            from products.notebooks.backend.util import extract_referenced_insight_short_ids
+
+            if self.notebook.deleted:
+                return []
+            short_ids = extract_referenced_insight_short_ids(self.notebook.content)
+            if not short_ids:
+                return []
+            return list(
+                Insight.objects.filter(
+                    team=self.team,
+                    short_id__in=short_ids,
+                    deleted=False,
+                ).values_list("id", flat=True)
+            )
         return []

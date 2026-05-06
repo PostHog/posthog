@@ -105,6 +105,10 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         ),
     repository: zod.string().max(tasksCreateBodyRepositoryMax).nullish(),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
+    github_user_integration: zod
+        .uuid()
+        .nullish()
+        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
     signal_report: zod.uuid().nullish(),
     signal_report_task_relationship: zod
         .enum(['implementation'])
@@ -149,6 +153,10 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
         ),
     repository: zod.string().max(tasksUpdateBodyRepositoryMax).nullish(),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
+    github_user_integration: zod
+        .uuid()
+        .nullish()
+        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
     signal_report: zod.uuid().nullish(),
     signal_report_task_relationship: zod
         .enum(['implementation'])
@@ -193,6 +201,10 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     repository: zod.string().max(tasksPartialUpdateBodyRepositoryMax).nullish(),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
+    github_user_integration: zod
+        .uuid()
+        .nullish()
+        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
     signal_report: zod.uuid().nullish(),
     signal_report_task_relationship: zod
         .enum(['implementation'])
@@ -890,5 +902,20 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.'
+        ),
+})
+
+/**
+ * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * @summary Fetch task summaries by ID
+ */
+export const tasksSummariesCreateBodyIdsMax = 5000
+
+export const TasksSummariesCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(tasksSummariesCreateBodyIdsMax)
+        .describe(
+            'Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.'
         ),
 })

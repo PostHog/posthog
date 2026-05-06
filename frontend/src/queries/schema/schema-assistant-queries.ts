@@ -435,9 +435,13 @@ export interface AssistantBreakdownFilter {
 export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter {
     /**
      * Use this field to define breakdowns.
-     * @maxLength 3
+     * @maxItems 3
      */
     breakdowns: AssistantMultipleBreakdownFilter[]
+    /**
+     * When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.
+     */
+    breakdown_path_cleaning?: boolean
 }
 
 // Remove deprecated display types.
@@ -634,7 +638,28 @@ export interface AssistantFunnelsActionsNode extends Omit<Node, 'response'>, Ass
     name: string
 }
 
-export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode
+/**
+ * Defines a funnel step that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave"
+ * counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each
+ * event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported
+ * on grouped steps.
+ */
+export interface AssistantFunnelsGroupNode {
+    kind: NodeKind.GroupNode
+    /** Only `OR` is supported. */
+    operator: FilterLogicalOperator.Or
+    /**
+     * Events and actions combined into the step. Use per-node `properties` to filter each event;
+     * there is no step-wide filter on a grouped step.
+     * @minItems 2
+     */
+    nodes: (AssistantFunnelsEventsNode | AssistantFunnelsActionsNode)[]
+    /** Display name for the combined step. */
+    name?: string
+    custom_name?: string
+}
+
+export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode
 
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
@@ -1183,7 +1208,7 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 
     /**
      * Event or action to analyze. Lifecycle insights only support a single series.
-     * @maxLength 1
+     * @maxItems 1
      */
     series: AssistantLifecycleSeriesNode[]
 
@@ -1423,9 +1448,21 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
 
+export interface AssistantDataVisualizationAxisDisplaySettings {
+    /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
+    yAxisPosition?: 'left' | 'right'
+}
+
+export interface AssistantDataVisualizationAxisSettings {
+    /** Display settings for a plotted Y series. */
+    display?: AssistantDataVisualizationAxisDisplaySettings
+}
+
 export interface AssistantDataVisualizationAxis {
     /** Name of a column returned by the SQL query to map onto this axis. */
     column: string
+    /** Optional series settings. Only applies to Y-axis series. */
+    settings?: AssistantDataVisualizationAxisSettings
 }
 
 export interface AssistantDataVisualizationGoalLine {
@@ -1435,11 +1472,30 @@ export interface AssistantDataVisualizationGoalLine {
     value: number
 }
 
+export interface AssistantDataVisualizationYAxisSettings {
+    /** Label rendered beside this Y axis. */
+    label?: string
+    /** Scale used for this Y axis. */
+    scale?: 'linear' | 'logarithmic'
+    /** Whether this Y axis should start at zero. */
+    startAtZero?: boolean
+    /** Show tick labels on this Y axis. */
+    showTicks?: boolean
+    /** Show grid lines for this Y axis. */
+    showGridLines?: boolean
+}
+
 export interface AssistantDataVisualizationChartSettings {
     /** Column used as the X axis. Typically a time bucket or categorical column. */
     xAxis?: AssistantDataVisualizationAxis
+    /** Label rendered under the X axis. */
+    xAxisLabel?: string
     /** One or more numeric columns plotted as Y series. */
     yAxis?: AssistantDataVisualizationAxis[]
+    /** Settings for the left Y axis. */
+    leftYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`. */
+    rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
     /**
      * Column that splits a single Y series into multiple colored series — e.g. breaking down
      * a line chart by `country`. Set to `null` or omit to disable.

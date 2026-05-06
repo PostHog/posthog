@@ -1,0 +1,108 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "The services aggregation query to execute.",
+            "properties": {
+                "dateRange": {
+                    "description": "Date range for the services aggregation. Defaults to last hour.",
+                    "properties": {
+                        "date_from": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc."
+                        },
+                        "date_to": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                        }
+                    },
+                    "type": "object"
+                },
+                "filterGroup": {
+                    "description": "Property filters for the query.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Attribute key. For type \"log\", use \"message\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                                "type": "string"
+                            },
+                            "operator": {
+                                "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "lt",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "is_set",
+                                    "is_not_set"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "description": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+                                "enum": ["log", "log_attribute", "log_resource_attribute"],
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {},
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators."
+                            }
+                        },
+                        "required": ["key", "type", "operator"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "searchTerm": {
+                    "description": "Full-text search term to filter log bodies.",
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "description": "Restrict the aggregation to these service names.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "description": "Filter by log severity levels.",
+                    "items": {
+                        "description": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+                        "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

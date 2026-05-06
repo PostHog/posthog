@@ -19,7 +19,9 @@ import {
     mockGetEventDefinitions,
     mockGetPropertyDefinitions,
 } from '~/test/mocks'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
 
@@ -439,6 +441,62 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    describe('`taxonomic filter closed` capture', () => {
+        // The TaxonomicFilter logic mounts in many contexts where the picker isn't visibly opened
+        // (popovers that render before the popover opens, side panels tied to scene lifecycle...).
+        // Without gating, every involuntary mount/unmount fires the close event with
+        // hadSelection=false and inflates the abandonment metric. These tests pin the gate.
+        it('does not fire when the logic mounts and unmounts with no user interaction', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const { unmount } = renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            unmount()
+
+            const closedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter closed')
+            expect(closedCalls).toHaveLength(0)
+        })
+
+        it.each([
+            {
+                name: 'fires when the user typed in the search input before closing',
+                interact: async () => {
+                    await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
+                },
+                expected: { hadSelection: false },
+            },
+            {
+                name: 'fires when the user selected an item before closing',
+                interact: async () => {
+                    await userEvent.click(screen.getByTestId('prop-filter-events-0'))
+                },
+                expected: { hadSelection: true },
+            },
+        ])('$name', async ({ interact, expected }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const { unmount } = renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            await interact()
+
+            unmount()
+
+            const closedCall = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter closed')
+            expect(closedCall).not.toBeUndefined()
+            expect(closedCall?.[1]).toMatchObject({
+                ...expected,
+                dwellMs: expect.any(Number),
+                groupType: expect.any(String),
+            })
+        })
+    })
+
     describe('keyboard navigation', () => {
         it('search narrows results and arrow down + enter selects from filtered list', async () => {
             renderFilter()
@@ -820,8 +878,8 @@ describe('TaxonomicFilter', () => {
             },
             {
                 eventNames: ['$pageview'],
-                // Pageview's taxonomy promoted property ($pathname) bubbles up here so the
-                // user can filter by what the team has chosen to promote for that event.
+                // Pageview's taxonomy primary property ($pathname) bubbles up here so the
+                // user can filter by the property the team chose to highlight for that event.
                 expectedItems: ['Path name'],
             },
         ])(
@@ -1133,6 +1191,120 @@ describe('TaxonomicFilter', () => {
             expect(parseInt(podIdx.split('-').pop() as string)).toBeLessThan(
                 parseInt(deploymentIdx.split('-').pop() as string)
             )
+        })
+    })
+
+    describe('excludedOperators', () => {
+        const seedRecents = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 1,
+                item: { name: 'Power Users' },
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 1,
+                    operator: PropertyOperator.In,
+                    cohort_name: 'Power Users',
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 2,
+                item: { name: 'Trial Users' },
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 2,
+                    operator: PropertyOperator.NotIn,
+                    cohort_name: 'Trial Users',
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: '$browser',
+                item: { name: '$browser' },
+                propertyFilter: {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                },
+            })
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/cohorts/': { results: [], next: null, count: 0 },
+                    '/api/projects/:team/actions': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+            localStorage.clear()
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.clearRecentFilters()
+            seedRecents()
+        })
+
+        it.each([
+            {
+                name: 'hides cohort recents whose operator is denylisted but keeps other recents',
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
+                expectInRecent: ['User in Power Users', 'Browser = Chrome'],
+                expectNotInRecent: ['User not in Trial Users'],
+            },
+            {
+                name: 'keeps every recent when no operators are denylisted',
+                excludedOperators: undefined,
+                expectInRecent: ['User in Power Users', 'User not in Trial Users', 'Browser = Chrome'],
+                expectNotInRecent: [],
+            },
+        ])('$name', async ({ excludedOperators, expectInRecent, expectNotInRecent }) => {
+            render(
+                <Provider>
+                    <TaxonomicFilter
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.EventProperties,
+                        ]}
+                        excludedOperators={excludedOperators}
+                        onChange={onChangeMock}
+                        onClose={onCloseMock}
+                    />
+                </Provider>
+            )
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            const recentRowText = (): string =>
+                Array.from(document.querySelectorAll('[data-attr^="prop-filter-recent_filters-"]'))
+                    .map((el) => el.textContent ?? '')
+                    .join('||')
+
+            await waitFor(() => {
+                for (const expected of expectInRecent) {
+                    expect(recentRowText()).toContain(expected)
+                }
+            })
+
+            const allText = recentRowText()
+            for (const forbidden of expectNotInRecent) {
+                expect(allText).not.toContain(forbidden)
+            }
         })
     })
 })

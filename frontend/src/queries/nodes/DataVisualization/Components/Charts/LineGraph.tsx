@@ -34,7 +34,6 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { createXAxisTickCallback } from 'lib/hog-charts'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { hexToRGBA, uuid } from 'lib/utils'
 import { unpinTooltip, useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
@@ -68,11 +67,18 @@ const isAreaSeries = (chartType: ChartDisplayType, settings: AxisSeriesSettings 
     return chartType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
 }
 
+const axisLabelFont = {
+    family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+    size: 12,
+    weight: 'normal' as const,
+}
+
 const getYAxisSettings = (
     chartSettings: ChartSettings,
     settings: YAxisSettings | undefined,
     stacked: boolean,
     position: 'left' | 'right',
+    axisLabelColor: string | null,
     tickOptions: Partial<TickOptions>,
     gridOptions: Partial<GridLineOptions>
 ): ScaleOptionsByType<ChartTypeRegistry['line']['scales']> => {
@@ -86,6 +92,12 @@ const getYAxisSettings = (
         stacked: stacked,
         grid: mixedGridOptions,
         position,
+        title: {
+            display: !!settings?.label,
+            text: settings?.label ?? '',
+            color: axisLabelColor ?? undefined,
+            font: axisLabelFont,
+        },
         border: {
             display: chartSettings.showYAxisBorder ?? true,
         },
@@ -137,8 +149,6 @@ export const LineGraph = ({
     const { tooltipId, getTooltip, showTooltip, hideTooltip, positionTooltip, pinTooltip } = useInsightTooltip({
         isPinnable: true,
     })
-
-    const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
     const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
@@ -651,6 +661,12 @@ export const LineGraph = ({
                         border: {
                             display: chartSettings.showXAxisBorder ?? true,
                         },
+                        title: {
+                            display: !!chartSettings.xAxisLabel,
+                            text: chartSettings.xAxisLabel ?? '',
+                            color: colors.axisLabel ?? undefined,
+                            font: axisLabelFont,
+                        },
                     },
                     ...(hasLeftYAxis
                         ? {
@@ -659,6 +675,7 @@ export const LineGraph = ({
                                   chartSettings.leftYAxisSettings,
                                   isAreaChart || isStackedBarChart,
                                   'left',
+                                  colors.axisLabel,
                                   tickOptions,
                                   gridOptions
                               ),
@@ -671,6 +688,7 @@ export const LineGraph = ({
                                   chartSettings.rightYAxisSettings,
                                   isAreaChart || isStackedBarChart,
                                   'right',
+                                  colors.axisLabel,
                                   tickOptions,
                                   gridOptions
                               ),
@@ -703,21 +721,12 @@ export const LineGraph = ({
 
     return (
         <div
-            className={clsx(className, 'rounded bg-surface-primary relative flex flex-1 flex-col', {
+            className={clsx(className, 'rounded bg-surface-primary w-full grow relative overflow-hidden', {
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,
             })}
-            ref={containerRef}
         >
-            <div
-                className={clsx('flex flex-1 w-full overflow-hidden', {
-                    'h-full': !presetChartHeight,
-                })}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={height ? { height: `${height}px` } : {}}
-            >
-                <canvas ref={canvasRef} />
-            </div>
+            <canvas ref={canvasRef} />
         </div>
     )
 }

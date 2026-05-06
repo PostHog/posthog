@@ -104,6 +104,74 @@ class TestCustomerIOSourceCreateWebhook:
         assert set(kwargs["resource_names"]) == set(RESOURCE_TO_CIO_OBJECT_TYPE.keys())
 
 
+class TestCustomerIOSourceWebhookInputsUpdated:
+    @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.enable_webhook")
+    def test_enables_webhook_when_signing_secret_is_provided(self, mock_enable):
+        mock_enable.return_value = (True, None)
+        source = CustomerIOSource()
+
+        success, error = source.webhook_inputs_updated(
+            _config(app_api_key="key", region="eu"),
+            "https://example.com/h",
+            team_id=1,
+            inputs={"signing_secret": "shh"},
+        )
+
+        assert success is True
+        assert error is None
+        mock_enable.assert_called_once_with("key", "eu", "https://example.com/h")
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.enable_webhook")
+    def test_skips_enable_when_signing_secret_is_missing(self, mock_enable):
+        source = CustomerIOSource()
+
+        success, error = source.webhook_inputs_updated(
+            _config(app_api_key="key", region="us"),
+            "https://example.com/h",
+            team_id=1,
+            inputs={},
+        )
+
+        assert success is True
+        assert error is None
+        mock_enable.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.enable_webhook")
+    def test_skips_enable_when_signing_secret_is_empty(self, mock_enable):
+        source = CustomerIOSource()
+
+        success, error = source.webhook_inputs_updated(
+            _config(app_api_key="key", region="us"),
+            "https://example.com/h",
+            team_id=1,
+            inputs={"signing_secret": ""},
+        )
+
+        assert success is True
+        assert error is None
+        mock_enable.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.enable_webhook")
+    def test_propagates_failure_from_enable_webhook(self, mock_enable):
+        # If the upstream call fails (e.g. Customer.io returns a 401, or the
+        # webhook record is missing), the failure must surface to the caller so
+        # the API view can return a non-200 response — silently dropping the
+        # error would leave the webhook disabled with no user-visible signal.
+        mock_enable.return_value = (False, "Customer.io rejected the App API Key (401).")
+        source = CustomerIOSource()
+
+        success, error = source.webhook_inputs_updated(
+            _config(app_api_key="key", region="us"),
+            "https://example.com/h",
+            team_id=1,
+            inputs={"signing_secret": "shh"},
+        )
+
+        assert success is False
+        assert error == "Customer.io rejected the App API Key (401)."
+        mock_enable.assert_called_once_with("key", "us", "https://example.com/h")
+
+
 class TestCustomerIOSourceDeleteWebhook:
     @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.delete_webhook")
     def test_delegates_to_api_client(self, mock_delete):

@@ -299,7 +299,6 @@ class TestGetGitIdentityEnvVars(TestCase):
 
     @parameterized.expand(
         [
-            (Task.OriginProduct.SLACK,),
             (Task.OriginProduct.ERROR_TRACKING,),
             (Task.OriginProduct.SUPPORT_QUEUE,),
             (Task.OriginProduct.EVAL_CLUSTERS,),
@@ -310,6 +309,17 @@ class TestGetGitIdentityEnvVars(TestCase):
         user = self._make_user()
         task = self._make_task(origin_product, user=user)
         assert get_git_identity_env_vars(task) == {}
+
+    def test_slack_task_returns_user_identity(self) -> None:
+        user = self._make_user(first_name="Slack", last_name="User", email="slack@example.com")
+        task = self._make_task(Task.OriginProduct.SLACK, user=user)
+        result = get_git_identity_env_vars(task)
+        assert result == {
+            "GIT_AUTHOR_NAME": "Slack User",
+            "GIT_AUTHOR_EMAIL": "slack@example.com",
+            "GIT_COMMITTER_NAME": "Slack User",
+            "GIT_COMMITTER_EMAIL": "slack@example.com",
+        }
 
     def test_user_created_without_user_returns_empty(self) -> None:
         task = self._make_task(Task.OriginProduct.USER_CREATED, user=None)
@@ -335,8 +345,9 @@ class TestGetSandboxGitHubToken(TestCase):
         [
             ("cached_token_wins", "ghu_cached", True, "ghu_user", None, "ghu_cached"),
             ("identity_token", None, True, "ghu_user", None, "ghu_user"),
-            ("missing_identity", None, False, None, "missing", None),
-            ("identity_requires_reauthorization", None, True, None, "reauthorization", None),
+            ("missing_identity_falls_back_to_team_token", None, False, None, "missing", "ghs_team"),
+            ("identity_reauthorization_falls_back_to_team_token", None, True, None, "reauthorization", "ghs_team"),
+            ("identity_without_token_falls_back_to_team_token", None, True, None, "empty_token", "ghs_team"),
         ]
     )
     @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
@@ -365,32 +376,64 @@ class TestGetSandboxGitHubToken(TestCase):
             identity.get_usable_user_access_token.return_value = identity_token
         mock_get_identity.return_value = identity if has_identity else None
 
-        if error_case:
-            with self.assertRaises(ReauthorizationRequired):
-                get_sandbox_github_token(
-                    123,
-                    run_id="run-1",
-                    state={"pr_authorship_mode": "user"},
-                    created_by=creator,
-                )
-        else:
-            result = get_sandbox_github_token(
-                123,
-                run_id="run-1",
-                state={"pr_authorship_mode": "user"},
-                created_by=creator,
-            )
-            assert result == expected_token
+        mock_get_github_token.return_value = expected_token
+        result = get_sandbox_github_token(
+            123,
+            run_id="run-1",
+            state={"pr_authorship_mode": "user"},
+            created_by=creator,
+        )
+        assert result == expected_token
 
         mock_cached.assert_called_once_with("run-1")
         if cached_token:
             mock_get_identity.assert_not_called()
             identity.get_usable_user_access_token.assert_not_called()
         else:
-            mock_get_identity.assert_called_once_with(creator)
+            mock_get_identity.assert_called_once_with(
+                creator,
+                github_user_integration_id=None,
+                repository=None,
+                allow_refresh=True,
+            )
             if has_identity:
                 identity.get_usable_user_access_token.assert_called_once()
-        mock_get_github_token.assert_not_called()
+        if error_case in ("missing", "reauthorization", "empty_token"):
+            mock_get_github_token.assert_called_once_with(123)
+        else:
+            mock_get_github_token.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("reauthorization",),
+            ("empty_token",),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    def test_user_authorship_requires_reauthorization_without_team_fallback(
+        self,
+        error_case: str,
+        mock_get_identity: MagicMock,
+        mock_cached: MagicMock,
+    ) -> None:
+        from posthog.models.user_integration import ReauthorizationRequired
+
+        mock_cached.return_value = None
+        identity = MagicMock()
+        if error_case == "reauthorization":
+            identity.get_usable_user_access_token.side_effect = ReauthorizationRequired("reauthorize GitHub")
+        else:
+            identity.get_usable_user_access_token.return_value = None
+        mock_get_identity.return_value = identity
+
+        with self.assertRaises(ReauthorizationRequired):
+            get_sandbox_github_token(
+                None,
+                run_id="run-1",
+                state={"pr_authorship_mode": "user"},
+                created_by=MagicMock(name="creator"),
+            )
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_bot_authorship_uses_installation_token(self, mock_get_github_token) -> None:
