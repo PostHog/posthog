@@ -112,7 +112,6 @@ jobs:
                       # Inputs to `pnpm --filter=@posthog/frontend schema:build:json`
                       # (ts-json-schema-generator over schema.ts → schema.json + validators.js).
                       query_schema:
-                        - 'frontend/src/queries/schema.ts'
                         - 'frontend/src/queries/schema/**'
                         - 'frontend/src/queries/schema.json'
                         - 'frontend/src/queries/validators.js'
