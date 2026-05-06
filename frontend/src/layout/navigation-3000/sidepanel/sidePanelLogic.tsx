@@ -1,7 +1,11 @@
 import { connect, kea, path, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -38,6 +42,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isCloudOrDev'],
             userLogic,
             ['hasAvailableFeature'],
+            featureFlagLogic,
+            ['featureFlags'],
+            sceneLogic,
+            ['sceneId'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     })),
@@ -89,10 +97,26 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             },
         ],
 
+        /** Whether the side panel should be hidden for the current scene */
+        sidePanelHiddenForScene: [
+            (s) => [s.sceneId, s.featureFlags],
+            (sceneId, featureFlags): boolean => {
+                // Hide side panel on launchpad homepage
+                if (sceneId === Scene.ProjectHomepage && featureFlags[FEATURE_FLAGS.AI_FIRST]) {
+                    return true
+                }
+                return false
+            },
+        ],
+
         /** Tabs shown in the navigation bar */
         visibleTabs: [
-            (s) => [s.enabledTabs],
-            (enabledTabs): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.sidePanelHiddenForScene],
+            (enabledTabs, sidePanelHiddenForScene): SidePanelTab[] => {
+                // Hide side panel entirely on launchpad homepage
+                if (sidePanelHiddenForScene) {
+                    return []
+                }
                 // Some tabs are openable programmatically but not shown in the nav bar
                 const hiddenTabs = [SidePanelTab.Exports]
                 return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
