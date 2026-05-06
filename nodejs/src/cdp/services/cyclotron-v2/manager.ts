@@ -2,7 +2,7 @@ import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../../utils/logger'
-import { CyclotronV2JobInit, CyclotronV2ManagerConfig } from './types'
+import { CyclotronV2JobInit, CyclotronV2JobInitSchema, CyclotronV2ManagerConfig } from './types'
 
 export class CyclotronV2Manager {
     private pool: Pool
@@ -26,7 +26,8 @@ export class CyclotronV2Manager {
         client.release()
     }
 
-    async createJob(job: CyclotronV2JobInit): Promise<string> {
+    async createJob(input: CyclotronV2JobInit): Promise<string> {
+        const job = CyclotronV2JobInitSchema.parse(input)
         await this.insertGuard()
 
         const id = job.id ?? uuidv7()
@@ -57,10 +58,12 @@ export class CyclotronV2Manager {
         return id
     }
 
-    async bulkCreateJobs(jobs: CyclotronV2JobInit[]): Promise<string[]> {
-        if (jobs.length === 0) {
+    async bulkCreateJobs(inputs: CyclotronV2JobInit[]): Promise<string[]> {
+        if (inputs.length === 0) {
             return []
         }
+
+        const jobs = inputs.map((input) => CyclotronV2JobInitSchema.parse(input))
 
         await this.insertGuard()
 

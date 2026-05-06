@@ -264,6 +264,23 @@ describe('Cyclotron V2', () => {
                 await smallManager.disconnect()
             }
         })
+
+        it('createJob rejects non-UUID personId before reaching the database', async () => {
+            await expect(manager.createJob({ teamId: 1, queueName: QUEUE, personId: 'not-a-uuid' })).rejects.toThrow(
+                /uuid/i
+            )
+        })
+
+        it('bulkCreateJobs rejects non-UUID values without writing any rows', async () => {
+            const before = await totalJobCount()
+            await expect(
+                manager.bulkCreateJobs([
+                    { teamId: 1, queueName: QUEUE, personId: uuidv7() },
+                    { teamId: 1, queueName: QUEUE, personId: 'bad-uuid' as any },
+                ])
+            ).rejects.toThrow(/uuid/i)
+            expect(await totalJobCount()).toBe(before)
+        })
     })
 
     // ── Worker ───────────────────────────────────────────────────────
@@ -391,6 +408,23 @@ describe('Cyclotron V2', () => {
 
             const row = await queryJob(id)
             expect(row.action_id).toBe('step-a')
+        })
+
+        it('dequeued job exposes distinctId, personId, and actionId', async () => {
+            const personId = uuidv7()
+            const { job } = await seedAndDequeue({
+                distinctId: 'd-on-job',
+                personId,
+                actionId: 'a-on-job',
+            })
+            expect(job.distinctId).toBe('d-on-job')
+            expect(job.personId).toBe(personId)
+            expect(job.actionId).toBe('a-on-job')
+        })
+
+        it('reschedule rejects non-UUID personId before reaching the database', async () => {
+            const { job } = await seedAndDequeue()
+            await expect(job.reschedule({ personId: 'bad-uuid' as any })).rejects.toThrow(/uuid/i)
         })
 
         it('reschedule({ distinctId }) updates distinct_id column', async () => {
