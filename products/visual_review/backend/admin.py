@@ -14,6 +14,15 @@ ever seen. The admin classes below are tuned accordingly:
 - `list_select_related` is set so list views don't N+1 across FKs.
 - Read-only by default — these rows are written by ingestion / diff
   pipelines and should not be hand-edited.
+
+Registration: this module deliberately does not use `@admin.register(...)`.
+visual_review is an isolated product (per `tach.toml` interfaces), and the
+central admin wiring in `posthog/admin/__init__.py` discovers this module via
+`importlib.import_module(string)` and reads `ADMIN_REGISTRATIONS` to do the
+`admin.site.register(...)` calls itself. Going through `admin.site` from this
+side rather than the decorator avoids the django.contrib.admin.sites.site /
+package re-export mismatch that breaks `patch.object(admin, "site", ...)` in
+`posthog/admin/test_admin.py`.
 """
 
 from typing import Any
@@ -97,7 +106,6 @@ class RepoAdmin(admin.ModelAdmin):
         return f"{len(keys)} key(s); active kid: {max(keys)}"
 
 
-@admin.register(Artifact)
 class ArtifactAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -187,7 +195,6 @@ class RunSnapshotInline(admin.TabularInline):
         return False
 
 
-@admin.register(Run)
 class RunAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -315,7 +322,6 @@ class RunAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', url, run.approved_by_id)
 
 
-@admin.register(RunSnapshot)
 class RunSnapshotAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -457,7 +463,6 @@ class RunSnapshotAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', url, snapshot.reviewed_by_id)
 
 
-@admin.register(ToleratedHash)
 class ToleratedHashAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -535,7 +540,6 @@ class ToleratedHashAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', url, hash_obj.created_by_id)
 
 
-@admin.register(QuarantinedIdentifier)
 class QuarantinedIdentifierAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -600,3 +604,15 @@ class QuarantinedIdentifierAdmin(admin.ModelAdmin):
             return "—"
         url = reverse("admin:posthog_user_change", args=[q.created_by_id])
         return format_html('<a href="{}">{}</a>', url, q.created_by_id)
+
+
+# Read by `posthog.admin._import_self_registering_product_admins`. Order is
+# preserved as the registration order, which determines admin sidebar order.
+ADMIN_REGISTRATIONS: tuple[tuple[type, type[admin.ModelAdmin]], ...] = (
+    (Repo, RepoAdmin),
+    (Artifact, ArtifactAdmin),
+    (Run, RunAdmin),
+    (RunSnapshot, RunSnapshotAdmin),
+    (ToleratedHash, ToleratedHashAdmin),
+    (QuarantinedIdentifier, QuarantinedIdentifierAdmin),
+)

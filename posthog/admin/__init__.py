@@ -1,38 +1,29 @@
 # Lazy load admin classes to avoid loading all at startup.
 # Admin classes are loaded when Django admin site is first accessed
 
-import sys
 import importlib
 
 # Isolated products (per `tach.toml` interfaces) only expose `backend.facade`
 # and `backend.presentation.views`. Django admin needs the concrete `Model`/
 # `ModelAdmin` classes — there's no facade equivalent for `admin.site.register`.
-# For these products we discover the admin module dynamically: the product's
-# `backend/admin.py` self-registers via `@admin.register(...)`, and we trigger
-# import via `importlib.import_module(string)` so static interface checks
-# don't see a cross-boundary import from `posthog/`.
-_PRODUCTS_WITH_SELF_REGISTERING_ADMIN = ("products.visual_review.backend",)
+# For these products we load `backend/admin.py` dynamically and read the
+# module's `ADMIN_REGISTRATIONS` tuple to wire the admins ourselves. The
+# string-based `importlib.import_module` keeps static interface checks honest
+# (`posthog/` never names the internal module), and we deliberately avoid
+# `@admin.register(...)` on these modules so registration always goes through
+# the current `admin.site` rather than the django.contrib.admin.sites
+# singleton — the latter is what `patch.object(admin, "site", ...)` in
+# `posthog/admin/test_admin.py` does NOT patch.
+_PRODUCTS_WITH_DYNAMIC_ADMIN = ("products.visual_review.backend",)
 
 
-def _import_self_registering_product_admins() -> None:
-    """Run `@admin.register(...)` decorators in each isolated product's admin.
+def _register_dynamic_product_admins() -> None:
+    from django.contrib import admin
 
-    Django's stock admin autodiscover at `AdminConfig.ready()` already imports
-    these modules once against the real `admin.site`. In production
-    `_setup_lazy_admin` then replaces `admin.site._registry` with a fresh
-    `LazyAdminRegistry`, wiping the autodiscover registrations — so we
-    `reload` the module here to re-fire the decorators against the current
-    registry. In tests the registry isn't swapped and reload is a harmless
-    no-op (it re-creates the same `ModelAdmin` instances; admin only reads
-    them at request time).
-    """
-    for app_name in _PRODUCTS_WITH_SELF_REGISTERING_ADMIN:
-        module_name = f"{app_name}.admin"
-        cached = sys.modules.get(module_name)
-        if cached is not None:
-            importlib.reload(cached)
-        else:
-            importlib.import_module(module_name)
+    for app_name in _PRODUCTS_WITH_DYNAMIC_ADMIN:
+        module = importlib.import_module(f"{app_name}.admin")
+        for model, admin_class in module.ADMIN_REGISTRATIONS:
+            admin.site.register(model, admin_class)
 
 
 def register_all_admin():
@@ -209,8 +200,7 @@ def register_all_admin():
 
     admin.site.register(MCPServerTemplate, MCPServerTemplateAdmin)
 
-    # Isolated products' admins self-register via `@admin.register(...)`.
-    _import_self_registering_product_admins()
+    _register_dynamic_product_admins()
 
 
 # :KRUDGE: OAuth models live in the `posthog` app, so by default they appear
