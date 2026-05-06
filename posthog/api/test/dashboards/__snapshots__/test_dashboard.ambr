@@ -38,8 +38,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.1
@@ -1164,8 +1164,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.3
@@ -2975,8 +2975,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.1
@@ -4097,8 +4097,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.29
@@ -4987,8 +4987,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.1
@@ -5578,8 +5578,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.111
@@ -7102,8 +7102,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.142
@@ -8626,8 +8626,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.173
@@ -10540,8 +10540,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.200
@@ -11544,8 +11544,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.41
@@ -13552,8 +13552,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.8
@@ -15513,8 +15513,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard.3
@@ -15900,8 +15900,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.1
@@ -16578,8 +16578,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.21
@@ -17550,8 +17550,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.41

@@ -38,8 +38,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.1
@@ -502,8 +502,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.18
@@ -1325,8 +1325,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.9
