@@ -32,18 +32,25 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 class TestFormatPostmarkDatetime:
     @parameterized.expand(
         [
-            # March 4 is in EST (UTC-5). 02:58:14 UTC -> 21:58:14 EST on March 3.
-            ("utc_winter", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-03T21:58:14"),
-            # Naive input is treated as UTC, then converted to Eastern (EST in March).
-            ("naive_winter", datetime(2026, 3, 4, 2, 58, 14), "2026-03-03T21:58:14"),
-            # July is EDT (UTC-4). 12:00 UTC -> 08:00 EDT.
-            ("utc_summer", datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC), "2026-07-01T08:00:00"),
-            # +10 offset: 12:58:14 +10 -> 02:58:14 UTC -> 21:58:14 EST on March 3.
+            # tz-aware inputs preserve the wall-clock value; the offset is just stripped. The
+            # watermark coming from the pipeline carries Postmark's own offset already, so this
+            # round-trips regardless of how the Postmark account is configured.
             (
-                "non_utc_converted",
-                datetime(2026, 3, 4, 12, 58, 14, tzinfo=timezone(timedelta(hours=10))),
-                "2026-03-03T21:58:14",
+                "eastern_aware",
+                datetime(2026, 5, 6, 7, 38, 18, tzinfo=timezone(timedelta(hours=-4))),
+                "2026-05-06T07:38:18",
             ),
+            ("utc_aware_preserved", datetime(2026, 5, 6, 11, 38, 18, tzinfo=UTC), "2026-05-06T11:38:18"),
+            (
+                "plus_ten_aware_preserved",
+                datetime(2026, 3, 4, 12, 58, 14, tzinfo=timezone(timedelta(hours=10))),
+                "2026-03-04T12:58:14",
+            ),
+            # Naive input is treated as UTC and converted to Eastern (the API's documented default).
+            # March 4 is in EST (UTC-5). 02:58:14 UTC -> 21:58:14 EST on March 3.
+            ("naive_fallback_winter", datetime(2026, 3, 4, 2, 58, 14), "2026-03-03T21:58:14"),
+            # July is EDT (UTC-4). 12:00 UTC -> 08:00 EDT.
+            ("naive_fallback_summer", datetime(2026, 7, 1, 12, 0, 0), "2026-07-01T08:00:00"),
         ]
     )
     def test_format(self, _name: str, value: datetime, expected: str) -> None:
@@ -54,7 +61,7 @@ class TestFormatPostmarkDatetime:
         formatted = _format_postmark_datetime(datetime(2026, 3, 4, tzinfo=UTC))
         assert "+" not in formatted
         assert "Z" not in formatted
-        assert "-" in formatted[:10] and formatted.count("-") == 2  # only the date dashes
+        assert formatted.count("-") == 2  # only the two date dashes
 
 
 class TestGetHeaders:
@@ -134,20 +141,19 @@ class TestResolveFromdate:
 class TestBuildParams:
     def test_paginated_with_fromdate(self) -> None:
         config = POSTMARK_ENDPOINTS["bounces"]
-        # Postmark expects Eastern-local naive timestamps. April 1 is EDT (UTC-4); 00:00 UTC -> 20:00 EDT prev day.
+        # tz-aware inputs preserve their wall-clock value; only the offset gets stripped.
         fromdate = datetime(2026, 4, 1, tzinfo=UTC)
         params = _build_params(config, offset=1000, fromdate=fromdate)
         assert params["count"] == POSTMARK_PAGE_SIZE
         assert params["offset"] == 1000
-        assert params["fromdate"] == "2026-03-31T20:00:00"
+        assert params["fromdate"] == "2026-04-01T00:00:00"
         assert "todate" not in params
 
     def test_paginated_with_todate(self) -> None:
         config = POSTMARK_ENDPOINTS["bounces"]
-        # March 1 is EST (UTC-5); 00:00 UTC -> 19:00 EST prev day.
         todate = datetime(2026, 3, 1, tzinfo=UTC)
         params = _build_params(config, offset=0, fromdate=None, todate=todate)
-        assert params["todate"] == "2026-02-28T19:00:00"
+        assert params["todate"] == "2026-03-01T00:00:00"
         assert "fromdate" not in params
 
     def test_paginated_without_fromdate(self) -> None:
@@ -288,11 +294,10 @@ class TestGetRows:
         assert session.get.call_count == 2
 
         backfill_call, catchup_call = session.get.call_args_list
-        # 2026-03-01T00:00 UTC is EST (-5) -> 2026-02-28T19:00 Eastern.
-        assert backfill_call.kwargs["params"]["todate"] == "2026-02-28T19:00:00"
+        # tz-aware inputs preserve their wall-clock value; offset stripped, no conversion.
+        assert backfill_call.kwargs["params"]["todate"] == "2026-03-01T00:00:00"
         assert "fromdate" not in backfill_call.kwargs["params"]
-        # 2026-04-01T00:00 UTC is EDT (-4) -> 2026-03-31T20:00 Eastern.
-        assert catchup_call.kwargs["params"]["fromdate"] == "2026-03-31T20:00:00"
+        assert catchup_call.kwargs["params"]["fromdate"] == "2026-04-01T00:00:00"
         assert "todate" not in catchup_call.kwargs["params"]
 
     def test_incremental_skips_backfill_at_window_edge(self) -> None:

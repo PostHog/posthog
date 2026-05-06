@@ -18,10 +18,16 @@ from posthog.temporal.data_imports.sources.postmark.settings import (
 )
 
 # Postmark's `fromdate`/`todate` filters interpret timezone-naive ISO timestamps as the account's
-# server timezone (Eastern by default — they're a Wildbit / Pittsburgh / NYC-area company). The API
-# also rejects (silently zero-results) inputs that include an explicit offset like `-04:00` or `Z`.
-# So we must convert any incoming datetime to America/New_York and emit it tz-naive.
-POSTMARK_API_TIMEZONE = ZoneInfo("America/New_York")
+# configured server timezone, and silently zero-result on inputs that include any explicit offset
+# (`-04:00`, `Z`, etc.). The API does not expose the account's configured timezone, so:
+#   - For datetimes that came from the pipeline (parsed from `received_at` rows that Postmark
+#     itself returned), the original Postmark offset is already on the value — we preserve it and
+#     just strip the tzinfo, so the wire format matches Postmark's expectation regardless of
+#     whatever TZ the account is set to.
+#   - For datetimes we generate internally (the default 30-day lookback on initial sync, when
+#     there's no watermark), we have no signal and fall back to America/New_York (Postmark's
+#     default for new accounts). Being off by a few hours on an initial 30-day backfill is benign.
+POSTMARK_API_TIMEZONE_FALLBACK = ZoneInfo("America/New_York")
 
 MESSAGE_STREAMS_PATH = "/message-streams"
 
@@ -40,17 +46,20 @@ def _get_headers(server_token: str) -> dict[str, str]:
 def _format_postmark_datetime(value: datetime) -> str:
     """Format a datetime for Postmark's `fromdate`/`todate` filters.
 
-    Postmark expects timezone-naive ISO-8601 strings that it interprets in the account's server
-    timezone (Eastern). Sending an explicit offset, or a UTC value formatted as naive, both lead
-    to silently wrong results — the API filters by Eastern regardless and shifts the threshold.
-    Convert to America/New_York first, then drop tzinfo before formatting.
+    Postmark expects timezone-naive ISO-8601 strings interpreted in the account's configured
+    server timezone, and silently zero-results on inputs with an explicit offset. The account's
+    TZ is not exposed via API, so:
+      - tz-aware inputs: keep their offset's wall-clock value and strip the offset. Watermarks
+        coming from the pipeline carry Postmark's own offset (because that's how Postmark
+        returned the `received_at` originally), so this works regardless of how the account is
+        configured.
+      - naive inputs (only the default lookback we generate ourselves): assume Eastern. Being
+        off by a few hours on an initial 30-day backfill is benign.
     """
     if value.tzinfo is None:
-        # Treat naive inputs as UTC by convention; the warehouse pipeline yields UTC-aware values.
-        local_value = value.replace(tzinfo=UTC).astimezone(POSTMARK_API_TIMEZONE)
-    else:
-        local_value = value.astimezone(POSTMARK_API_TIMEZONE)
-    return local_value.replace(tzinfo=None).isoformat(timespec="seconds")
+        local_value = value.replace(tzinfo=UTC).astimezone(POSTMARK_API_TIMEZONE_FALLBACK)
+        return local_value.replace(tzinfo=None).isoformat(timespec="seconds")
+    return value.replace(tzinfo=None).isoformat(timespec="seconds")
 
 
 def _parse_incremental_value(value: Any) -> Optional[datetime]:
