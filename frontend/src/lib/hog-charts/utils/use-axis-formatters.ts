@@ -27,6 +27,10 @@ export function useXTickFormatter(
     xAxis: XAxisConfig | undefined,
     labels: string[]
 ): ((value: string, index: number) => string | null) | undefined {
+    // Resolve outside the memo so `labels` only participates as a dep when it's
+    // actually the source — when `xAxis.allDays` is provided, label-only changes
+    // shouldn't rebuild the formatter (and ripple a new identity through context).
+    const effectiveAllDays = xAxis?.allDays ?? labels
     return useMemo(() => {
         if (xAxis?.tickFormatter) {
             return xAxis.tickFormatter
@@ -35,11 +39,11 @@ export function useXTickFormatter(
             return createXAxisTickCallback({
                 timezone: xAxis.timezone,
                 interval: xAxis.interval,
-                allDays: xAxis.allDays ?? labels,
+                allDays: effectiveAllDays,
             })
         }
         return undefined
-    }, [xAxis?.tickFormatter, xAxis?.timezone, xAxis?.interval, xAxis?.allDays, labels])
+    }, [xAxis?.tickFormatter, xAxis?.timezone, xAxis?.interval, effectiveAllDays])
 }
 
 export function useYTickFormatter(yAxis: YAxisConfig | undefined): ((value: number) => string) | undefined {
