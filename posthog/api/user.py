@@ -1339,8 +1339,12 @@ def toolbar_oauth_callback(request):
         # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
         # as the path, so `&` would make the auth params part of the route and
         # 404. `?` is the standard hash-query separator that React Router,
-        # Vue Router, etc. split on.
-        separator = "?" if original_fragment.startswith("/") else "&"
+        # Vue Router, etc. split on. If the fragment already has a `?` (e.g.
+        # `#/login?foo=bar`), keep using `&` to extend the existing hash query.
+        if original_fragment.startswith("/") and "?" not in original_fragment:
+            separator = "?"
+        else:
+            separator = "&"
         fragment = f"{original_fragment}{separator}{toolbar_param}"
     else:
         fragment = toolbar_param

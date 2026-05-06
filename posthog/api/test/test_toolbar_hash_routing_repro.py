@@ -57,3 +57,17 @@ class TestToolbarHashRoutingRepro(APIBaseTest):
         assert parsed.fragment.startswith("section1&__posthog_toolbar="), (
             f"expected `section1&__posthog_toolbar=...` for plain fragment, got fragment={parsed.fragment!r}"
         )
+
+    def test_hash_route_with_existing_query_uses_ampersand(self):
+        """
+        If the SPA hash route already has a `?` (e.g. #/login?foo=bar), keep using
+        `&` to extend the existing hash query rather than emitting a second `?`,
+        which most hash routers mishandle.
+        """
+        state = self._authorize_and_get_state(redirect_url="https://app.example.com/#/login?foo=bar")
+        response = self.client.get(f"/toolbar_oauth/callback?code=AUTH_CODE_X&state={state}")
+        parsed = urlparse(response["Location"])
+        assert parsed.fragment.startswith("/login?foo=bar&__posthog_toolbar="), (
+            f"expected `/login?foo=bar&__posthog_toolbar=...`, got fragment={parsed.fragment!r}"
+        )
+        assert parsed.fragment.count("?") == 1, f"fragment must have exactly one `?`, got {parsed.fragment!r}"
