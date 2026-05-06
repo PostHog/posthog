@@ -373,19 +373,8 @@ def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata
     return metadata
 
 
-def get_org_user_counts() -> dict[str, int]:
-    """Bulk membership count per organization, keyed by `str(org_id)`.
-
-    The per-org variant used to fire inside the per-team aggregation loop,
-    producing one Postgres round-trip per organization. With ~50k orgs that
-    dominated the aggregation activity's wall-clock, so callers fetch the
-    whole map once and look up by `str(org_id)`. Orgs without any
-    memberships are absent from the dict — callers default to 0.
-    """
-    return {
-        str(row["organization_id"]): row["count"]
-        for row in OrganizationMembership.objects.values("organization_id").annotate(count=Count("id"))
-    }
+def get_org_user_count(organization_id: str) -> int:
+    return OrganizationMembership.objects.filter(organization_id=organization_id).count()
 
 
 @cached(cache={})
@@ -2242,7 +2231,6 @@ def _add_team_report_to_org_reports(
     team: Team,
     team_report: UsageReportCounters,
     period_start: datetime,
-    org_user_counts: dict[str, int],
 ) -> None:
     org_id = str(team.organization.id)
     if org_id not in org_reports:
@@ -2251,7 +2239,7 @@ def _add_team_report_to_org_reports(
             organization_id=org_id,
             organization_name=team.organization.name,
             organization_created_at=team.organization.created_at.isoformat(),
-            organization_user_count=org_user_counts.get(org_id, 0),
+            organization_user_count=get_org_user_count(org_id),
             team_count=1,
             teams={str(team.id): team_report},
             **dataclasses.asdict(team_report),  # Clone the team report as the basis
@@ -2283,15 +2271,13 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
 
     logger.info("Querying all teams complete", teams_count=len(teams))
 
-    org_user_counts = get_org_user_counts()
-
     org_reports: dict[str, OrgReport] = {}
 
     logger.info("Generating org reports")
 
     for team in teams:
         team_report = _get_team_report(all_data, team)
-        _add_team_report_to_org_reports(org_reports, team, team_report, period_start, org_user_counts)
+        _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
 
     logger.info("Generating org reports complete", org_reports_count=len(org_reports))
 
@@ -2319,11 +2305,10 @@ def build_org_reports(all_data: dict[str, Any], period_start: datetime) -> dict[
     and `_add_team_report_to_org_reports` so callers (e.g. the Temporal
     workflow) don't need to import the private helpers individually.
     """
-    org_user_counts = get_org_user_counts()
     org_reports: dict[str, OrgReport] = {}
     for team in _get_teams_for_usage_reports():
         team_report = _get_team_report(all_data, team)
-        _add_team_report_to_org_reports(org_reports, team, team_report, period_start, org_user_counts)
+        _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
     return org_reports
 
 

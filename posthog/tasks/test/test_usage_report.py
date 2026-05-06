@@ -1010,7 +1010,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert report.zero_duration_recording_count_in_period == 0
 
         org_reports: dict[str, OrgReport] = {}
-        _add_team_report_to_org_reports(org_reports, self.team, report, period_start, {})
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
@@ -1031,7 +1031,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert report.zero_duration_recording_count_in_period == 1
 
         org_reports: dict[str, OrgReport] = {}
-        _add_team_report_to_org_reports(org_reports, self.team, report, period_start, {})
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 6
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
@@ -1053,7 +1053,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert report.mobile_recording_count_in_period == 1
         assert report.mobile_billable_recording_count_in_period == 0
         org_reports: dict[str, OrgReport] = {}
-        _add_team_report_to_org_reports(org_reports, self.team, report, period_start, {})
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
@@ -1106,7 +1106,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert report.mobile_billable_recording_count_in_period == 2  # iOS and Android recordings
 
         org_reports: dict[str, OrgReport] = {}
-        _add_team_report_to_org_reports(org_reports, self.team, report, period_start, {})
+        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 4

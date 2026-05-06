@@ -31,7 +31,6 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     build_org_reports,
-    get_org_user_counts,
     serialize_full_org_report,
 )
 from posthog.temporal.usage_report.aggregator import iter_chunk_lines
@@ -109,11 +108,10 @@ def _celery_serialize(team_a_id: int, team_b_id: int, team_c_id: int, period_sta
     """
     all_data = _seed_all_data(team_a_id, team_b_id, team_c_id)
     instance_metadata = _instance_metadata()
-    org_user_counts = get_org_user_counts()
     org_reports: dict[str, Any] = {}
     for team in _get_teams_for_usage_reports():
         team_report = _get_team_report(all_data, team)
-        _add_team_report_to_org_reports(org_reports, team, team_report, period_start, org_user_counts)
+        _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
     return {
         org_id: _get_full_org_usage_report_as_dict(_get_full_org_usage_report(report, instance_metadata))
         for org_id, report in org_reports.items()
@@ -215,11 +213,10 @@ def test_build_org_reports_matches_legacy_loop() -> None:
     period_start = datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC)
     all_data = _seed_all_data(team_1.id, team_2.id, team_1.id)
 
-    org_user_counts = get_org_user_counts()
     legacy: dict[str, Any] = {}
     for team in _get_teams_for_usage_reports():
         team_report = _get_team_report(all_data, team)
-        _add_team_report_to_org_reports(legacy, team, team_report, period_start, org_user_counts)
+        _add_team_report_to_org_reports(legacy, team, team_report, period_start)
 
     facade = build_org_reports(all_data, period_start)
 
@@ -229,17 +226,22 @@ def test_build_org_reports_matches_legacy_loop() -> None:
 
 
 @pytest.mark.django_db
-def test_build_org_reports_does_not_run_per_org_membership_queries() -> None:
-    """`build_org_reports` must fetch organization membership counts in
-    bulk, not per-org. The legacy implementation ran one
-    `OrganizationMembership.count()` per organization inside the
-    aggregation loop, which became the dominant cost of the
-    `aggregate-and-chunk-org-reports` activity at ~50k orgs.
+def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() -> None:
+    """The Temporal-local `aggregator.build_org_reports` must fetch
+    organization membership counts in bulk. The legacy Celery facade still
+    runs one `OrganizationMembership.count()` per organization inside its
+    team loop — that's the cost we lifted out of the
+    `aggregate-and-chunk-org-reports` activity by routing it through the
+    aggregator's own builder instead of the shared one.
     """
+    from posthog.temporal.usage_report.aggregator import (
+        build_org_reports as temporal_build_org_reports,
+        get_org_user_counts,
+    )
+
     # Create a meaningful number of fresh orgs/teams so the per-org N+1
-    # has clear daylight from the bulk-fetch path. Without this, query
-    # counts are low enough that any reasonable cap would pass even with
-    # the bug.
+    # would have clear daylight from the bulk-fetch path. Without this,
+    # query counts are low enough that any reasonable cap would pass.
     fresh_orgs: list[Organization] = []
     for i in range(20):
         org = Organization.objects.create(name=f"Bulk Org {i}")
@@ -250,15 +252,15 @@ def test_build_org_reports_does_not_run_per_org_membership_queries() -> None:
     all_data = {key: {} for key in _all_destination_keys()}
 
     with CaptureQueriesContext(connection) as captured:
-        build_org_reports(all_data, period_start)
+        org_user_counts = get_org_user_counts()
+        temporal_build_org_reports(all_data, period_start, org_user_counts)
 
-    # The fix runs ~2 queries (teams + bulk memberships) regardless of
-    # org count. The legacy bug runs 1 + N (one count per org returned
-    # by the team query). Cap well below `1 + N` so any per-org N+1
-    # blows the test, while leaving slack for harmless query-count drift
-    # (savepoints etc.).
+    # The Temporal path runs ~2 queries (teams + bulk memberships)
+    # regardless of org count. The legacy Celery path runs 1 + N. Cap
+    # well below `1 + N` so any per-org N+1 here blows the test, while
+    # leaving slack for harmless query-count drift (savepoints etc.).
     assert len(captured.captured_queries) <= 5, (
-        f"build_org_reports issued {len(captured.captured_queries)} queries — "
-        f"with {len(fresh_orgs)} fresh orgs this looks like a per-org N+1, "
-        f"which dominates wall-clock for the aggregation activity."
+        f"Temporal build_org_reports issued {len(captured.captured_queries)} "
+        f"queries — with {len(fresh_orgs)} fresh orgs this looks like a "
+        f"per-org N+1, which dominates wall-clock for the aggregation activity."
     )
