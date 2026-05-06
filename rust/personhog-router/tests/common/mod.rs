@@ -309,6 +309,16 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(GetGroupsBatchResponse { results: vec![] }))
     }
 
+    async fn list_groups(
+        &self,
+        _request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        Ok(Response::new(ListGroupsResponse {
+            groups: vec![],
+            has_more: false,
+        }))
+    }
+
     async fn get_group_type_mappings_by_team_id(
         &self,
         _request: Request<GetGroupTypeMappingsByTeamIdRequest>,

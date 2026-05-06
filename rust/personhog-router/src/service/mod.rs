@@ -20,6 +20,7 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    ListGroupsRequest, ListGroupsResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
@@ -211,6 +212,13 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<GetGroupsBatchRequest>,
     ) -> Result<Response<GetGroupsBatchResponse>, Status> {
         route_request!(self, get_groups_batch, request)
+    }
+
+    async fn list_groups(
+        &self,
+        request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        route_request!(self, list_groups, request)
     }
 
     // Group type mappings

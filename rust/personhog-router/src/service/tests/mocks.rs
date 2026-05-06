@@ -15,6 +15,7 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    ListGroupsRequest, ListGroupsResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
@@ -255,6 +256,17 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<GetGroupsBatchResponse, Status> {
         self.check_error()?;
         Ok(GetGroupsBatchResponse { results: vec![] })
+    }
+
+    async fn list_groups(
+        &self,
+        _request: ListGroupsRequest,
+    ) -> Result<ListGroupsResponse, Status> {
+        self.check_error()?;
+        Ok(ListGroupsResponse {
+            groups: vec![],
+            has_more: false,
+        })
     }
 
     async fn get_group_type_mappings_by_team_id(

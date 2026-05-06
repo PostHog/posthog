@@ -24,7 +24,8 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
     GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
+    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest, ListGroupsRequest,
+    ListGroupsResponse,
     GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
@@ -719,6 +720,46 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect();
 
         Ok(Response::new(GetGroupsBatchResponse { results }))
+    }
+
+    async fn list_groups(
+        &self,
+        request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
+
+        let limit = if req.limit <= 0 || req.limit > 1000 {
+            100
+        } else {
+            req.limit
+        };
+
+        let cursor_created_at = if req.cursor_created_at_ms > 0 {
+            chrono::DateTime::from_timestamp_millis(req.cursor_created_at_ms)
+        } else {
+            None
+        };
+
+        let (groups, has_more) = self
+            .storage
+            .list_groups(
+                req.team_id,
+                req.group_type_index,
+                &req.group_key_contains,
+                &req.search,
+                cursor_created_at,
+                req.cursor_id,
+                limit,
+                consistency,
+            )
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_groups"))?;
+
+        Ok(Response::new(ListGroupsResponse {
+            groups: groups.into_iter().map(Into::into).collect(),
+            has_more,
+        }))
     }
 
     // ============================================================
