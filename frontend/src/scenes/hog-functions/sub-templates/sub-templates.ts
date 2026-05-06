@@ -129,6 +129,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         filters: { events: [{ id: '$logs_alert_errored', type: 'events' }] },
         flag: FEATURE_FLAGS.LOGS_ALERTING,
     },
+    'sdk-doctor-outdated-sdk': {
+        sub_template_id: 'sdk-doctor-outdated-sdk',
+        type: 'internal_destination',
+        context_id: 'sdk-doctor',
+        filters: { events: [{ id: '$sdk_doctor_alert_firing', type: 'events' }] },
+    },
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -1042,6 +1048,118 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'sdk-doctor-outdated-sdk': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['sdk-doctor-outdated-sdk'],
+            template_id: 'template-email',
+            name: 'Email when SDKs are outdated',
+            description: 'Send an email when PostHog SDKs are outdated',
+            inputs: {
+                email: {
+                    value: {
+                        to: { email: '', name: '' },
+                        from: { email: '', name: 'PostHog SDK Doctor' },
+                        replyTo: '',
+                        cc: '',
+                        bcc: '',
+                        subject: 'PostHog SDKs need an update',
+                        preheader:
+                            '{{ event.properties.needs_updating_count }} of {{ event.properties.team_sdk_count }} SDKs are outdated',
+                        text: 'PostHog SDK Doctor: {{ event.properties.needs_updating_count }} of {{ event.properties.team_sdk_count }} SDKs need an update. Open: {{ project.url }}/health/sdk-doctor',
+                        html: `<p>Hi,</p>
+<p><strong>{{ event.properties.needs_updating_count }}</strong> of <strong>{{ event.properties.team_sdk_count }}</strong> PostHog SDKs need an update.</p>
+<p><a href="{{ project.url }}/health/sdk-doctor">Open SDK Doctor</a></p>`,
+                    },
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['sdk-doctor-outdated-sdk'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook when SDKs are outdated',
+            description: 'Send a webhook when PostHog SDKs are outdated',
+            inputs: {
+                body: {
+                    value: {
+                        alert: 'PostHog SDKs need an update',
+                        summary:
+                            '{event.properties.needs_updating_count} of {event.properties.team_sdk_count} PostHog SDKs are outdated. An outdated SDK means you may be missing out on bug fixes and enhancements.',
+                        health: '{event.properties.health}',
+                        overall_health: '{event.properties.overall_health}',
+                        needs_updating_count: '{event.properties.needs_updating_count}',
+                        team_sdk_count: '{event.properties.team_sdk_count}',
+                        outdated_sdks: '{event.properties.outdated_sdks}',
+                        project: '{project.name}',
+                        sdk_doctor_url: '{project.url}/health/sdk-doctor',
+                    },
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['sdk-doctor-outdated-sdk'],
+            template_id: 'template-discord',
+            name: 'Post to Discord when SDKs are outdated',
+            description: 'Post to a Discord channel when PostHog SDKs are outdated',
+            inputs: {
+                content: {
+                    value: `**🩺 PostHog SDK Doctor**
+
+{event.properties.needs_updating_count} of {event.properties.team_sdk_count} SDKs need an update.
+
+[View in PostHog]({project.url}/health/sdk-doctor)`,
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['sdk-doctor-outdated-sdk'],
+            template_id: 'template-microsoft-teams',
+            name: 'Post to Microsoft Teams when SDKs are outdated',
+            description: 'Post to a Microsoft Teams channel when PostHog SDKs are outdated',
+            inputs: {
+                text: {
+                    value: '**🩺 PostHog SDK Doctor:** {event.properties.needs_updating_count} of {event.properties.team_sdk_count} SDKs need an update. (View in [PostHog]({project.url}/health/sdk-doctor))',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['sdk-doctor-outdated-sdk'],
+            template_id: 'template-slack',
+            name: 'Post to Slack when SDKs are outdated',
+            description: 'Post to a Slack channel when PostHog SDKs are outdated',
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'header', text: { type: 'plain_text', text: '🩺 PostHog SDK Doctor' } },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*{event.properties.needs_updating_count}* of *{event.properties.team_sdk_count}* SDKs need an update.',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/health/sdk-doctor',
+                                    text: { text: 'Open SDK Doctor', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'PostHog SDK Doctor: {event.properties.needs_updating_count} of {event.properties.team_sdk_count} SDKs need an update',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1070,6 +1188,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$logs_alert_auto_disabled':
         case '$logs_alert_errored':
             return 'logs-alerting'
+        case '$sdk_doctor_alert_firing':
+            return 'sdk-doctor'
         default:
             return 'standard'
     }

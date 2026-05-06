@@ -48,7 +48,7 @@ export interface AlertWizardLogicProps {
     destinations: WizardDestination[]
     disableUrlSync?: boolean
     presetTriggerKey?: HogFunctionSubTemplateIdType
-    onAlertCreated?: () => void
+    onAlertCreated?: (hogFunctionId?: string) => void
 }
 
 const PRIMARY_DESTINATION_LIMIT = 3
@@ -91,7 +91,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             triggerKey: HogFunctionSubTemplateIdType | null
         }) => ({ state }),
         resetWizard: true,
-        createAlertSuccess: true,
+        createAlertSuccess: (hogFunctionId?: string) => ({ hogFunctionId }),
         submitConfiguration: true,
         submitConfigurationComplete: true,
         testConfiguration: true,
@@ -289,10 +289,10 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
     }),
 
     listeners(({ values, actions, props: logicProps }) => ({
-        createAlertSuccess: () => {
+        createAlertSuccess: ({ hogFunctionId }) => {
             actions.resetWizard()
             actions.loadExistingAlerts()
-            logicProps.onAlertCreated?.()
+            logicProps.onAlertCreated?.(hogFunctionId)
         },
 
         setAlertCreationView: ({ view }) => {
@@ -441,7 +441,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     inputs: mergedInputs,
                 }
 
-                await api.hogFunctions.create(configuration)
+                const created = await api.hogFunctions.create(configuration)
                 posthog.capture('error_tracking_alert_created', {
                     source: 'wizard',
                     trigger_event: subTemplate.filters?.events?.[0]?.id ?? null,
@@ -451,7 +451,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     enabled: true,
                 })
                 lemonToast.success('Alert created successfully')
-                actions.createAlertSuccess()
+                actions.createAlertSuccess(created?.id)
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Failed to create alert')
             } finally {

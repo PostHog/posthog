@@ -1,9 +1,11 @@
 import json
 from collections import defaultdict
+from typing import Any
 
 import structlog
 
 from posthog.dags.common.owners import JobOwners
+from posthog.exceptions_capture import capture_exception
 from posthog.models.health_issue import HealthIssue
 from posthog.redis import get_client
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
@@ -18,6 +20,8 @@ from products.growth.backend.constants import (
     github_sdk_versions_key,
     team_sdk_versions_key,
 )
+from products.growth.backend.sdk_doctor_alerts import emit_sdk_doctor_alert_event
+from products.growth.backend.sdk_health import compute_sdk_health
 
 logger = structlog.get_logger(__name__)
 
@@ -113,6 +117,8 @@ class SdkOutdatedCheck(HealthCheck):
 
         _cache_team_sdk_data({tid: dict(sdk_data) for tid, sdk_data in team_sdk_data.items()})
 
+        self._emit_alerts_for_outdated_teams(team_sdk_data, github_data)
+
         issues: defaultdict[int, list[HealthCheckResult]] = defaultdict(list)
         for team_id, sdk_data in team_sdk_data.items():
             for lib_name, entries in sdk_data.items():
@@ -147,3 +153,60 @@ class SdkOutdatedCheck(HealthCheck):
                     )
 
         return issues
+
+    def _emit_alerts_for_outdated_teams(
+        self,
+        team_sdk_data: dict[int, dict[str, list[SdkVersionEntry]]] | defaultdict,
+        github_data: dict[str, dict],
+    ) -> None:
+        """
+        For each team whose SDKs trip the smart-semver `needs_attention` rule, emit
+        `$sdk_doctor_alert_firing` so subscribed HogFunctions (Slack/Discord/email/etc.)
+        can notify the user. A per-team Redis cooldown inside
+        `emit_sdk_doctor_alert_event` keeps this from spamming daily.
+
+        Alert emission is best-effort: a failure on one team must not break the health
+        check for the rest of the batch.
+        """
+        for team_id, sdk_data in team_sdk_data.items():
+            try:
+                combined = self._build_combined_health_data(sdk_data, github_data)
+                if not combined:
+                    continue
+                report = compute_sdk_health(combined)
+                emit_sdk_doctor_alert_event(team_id=team_id, report=report)
+            except Exception as e:
+                logger.exception("Failed to emit SDK Doctor alert event", team_id=team_id, error=str(e))
+                capture_exception(e, additional_properties={"team_id": team_id})
+
+    @staticmethod
+    def _build_combined_health_data(
+        sdk_data: dict[str, list[SdkVersionEntry]],
+        github_data: dict[str, dict],
+    ) -> dict[str, dict[str, Any]]:
+        """
+        Reshape per-team SDK usage + GitHub version data into the structure
+        `compute_sdk_health` expects — mirrors the combine step in the
+        `/api/projects/:team_id/sdk_doctor/report` endpoint.
+        """
+        combined: dict[str, dict[str, Any]] = {}
+        for lib, entries in sdk_data.items():
+            if lib not in github_data or not entries:
+                continue
+            sdk_for_lib = github_data[lib]
+            latest_version = sdk_for_lib.get("latestVersion")
+            if not latest_version:
+                continue
+            release_dates = sdk_for_lib.get("releaseDates", {})
+            combined[lib] = {
+                "latest_version": latest_version,
+                "usage": [
+                    {
+                        **entry,
+                        "is_latest": entry["lib_version"] == latest_version,
+                        "release_date": release_dates.get(entry["lib_version"]),
+                    }
+                    for entry in entries
+                ],
+            }
+        return combined

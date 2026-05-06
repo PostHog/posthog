@@ -32,7 +32,7 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
-    const { integrationsLoading, integrations, newIntegrationModalKind } = useValues(integrationsLogic)
+    const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
     const kind = integration
@@ -90,16 +90,27 @@ export function IntegrationChoice({
     const isSandbox = new URLSearchParams(window.location.search).get('is_sandbox') === 'true'
 
     const setupDef = getIntegrationSetup(kind)
+    // Surface a "go to settings" link instead of redirecting to /integrations/authorize when the
+    // OAuth credentials for the requested kind aren't configured on this instance — otherwise the
+    // user lands on a raw Django REST 400 ("Kind not configured"). Same gate that
+    // SlackIntegration.tsx uses on the settings page.
+    const oauthUnavailable = kind === 'slack' && !slackAvailable
     const setupMenuItem = setupDef
         ? setupDef.menuItem({ kind, openModal: openNewIntegrationModal, uploadKey })
-        : {
-              to: api.integrations.authorizeUrl({ kind, next: redirectUrl, is_sandbox: isSandbox || undefined }),
-              disableClientSideRouting: true,
-              onClick: beforeRedirect,
-              label: integrationsOfKind?.length
-                  ? `Connect to a different integration for ${kindName}`
-                  : `Connect to ${kindName}`,
-          }
+        : oauthUnavailable
+          ? {
+                to: urls.settings('project-integrations'),
+                sideIcon: <IconExternal />,
+                label: `${kindName} is not configured on this instance`,
+            }
+          : {
+                to: api.integrations.authorizeUrl({ kind, next: redirectUrl, is_sandbox: isSandbox || undefined }),
+                disableClientSideRouting: true,
+                onClick: beforeRedirect,
+                label: integrationsOfKind?.length
+                    ? `Connect to a different integration for ${kindName}`
+                    : `Connect to ${kindName}`,
+            }
 
     const button = (
         <LemonMenu

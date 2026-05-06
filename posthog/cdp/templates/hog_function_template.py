@@ -17,6 +17,7 @@ SubTemplateId = Literal[
     "error-tracking-issue-reopened",
     "error-tracking-issue-spiking",
     "insight-alert-firing",
+    "sdk-doctor-outdated-sdk",
 ]
 
 

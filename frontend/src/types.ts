@@ -6573,6 +6573,7 @@ export type HogFunctionConfigurationContextId =
     | 'insight-alerts'
     | 'experiment-alerts'
     | 'logs-alerting'
+    | 'sdk-doctor'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6589,6 +6590,7 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-resolved'
     | 'logs-alert-auto-disabled'
     | 'logs-alert-errored'
+    | 'sdk-doctor-outdated-sdk'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 from unittest.mock import MagicMock, patch
 
@@ -189,3 +190,126 @@ class TestSdkOutdatedCheck(TestCase):
         mock_pipe.setex.assert_called_once()
         _key, ttl, _payload = mock_pipe.setex.call_args[0]
         assert ttl == TEAM_SDK_CACHE_EXPIRY
+
+
+class TestSdkOutdatedCheckAlertEmission(TestCase):
+    """Wiring between SdkOutdatedCheck.detect() and emit_sdk_doctor_alert_event."""
+
+    def setUp(self):
+        self.check = SdkOutdatedCheck()
+
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.emit_sdk_doctor_alert_event")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
+    def test_emits_alert_for_team_with_smart_outdated_sdks(
+        self,
+        mock_get_client: MagicMock,
+        mock_ch_query: MagicMock,
+        mock_cache: MagicMock,
+        mock_emit: MagicMock,
+    ):
+        # Major-behind beyond the single-version grace period — triggers needs_attention.
+        release_date = "2025-01-01T00:00:00Z"
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.mget.return_value = [json.dumps(_make_github_data("2.0.0", {"1.0.0": release_date})).encode()]
+
+        mock_ch_query.return_value = [
+            _make_ch_row(1, "web", "1.0.0", "2026-03-20 12:00:00", 5000),
+        ]
+
+        self.check.detect([1])
+
+        mock_emit.assert_called_once()
+        _, kwargs = mock_emit.call_args
+        assert kwargs["team_id"] == 1
+        assert kwargs["report"].overall_health == "needs_attention"
+
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.emit_sdk_doctor_alert_event")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
+    def test_passes_healthy_report_when_only_patch_behind_and_recent(
+        self,
+        mock_get_client: MagicMock,
+        mock_ch_query: MagicMock,
+        mock_cache: MagicMock,
+        mock_emit: MagicMock,
+    ):
+        # Patch-behind with a recent release should NOT be flagged as needs_attention
+        # by smart semver (patch is never outdated; age threshold not crossed).
+        # Even though the legacy `current != latest` check still creates a HealthIssue,
+        # we pass a healthy report to emit, and emit's internal guard suppresses the event.
+        release_date = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.mget.return_value = [json.dumps(_make_github_data("1.0.3", {"1.0.0": release_date})).encode()]
+
+        mock_ch_query.return_value = [
+            _make_ch_row(1, "web", "1.0.0", "2026-03-20 12:00:00", 5000),
+        ]
+
+        self.check.detect([1])
+
+        mock_emit.assert_called_once()
+        report = mock_emit.call_args.kwargs["report"]
+        assert report.overall_health == "healthy"
+        assert report.needs_updating_count == 0
+
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.emit_sdk_doctor_alert_event")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
+    def test_emission_failure_does_not_break_detect(
+        self,
+        mock_get_client: MagicMock,
+        mock_ch_query: MagicMock,
+        mock_cache: MagicMock,
+        mock_emit: MagicMock,
+    ):
+        release_date = "2025-01-01T00:00:00Z"
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.mget.return_value = [json.dumps(_make_github_data("2.0.0", {"1.0.0": release_date})).encode()]
+
+        mock_ch_query.return_value = [
+            _make_ch_row(1, "web", "1.0.0", "2026-03-20 12:00:00", 5000),
+        ]
+
+        mock_emit.side_effect = RuntimeError("kafka is sad")
+
+        with patch("products.growth.backend.temporal.health_checks.sdk_outdated.capture_exception"):
+            results = self.check.detect([1])
+
+        # HealthIssue creation still succeeds — emission failures are isolated.
+        assert 1 in results
+        assert len(results[1]) == 1
+
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.emit_sdk_doctor_alert_event")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
+    def test_emits_once_per_team(
+        self,
+        mock_get_client: MagicMock,
+        mock_ch_query: MagicMock,
+        mock_cache: MagicMock,
+        mock_emit: MagicMock,
+    ):
+        # Two teams, both critically outdated — expect one call per team, not per SDK.
+        release_date = "2025-01-01T00:00:00Z"
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+        mock_redis.mget.return_value = [json.dumps(_make_github_data("2.0.0", {"1.0.0": release_date})).encode()]
+
+        mock_ch_query.return_value = [
+            _make_ch_row(1, "web", "1.0.0", "2026-03-20 12:00:00", 3000),
+            _make_ch_row(2, "web", "1.0.0", "2026-03-20 12:00:00", 3000),
+        ]
+
+        self.check.detect([1, 2])
+
+        team_ids_called = {call.kwargs["team_id"] for call in mock_emit.call_args_list}
+        assert team_ids_called == {1, 2}
+        assert mock_emit.call_count == 2

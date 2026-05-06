@@ -1,18 +1,23 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBell, IconRefresh } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SDK_TYPE_READABLE_NAME } from './sdkConstants'
+import { SdkDoctorAlerting } from './SdkDoctorAlerting'
 import { SdkSection } from './SdkDoctorComponents'
 import { type OutdatedTrafficAlert, SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
 import { sdkDoctorSceneLogic } from './sdkDoctorSceneLogic'
@@ -31,6 +36,10 @@ export function SdkDoctorScene(): JSX.Element {
         snoozedUntil,
     } = useValues(sdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { alertsModalOpen } = useValues(sdkDoctorSceneLogic)
+    const { setAlertsModalOpen, openAlertsModal } = useActions(sdkDoctorSceneLogic)
+    const alertsEnabled = !!featureFlags[FEATURE_FLAGS.SDK_DOCTOR_ALERTS]
 
     const { loadRawData, snoozeSdkDoctor } = useActions(sdkDoctorLogic)
 
@@ -59,6 +68,17 @@ export function SdkDoctorScene(): JSX.Element {
                 }}
                 actions={
                     <>
+                        {alertsEnabled && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                onClick={openAlertsModal}
+                                icon={<IconBell className="size-4" />}
+                                tooltip="Subscribe to outdated-SDK alerts via Slack, Discord, Teams, or webhook"
+                            >
+                                Alerts
+                            </LemonButton>
+                        )}
                         <LemonButton
                             size="small"
                             type="primary"
@@ -145,6 +165,29 @@ export function SdkDoctorScene(): JSX.Element {
             {Object.keys(augmentedData).map((sdkType) => (
                 <SdkSection key={sdkType} sdkType={sdkType as SdkType} />
             ))}
+
+            {alertsEnabled && (
+                <LemonModal
+                    isOpen={alertsModalOpen}
+                    onClose={() => setAlertsModalOpen(false)}
+                    title="SDK Doctor alerts"
+                    description="Get notified when your team has outdated PostHog SDKs."
+                    width="80%"
+                >
+                    <SdkDoctorAlerting
+                        onAlertCreated={(hogFunctionId) => {
+                            setAlertsModalOpen(false)
+                            if (hogFunctionId) {
+                                // Pass returnTo so the HogFunctionScene's "Notifications"
+                                // breadcrumb (and back-arrow) sends the user back to SDK Doctor.
+                                router.actions.push(urls.hogFunction(hogFunctionId), {
+                                    returnTo: urls.sdkDoctor(),
+                                })
+                            }
+                        }}
+                    />
+                </LemonModal>
+            )}
         </SceneContent>
     )
 }

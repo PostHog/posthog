@@ -880,15 +880,38 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                                   item_id: 'abcdef',
                                               },
                                           }
-                                        : {
-                                              event: '$pageview',
-                                              properties: {
-                                                  $current_url: currentUrl,
-                                                  $browser: 'Chrome',
-                                                  $ip: '89.160.20.129',
-                                                  this_is_an_example_event: true,
-                                              },
-                                          }),
+                                        : contextId === 'sdk-doctor'
+                                          ? {
+                                                event: '$sdk_doctor_alert_firing',
+                                                properties: {
+                                                    outdated_sdks: [
+                                                        {
+                                                            sdk_type: 'posthog-python',
+                                                            name: 'Python',
+                                                            latest_version: '7.14.0',
+                                                            current_version: '7.0.0',
+                                                            severity: 'warning',
+                                                            is_outdated: true,
+                                                            is_old: false,
+                                                            reason: 'Several minor versions behind',
+                                                            banners: [],
+                                                        },
+                                                    ],
+                                                    needs_updating_count: 1,
+                                                    team_sdk_count: 2,
+                                                    overall_health: 'needs_attention',
+                                                    health: 'warning',
+                                                },
+                                            }
+                                          : {
+                                                event: '$pageview',
+                                                properties: {
+                                                    $current_url: currentUrl,
+                                                    $browser: 'Chrome',
+                                                    $ip: '89.160.20.129',
+                                                    this_is_an_example_event: true,
+                                                },
+                                            }),
                               },
                               person:
                                   contextId !== 'error-tracking'
