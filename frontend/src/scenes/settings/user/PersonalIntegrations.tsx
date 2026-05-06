@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
@@ -24,6 +24,12 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
             title: `Disconnect ${accountName || 'GitHub installation'}?`,
             description:
                 'PostHog will no longer be able to access repos from this installation or act on your behalf there.',
+            content: (
+                <LemonBanner type="warning" className="mt-2">
+                    Any PostHog Code agent runs currently in progress will be unable to push commits or open pull
+                    requests on GitHub. Wait for in-progress runs to finish before disconnecting.
+                </LemonBanner>
+            ),
             primaryButton: {
                 children: 'Disconnect',
                 status: 'danger',
