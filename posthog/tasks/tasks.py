@@ -147,15 +147,21 @@ def kill_stale_queued_task_runs() -> None:
     REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
 
     cutoff = timezone.now() - STALE_AFTER
+    # Janitor sweep is intentionally cross-team — it runs without a team context.
     stale_ids = list(
-        TaskRun.objects.filter(status=TaskRun.Status.QUEUED, updated_at__lt=cutoff)
+        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            status=TaskRun.Status.QUEUED, updated_at__lt=cutoff
+        )
         .order_by("updated_at")
         .values_list("id", flat=True)[:BATCH_SIZE]
     )
     swept = 0
     errors = 0
     for run_id in stale_ids:
-        run = TaskRun.objects.filter(pk=run_id, status=TaskRun.Status.QUEUED).first()
+        # Refetching by pk from the candidate set above; cross-team is intentional.
+        run = TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            pk=run_id, status=TaskRun.Status.QUEUED
+        ).first()
         if run is None:
             continue
         try:
