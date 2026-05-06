@@ -14,6 +14,7 @@ import type {
     BlastRadiusApi,
     BlastRadiusRequestApi,
     HogFlowApi,
+    HogFlowInvocationApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
@@ -352,14 +353,14 @@ export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) =
 export const hogFlowsInvocationsCreate = async (
     projectId: string,
     id: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
+    hogFlowInvocationApi: HogFlowInvocationApi,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsInvocationsCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getHogFlowsInvocationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
+        body: JSON.stringify(hogFlowInvocationApi),
     })
 }
 

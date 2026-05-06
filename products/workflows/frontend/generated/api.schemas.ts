@@ -22,14 +22,20 @@ export const HogFlowTemplateScopeEnumApi = {
 
 export interface HogFlowMaskingApi {
     /**
+     * Time-to-live in seconds for the masking hash. Min 60s, max 3 years.
      * @minimum 60
      * @maximum 94608000
      * @nullable
      */
     ttl?: number | null
-    /** @nullable */
+    /**
+     * Minimum number of matching events before the workflow triggers (k-anonymity threshold).
+     * @nullable
+     */
     threshold?: number | null
+    /** HogQL template expression used as the masking key (e.g. '{person.properties.email}'). */
     hash: string
+    /** Compiled bytecode for the hash template. Auto-generated server-side. */
     bytecode?: unknown | null
 }
 
@@ -125,6 +131,9 @@ export interface HogFlowTemplateActionApi {
  */
 export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
 
+/**
+ * Variable definition with keys: 'key' (unique identifier), 'type' (string/number/boolean), 'default' (initial value).
+ */
 export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
 
 /**
@@ -175,6 +184,9 @@ export interface PaginatedHogFlowTemplateListApi {
  */
 export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
 
+/**
+ * Variable definition with keys: 'key' (unique identifier), 'type' (string/number/boolean), 'default' (initial value).
+ */
 export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
 
 /**
@@ -310,73 +322,150 @@ export interface PaginatedHogFlowMinimalListApi {
     results: HogFlowMinimalApi[]
 }
 
+/**
+ * Variable definition with keys: 'key' (unique identifier), 'type' (string/number/boolean), 'default' (initial value).
+ */
 export type HogFlowApiVariablesItem = { [key: string]: string }
 
 export interface HogFlowActionApi {
+    /** Unique identifier for this action node within the workflow graph. */
     id: string
-    /** @maxLength 400 */
+    /**
+     * Human-readable name for the action node.
+     * @maxLength 400
+     */
     name: string
+    /** Optional description of what this action does. */
     description?: string
+    /** Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).
+
+* `continue` - continue
+* `abort` - abort
+* `complete` - complete
+* `branch` - branch */
     on_error?: OnErrorEnumApi | NullEnumApi | null
+    /** Unix epoch milliseconds when the action was added. Auto-managed by the frontend. */
     created_at?: number
+    /** Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend. */
     updated_at?: number
+    /** Property filters that gate execution of this action. */
     filters?: HogFunctionFiltersApi | null
-    /** @maxLength 100 */
+    /**
+     * Action type: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, random_cohort_branch, exit.
+     * @maxLength 100
+     */
     type: string
+    /** Type-specific configuration. For triggers: {type, filters}. For functions: {template_id, inputs}. For delays: {delay_duration, e.g. '30m', '2h', '1d'}. For conditional branches: {conditions}. */
     config: unknown
+    /** Variable definition to store this action's output for use by downstream actions. */
     output_variable?: unknown | null
 }
 
 export interface HogFlowApi {
     readonly id: string
     /**
+     * Human-readable name for the workflow.
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Optional description of the workflow's purpose. */
     description?: string
     readonly version: number
+    /** Workflow state: draft (editing), active (live and processing events), or archived (soft-deleted).
+
+* `draft` - Draft
+* `active` - Active
+* `archived` - Archived */
     status?: HogFlowStatusEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
-    trigger?: unknown
+    readonly trigger: unknown
+    /** Optional masking/deduplication configuration. Prevents the same entity from entering the workflow multiple times within a TTL window. */
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal definition with filters and bytecode. Used with exit_on_conversion exit condition. */
     conversion?: unknown | null
-    exit_condition?: ExitConditionEnumApi
+    /** When a person exits the workflow: exit_on_conversion, exit_on_trigger_not_matched, exit_on_trigger_not_matched_or_conversion, or exit_only_at_end.
+
+* `exit_on_conversion` - Conversion
+* `exit_on_trigger_not_matched` - Trigger Not Matched
+* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+* `exit_only_at_end` - Only At End */
+    exit_condition?: ExitConditionEnumApi | NullEnumApi | null
+    /** Graph edges connecting action nodes. Array of {source, target} objects defining the execution flow between actions. */
     edges?: unknown
+    /** Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. */
     actions: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action: string | null
+    /** Workflow-level variables that persist across actions. Each variable has a key, type, and default value. Total size must be under 5KB. */
     variables?: HogFlowApiVariablesItem[]
     readonly billable_action_types: unknown | null
 }
 
+/**
+ * Variable definition with keys: 'key' (unique identifier), 'type' (string/number/boolean), 'default' (initial value).
+ */
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
 
 export interface PatchedHogFlowApi {
     readonly id?: string
     /**
+     * Human-readable name for the workflow.
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Optional description of the workflow's purpose. */
     description?: string
     readonly version?: number
+    /** Workflow state: draft (editing), active (live and processing events), or archived (soft-deleted).
+
+* `draft` - Draft
+* `active` - Active
+* `archived` - Archived */
     status?: HogFlowStatusEnumApi
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
-    trigger?: unknown
+    readonly trigger?: unknown
+    /** Optional masking/deduplication configuration. Prevents the same entity from entering the workflow multiple times within a TTL window. */
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal definition with filters and bytecode. Used with exit_on_conversion exit condition. */
     conversion?: unknown | null
-    exit_condition?: ExitConditionEnumApi
+    /** When a person exits the workflow: exit_on_conversion, exit_on_trigger_not_matched, exit_on_trigger_not_matched_or_conversion, or exit_only_at_end.
+
+* `exit_on_conversion` - Conversion
+* `exit_on_trigger_not_matched` - Trigger Not Matched
+* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+* `exit_only_at_end` - Only At End */
+    exit_condition?: ExitConditionEnumApi | NullEnumApi | null
+    /** Graph edges connecting action nodes. Array of {source, target} objects defining the execution flow between actions. */
     edges?: unknown
+    /** Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. */
     actions?: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action?: string | null
+    /** Workflow-level variables that persist across actions. Each variable has a key, type, and default value. Total size must be under 5KB. */
     variables?: PatchedHogFlowApiVariablesItem[]
     readonly billable_action_types?: unknown | null
+}
+
+/**
+ * Test event data to trigger the workflow with. Object with keys like 'event', 'person', 'groups' matching the event shape.
+ */
+export type HogFlowInvocationApiGlobals = { [key: string]: unknown }
+
+export interface HogFlowInvocationApi {
+    /** Optional workflow configuration override for the test run. If omitted, uses the saved workflow definition. */
+    configuration?: HogFlowApi
+    /** Test event data to trigger the workflow with. Object with keys like 'event', 'person', 'groups' matching the event shape. */
+    globals?: HogFlowInvocationApiGlobals
+    /** When true (default), async actions (HTTP requests, emails) are simulated rather than executed for safety. */
+    mock_async_functions?: boolean
+    /** Start execution from a specific action node ID instead of the trigger. Useful for testing mid-workflow actions. */
+    current_action_id?: string
 }
 
 export interface AppMetricSeriesApi {

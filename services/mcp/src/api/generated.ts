@@ -18454,6 +18454,9 @@ export namespace Schemas {
       results: HeatmapResponseItem[];
     }
 
+    /**
+     * Variable definition with keys: 'key' (unique identifier), 'type' (string/number/boolean), 'default' (initial value).
+     */
     export type HogFlowVariablesItem = {[key: string]: string};
 
     /**
@@ -18472,14 +18475,20 @@ export namespace Schemas {
 
     export interface HogFlowMasking {
       /**
+       * Time-to-live in seconds for the masking hash. Min 60s, max 3 years.
        * @minimum 60
        * @maximum 94608000
        * @nullable
        */
       ttl?: number | null;
-      /** @nullable */
+      /**
+       * Minimum number of matching events before the workflow triggers (k-anonymity threshold).
+       * @nullable
+       */
       threshold?: number | null;
+      /** HogQL template expression used as the masking key (e.g. '{person.properties.email}'). */
       hash: string;
+      /** Compiled bytecode for the hash template. Auto-generated server-side. */
       bytecode?: unknown | null;
     }
 
@@ -18534,43 +18543,96 @@ export namespace Schemas {
     }
 
     export interface HogFlowAction {
+      /** Unique identifier for this action node within the workflow graph. */
       id: string;
-      /** @maxLength 400 */
+      /**
+       * Human-readable name for the action node.
+       * @maxLength 400
+       */
       name: string;
+      /** Optional description of what this action does. */
       description?: string;
+      /** Behavior when this action fails: continue (skip and proceed), abort (stop workflow), complete (mark as done), or branch (follow error edge).
+
+    * `continue` - continue
+    * `abort` - abort
+    * `complete` - complete
+    * `branch` - branch */
       on_error?: OnErrorEnum | NullEnum | null;
+      /** Unix epoch milliseconds when the action was added. Auto-managed by the frontend. */
       created_at?: number;
+      /** Unix epoch milliseconds when the action was last modified. Auto-managed by the frontend. */
       updated_at?: number;
+      /** Property filters that gate execution of this action. */
       filters?: HogFunctionFilters | null;
-      /** @maxLength 100 */
+      /**
+       * Action type: trigger, function, function_email, function_sms, function_push, delay, conditional_branch, wait_until_condition, random_cohort_branch, exit.
+       * @maxLength 100
+       */
       type: string;
+      /** Type-specific configuration. For triggers: {type, filters}. For functions: {template_id, inputs}. For delays: {delay_duration, e.g. '30m', '2h', '1d'}. For conditional branches: {conditions}. */
       config: unknown;
+      /** Variable definition to store this action's output for use by downstream actions. */
       output_variable?: unknown | null;
     }
 
     export interface HogFlow {
       readonly id: string;
       /**
+       * Human-readable name for the workflow.
        * @maxLength 400
        * @nullable
        */
       name?: string | null;
+      /** Optional description of the workflow's purpose. */
       description?: string;
       readonly version: number;
+      /** Workflow state: draft (editing), active (live and processing events), or archived (soft-deleted).
+
+    * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived */
       status?: HogFlowStatusEnum;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
-      trigger?: unknown;
+      readonly trigger: unknown;
+      /** Optional masking/deduplication configuration. Prevents the same entity from entering the workflow multiple times within a TTL window. */
       trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal definition with filters and bytecode. Used with exit_on_conversion exit condition. */
       conversion?: unknown | null;
-      exit_condition?: ExitConditionEnum;
+      /** When a person exits the workflow: exit_on_conversion, exit_on_trigger_not_matched, exit_on_trigger_not_matched_or_conversion, or exit_only_at_end.
+
+    * `exit_on_conversion` - Conversion
+    * `exit_on_trigger_not_matched` - Trigger Not Matched
+    * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+    * `exit_only_at_end` - Only At End */
+      exit_condition?: ExitConditionEnum | NullEnum | null;
+      /** Graph edges connecting action nodes. Array of {source, target} objects defining the execution flow between actions. */
       edges?: unknown;
+      /** Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. */
       actions: HogFlowAction[];
       /** @nullable */
       readonly abort_action: string | null;
+      /** Workflow-level variables that persist across actions. Each variable has a key, type, and default value. Total size must be under 5KB. */
       variables?: HogFlowVariablesItem[];
       readonly billable_action_types: unknown | null;
+    }
+
+    /**
+     * Test event data to trigger the workflow with. Object with keys like 'event', 'person', 'groups' matching the event shape.
+     */
+    export type HogFlowInvocationGlobals = { [key: string]: unknown };
+
+    export interface HogFlowInvocation {
+      /** Optional workflow configuration override for the test run. If omitted, uses the saved workflow definition. */
+      configuration?: HogFlow;
+      /** Test event data to trigger the workflow with. Object with keys like 'event', 'person', 'groups' matching the event shape. */
+      globals?: HogFlowInvocationGlobals;
+      /** When true (default), async actions (HTTP requests, emails) are simulated rather than executed for safety. */
+      mock_async_functions?: boolean;
+      /** Start execution from a specific action node ID instead of the trigger. Useful for testing mid-workflow actions. */
+      current_action_id?: string;
     }
 
     export interface HogFlowMinimal {
@@ -18628,6 +18690,9 @@ export namespace Schemas {
      */
     export type HogFlowTemplateCreatedBy = { [key: string]: unknown } | null | null;
 
+    /**
+     * Variable definition with keys: 'key' (unique identifier), 'type' (string/number/boolean), 'default' (initial value).
+     */
     export type HogFlowTemplateVariablesItem = {[key: string]: string};
 
     /**
@@ -28151,29 +28216,50 @@ export namespace Schemas {
       readonly exception?: string | null;
     }
 
+    /**
+     * Variable definition with keys: 'key' (unique identifier), 'type' (string/number/boolean), 'default' (initial value).
+     */
     export type PatchedHogFlowVariablesItem = {[key: string]: string};
 
     export interface PatchedHogFlow {
       readonly id?: string;
       /**
+       * Human-readable name for the workflow.
        * @maxLength 400
        * @nullable
        */
       name?: string | null;
+      /** Optional description of the workflow's purpose. */
       description?: string;
       readonly version?: number;
+      /** Workflow state: draft (editing), active (live and processing events), or archived (soft-deleted).
+
+    * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived */
       status?: HogFlowStatusEnum;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
-      trigger?: unknown;
+      readonly trigger?: unknown;
+      /** Optional masking/deduplication configuration. Prevents the same entity from entering the workflow multiple times within a TTL window. */
       trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal definition with filters and bytecode. Used with exit_on_conversion exit condition. */
       conversion?: unknown | null;
-      exit_condition?: ExitConditionEnum;
+      /** When a person exits the workflow: exit_on_conversion, exit_on_trigger_not_matched, exit_on_trigger_not_matched_or_conversion, or exit_only_at_end.
+
+    * `exit_on_conversion` - Conversion
+    * `exit_on_trigger_not_matched` - Trigger Not Matched
+    * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+    * `exit_only_at_end` - Only At End */
+      exit_condition?: ExitConditionEnum | NullEnum | null;
+      /** Graph edges connecting action nodes. Array of {source, target} objects defining the execution flow between actions. */
       edges?: unknown;
+      /** Ordered list of action nodes in the workflow. Must include exactly one action with type='trigger'. */
       actions?: HogFlowAction[];
       /** @nullable */
       readonly abort_action?: string | null;
+      /** Workflow-level variables that persist across actions. Each variable has a key, type, and default value. Total size must be under 5KB. */
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown | null;
     }
@@ -28183,6 +28269,9 @@ export namespace Schemas {
      */
     export type PatchedHogFlowTemplateCreatedBy = { [key: string]: unknown } | null | null;
 
+    /**
+     * Variable definition with keys: 'key' (unique identifier), 'type' (string/number/boolean), 'default' (initial value).
+     */
     export type PatchedHogFlowTemplateVariablesItem = {[key: string]: string};
 
     /**

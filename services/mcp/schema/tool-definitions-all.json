@@ -5102,6 +5102,36 @@
             "readOnlyHint": true
         }
     },
+    "workflows-create": {
+        "description": "Create a new workflow. Requires an actions array containing exactly one trigger action (type='trigger') with a config specifying the trigger type (event, webhook, manual, batch, schedule, tracking_pixel). Additional actions define the workflow steps: function (call a template), delay (pause execution), conditional_branch (if/else routing), wait_until_condition (pause until a condition is met). Connect actions via the edges array [{source, target}]. New workflows default to 'draft' status — set status to 'active' to enable live execution.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Create workflow",
+        "title": "Create workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-delete": {
+        "description": "Permanently delete a workflow by ID. This removes the workflow definition and all associated data. Consider archiving (set status to 'archived' via update) instead of deleting if you may need to restore it later.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Delete workflow",
+        "title": "Delete workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
         "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
         "category": "Workflows",
@@ -5130,6 +5160,36 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "workflows-run": {
+        "description": "Execute a test invocation of a workflow. Sends the workflow to the execution engine for a dry-run with the provided test event data. By default, async functions (HTTP calls, emails, SMS) are mocked for safety. Use globals to provide test event data matching your trigger type. Optionally pass current_action_id to start from a specific node. Returns the execution trace showing which actions ran and their outputs.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Test-run workflow",
+        "title": "Test-run workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-update": {
+        "description": "Update an existing workflow by ID. Supports partial updates — only include fields you want to change. Common operations: change status (draft to active to publish, active to archived to disable), update actions array (must still contain exactly one trigger), modify edges, or update exit_condition.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Update workflow",
+        "title": "Update workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     }
 }
