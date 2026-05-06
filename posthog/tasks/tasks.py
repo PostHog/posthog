@@ -110,6 +110,59 @@ def delete_expired_delegation_invites() -> None:
     )
 
 
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def kill_stale_queued_task_runs() -> None:
+    """Mark TaskRuns stuck in QUEUED for >24h as FAILED.
+
+    A TaskRun sits in QUEUED until the Temporal `process-task` workflow flips it
+    to IN_PROGRESS. If that workflow never starts (worker down, schedule call
+    failed), the row would otherwise stay QUEUED forever. mark_failed() (per row,
+    not bulk .update()) preserves publish_stream_state_event and the
+    `task_run_failed` analytics capture. Materializing ids first avoids
+    server-side cursor invalidation while updating the same table; the inner
+    refetch with status=QUEUED handles the race where a worker picks up the run
+    between selection and update.
+
+    Staleness is keyed on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
+    re-queues an existing run (status=QUEUED, completed_at=None) without resetting
+    `created_at`; using `created_at` would cause the cleanup to kill freshly
+    re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
+    so a re-queued run won't appear in this candidate set until it has actually
+    been QUEUED for the full STALE_AFTER window.
+    """
+    from products.tasks.backend.models import TaskRun
+
+    BATCH_SIZE = 500
+    STALE_AFTER = datetime.timedelta(hours=24)
+    REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
+
+    cutoff = timezone.now() - STALE_AFTER
+    stale_ids = list(
+        TaskRun.objects.filter(status=TaskRun.Status.QUEUED, updated_at__lt=cutoff)
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:BATCH_SIZE]
+    )
+    swept = 0
+    errors = 0
+    for run_id in stale_ids:
+        run = TaskRun.objects.filter(pk=run_id, status=TaskRun.Status.QUEUED).first()
+        if run is None:
+            continue
+        try:
+            run.mark_failed(REASON)
+            swept += 1
+        except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
+            errors += 1
+            capture_exception(exc)
+    logger.info(
+        "kill_stale_queued_task_runs.sweep_done",
+        candidates=len(stale_ids),
+        swept=swept,
+        errors=errors,
+        batch_size=BATCH_SIZE,
+    )
+
+
 @shared_task(ignore_result=True)
 def clear_expired_sessions() -> None:
     from django.contrib.sessions.models import Session
