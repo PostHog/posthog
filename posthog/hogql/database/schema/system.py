@@ -768,6 +768,21 @@ error_tracking_releases: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_symbol_sets: PostgresTable = PostgresTable(
+    name="error_tracking_symbol_sets",
+    postgres_table_name="posthog_errortrackingsymbolset",
+    access_scope="error_tracking",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "ref": StringDatabaseField(name="ref"),
+        "release_id": StringDatabaseField(name="release_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_used": DateTimeDatabaseField(name="last_used", nullable=True),
+        "failure_reason": StringDatabaseField(name="failure_reason", nullable=True),
+    },
+)
+
 logs_views: PostgresTable = PostgresTable(
     name="logs_views",
     postgres_table_name="logs_logsview",
@@ -1077,6 +1092,7 @@ class SystemTables(TableNode):
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "error_tracking_releases": TableNode(name="error_tracking_releases", table=error_tracking_releases),
+        "error_tracking_symbol_sets": TableNode(name="error_tracking_symbol_sets", table=error_tracking_symbol_sets),
         "error_tracking_suppression_rules": TableNode(
             name="error_tracking_suppression_rules", table=error_tracking_suppression_rules
         ),

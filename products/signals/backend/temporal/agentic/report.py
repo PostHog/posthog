@@ -29,7 +29,7 @@ from products.signals.backend.report_generation.research import (
     run_multi_turn_research,
 )
 from products.signals.backend.report_generation.resolve_reviewers import (
-    get_org_member_github_login_to_user_map,
+    resolve_org_github_login_to_users,
     resolve_suggested_reviewers,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -223,7 +223,9 @@ def _resolve_autostart_assignee(
     whether the report's priority is high enough (lower rank = higher priority).
     Returns the first matching ``User``, or ``None`` if nobody qualifies.
     """
-    login_to_user = get_org_member_github_login_to_user_map(team_id) or {}
+    login_to_user = resolve_org_github_login_to_users(
+        team_id, (str(r["github_login"]) for r in reviewers_content if r.get("github_login"))
+    )
     report_rank = _priority_rank(report_priority)
 
     # Map reviewer github logins to user IDs (preserving reviewer order)

@@ -71,6 +71,7 @@ def proto_person_to_model(
         is_identified=person.is_identified,
         created_at=datetime.fromtimestamp(person.created_at / 1000, tz=UTC) if person.created_at else datetime.now(UTC),
         last_seen_at=datetime.fromtimestamp(person.last_seen_at / 1000, tz=UTC) if person.last_seen_at else None,
+        version=person.version if person.version is not None else 0,
     )
     if distinct_ids is not None:
         obj._distinct_ids = distinct_ids
