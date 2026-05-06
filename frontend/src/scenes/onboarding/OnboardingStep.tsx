@@ -10,7 +10,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingBreadcrumbs } from './OnboardingBreadcrumbs'
-import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
+import { stepKeyToTitle } from './onboardingFlowUtils'
+import { onboardingLogic } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,

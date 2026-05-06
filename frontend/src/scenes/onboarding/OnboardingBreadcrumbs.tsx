@@ -7,7 +7,8 @@ import { Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
+import { stepKeyToTitle } from './onboardingFlowUtils'
+import { onboardingLogic } from './onboardingLogic'
 import { availableOnboardingProducts } from './utils'
 
 export function OnboardingBreadcrumbs(): JSX.Element | null {
