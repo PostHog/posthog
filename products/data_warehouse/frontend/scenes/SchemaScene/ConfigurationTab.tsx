@@ -45,6 +45,16 @@ import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
 import { SchemaConfigurationSection } from './schemaSceneLogic'
 
+// Returns columns that will be synced under `next` but were not under `prev`.
+// Treats null as "all available" so adding `null` after an explicit list flags
+// every previously-excluded column.
+function getAddedColumns(prev: string[] | null, next: string[] | null, available: { name: string }[]): string[] {
+    const allColumns = available.map((c) => c.name)
+    const prevSet = new Set(prev ?? allColumns)
+    const nextSet = new Set(next ?? allColumns)
+    return allColumns.filter((c) => nextSet.has(c) && !prevSet.has(c))
+}
+
 export interface ConfigurationTabProps {
     sourceId: string
     schema: ExternalDataSourceSchema
@@ -71,7 +81,14 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
         case 'sync-method':
             return <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
         case 'columns':
-            return <ColumnsSection source={source} schema={schema} updateSchema={updateSchema} />
+            return (
+                <ColumnsSection
+                    source={source}
+                    schema={schema}
+                    updateSchema={updateSchema}
+                    resyncSchema={resyncSchema}
+                />
+            )
         case 'schedule':
             return (
                 <ScheduleSection
@@ -398,18 +415,68 @@ function ColumnsSection({
     source,
     schema,
     updateSchema,
+    resyncSchema,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     updateSchema: (schema: ExternalDataSourceSchema) => void
+    resyncSchema: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const isPostgres = source?.source_type === 'Postgres'
     const available = schema.available_columns ?? []
     const synced = schema.synced_columns
 
+    const alwaysRetained = new Set<string>([
+        ...(schema.primary_key_columns ?? []),
+        ...(schema.incremental_field ? [schema.incremental_field] : []),
+    ])
+    const syncedCount = synced ? new Set([...synced, ...alwaysRetained]).size : available.length
     const summaryLine = !synced
         ? `Syncing all ${available.length || 'discovered'} columns`
-        : `Syncing ${synced.length} of ${available.length} columns (plus required primary keys / incremental field)`
+        : `Syncing ${syncedCount} of ${available.length} columns`
+
+    const handleSave = (nextSyncedColumns: string[] | null): void => {
+        const syncType = schema.sync_type
+        const requiresPrompt =
+            !!schema.last_synced_at &&
+            (syncType === 'incremental' || syncType === 'append' || syncType === 'cdc') &&
+            getAddedColumns(schema.synced_columns ?? null, nextSyncedColumns, available).length > 0
+
+        if (!requiresPrompt) {
+            updateSchema({ ...schema, synced_columns: nextSyncedColumns })
+            return
+        }
+
+        const added = getAddedColumns(schema.synced_columns ?? null, nextSyncedColumns, available)
+        LemonDialog.open({
+            title: 'New columns added to a partial-sync table',
+            description: (
+                <div className="flex flex-col gap-2">
+                    <span>
+                        You added {added.length === 1 ? '1 column' : `${added.length} columns`} to a{' '}
+                        <code>{syncType}</code> table. Existing rows will be backfilled with <code>NULL</code> for the
+                        new column(s) unless you full-resync the table.
+                    </span>
+                    {added.length <= 6 && (
+                        <span className="text-xs text-muted">Added: {added.map((c) => `"${c}"`).join(', ')}</span>
+                    )}
+                </div>
+            ),
+            primaryButton: {
+                children: 'Full resync now',
+                onClick: () => {
+                    updateSchema({ ...schema, synced_columns: nextSyncedColumns })
+                    resyncSchema({ ...schema, synced_columns: nextSyncedColumns })
+                },
+            },
+            secondaryButton: {
+                children: 'Sync forward only',
+                onClick: () => {
+                    updateSchema({ ...schema, synced_columns: nextSyncedColumns })
+                },
+            },
+        })
+    }
 
     return (
         <div>
@@ -428,12 +495,7 @@ function ColumnsSection({
                         <SourceEditorAction source={source}>
                             {({ disabledReason }) => (
                                 <fieldset disabled={!!disabledReason}>
-                                    <ColumnSelectionPicker
-                                        schema={schema}
-                                        onSave={(syncedColumns) => {
-                                            updateSchema({ ...schema, synced_columns: syncedColumns })
-                                        }}
-                                    />
+                                    <ColumnSelectionPicker schema={schema} onSave={handleSave} />
                                 </fieldset>
                             )}
                         </SourceEditorAction>

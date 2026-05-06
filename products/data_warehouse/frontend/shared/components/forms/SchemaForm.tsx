@@ -479,10 +479,16 @@ export default function SchemaForm(): JSX.Element {
                                             return <span className="text-xs text-muted-foreground">—</span>
                                         }
                                         const synced = schema.synced_columns
-                                        const summary =
-                                            !synced || synced.length === 0
-                                                ? `All ${schema.available_columns.length}`
-                                                : `${synced.length} of ${schema.available_columns.length}`
+                                        const alwaysRetained = new Set<string>([
+                                            ...(schema.primary_key_columns ?? []),
+                                            ...(schema.incremental_field ? [schema.incremental_field] : []),
+                                        ])
+                                        const syncedCount = synced
+                                            ? new Set([...synced, ...alwaysRetained]).size
+                                            : schema.available_columns.length
+                                        const summary = !synced
+                                            ? `All ${schema.available_columns.length}`
+                                            : `${syncedCount} of ${schema.available_columns.length}`
                                         return (
                                             <div className="justify-end flex">
                                                 <LemonButton
