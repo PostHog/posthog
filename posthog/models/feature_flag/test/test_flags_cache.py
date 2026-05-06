@@ -1903,6 +1903,53 @@ class TestManagementCommands(BaseTest):
         self.assertIn("db_data", result)
         self.assertIsInstance(result["db_data"], dict)
 
+    @parameterized.expand(
+        [
+            (
+                "extra_key_in_cache_is_tolerated",
+                lambda flag: flag.__setitem__("legacy_field_that_no_longer_exists", True),
+                "match",
+                None,
+            ),
+            (
+                "missing_key_in_cache_still_flagged",
+                lambda flag: flag.pop("filters"),
+                "mismatch",
+                "filters",
+            ),
+        ]
+    )
+    def test_verify_handles_key_drift_between_cache_and_db(
+        self, _name, mutate_cached_flag, expected_status, expected_diff_field
+    ):
+        """The DB serialization is the source of truth: stale extras in the
+        cache must be ignored (otherwise a benign serializer field removal
+        rewrites every team's cache), but a key the DB has and the cache
+        doesn't is a real divergence and must still be flagged."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        cached_data, _source = flags_hypercache.get_from_cache_with_source(self.team)
+        assert cached_data is not None
+        assert len(cached_data["flags"]) == 1
+        mutate_cached_flag(cached_data["flags"][0])
+        flags_hypercache.set_cache_value(self.team, cached_data)
+
+        result = verify_team_flags(self.team, verbose=True)
+
+        self.assertEqual(result["status"], expected_status)
+        if expected_diff_field is not None:
+            field_mismatches = [d for d in result["diffs"] if d["type"] == "FIELD_MISMATCH"]
+            self.assertEqual(len(field_mismatches), 1)
+            self.assertIn(expected_diff_field, field_mismatches[0]["diff_fields"])
+
     def test_verify_miss_includes_db_data(self):
         """Test that cache miss result includes db_data for direct cache write."""
         from posthog.models.feature_flag.flags_cache import clear_flags_cache, verify_team_flags

@@ -40,6 +40,7 @@ import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
+import { ErrorTrackingSettingsManager } from '../utils/error-tracking-settings-manager'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
@@ -143,6 +144,9 @@ export class ErrorTrackingServer implements NodeServer {
         await this.pubsub.start()
 
         const teamManager = new TeamManager(this.postgres)
+        const errorTrackingSettingsManager = this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED
+            ? new ErrorTrackingSettingsManager(this.postgres)
+            : undefined
 
         // 2. Services needed by ErrorTrackingConsumer and HogTransformer
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -208,8 +212,6 @@ export class ErrorTrackingServer implements NodeServer {
                     rateLimiterRedisHost: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
                     rateLimiterRedisPort: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
                     rateLimiterRedisTls: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
-                    rateLimiterBucketSize: this.config.ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE,
-                    rateLimiterRefillRate: this.config.ERROR_TRACKING_RATE_LIMITER_REFILL_RATE,
                     rateLimiterTtlSeconds: this.config.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
                     fallbackRedisUrl: this.config.REDIS_URL,
                     rateLimiterRedisPoolMinSize: this.config.REDIS_POOL_MIN_SIZE,
@@ -218,6 +220,7 @@ export class ErrorTrackingServer implements NodeServer {
                 {
                     outputs,
                     teamManager,
+                    errorTrackingSettingsManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
                     groupTypeManager: new GroupTypeManager(groupRepository, teamManager),
                     redisPool: this.redisPool!,

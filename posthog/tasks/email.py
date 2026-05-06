@@ -41,6 +41,7 @@ from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
 from products.conversations.backend.models import Ticket
@@ -218,6 +219,7 @@ def should_send_pipeline_error_notification(
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_invite(invite_id: str) -> None:
     campaign_key: str = f"invite_email_{invite_id}"
     invite = OrganizationInvite.objects.select_related("created_by", "organization").filter(id=invite_id).first()
@@ -331,6 +333,7 @@ def send_invite(invite_id: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     invitee: User = User.objects.get(uuid=invitee_uuid)
     organization: Organization = Organization.objects.get(id=organization_id)
@@ -385,6 +388,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -405,6 +409,7 @@ def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "") 
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_password_reset(user_id: int, token: str) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -426,6 +431,7 @@ def send_password_reset(user_id: int, token: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_password_changed_email(user_id: int) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -444,6 +450,7 @@ def send_password_changed_email(user_id: int) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_email_verification(user_id: int, token: str, next_url: str | None = None) -> None:
     user: User = User.objects.get(pk=user_id)
     next_query = f"?next={quote(next_url, safe='')}" if next_url else ""
@@ -469,6 +476,7 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_email_mfa_link(user_id: int, token: str) -> None:
     """Send email MFA verification link"""
     user: User = User.objects.get(pk=user_id)
@@ -603,6 +611,7 @@ def send_batch_export_run_failure(
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def send_matview_failure_digest() -> None:
     from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
 
@@ -670,6 +679,7 @@ def send_matview_failure_digest() -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
     from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
 
@@ -843,6 +853,7 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_two_factor_auth_enabled_email(user_id: int) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -860,6 +871,7 @@ def send_two_factor_auth_enabled_email(user_id: int) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_two_factor_auth_disabled_email(user_id: int) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -877,6 +889,7 @@ def send_two_factor_auth_disabled_email(user_id: int) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_passkey_added_email(user_id: int) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -894,6 +907,7 @@ def send_passkey_added_email(user_id: int) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_passkey_removed_email(user_id: int) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -911,6 +925,7 @@ def send_passkey_removed_email(user_id: int) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -928,6 +943,7 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_two_factor_reset_email(user_id: int, token: str) -> None:
     """Send 2FA reset email to user when an admin initiates a reset."""
     user: User = User.objects.get(pk=user_id)
@@ -953,6 +969,7 @@ def send_two_factor_reset_email(user_id: int, token: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def login_from_new_device_notification(
     user_id: int, login_time: datetime.datetime, short_user_agent: str, ip_address: str, backend_name: str
 ) -> None:
@@ -1039,6 +1056,7 @@ def get_users_for_orgs_with_no_ingested_events(
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_error_tracking_issue_assigned(assignment_id: str | uuid.UUID, assigner_id: int) -> None:
     assignment = error_tracking_api.get_issue_assignment_for_notification(assignment_id=assignment_id)
     assigner = User.objects.get(pk=assigner_id)
@@ -1140,6 +1158,7 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_hog_functions_digest_email(digest_data: dict, test_email_override: str | None = None) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -1282,6 +1301,7 @@ def send_hog_functions_daily_digest() -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | None = None) -> None:
     """
     Send daily digest email for a specific team with their failed HogFunctions.
@@ -1442,6 +1462,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_mask_value: str, more_info: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -1501,6 +1522,7 @@ def send_project_secret_api_key_exposed(team_id: int, mask_value: str, more_info
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_oauth_token_exposed(user_id: int, token_type: str, mask_value: str, more_info: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -1526,6 +1548,7 @@ def send_oauth_token_exposed(user_id: int, token_type: str, mask_value: str, mor
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_content: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Skipping new ticket notification: email service not available")
@@ -1594,6 +1617,7 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_conversation_restore_email(email: str, team_id: int, restore_url: str) -> None:
     """Send email with restore link to recover conversation tickets on a new device."""
     if not is_email_available(with_absolute_urls=True):
@@ -1624,6 +1648,7 @@ def send_conversation_restore_email(email: str, team_id: int, restore_url: str) 
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_project_deleted_email(
     user_id: int,
     project_name: str,
@@ -1650,6 +1675,7 @@ def send_project_deleted_email(
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_organization_deleted_email(
     user_id: int,
     organization_name: str,
@@ -1707,6 +1733,7 @@ def send_error_tracking_weekly_digest() -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
+@skip_team_scope_audit
 def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     """Send one combined weekly error tracking digest email per user in an org"""
     from posthog.models.organization import Organization

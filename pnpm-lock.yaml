@@ -1793,6 +1793,9 @@ importers:
       tailwindcss:
         specifier: ^4.1.17
         version: 4.2.1
+      tailwindcss-scroll-mask:
+        specifier: ^0.0.3
+        version: 0.0.3(tailwindcss@4.2.1)
     devDependencies:
       '@storybook/addon-docs':
         specifier: ^7.6.4
@@ -48984,6 +48987,10 @@ snapshots:
   tailwind-merge@2.2.2:
     dependencies:
       '@babel/runtime': 7.28.6
+
+  tailwindcss-scroll-mask@0.0.3(tailwindcss@4.2.1):
+    dependencies:
+      tailwindcss: 4.2.1
 
   tailwindcss-scroll-mask@0.0.3(tailwindcss@4.2.2):
     dependencies:

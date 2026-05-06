@@ -7,7 +7,12 @@ from typing import Any, Generic, Optional, TypeVar
 
 import structlog
 
-from posthog.schema import MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsConstants, SourceMap
+from posthog.schema import (
+    MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
+    SourceMap,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -16,7 +21,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
 from products.data_warehouse.backend.models import DataWarehouseTable
-from products.marketing_analytics.backend.hogql_queries.constants import MATCH_KEY_FIELD
+from products.marketing_analytics.backend.hogql_queries.constants import DRILL_DOWN_LEVEL_CONFIG, MATCH_KEY_FIELD
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +75,12 @@ class MetaAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
+    # Ad-group (adset) and ad tables are optional — only present when the user has
+    # those schemas marked for sync in their data warehouse.
+    adset_table: Optional[DataWarehouseTable] = None
+    adset_stats_table: Optional[DataWarehouseTable] = None
+    ad_table: Optional[DataWarehouseTable] = None
+    ad_stats_table: Optional[DataWarehouseTable] = None
 
 
 @dataclass
@@ -120,6 +131,10 @@ class QueryContext:
     team: Team
     global_filters: list[Any] = field(default_factory=list)
     base_currency: str = DEFAULT_CURRENCY
+    # Drill-down level controls which platform tables the adapter pulls from.
+    # CAMPAIGN (default) and below query campaign-level stats. AD_GROUP / AD switch
+    # to ad-group / ad-level tables when the adapter supports them.
+    drill_down_level: MarketingAnalyticsDrillDownLevel = MarketingAnalyticsDrillDownLevel.CAMPAIGN
 
 
 class MarketingSourceAdapter(ABC, Generic[ConfigType]):
@@ -139,6 +154,13 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     cost_field: str = MarketingAnalyticsColumnsSchemaNames.COST
     reported_conversion_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION
     reported_conversion_value_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE
+    # Ad-group / ad granularity. Emitted by every adapter (NULL when the source doesn't
+    # support that granularity or the query isn't at that drill-down level) so the
+    # campaign_costs CTE has a stable schema.
+    ad_group_name_field: str = MarketingAnalyticsColumnsSchemaNames.AD_GROUP_NAME
+    ad_group_id_field: str = MarketingAnalyticsColumnsSchemaNames.AD_GROUP_ID
+    ad_name_field: str = MarketingAnalyticsColumnsSchemaNames.AD_NAME
+    ad_id_field: str = MarketingAnalyticsColumnsSchemaNames.AD_ID
     match_key_field: str = MATCH_KEY_FIELD
 
     CONSTANT_VALUE_PREFIX = MarketingAnalyticsConstants.CONST_
@@ -197,6 +219,11 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         self.config: ConfigType = config
         self.logger = logger.bind(source_type=self.get_source_type(), team_id=self.team.pk if self.team else None)
         self.context = context
+        # Cache for `_table_has_column` lookups. Keyed by (id(table), column_name) so we
+        # don't re-introspect the warehouse table on each currency-conversion call (at AD
+        # level the same stats table is hit 3 times per query for cost / conversions /
+        # conversion_value).
+        self._table_column_cache: dict[tuple[int, str], bool] = {}
 
     @abstractmethod
     def get_source_type(self) -> str:
@@ -271,6 +298,47 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Get the reported conversion value (monetary) field expression"""
         pass
 
+    def _get_ad_group_name_field(self) -> ast.Expr:
+        """Get the ad group name field expression. Default NULL — adapters that support
+        ad-group granularity override this when the query is at AD_GROUP or AD level."""
+        return ast.Constant(value=None)
+
+    def _get_ad_group_id_field(self) -> ast.Expr:
+        """Get the ad group ID field expression. Default NULL."""
+        return ast.Constant(value=None)
+
+    def _get_ad_name_field(self) -> ast.Expr:
+        """Get the ad name field expression. Default NULL — adapters that support
+        ad granularity override this when the query is at AD level."""
+        return ast.Constant(value=None)
+
+    def _get_ad_id_field(self) -> ast.Expr:
+        """Get the ad ID field expression. Default NULL."""
+        return ast.Constant(value=None)
+
+    def _string_field_when_level(
+        self,
+        levels: tuple[MarketingAnalyticsDrillDownLevel, ...],
+        table: Optional[DataWarehouseTable],
+        column: str,
+    ) -> ast.Expr:
+        """Helper for adapters implementing hierarchy fields. Returns
+        toString(table.column) when the current drill-down level is in `levels`
+        and the table is configured; otherwise NULL.
+
+        Used to keep `_get_ad_group_*_field` / `_get_ad_*_field` overrides one-liners
+        across the 8 adapter implementations (Meta done, others to follow).
+        """
+        if table is not None and self.context.drill_down_level in levels:
+            return ast.Call(name="toString", args=[ast.Field(chain=[table.name, column])])
+        return ast.Constant(value=None)
+
+    def supports_level(self, level: MarketingAnalyticsDrillDownLevel) -> bool:
+        """Whether this adapter can return data for the given drill-down level.
+        Default: supports campaign-level and below (channel, source, campaign, utm levels).
+        Override in adapters that implement AD_GROUP / AD level tables."""
+        return level not in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
+
     @abstractmethod
     def _get_where_conditions(self) -> list[ast.Expr]:
         """Get WHERE condition expressions"""
@@ -314,6 +382,37 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             return self._get_campaign_id_field()
         return self._get_campaign_name_field()
 
+    def _get_match_key_expr(self) -> ast.Expr:
+        """Expression emitted as the `match_key` column. The runner JOINs adapter output
+        against unified_conversion_goals on this column — but at levels where that JOIN
+        is skipped (currently AD_GROUP / AD; gated by `excludes_conversion_goals`), the
+        match value is unused and emitting `campaign_name` is just a confusing duplicate
+        of the campaign column. Empty constant communicates intent and saves wire bytes.
+
+        Tied to DRILL_DOWN_LEVEL_CONFIG so any future level that flips
+        `excludes_conversion_goals` automatically inherits this behavior.
+        """
+        level_config = DRILL_DOWN_LEVEL_CONFIG.get(self.context.drill_down_level)
+        if level_config and level_config.get("excludes_conversion_goals"):
+            return ast.Constant(value="")
+        return self.get_campaign_match_field()
+
+    def _table_has_column(self, table: DataWarehouseTable, column_name: str) -> bool:
+        """Cached column-existence check for warehouse tables. Used by hot paths like
+        `_apply_currency_conversion` and `_build_actions_conversion_sum` (Meta) that
+        call into the same table multiple times per query."""
+        cache_key = (id(table), column_name)
+        cached = self._table_column_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            columns = getattr(table, "columns", None)
+            present = bool(columns and hasattr(columns, "__contains__") and column_name in columns)
+        except (TypeError, AttributeError, KeyError):
+            present = False
+        self._table_column_cache[cache_key] = present
+        return present
+
     def _apply_currency_conversion(
         self,
         table: DataWarehouseTable,
@@ -326,21 +425,17 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         Returns toFloat(convertCurrency(coalesce(currency_col, base_currency), base_currency, value_expr))
         or None if the column doesn't exist or can't be checked.
         """
-        try:
-            columns = getattr(table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and currency_column in columns:
-                currency_field = ast.Field(chain=[table_name, currency_column])
-                currency_with_fallback = ast.Call(
-                    name="coalesce", args=[currency_field, ast.Constant(value=self.context.base_currency)]
-                )
-                converted = ast.Call(
-                    name="convertCurrency",
-                    args=[currency_with_fallback, ast.Constant(value=self.context.base_currency), value_expr],
-                )
-                return ast.Call(name="toFloat", args=[converted])
-        except (TypeError, AttributeError, KeyError):
-            pass
-        return None
+        if not self._table_has_column(table, currency_column):
+            return None
+        currency_field = ast.Field(chain=[table_name, currency_column])
+        currency_with_fallback = ast.Call(
+            name="coalesce", args=[currency_field, ast.Constant(value=self.context.base_currency)]
+        )
+        converted = ast.Call(
+            name="convertCurrency",
+            args=[currency_with_fallback, ast.Constant(value=self.context.base_currency), value_expr],
+        )
+        return ast.Call(name="toFloat", args=[converted])
 
     def _log_validation_errors(self, errors: list[str]):
         """Helper to log validation issues"""
@@ -357,28 +452,59 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     def _build_select_columns(self) -> list[ast.Expr]:
         """Build the standardized SELECT columns for marketing analytics queries.
         match_key first (stable position for joins), then data columns.
+
+        The ad_group / ad columns are only emitted at AD_GROUP / AD drill-down levels —
+        at other levels the 9-column schema is preserved for backward compatibility.
         """
-        return [
-            ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
+        columns: list[ast.Expr] = [
+            ast.Alias(alias=self.match_key_field, expr=self._get_match_key_expr()),
             ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
             ast.Alias(alias=self.campaign_id_field, expr=self._get_campaign_id_field()),
             ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
-            ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
-            ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
-            ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
-            ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
-            ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
         ]
+        if self.context.drill_down_level in (
+            MarketingAnalyticsDrillDownLevel.AD_GROUP,
+            MarketingAnalyticsDrillDownLevel.AD,
+        ):
+            columns.extend(
+                [
+                    ast.Alias(alias=self.ad_group_name_field, expr=self._get_ad_group_name_field()),
+                    ast.Alias(alias=self.ad_group_id_field, expr=self._get_ad_group_id_field()),
+                    ast.Alias(alias=self.ad_name_field, expr=self._get_ad_name_field()),
+                    ast.Alias(alias=self.ad_id_field, expr=self._get_ad_id_field()),
+                ]
+            )
+        columns.extend(
+            [
+                ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
+                ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
+                ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
+                ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
+                ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
+            ]
+        )
+        return columns
 
     def build_query(self) -> Optional[ast.SelectQuery]:
         """
         Build SelectQuery that returns marketing data in standardized format.
 
-        MUST return columns in this exact order and format (9 columns):
+        Column count varies by drill-down level (the campaign_costs CTE consumer expects
+        the same shape from every adapter at a given level):
+
+        - At CHANNEL / SOURCE / CAMPAIGN / MEDIUM / CONTENT / TERM: 9 columns
+        - At AD_GROUP / AD: 13 columns (ad_group_name/id + ad_name/id inserted after
+          source_name)
+
+        Column order at AD_GROUP / AD:
         - match_key (string): Campaign match field for joining with conversion goals
         - campaign_name (string): Campaign identifier (human-readable name)
         - campaign_id (string): Campaign identifier (platform ID)
         - source_name (string): Source identifier
+        - ad_group_name (string | null): Ad group name (null when source doesn't support it)
+        - ad_group_id (string | null): Ad group platform ID
+        - ad_name (string | null): Ad name (null at AD_GROUP level or unsupported)
+        - ad_id (string | null): Ad platform ID
         - impressions (float): Number of impressions
         - clicks (float): Number of clicks
         - cost (float): Total cost in base currency

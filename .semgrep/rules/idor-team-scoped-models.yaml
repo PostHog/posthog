@@ -168,9 +168,11 @@ rules:
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
                               |ScoreDefinition
@@ -188,6 +190,7 @@ rules:
                               |SignalSourceConfig
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SourceBatch
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -202,6 +205,7 @@ rules:
                               |EvaluationReport
                               |Text
                               |Threshold
+                              |ToleratedHash
                               |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
@@ -374,9 +378,11 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
                         |ScoreDefinition
@@ -394,6 +400,7 @@ rules:
                         |SignalSourceConfig
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SourceBatch
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -408,6 +415,7 @@ rules:
                         |EvaluationReport
                         |Text
                         |Threshold
+                        |ToleratedHash
                         |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
