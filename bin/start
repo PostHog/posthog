@@ -30,7 +30,7 @@ export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 # normal migrations on any failure (no token, no artifact, stale cache, etc).
 # Set explicitly to `off` to disable, or `on` to fail loudly when the fast path
 # can't run.
-export POSTHOG_SCHEMA_RESTORE=${POSTHOG_SCHEMA_RESTORE:-auto}
+export POSTHOG_SCHEMA_RESTORE_IN_DEV=${POSTHOG_SCHEMA_RESTORE_IN_DEV:-auto}
 
 # Use sccache for Rust compilation caching (if available via flox or homebrew)
 if [[ -z "${RUSTC_WRAPPER:-}" ]] && command -v sccache &>/dev/null; then

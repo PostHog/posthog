@@ -667,7 +667,7 @@ db:
         click: hogli_commands.db_schema:restore_schema_if_fresh_command
         description: Restore the CI migrated Postgres schema into the dev DB when it is
             empty, instead of replaying Django migrations. No-op unless
-            POSTHOG_SCHEMA_RESTORE is auto/on. Auto mode falls back silently to normal
+            POSTHOG_SCHEMA_RESTORE_IN_DEV is auto/on. Auto mode falls back silently to normal
             migrations on any failure.
     db:download-schema:
         cmd: "set -e\nmkdir -p .postgres-backups\necho \"Finding latest CI run with migrated-schema\

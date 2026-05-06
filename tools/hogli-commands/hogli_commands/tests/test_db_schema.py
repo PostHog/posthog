@@ -29,7 +29,7 @@ def test_auto_mode_restores_when_database_is_fresh(monkeypatch: pytest.MonkeyPat
     restored: list[bool] = []
 
     monkeypatch.setattr(db_schema, "_database_is_fresh", lambda: True)
-    monkeypatch.setattr(db_schema, "_ensure_schema_downloaded", _artifact)
+    monkeypatch.setattr(db_schema, "_fetch_schema_artifact", _artifact)
     monkeypatch.setattr(db_schema, "_schema_sha_is_ancestor", lambda sha: True)
     monkeypatch.setattr(db_schema, "_restore_schema", lambda: restored.append(True))
 
@@ -48,12 +48,12 @@ def test_off_mode_skips_without_touching_database(monkeypatch: pytest.MonkeyPatc
 
 
 def test_unset_env_var_resolves_to_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("POSTHOG_SCHEMA_RESTORE", raising=False)
+    monkeypatch.delenv("POSTHOG_SCHEMA_RESTORE_IN_DEV", raising=False)
     assert db_schema._normalize_mode(None) == "off"
 
 
 def test_invalid_mode_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("POSTHOG_SCHEMA_RESTORE", raising=False)
+    monkeypatch.delenv("POSTHOG_SCHEMA_RESTORE_IN_DEV", raising=False)
     with pytest.raises(click.ClickException):
         db_schema._normalize_mode("maybe")
 
@@ -63,7 +63,7 @@ def test_command_failure_policy(monkeypatch: pytest.MonkeyPatch) -> None:
         raise click.ClickException("download failed")
 
     monkeypatch.setattr(db_schema, "_database_is_fresh", lambda: True)
-    monkeypatch.setattr(db_schema, "_ensure_schema_downloaded", fail_download)
+    monkeypatch.setattr(db_schema, "_fetch_schema_artifact", fail_download)
 
     auto_result = runner.invoke(cli, ["db:restore-schema-if-fresh", "--mode=auto"])
     on_result = runner.invoke(cli, ["db:restore-schema-if-fresh", "--mode=on"])
@@ -83,9 +83,8 @@ def test_github_token_uses_standard_sources(monkeypatch: pytest.MonkeyPatch) -> 
     assert db_schema._github_token() == "gh-token"
 
 
-def test_download_schema_artifact_writes_schema_and_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_download_schema_artifact_writes_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     schema_path = tmp_path / "schema-latest.sql.gz"
-    metadata_path = tmp_path / "schema-latest.json"
     artifact = db_schema.SchemaArtifact(
         id=123,
         workflow_run_id=456,
@@ -100,14 +99,35 @@ def test_download_schema_artifact_writes_schema_and_metadata(tmp_path: Path, mon
 
     monkeypatch.setattr(db_schema, "BACKUP_DIR", tmp_path)
     monkeypatch.setattr(db_schema, "SCHEMA_PATH", schema_path)
-    monkeypatch.setattr(db_schema, "SCHEMA_METADATA_PATH", metadata_path)
     monkeypatch.setattr(db_schema, "_github_request", lambda url, token: archive_buffer.getvalue())
 
     db_schema._download_schema_artifact(artifact, "token")
 
     assert schema_path.read_bytes() == b"schema-bytes"
-    assert '"artifact_id": 123' in metadata_path.read_text()
-    assert '"head_sha": "abc123"' in metadata_path.read_text()
+
+
+def test_fetch_schema_artifact_always_downloads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No local cache check — every call hits GitHub and rewrites the schema file."""
+    schema_path = tmp_path / "schema-latest.sql.gz"
+    schema_path.write_bytes(b"stale-cached-bytes")
+
+    download_count = {"n": 0}
+
+    def fake_download(artifact: db_schema.SchemaArtifact, token: str) -> None:
+        download_count["n"] += 1
+        schema_path.write_bytes(b"fresh-bytes")
+
+    monkeypatch.setattr(db_schema, "BACKUP_DIR", tmp_path)
+    monkeypatch.setattr(db_schema, "SCHEMA_PATH", schema_path)
+    monkeypatch.setattr(db_schema, "_github_token", lambda: "token")
+    monkeypatch.setattr(db_schema, "_latest_schema_artifact", lambda token: _artifact())
+    monkeypatch.setattr(db_schema, "_download_schema_artifact", fake_download)
+
+    db_schema._fetch_schema_artifact()
+    db_schema._fetch_schema_artifact()
+
+    assert download_count["n"] == 2
+    assert schema_path.read_bytes() == b"fresh-bytes"
 
 
 def test_restore_schema_delegates_to_hogli_db_restore_test_db(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,7 +168,7 @@ def test_migrate_hook_uses_only_posthog_schema_restore() -> None:
     migrate_script = (db_schema.REPO_ROOT / "bin" / "migrate").read_text()
 
     assert '"$SCRIPT_DIR/hogli" db:restore-schema-if-fresh' in migrate_script
-    assert '"${POSTHOG_SCHEMA_RESTORE:-off}"' in migrate_script
+    assert '"${POSTHOG_SCHEMA_RESTORE_IN_DEV:-off}"' in migrate_script
     assert "CODER_WORKSPACE_ID" not in migrate_script
     assert "schema_restore_mode()" not in migrate_script
     assert "prepare_schema_restore_github_token" not in migrate_script
@@ -157,4 +177,4 @@ def test_migrate_hook_uses_only_posthog_schema_restore() -> None:
 def test_bin_start_opts_into_auto_mode() -> None:
     start_script = (db_schema.REPO_ROOT / "bin" / "start").read_text()
 
-    assert "POSTHOG_SCHEMA_RESTORE=${POSTHOG_SCHEMA_RESTORE:-auto}" in start_script
+    assert "POSTHOG_SCHEMA_RESTORE_IN_DEV=${POSTHOG_SCHEMA_RESTORE_IN_DEV:-auto}" in start_script

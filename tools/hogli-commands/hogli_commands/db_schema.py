@@ -4,7 +4,7 @@ Skips Django migrate replay on dev startup when the local Postgres DB is empty b
 downloading the latest `migrated-schema` artifact from CI and restoring it via the
 shared `db:restore-test-db` primitive.
 
-Gated entirely on the `POSTHOG_SCHEMA_RESTORE` env var:
+Gated entirely on the `POSTHOG_SCHEMA_RESTORE_IN_DEV` env var:
 - ``auto`` (default for ``bin/start``): try, fall back silently to normal migrations
 - ``on``: try, fail loudly if anything blocks the restore
 - ``off`` / unset: no-op (CI/prod default)
@@ -20,7 +20,6 @@ import tempfile
 import subprocess
 import urllib.request
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import cast
@@ -31,7 +30,6 @@ from hogli.manifest import REPO_ROOT
 ARTIFACT_API_URL = "https://api.github.com/repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10"
 BACKUP_DIR = REPO_ROOT / ".postgres-backups"
 SCHEMA_PATH = BACKUP_DIR / "schema-latest.sql.gz"
-SCHEMA_METADATA_PATH = BACKUP_DIR / "schema-latest.json"
 MIN_SCHEMA_ARTIFACT_SIZE_BYTES = 10_000
 RESTORE_TIMEOUT_SECONDS = 300
 
@@ -46,14 +44,14 @@ class SchemaArtifact:
 
 
 def _normalize_mode(raw_mode: str | None) -> str:
-    mode = (raw_mode if raw_mode is not None else os.environ.get("POSTHOG_SCHEMA_RESTORE", "")).strip().lower()
+    mode = (raw_mode if raw_mode is not None else os.environ.get("POSTHOG_SCHEMA_RESTORE_IN_DEV", "")).strip().lower()
     if mode == "auto":
         return "auto"
     if mode in {"1", "true", "yes", "on"}:
         return "on"
     if mode in {"0", "false", "no", "off", ""}:
         return "off"
-    raise click.ClickException("POSTHOG_SCHEMA_RESTORE must be auto, on, or off")
+    raise click.ClickException("POSTHOG_SCHEMA_RESTORE_IN_DEV must be auto, on, or off")
 
 
 def _should_attempt_restore(mode: str) -> bool:
@@ -207,30 +205,21 @@ def _download_schema_artifact(artifact: SchemaArtifact, token: str) -> None:
         tmp_schema_path = Path(tmp_schema.name)
     tmp_schema_path.replace(SCHEMA_PATH)
 
-    metadata = {
-        "artifact_id": artifact.id,
-        "run_id": artifact.workflow_run_id,
-        "head_sha": artifact.head_sha,
-        "created_at": artifact.created_at,
-        "downloaded_at": datetime.now(UTC).isoformat(),
-    }
-    SCHEMA_METADATA_PATH.write_text(json.dumps(metadata, indent=2) + "\n")
 
+def _fetch_schema_artifact() -> SchemaArtifact:
+    """Always pull the latest artifact from GitHub. No local cache check.
 
-def _ensure_schema_downloaded() -> SchemaArtifact:
+    The artifact API call + download is the cost we pay for not having to invalidate
+    a local cache. Cheap relative to the multi-minute migrate replay it replaces, and
+    keeps freshness guarantees obvious — what's on disk is always what GitHub
+    just told us is current.
+    """
     token = _github_token()
     if not token:
         raise click.ClickException("No GitHub token available for migrated-schema download")
 
     artifact = _latest_schema_artifact(token)
-    if not SCHEMA_PATH.exists() or not SCHEMA_METADATA_PATH.exists():
-        _download_schema_artifact(artifact, token)
-        return artifact
-
-    metadata = cast(dict[str, object], json.loads(SCHEMA_METADATA_PATH.read_text()))
-    if metadata.get("artifact_id") != artifact.id:
-        _download_schema_artifact(artifact, token)
-
+    _download_schema_artifact(artifact, token)
     return artifact
 
 
@@ -274,7 +263,7 @@ def restore_schema_if_fresh(mode: str) -> bool:
         click.echo("[schema-restore] Postgres is not fresh; skipping schema restore.")
         return False
 
-    artifact = _ensure_schema_downloaded()
+    artifact = _fetch_schema_artifact()
     if not _schema_sha_is_ancestor(artifact.head_sha):
         click.echo("[schema-restore] Cached schema is newer than this branch; skipping schema restore.")
         return False
@@ -292,7 +281,7 @@ def restore_schema_if_fresh(mode: str) -> bool:
 @click.option(
     "--mode",
     default=None,
-    help="Override POSTHOG_SCHEMA_RESTORE for this invocation. One of: auto, on, off.",
+    help="Override POSTHOG_SCHEMA_RESTORE_IN_DEV for this invocation. One of: auto, on, off.",
 )
 def restore_schema_if_fresh_command(mode: str | None) -> None:
     normalized_mode = _normalize_mode(mode)
