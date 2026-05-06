@@ -184,16 +184,17 @@ def score_models(name: str, backend_dir: Path, assigned_model_counts: dict[str, 
     skills: list[str] = []
     if still_to_move > 0:
         next_steps.append(
-            f"Move {still_to_move} model(s) from posthog/models/ (and ee/models/) into "
-            f"products/{name}/backend/models/. Use a SeparateDatabaseAndState migration so "
-            f"Postgres tables stay put while Django imports move."
+            f"STOP — do not attempt this move yourself. {still_to_move} model(s) still live in "
+            f"posthog/models/ (or ee/models/) and need to be relocated into "
+            f"products/{name}/backend/models/. Model moves require a SeparateDatabaseAndState "
+            f"migration coordinated with team devex; doing it ad-hoc breaks production. Open a "
+            f"request with team devex (#team-devex on Slack) referencing this product and ask "
+            f"them to schedule the migration."
         )
         next_steps.append(
-            "Update every importer (admin, serializers, signals, queries, tests) to point at "
-            "the new module path; keep the model's `app_label` so the ORM still resolves the table."
+            "Once devex has scheduled and merged the move, the rest of the maturity dimensions "
+            "(facade, presentation, boundaries) become unblockable and you can tackle them yourself."
         )
-        skills.append("/django-migrations")
-        skills.append("/isolating-product-facade-contracts")
 
     return DimensionScore("models", pct, detail, next_steps=next_steps, skills=skills)
 
