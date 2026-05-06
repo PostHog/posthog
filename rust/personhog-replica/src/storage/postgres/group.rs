@@ -458,9 +458,11 @@ impl GroupStorage for PostgresStorage {
 
         let fetch_limit = (limit as i64) + 1;
         let has_key_filter = !group_key_contains.is_empty();
-        let key_pattern = format!("%{}%", group_key_contains);
+        let escaped_key = group_key_contains.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let key_pattern = format!("%{}%", escaped_key);
         let has_search = !search.is_empty();
-        let search_pattern = format!("%{}%", search);
+        let escaped_search = search.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let search_pattern = format!("%{}%", escaped_search);
         let has_cursor = cursor_created_at.is_some();
 
         let rows = sqlx::query_as!(
@@ -477,7 +479,7 @@ impl GroupStorage for PostgresStorage {
               AND group_type_index = $2
               AND (NOT $3 OR group_key ILIKE $4)
               AND (NOT $5 OR (group_properties::text ILIKE $6 OR group_key = $7))
-              AND (NOT $8 OR (created_at, id) < ($9, $10))
+              AND (NOT $8 OR (created_at, id::bigint) < ($9, $10))
             ORDER BY created_at DESC, id DESC
             LIMIT $11
             "#,
@@ -490,7 +492,7 @@ impl GroupStorage for PostgresStorage {
             search,
             has_cursor,
             cursor_created_at,
-            cursor_id as i32,
+            cursor_id,
             fetch_limit,
         )
         .fetch_all(&mut *conn)

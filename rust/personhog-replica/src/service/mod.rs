@@ -45,6 +45,8 @@ use uuid::Uuid;
 use crate::storage::{self, FullStorage};
 
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
+const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
+const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -588,8 +590,8 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
 
-        let limit = if req.limit <= 0 || req.limit > 10000 {
-            10000
+        let limit = if req.limit <= 0 || req.limit > MAX_LIST_COHORT_MEMBER_IDS_LIMIT {
+            MAX_LIST_COHORT_MEMBER_IDS_LIMIT
         } else {
             req.limit
         };
@@ -729,8 +731,8 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         let consistency = to_storage_consistency(&req.read_options);
 
-        let limit = if req.limit <= 0 || req.limit > 1000 {
-            100
+        let limit = if req.limit <= 0 || req.limit > MAX_LIST_GROUPS_LIMIT {
+            MAX_LIST_GROUPS_LIMIT
         } else {
             req.limit
         };
