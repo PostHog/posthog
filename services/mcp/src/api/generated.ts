@@ -39197,7 +39197,7 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Filter by service names. */
       serviceNames?: string[];
-      /** Filter by HTTP status codes. */
+      /** Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error). For HTTP response codes (e.g. 500), use filterGroup on span_attribute key http.status_code. */
       statusCodes?: number[];
       /** Order results by timestamp. Defaults to latest.
 
@@ -39223,9 +39223,31 @@ export namespace Schemas {
       query: _TracingQueryBody;
     }
 
+    export interface _TracingSparklineQueryBody {
+      /** Date range for the sparkline. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Optional filter to one or more service names. */
+      serviceNames?: string[];
+      /** Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error). */
+      statusCodes?: number[];
+      /** Property filters (same shape as span query). */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingSparklineRequest {
+      /** Filters and date range for the sparkline aggregation. */
+      query: _TracingSparklineQueryBody;
+    }
+
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
+      /**
+       * Maximum spans to return for this trace (default 2000). Lower for agents; raise for deep traces.
+       * @minimum 1
+       * @maximum 5000
+       */
+      maxSpans?: number;
     }
 
     export type EnvironmentsAlertsListParams = {

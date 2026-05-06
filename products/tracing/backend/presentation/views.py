@@ -11,6 +11,8 @@ No business logic here - that belongs in logic.py via the facade.
 """
 
 import json
+import base64
+import datetime as dt
 
 from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
@@ -43,6 +45,15 @@ from ..logic import (
     run_service_names_query,
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
+
+
+def _encode_trace_spans_cursor(row: dict) -> str:
+    """Build the `after` cursor expected by TraceSpansQueryRunner (timestamp + uuid)."""
+    ts = row["timestamp"]
+    ts_str = ts.isoformat() if isinstance(ts, dt.datetime) else str(ts)
+    payload = {"timestamp": ts_str, "uuid": row["uuid"]}
+    return base64.b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
+
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -101,7 +112,10 @@ class _TracingQueryBodySerializer(serializers.Serializer):
     statusCodes = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
-        help_text="Filter by HTTP status codes.",
+        help_text=(
+            "Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error). "
+            "For HTTP response codes (e.g. 500), use filterGroup on span_attribute key http.status_code."
+        ),
     )
     orderBy = serializers.ChoiceField(
         choices=["latest", "earliest"],
@@ -147,6 +161,40 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Date range for the query. Defaults to last 24 hours.",
     )
+    maxSpans = serializers.IntegerField(
+        required=False,
+        default=2000,
+        min_value=1,
+        max_value=5000,
+        help_text="Maximum spans to return for this trace (default 2000). Lower for agents; raise for deep traces.",
+    )
+
+
+class _TracingSparklineQueryBodySerializer(serializers.Serializer):
+    dateRange = _TracingDateRangeSerializer(
+        required=False,
+        help_text="Date range for the sparkline. Defaults to last hour.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Optional filter to one or more service names.",
+    )
+    statusCodes = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error).",
+    )
+    filterGroup = serializers.ListField(
+        child=_SpanPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters (same shape as span query).",
+    )
+
+
+class _TracingSparklineRequestSerializer(serializers.Serializer):
+    query = _TracingSparklineQueryBodySerializer(help_text="Filters and date range for the sparkline aggregation.")
 
 
 class _TracingServiceNamesQuerySerializer(serializers.Serializer):
@@ -261,16 +309,53 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             )
         )
 
+        resolved_runner = TraceSpansQueryRunner(
+            TraceSpansQuery(**{**spans_query.model_dump(), "dateRange": date_range}), self.team
+        )
+        resolved_qdr = resolved_runner.query_date_range
+        resolved_date_range = {
+            "date_from": resolved_qdr.date_from().isoformat(),
+            "date_to": resolved_qdr.date_to().isoformat(),
+        }
+
+        range_len = resolved_qdr.date_to() - resolved_qdr.date_from()
+        warnings: list[str] = []
+        if range_len > dt.timedelta(minutes=20):
+            warnings.append(
+                "Progressive time-slice search was used: recent windows are scanned first before older data in the range."
+            )
+
+        max_rows_for_page = requested_limit + 1
+        if len(results) > max_rows_for_page:
+            results = results[:max_rows_for_page]
+            warnings.append(
+                f"Result list was capped to {max_rows_for_page} rows for pagination; reduce prefetchSpans or limit if you need trace-level paging."
+            )
+
+        has_more = len(results) > requested_limit
+        page = results[:requested_limit]
+
+        exemplar_trace_ids: dict[str, str | None] = {"slowest_trace_id": None}
+        if page:
+            slowest = max(page, key=lambda r: int(r.get("duration_nano") or 0))
+            exemplar_trace_ids["slowest_trace_id"] = slowest.get("trace_id")
+
+        next_cursor = _encode_trace_spans_cursor(page[-1]) if has_more and page else None
+
         return Response(
             {
-                "results": results,
-                "hasMore": False,  # TODO: tricky with the traces query as we prefetch an unknown number of spans
-                "nextCursor": None,
+                "results": page,
+                "hasMore": has_more,
+                "nextCursor": next_cursor,
+                "resultCount": len(page),
+                "warnings": warnings,
+                "resolvedDateRange": resolved_date_range,
+                "exemplarTraceIds": exemplar_trace_ids,
             },
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingQueryRequestSerializer)
+    @extend_schema(request=_TracingSparklineRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -279,7 +364,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         try:
             filter_group = (
-                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                self.get_model(self._normalize_filter_group(query_data.get("filterGroup")), PropertyGroupFilter)
                 if query_data.get("filterGroup")
                 else None
             )
@@ -307,6 +392,12 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data or {}
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-24h"}), DateRange)
+        max_spans_raw = query_data.get("maxSpans", 2000)
+        try:
+            max_spans = int(max_spans_raw)
+        except (TypeError, ValueError):
+            max_spans = 2000
+        max_spans = max(1, min(max_spans, 5000))
         try:
             # verify the trace_id is valid
             bytes.fromhex(trace_id)
@@ -315,7 +406,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         try:
             filter_group = (
-                self.get_model(query_data["filterGroup"], PropertyGroupFilter)
+                self.get_model(self._normalize_filter_group(query_data.get("filterGroup")), PropertyGroupFilter)
                 if query_data.get("filterGroup")
                 else None
             )
@@ -328,8 +419,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             serviceNames=query_data.get("serviceNames", None),
             statusCodes=query_data.get("statusCodes", None),
             filterGroup=filter_group,
-            limit=1000,
-            prefetchSpans=2000,
+            limit=1,
+            prefetchSpans=max_spans,
             rootSpans=False,
         )
 
@@ -337,8 +428,14 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
 
+        truncated = len(response.results) >= max_spans
+
         return Response(
-            {"results": response.results},
+            {
+                "results": response.results,
+                "truncated": truncated,
+                "maxSpans": max_spans,
+            },
             status=status.HTTP_200_OK,
         )
 

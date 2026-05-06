@@ -1,4 +1,6 @@
-Query trace spans with filtering by service name, status code, date range, and structured attribute filters. Supports cursor-based pagination. Returns spans with uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, and is_root_span.
+Query trace spans with filtering by service name, OpenTelemetry status, date range, and structured attribute filters. Supports cursor-based pagination.
+
+Each response includes `results` (span rows: uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, is_root_span) plus `hasMore`, `nextCursor` (pass as `query.after` when `hasMore` is true), `resultCount`, `warnings` (e.g. time-slice search notes), `resolvedDateRange` (UTC bounds applied), and `exemplarTraceIds.slowest_trace_id` on the current page for drill-down.
 
 Use 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.
 
@@ -44,7 +46,7 @@ Filter by service names. Use `apm-services-list` to discover available services.
 
 ## query.statusCodes
 
-Filter by HTTP status codes (list of integers).
+Filter by **OpenTelemetry span `status_code`** (integer): `0` Unset, `1` OK, `2` Error. This is **not** HTTP response status. For HTTP 4xx/5xx, filter on span attribute `http.status_code` via `query.filterGroup` (type `span_attribute`, numeric operators).
 
 ## query.orderBy
 
@@ -83,12 +85,22 @@ Number of child spans to prefetch per trace (1-100). Useful to get a preview of 
 
 # Examples
 
-## List recent error spans
+## List recent spans with OTEL error status
 
 ```json
 {
   "query": {
-    "statusCodes": [500, 503]
+    "statusCodes": [2]
+  }
+}
+```
+
+## List spans where HTTP status indicates server error
+
+```json
+{
+  "query": {
+    "filterGroup": [{ "key": "http.status_code", "operator": "exact", "type": "span_attribute", "value": "500" }]
   }
 }
 ```
@@ -154,3 +166,5 @@ Number of child spans to prefetch per trace (1-100). Useful to get a preview of 
 - Use `apm-attributes-list` and `apm-attribute-values-list` to discover attributes before guessing filter keys/values.
 - Use `apm-services-list` to discover available services before filtering by service name.
 - Duration values are in nanoseconds (1 second = 1,000,000,000 nanoseconds).
+- Empty `results` does not prove the system is healthy; it may mean no spans in range or missing instrumentation.
+- After a page of results, follow up with `apm-trace-get` using `trace_id` from a row (or `exemplarTraceIds.slowest_trace_id` when present).

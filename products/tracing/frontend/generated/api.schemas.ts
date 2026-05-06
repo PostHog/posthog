@@ -104,7 +104,7 @@ export interface _TracingQueryBodyApi {
     dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
     serviceNames?: string[]
-    /** Filter by HTTP status codes. */
+    /** Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error). For HTTP response codes (e.g. 500), use filterGroup on span_attribute key http.status_code. */
     statusCodes?: number[]
     /** Order results by timestamp. Defaults to latest.
 
@@ -130,9 +130,31 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
+export interface _TracingSparklineQueryBodyApi {
+    /** Date range for the sparkline. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional filter to one or more service names. */
+    serviceNames?: string[]
+    /** Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error). */
+    statusCodes?: number[]
+    /** Property filters (same shape as span query). */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingSparklineRequestApi {
+    /** Filters and date range for the sparkline aggregation. */
+    query: _TracingSparklineQueryBodyApi
+}
+
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Defaults to last 24 hours. */
     dateRange?: _TracingDateRangeApi
+    /**
+     * Maximum spans to return for this trace (default 2000). Lower for agents; raise for deep traces.
+     * @minimum 1
+     * @maximum 5000
+     */
+    maxSpans?: number
 }
 
 export type TracingSpansAttributesRetrieveParams = {

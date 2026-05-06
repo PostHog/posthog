@@ -32,7 +32,12 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Date range for the query. Defaults to last hour.'),
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error). For HTTP response codes (e.g. 500), use filterGroup on span_attribute key http.status_code.'
+                ),
             orderBy: zod
                 .enum(['latest', 'earliest'])
                 .describe('* `latest` - latest\n* `earliest` - earliest')
@@ -101,8 +106,6 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
-export const tracingSpansSparklineCreateBodyQueryOneLimitDefault = 100
-export const tracingSpansSparklineCreateBodyQueryOneRootSpansDefault = true
 
 export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -121,16 +124,12 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                         .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
                 })
                 .optional()
-                .describe('Date range for the query. Defaults to last hour.'),
-            serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
-            orderBy: zod
-                .enum(['latest', 'earliest'])
-                .describe('* `latest` - latest\n* `earliest` - earliest')
+                .describe('Date range for the sparkline. Defaults to last hour.'),
+            serviceNames: zod.array(zod.string()).optional().describe('Optional filter to one or more service names.'),
+            statusCodes: zod
+                .array(zod.number())
                 .optional()
-                .describe(
-                    'Order results by timestamp. Defaults to latest.\n\n* `latest` - latest\n* `earliest` - earliest'
-                ),
+                .describe('Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error).'),
             filterGroup: zod
                 .array(
                     zod.object({
@@ -175,21 +174,13 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                     })
                 )
                 .default(tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault)
-                .describe('Property filters for the query.'),
-            traceId: zod.string().optional().describe('Filter to a specific trace ID (hex string).'),
-            limit: zod
-                .number()
-                .default(tracingSpansSparklineCreateBodyQueryOneLimitDefault)
-                .describe('Max results (1-1000). Defaults to 100.'),
-            after: zod.string().optional().describe('Pagination cursor from previous response.'),
-            rootSpans: zod
-                .boolean()
-                .default(tracingSpansSparklineCreateBodyQueryOneRootSpansDefault)
-                .describe('Filter to root spans only. Defaults to true.'),
-            prefetchSpans: zod.number().optional().describe('Number of child spans to prefetch per trace (1-100).'),
+                .describe('Property filters (same shape as span query).'),
         })
-        .describe('The tracing spans query to execute.'),
+        .describe('Filters and date range for the sparkline aggregation.'),
 })
+
+export const tracingSpansTraceCreateBodyMaxSpansDefault = 2000
+export const tracingSpansTraceCreateBodyMaxSpansMax = 5000
 
 export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
     dateRange: zod
@@ -207,4 +198,10 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Date range for the query. Defaults to last 24 hours.'),
+    maxSpans: zod
+        .number()
+        .min(1)
+        .max(tracingSpansTraceCreateBodyMaxSpansMax)
+        .default(tracingSpansTraceCreateBodyMaxSpansDefault)
+        .describe('Maximum spans to return for this trace (default 2000). Lower for agents; raise for deep traces.'),
 })

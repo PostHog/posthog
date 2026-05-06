@@ -5,6 +5,7 @@ import {
     TracingSpansAttributesRetrieveQueryParams,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
+    TracingSpansSparklineCreateBody,
     TracingSpansTraceCreateBody,
     TracingSpansTraceCreateParams,
     TracingSpansValuesRetrieveQueryParams,
@@ -78,6 +79,27 @@ const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => (
     },
 })
 
+const ApmSparklineQuerySchema = TracingSpansSparklineCreateBody
+
+const apmSparklineQuery = (): ToolBase<typeof ApmSparklineQuerySchema, unknown> => ({
+    name: 'apm-sparkline-query',
+    schema: ApmSparklineQuerySchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSparklineQuerySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/sparkline/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
 const ApmTraceGetSchema = TracingSpansTraceCreateParams.omit({ project_id: true }).extend(
     TracingSpansTraceCreateBody.shape
 )
@@ -92,12 +114,15 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
             if (params.dateRange !== undefined) {
                 body['dateRange'] = params.dateRange
             }
+            if (params.maxSpans !== undefined) {
+                body['maxSpans'] = params.maxSpans
+            }
             const result = await context.api.request<unknown>({
                 method: 'POST',
                 path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
                 body,
             })
-            const filtered = pickResponseFields(result, ['results']) as typeof result
+            const filtered = pickResponseFields(result, ['results', 'truncated', 'maxSpans']) as typeof result
             return filtered
         },
     })
@@ -119,7 +144,15 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
                 path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/query/`,
                 body,
             })
-            const filtered = pickResponseFields(result, ['results']) as typeof result
+            const filtered = pickResponseFields(result, [
+                'results',
+                'hasMore',
+                'nextCursor',
+                'resultCount',
+                'warnings',
+                'resolvedDateRange',
+                'exemplarTraceIds',
+            ]) as typeof result
             return filtered
         },
     })
@@ -128,6 +161,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-attribute-values-list': apmAttributeValuesList,
     'apm-attributes-list': apmAttributesList,
     'apm-services-list': apmServicesList,
+    'apm-sparkline-query': apmSparklineQuery,
     'apm-trace-get': apmTraceGet,
     'query-apm-spans': queryApmSpans,
 }

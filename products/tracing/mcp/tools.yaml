@@ -73,7 +73,19 @@ tools:
                 - results
     apm-sparkline-query:
         operation: tracing_spans_sparkline_create
-        enabled: false
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query tracing span sparkline
+        description_file: ./prompts/apm-sparkline-query.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
     apm-trace-get:
         operation: tracing_spans_trace_create
         enabled: true
@@ -85,14 +97,16 @@ tools:
             idempotent: true
         title: Retrieve trace spans
         description: >
-            Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including
-            parent-child relationships, timing, and status information. Use this to inspect a specific trace in detail
-            after discovering it via the query tool.
+            Fetch spans for a specific trace by its hex trace ID (parent-child relationships, timing, status).
+            Responses are capped by maxSpans (default 2000); if truncated is true, raise maxSpans or narrow dateRange.
+            Use after discovering a trace via query-apm-spans.
         ui_app: trace-span-list
         feature_flag: tracing
         response:
             include:
                 - results
+                - truncated
+                - maxSpans
     query-apm-spans:
         operation: tracing_spans_query_create
         enabled: true
@@ -109,3 +123,9 @@ tools:
         response:
             include:
                 - results
+                - hasMore
+                - nextCursor
+                - resultCount
+                - warnings
+                - resolvedDateRange
+                - exemplarTraceIds
