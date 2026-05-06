@@ -59,6 +59,58 @@ def _build_logs_query(alert: LogsAlertConfiguration, date_range: DateRange) -> L
     )
 
 
+def _period_ranges(
+    date_from: dt.datetime, period_minutes: int, period_count: int
+) -> list[tuple[dt.datetime, dt.datetime]]:
+    return [
+        (
+            date_from + dt.timedelta(minutes=i * period_minutes),
+            date_from + dt.timedelta(minutes=(i + 1) * period_minutes),
+        )
+        for i in range(period_count)
+    ]
+
+
+def rolling_check_lookback_minutes(window_minutes: int, cadence_minutes: int, period_count: int) -> int:
+    """Total minutes of history covered by M cadence-stepped rolling windows."""
+    return window_minutes + (period_count - 1) * cadence_minutes
+
+
+def _rolling_check_ranges(
+    nca: dt.datetime,
+    window_minutes: int,
+    cadence_minutes: int,
+    period_count: int,
+) -> list[tuple[dt.datetime, dt.datetime]]:
+    """M cadence-stepped rolling windows ending at NCA, oldest-first."""
+    ranges: list[tuple[dt.datetime, dt.datetime]] = []
+    for k in range(period_count - 1, -1, -1):
+        end = nca - dt.timedelta(minutes=k * cadence_minutes)
+        start = end - dt.timedelta(minutes=window_minutes)
+        ranges.append((start, end))
+    return ranges
+
+
+def _timestamp_in_range(start: dt.datetime, end: dt.datetime) -> ast.Expr:
+    # Compare raw `timestamp`, not `toStartOfMinute(timestamp)`: `date_from` can carry
+    # sub-minute fractions from a DateTime64(6) checkpoint, and a minute-floor wrap
+    # would drop up to 60s of data at the lower boundary.
+    return parse_expr(
+        "timestamp >= {start} AND timestamp < {end}",
+        placeholders={"start": ast.Constant(value=start), "end": ast.Constant(value=end)},
+    )
+
+
+def _tag_alert_query(*, team: Team, alert_config_id: str, source: str) -> None:
+    tag_queries(
+        product=Product.LOGS,
+        feature=Feature.ALERTING,
+        source=source,
+        alert_config_id=alert_config_id,
+        team_id=str(team.id),
+    )
+
+
 def build_alert_where_expr(
     *,
     team: Team,
@@ -114,7 +166,11 @@ class AlertCheckQuery:
 
     SETTINGS = HogQLGlobalSettings(
         max_execution_time=30,
-        max_bytes_to_read=50_000_000_000,  # 50GB
+        # Defence-in-depth against large-cohort batched queries: caps a single batched/per-alert
+        # query well below worker memory headroom. Cohort chunking (`MAX_ALERT_COHORT_SIZE`)
+        # keeps per-query reads bounded at the source; this setting is the safety net if a
+        # chunk surprises us.
+        max_bytes_to_read=5_000_000_000,  # 5GB
         read_overflow_mode="throw",
     )
 
@@ -130,6 +186,8 @@ class AlertCheckQuery:
             raise ValueError(f"Alert {alert.id} belongs to team {alert.team_id}, not {team.id}")
         self.team = team
         self.alert = alert
+        self.date_from = date_from
+        self.date_to = date_to
         self.date_range = DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat())
         self.where_expr = build_alert_where_expr(team=team, alert=alert, date_from=date_from, date_to=date_to)
 
@@ -199,6 +257,42 @@ class AlertCheckQuery:
         response = self._run_query(query)
         return [BucketedCount(timestamp=row[0], count=row[1]) for row in response.results]
 
+    def execute_periods(self, period_minutes: int, period_count: int) -> list[BucketedCount]:
+        """Per-period counts anchored to `date_from`, oldest-first."""
+        self._tag()
+        ranges = _period_ranges(self.date_from, period_minutes, period_count)
+        return self._execute_count_per_range(ranges)
+
+    def execute_rolling_checks(
+        self,
+        nca: dt.datetime,
+        window_minutes: int,
+        cadence_minutes: int,
+        period_count: int,
+    ) -> list[BucketedCount]:
+        """Per-check counts for M cadence-stepped rolling windows ending at NCA, oldest-first."""
+        self._tag()
+        ranges = _rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
+        return self._execute_count_per_range(ranges)
+
+    def _execute_count_per_range(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> list[BucketedCount]:
+        select_columns: list[ast.Expr] = [
+            ast.Alias(
+                alias=f"period_{i}",
+                expr=ast.Call(name="countIf", args=[_timestamp_in_range(start, end)]),
+            )
+            for i, (start, end) in enumerate(ranges)
+        ]
+
+        query = ast.SelectQuery(
+            select=select_columns,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
+            where=self.where_expr,
+        )
+        response = self._run_query(query)
+        row = response.results[0] if response.results else [0] * len(ranges)
+        return [BucketedCount(timestamp=start, count=count) for (start, _), count in zip(ranges, row)]
+
     def _run_query(self, query: ast.SelectQuery | ast.SelectSetQuery) -> HogQLQueryResponse:
         if not isinstance(query, ast.SelectQuery):
             raise ValueError("Failed to build alert check query")
@@ -214,13 +308,7 @@ class AlertCheckQuery:
         )
 
     def _tag(self) -> None:
-        tag_queries(
-            product=Product.LOGS,
-            feature=Feature.ALERTING,
-            source="logs_alert",
-            alert_config_id=str(self.alert.id),
-            team_id=str(self.team.id),
-        )
+        _tag_alert_query(team=self.team, alert_config_id=str(self.alert.id), source="logs_alert")
 
 
 @dataclass(frozen=True)
@@ -263,6 +351,8 @@ class BatchedAlertCheckQuery:
             raise ValueError("All alerts in a batch must belong to the same team")
         self.team = team
         self.alerts = list(alerts)
+        self.date_from = date_from
+        self.date_to = date_to
         self._alert_where_exprs: list[ast.Expr] = [
             build_alert_where_expr(team=team, alert=alert, date_from=date_from, date_to=date_to)
             for alert in self.alerts
@@ -342,6 +432,59 @@ class BatchedAlertCheckQuery:
                 per_alert[str(alert.id)].append(BucketedCount(timestamp=bucket_ts, count=row[i + 1]))
         return BatchedBucketedResult(per_alert=per_alert, query_duration_ms=duration_ms)
 
+    def execute_periods(self, period_minutes: int, period_count: int) -> BatchedBucketedResult:
+        """Per-alert per-period counts anchored to `date_from`."""
+        self._tag()
+        ranges = _period_ranges(self.date_from, period_minutes, period_count)
+        return self._execute_count_per_range(ranges)
+
+    def execute_rolling_checks(
+        self,
+        nca: dt.datetime,
+        window_minutes: int,
+        cadence_minutes: int,
+        period_count: int,
+    ) -> BatchedBucketedResult:
+        """Per-alert per-check counts for M cadence-stepped rolling windows ending at NCA."""
+        self._tag()
+        ranges = _rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
+        return self._execute_count_per_range(ranges)
+
+    def _execute_count_per_range(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> BatchedBucketedResult:
+        select_columns: list[ast.Expr] = [
+            ast.Alias(
+                alias=f"alert_{alert_i}_period_{period_i}",
+                expr=ast.Call(
+                    name="countIf",
+                    args=[ast.And(exprs=[alert_expr, _timestamp_in_range(start, end)])],
+                ),
+            )
+            for alert_i, alert_expr in enumerate(self._alert_where_exprs)
+            for period_i, (start, end) in enumerate(ranges)
+        ]
+
+        query = ast.SelectQuery(
+            select=select_columns,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
+            where=self._outer_where,
+        )
+
+        start_ms = time.monotonic_ns() // 1_000_000
+        response = self._run_query(query)
+        duration_ms = time.monotonic_ns() // 1_000_000 - start_ms
+
+        # Cells are laid out alert-major: row[0..M-1] = alert 0's M periods,
+        # row[M..2M-1] = alert 1's, etc. Empty result = all zeros.
+        row = response.results[0] if response.results else [0] * (len(self.alerts) * len(ranges))
+        per_alert: dict[str, list[BucketedCount]] = {}
+        for alert_i, alert in enumerate(self.alerts):
+            offset = alert_i * len(ranges)
+            per_alert[str(alert.id)] = [
+                BucketedCount(timestamp=start, count=row[offset + period_i])
+                for period_i, (start, _) in enumerate(ranges)
+            ]
+        return BatchedBucketedResult(per_alert=per_alert, query_duration_ms=duration_ms)
+
     def _run_query(self, query: ast.SelectQuery) -> HogQLQueryResponse:
         return execute_hogql_query(
             query_type="alert_check",
@@ -354,16 +497,14 @@ class BatchedAlertCheckQuery:
         )
 
     def _tag(self) -> None:
-        # `QueryTags` doesn't allow per-batch custom fields. We tag the first
-        # alert as the representative `alert_config_id` so single-alert tooling
-        # still works; ops can identify a batched query by `source` and read the
-        # full alert list from `query_log.query` if needed.
-        tag_queries(
-            product=Product.LOGS,
-            feature=Feature.ALERTING,
-            source="logs_alert_batched",
+        # `QueryTags` doesn't allow per-batch custom fields, so we tag the first
+        # alert as the representative `alert_config_id`. Ops can identify a
+        # batched query by `source` and read the full alert list from
+        # `query_log.query` if needed.
+        _tag_alert_query(
+            team=self.team,
             alert_config_id=str(self.alerts[0].id),
-            team_id=str(self.team.id),
+            source="logs_alert_batched",
         )
 
 

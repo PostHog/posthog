@@ -6,7 +6,7 @@ from asgiref.sync import sync_to_async
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.temporal.session_replay.summarization_sweep.activities import find_sessions_for_team_activity
-from posthog.temporal.session_replay.summarization_sweep.models import FindSessionsInput
+from posthog.temporal.session_replay.summarization_sweep.types import FindSessionsInput
 
 from products.signals.backend.models import SignalSourceConfig
 
@@ -15,25 +15,25 @@ from .conftest import enable_signal_source
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_find_sessions_returns_team_disabled_when_no_config(activity_environment, team):
-    """No config row at all → treat as disabled so the workflow tears down its schedule."""
+async def test_find_sessions_returns_empty_when_no_config(activity_environment, team):
     result = await activity_environment.run(
         find_sessions_for_team_activity,
         FindSessionsInput(team_id=team.id, lookback_minutes=30),
     )
-    assert result.team_disabled is True
     assert result.session_ids == []
+    assert result.user_id is None
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_find_sessions_returns_team_disabled_when_config_disabled(activity_environment, team):
+async def test_find_sessions_returns_empty_when_config_disabled(activity_environment, team):
     await sync_to_async(enable_signal_source)(team, enabled=False)
     result = await activity_environment.run(
         find_sessions_for_team_activity,
         FindSessionsInput(team_id=team.id, lookback_minutes=30),
     )
-    assert result.team_disabled is True
+    assert result.session_ids == []
+    assert result.user_id is None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -48,7 +48,6 @@ async def test_find_sessions_no_recent_sessions(activity_environment, team):
             find_sessions_for_team_activity,
             FindSessionsInput(team_id=team.id, lookback_minutes=30),
         )
-    assert result.team_disabled is False
     assert result.team_id == team.id
     assert result.session_ids == []
     assert result.user_id is None
@@ -73,6 +72,10 @@ async def test_find_sessions_filters_summarized(activity_environment, organizati
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value=existing,
             ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"s2"},
+            ),
         ):
             result = await activity_environment.run(
                 find_sessions_for_team_activity,
@@ -88,7 +91,6 @@ async def test_find_sessions_filters_summarized(activity_environment, organizati
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_dispatches_all_unsummarized_candidates(activity_environment, organization, team):
-    """Sampling replaces the per-tick cap — every unsummarized candidate is dispatched."""
     from posthog.models.user import User
 
     await sync_to_async(enable_signal_source)(team)
@@ -106,6 +108,10 @@ async def test_find_sessions_dispatches_all_unsummarized_candidates(activity_env
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value=existing,
             ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"s3", "s4", "s5", "s6", "s7"},
+            ),
         ):
             result = await activity_environment.run(
                 find_sessions_for_team_activity,
@@ -119,7 +125,6 @@ async def test_find_sessions_dispatches_all_unsummarized_candidates(activity_env
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_passes_sample_rate_to_fetch(activity_environment, organization, team):
-    """`sample_rate` from `SignalSourceConfig.config` is forwarded to `fetch_recent_session_ids`."""
     from posthog.models.user import User
 
     await sync_to_async(enable_signal_source)(team)
@@ -141,6 +146,10 @@ async def test_find_sessions_passes_sample_rate_to_fetch(activity_environment, o
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"only-1": False},
             ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"only-1"},
+            ),
         ):
             result = await activity_environment.run(
                 find_sessions_for_team_activity,
@@ -155,7 +164,6 @@ async def test_find_sessions_passes_sample_rate_to_fetch(activity_environment, o
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_returns_empty_when_team_has_no_user(activity_environment):
-    """A team with no member users can't run summarization — we treat that as no-op, not an error."""
     lonely_org = await sync_to_async(Organization.objects.create)(name="lonely-org")
     lonely_team = await sync_to_async(Team.objects.create)(organization=lonely_org, name="lonely")
     await sync_to_async(enable_signal_source)(lonely_team)
@@ -178,11 +186,8 @@ async def test_find_sessions_returns_empty_when_team_has_no_user(activity_enviro
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_handles_config_disabled_between_check_and_ch_query(activity_environment, team):
-    """Race: _is_team_enabled returns True, then the config is disabled by the time
-    _load_team_user_and_sessions reads it. The single config read inside the helper
-    filters by enabled=True, so it returns no row → empty session_ids → no-op cycle
-    (not team_disabled=True; we don't tear down the schedule for a transient race).
-    """
+    # Race: _is_team_enabled returns True, then the config is disabled before
+    # _load_team_user_and_sessions hits ClickHouse. Returns an empty FindSessionsResult.
     await sync_to_async(enable_signal_source)(team, enabled=False)
     team.organization.is_ai_data_processing_approved = True
     await sync_to_async(team.organization.save)(update_fields=["is_ai_data_processing_approved"])
@@ -198,13 +203,12 @@ async def test_find_sessions_handles_config_disabled_between_check_and_ch_query(
             FindSessionsInput(team_id=team.id, lookback_minutes=30),
         )
 
-    assert result.team_disabled is False
     assert result.session_ids == []
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_find_sessions_returns_team_disabled_when_ai_consent_revoked(activity_environment, team):
+async def test_find_sessions_returns_empty_when_ai_consent_revoked(activity_environment, team):
     await sync_to_async(enable_signal_source)(team, enabled=True)
 
     def _revoke() -> None:
@@ -216,7 +220,7 @@ async def test_find_sessions_returns_team_disabled_when_ai_consent_revoked(activ
         find_sessions_for_team_activity,
         FindSessionsInput(team_id=team.id, lookback_minutes=30),
     )
-    assert result.team_disabled is True
+    assert result.session_ids == []
 
 
 @pytest.mark.django_db(transaction=True)
@@ -238,6 +242,10 @@ async def test_find_sessions_prefers_created_by_user(activity_environment, organ
             patch(
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"s1": False},
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"s1"},
             ),
         ):
             result = await activity_environment.run(
@@ -266,6 +274,10 @@ async def test_find_sessions_falls_back_when_created_by_is_null(activity_environ
             patch(
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"s1": False},
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"s1"},
             ),
         ):
             result = await activity_environment.run(
@@ -319,6 +331,10 @@ async def test_find_sessions_skips_recordings_with_too_many_failures(activity_en
                 return_value={},
             ),
             patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value=set(candidate_ids),
+            ),
+            patch(
                 "posthog.temporal.session_replay.summarization_sweep.activities._stuck_session_ids",
                 return_value={"stuck-2"},
             ),
@@ -332,32 +348,102 @@ async def test_find_sessions_skips_recordings_with_too_many_failures(activity_en
         await sync_to_async(user.delete)()
 
 
-def _make_workflow_with_session(session_id: str):
-    from unittest.mock import MagicMock
+@pytest.mark.parametrize(
+    "candidate_ids,sessions_with_events,expected_kept",
+    [
+        (["has-events", "snapshot-only-1", "snapshot-only-2"], {"has-events"}, ["has-events"]),
+        (["s1", "s2", "s3"], {"s1", "s2", "s3"}, ["s1", "s2", "s3"]),
+        (["s1", "s2", "s3"], set(), []),
+    ],
+    ids=["mixed", "all_have_events", "none_have_events"],
+)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_find_sessions_drops_sessions_without_events(
+    activity_environment, organization, team, candidate_ids, sessions_with_events, expected_kept
+):
+    from typing import Any
 
-    attr_key = MagicMock()
-    attr_key.name = "PostHogSessionRecordingId"
-    pair = MagicMock()
-    pair.key = attr_key
-    pair.value = session_id
-    wf = MagicMock()
-    wf.typed_search_attributes = [pair]
-    return wf
+    from posthog.models.user import User
+
+    await sync_to_async(enable_signal_source)(team)
+    user = await sync_to_async(User.objects.create_and_join)(organization, "events@posthog.com", "pw", "Events")
+    try:
+        captured: dict[str, Any] = {}
+
+        def _fake_filter(*, team, session_ids, lookback_minutes, max_execution_time_seconds):
+            captured["session_ids"] = list(session_ids)
+            captured["lookback_minutes"] = lookback_minutes
+            captured["max_execution_time_seconds"] = max_execution_time_seconds
+            return sessions_with_events
+
+        with (
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.fetch_recent_session_ids",
+                return_value=candidate_ids,
+            ),
+            patch(
+                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                return_value={},
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                side_effect=_fake_filter,
+            ),
+        ):
+            result = await activity_environment.run(
+                find_sessions_for_team_activity,
+                FindSessionsInput(team_id=team.id, lookback_minutes=30),
+            )
+        from posthog.temporal.session_replay.summarization_sweep.constants import (
+            EVENTS_PREFILTER_QUERY_MAX_EXECUTION_SECONDS,
+        )
+
+        assert sorted(result.session_ids) == sorted(expected_kept)
+        assert sorted(captured["session_ids"]) == sorted(candidate_ids)
+        assert captured["lookback_minutes"] == 30
+        assert captured["max_execution_time_seconds"] == EVENTS_PREFILTER_QUERY_MAX_EXECUTION_SECONDS
+    finally:
+        await sync_to_async(user.delete)()
 
 
-class _AsyncIter:
-    def __init__(self, items):
-        self._items = items
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_find_sessions_skips_events_filter_when_all_summarized(activity_environment, organization, team):
+    from posthog.models.user import User
 
-    def __aiter__(self):
-        self._iter = iter(self._items)
-        return self
+    await sync_to_async(enable_signal_source)(team)
+    user = await sync_to_async(User.objects.create_and_join)(organization, "skipfilter@posthog.com", "pw", "Skip")
+    try:
+        candidate_ids = ["s1", "s2"]
+        with (
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.fetch_recent_session_ids",
+                return_value=candidate_ids,
+            ),
+            patch(
+                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                return_value={"s1": True, "s2": True},
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+            ) as mock_filter,
+        ):
+            result = await activity_environment.run(
+                find_sessions_for_team_activity,
+                FindSessionsInput(team_id=team.id, lookback_minutes=30),
+            )
+        assert result.session_ids == []
+        mock_filter.assert_not_called()
+    finally:
+        await sync_to_async(user.delete)()
 
-    async def __anext__(self):
-        try:
-            return next(self._iter)
-        except StopIteration:
-            raise StopAsyncIteration
+
+@pytest.mark.asyncio
+async def test_filter_session_ids_with_events_returns_empty_for_empty_input():
+    from posthog.temporal.session_replay.summarization_sweep.session_candidates import filter_session_ids_with_events
+
+    assert filter_session_ids_with_events(team=None, session_ids=[], lookback_minutes=30) == set()  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
@@ -375,72 +461,28 @@ async def test_stuck_session_ids_thresholds_failures():
     from posthog.temporal.session_replay.summarization_sweep.activities import _stuck_session_ids
     from posthog.temporal.session_replay.summarization_sweep.constants import STUCK_RASTERIZE_THRESHOLD
 
-    # Three failures for "stuck", one for "transient", none for "fresh".
-    # The query also returns "other-recording" which isn't a candidate — must be ignored.
-    workflows = (
-        [_make_workflow_with_session("stuck")] * STUCK_RASTERIZE_THRESHOLD
-        + [_make_workflow_with_session("transient")]
-        + [_make_workflow_with_session("other-recording")] * STUCK_RASTERIZE_THRESHOLD
-    )
-    client = MagicMock()
-    client.list_workflows = MagicMock(return_value=_AsyncIter(workflows))
+    redis_client = MagicMock()
+    # MGET preserves order. None for "fresh" (no key), under-threshold for "transient", over for "stuck".
+    redis_client.mget = AsyncMock(return_value=[str(STUCK_RASTERIZE_THRESHOLD).encode(), b"1", None])
     with patch(
-        "posthog.temporal.session_replay.summarization_sweep.activities.async_connect",
-        AsyncMock(return_value=client),
+        "posthog.temporal.session_replay.summarization_sweep.activities.get_async_client",
+        return_value=redis_client,
     ):
         result = await _stuck_session_ids(team_id=42, session_ids=["stuck", "transient", "fresh"])
     assert result == {"stuck"}
 
 
-@pytest.mark.asyncio
-async def test_stuck_session_ids_filters_by_team_and_close_time():
-    """The visibility query must scope to the calling team and a bounded `CloseTime` window."""
-    from freezegun import freeze_time
+async def test_stuck_session_ids_swallows_redis_errors():
     from unittest.mock import AsyncMock, MagicMock
 
     from posthog.temporal.session_replay.summarization_sweep.activities import _stuck_session_ids
-    from posthog.temporal.session_replay.summarization_sweep.constants import STUCK_RASTERIZE_LOOKBACK
 
-    client = MagicMock()
-    captured: list[str] = []
-
-    def _list_workflows(query: str):
-        captured.append(query)
-        return _AsyncIter([])
-
-    client.list_workflows = _list_workflows
-    frozen = "2026-05-02T12:00:00"
-    expected_cutoff = '"2026-05-02T10:00:00.000Z"'  # frozen - STUCK_RASTERIZE_LOOKBACK
-    assert STUCK_RASTERIZE_LOOKBACK.total_seconds() == 2 * 3600  # guard against constant drift
-    with (
-        freeze_time(frozen),
-        patch(
-            "posthog.temporal.session_replay.summarization_sweep.activities.async_connect",
-            AsyncMock(return_value=client),
-        ),
-    ):
-        await _stuck_session_ids(team_id=4242, session_ids=["s1", "s2"])
-    assert len(captured) == 1
-    q = captured[0]
-    assert 'WorkflowType = "rasterize-recording"' in q
-    assert 'ExecutionStatus IN ("Failed", "TimedOut")' in q
-    assert "PostHogTeamId = 4242" in q
-    assert f"CloseTime > {expected_cutoff}" in q
-    # No candidate IDs are interpolated — that's the whole point of the inversion.
-    assert "s1" not in q
-    assert "s2" not in q
-
-
-@pytest.mark.asyncio
-async def test_stuck_session_ids_swallows_temporal_errors():
-    from unittest.mock import AsyncMock
-
-    from posthog.temporal.session_replay.summarization_sweep.activities import _stuck_session_ids
-
+    redis_client = MagicMock()
+    redis_client.mget = AsyncMock(side_effect=RuntimeError("redis unavailable"))
     with patch(
-        "posthog.temporal.session_replay.summarization_sweep.activities.async_connect",
-        AsyncMock(side_effect=RuntimeError("temporal unavailable")),
+        "posthog.temporal.session_replay.summarization_sweep.activities.get_async_client",
+        return_value=redis_client,
     ):
-        result = await _stuck_session_ids(team_id=1, session_ids=["a", "b"])
+        result = await _stuck_session_ids(team_id=42, session_ids=["a", "b"])
     # Degrade gracefully — better to dispatch and risk a retry than block summarization.
     assert result == set()

@@ -16,6 +16,9 @@ import {
     ErrorTrackingIssuesSplitCreateParams,
     ErrorTrackingSuppressionRulesCreateBody,
     ErrorTrackingSuppressionRulesListQueryParams,
+    ErrorTrackingSymbolSetsDownloadRetrieveParams,
+    ErrorTrackingSymbolSetsListQueryParams,
+    ErrorTrackingSymbolSetsRetrieveParams,
 } from '@/generated/error_tracking/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
@@ -313,6 +316,92 @@ const errorTrackingSuppressionRulesList = (): ToolBase<
             },
         })
         return result
+    },
+})
+
+const ErrorTrackingSymbolSetsDownloadRetrieveSchema = ErrorTrackingSymbolSetsDownloadRetrieveParams.omit({
+    project_id: true,
+})
+
+const errorTrackingSymbolSetsDownloadRetrieve = (): ToolBase<
+    typeof ErrorTrackingSymbolSetsDownloadRetrieveSchema,
+    Schemas._SymbolSetDownloadResponse
+> => ({
+    name: 'error-tracking-symbol-sets-download-retrieve',
+    schema: ErrorTrackingSymbolSetsDownloadRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSymbolSetsDownloadRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas._SymbolSetDownloadResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/symbol_sets/${encodeURIComponent(String(params.id))}/download/`,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSymbolSetsListSchema = ErrorTrackingSymbolSetsListQueryParams
+
+const errorTrackingSymbolSetsList = (): ToolBase<
+    typeof ErrorTrackingSymbolSetsListSchema,
+    WithPostHogUrl<Schemas.PaginatedErrorTrackingSymbolSetList>
+> => ({
+    name: 'error-tracking-symbol-sets-list',
+    schema: ErrorTrackingSymbolSetsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSymbolSetsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedErrorTrackingSymbolSetList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/symbol_sets/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                order_by: params.order_by,
+                ref: params.ref,
+                status: params.status,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'ref',
+                    'created_at',
+                    'last_used',
+                    'failure_reason',
+                    'has_uploaded_file',
+                    'release',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/error_tracking')
+    },
+})
+
+const ErrorTrackingSymbolSetsRetrieveSchema = ErrorTrackingSymbolSetsRetrieveParams.omit({ project_id: true })
+
+const errorTrackingSymbolSetsRetrieve = (): ToolBase<
+    typeof ErrorTrackingSymbolSetsRetrieveSchema,
+    Schemas.ErrorTrackingSymbolSet
+> => ({
+    name: 'error-tracking-symbol-sets-retrieve',
+    schema: ErrorTrackingSymbolSetsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSymbolSetsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingSymbolSet>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/symbol_sets/${encodeURIComponent(String(params.id))}/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'ref',
+            'created_at',
+            'last_used',
+            'failure_reason',
+            'has_uploaded_file',
+            'release',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -652,6 +741,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
     'error-tracking-suppression-rules-create': errorTrackingSuppressionRulesCreate,
     'error-tracking-suppression-rules-list': errorTrackingSuppressionRulesList,
+    'error-tracking-symbol-sets-download-retrieve': errorTrackingSymbolSetsDownloadRetrieve,
+    'error-tracking-symbol-sets-list': errorTrackingSymbolSetsList,
+    'error-tracking-symbol-sets-retrieve': errorTrackingSymbolSetsRetrieve,
     'query-error-tracking-issues': createQueryWrapper({
         name: 'query-error-tracking-issues',
         schema: QueryErrorTrackingIssuesSchema,

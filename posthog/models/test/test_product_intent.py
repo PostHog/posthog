@@ -5,13 +5,25 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
+from parameterized import parameterized
+
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
-from posthog.models.product_intent.product_intent import ProductIntent, calculate_product_activation
+from posthog.models.product_intent.product_intent import (
+    ProductIntent,
+    _fetch_product_intents,
+    _team_product_intents_cache_key,
+    cached_product_intents_for_team,
+    calculate_product_activation,
+    enqueue_product_activation_calc_debounced,
+)
+from posthog.models.team.team import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.utils import get_instance_realm
 
@@ -785,3 +797,115 @@ class TestProductIntent(BaseTest):
         self.product_intent.save()
 
         assert self.product_intent.has_activated_workflows() is False
+
+
+class TestEnqueueProductActivationCalcDebounced(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            # name, team_id_offsets (called as self.team.id + offset), expected_returns, expected_delay_calls
+            ("first call enqueues", [0], [True], 1),
+            ("second call same team debounced", [0, 0], [True, False], 1),
+            ("third call same team still debounced", [0, 0, 0], [True, False, False], 1),
+            ("different team is not debounced", [0, 9999], [True, True], 2),
+            ("same team twice then different team", [0, 0, 9999], [True, False, True], 2),
+        ]
+    )
+    def test_debounce_behaviour(
+        self, _name: str, team_id_offsets: list[int], expected_returns: list[bool], expected_delay_calls: int
+    ):
+        with patch("posthog.models.product_intent.product_intent.calculate_product_activation.delay") as mock_delay:
+            results = [enqueue_product_activation_calc_debounced(self.team.id + offset) for offset in team_id_offsets]
+        assert results == expected_returns
+        assert mock_delay.call_count == expected_delay_calls
+
+    def test_cache_failure_falls_open_logs_and_still_enqueues(self):
+        # Redis blip must not 500 the team list endpoint. The helper falls open:
+        # treat a cache exception as "we haven't enqueued recently" and proceed.
+        # We also log + capture so a chronic Redis problem still shows up rather
+        # than silently degrading to "every render enqueues".
+        with (
+            patch("posthog.models.product_intent.product_intent.cache.add", side_effect=Exception("redis is sad")),
+            patch("posthog.models.product_intent.product_intent.calculate_product_activation.delay") as mock_delay,
+            patch("posthog.models.product_intent.product_intent.logger.warning") as mock_log,
+            patch("posthog.models.product_intent.product_intent.capture_exception") as mock_capture,
+        ):
+            assert enqueue_product_activation_calc_debounced(self.team.id) is True
+
+        mock_delay.assert_called_once_with(self.team.id, only_calc_if_days_since_last_checked=1)
+        mock_log.assert_called_once()
+        assert mock_log.call_args.args == ("product_activation_debounce_cache_failure",)
+        assert mock_log.call_args.kwargs == {"team_id": self.team.id, "exc_info": True}
+        mock_capture.assert_called_once()
+
+
+class TestCachedProductIntentsForTeam(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_caches_results(self):
+        ProductIntent.objects.create(team=self.team, product_type=ProductKey.SURVEYS)
+
+        with patch(
+            "posthog.models.product_intent.product_intent._fetch_product_intents",
+            wraps=_fetch_product_intents,
+        ) as spy:
+            first = cached_product_intents_for_team(self.team.id)
+            second = cached_product_intents_for_team(self.team.id)
+        assert spy.call_count == 1
+        assert first == second
+        assert {row["product_type"] for row in first} == {"surveys"}
+
+    @parameterized.expand(
+        [
+            (
+                "create",
+                lambda self: ProductIntent.objects.create(team=self.team, product_type=ProductKey.FEATURE_FLAGS),
+            ),
+            (
+                "delete",
+                lambda self: ProductIntent.objects.get(team=self.team, product_type=ProductKey.EXPERIMENTS).delete(),
+            ),
+        ]
+    )
+    def test_invalidates_on_signal(self, _name, mutate):
+        # Seed an existing intent so the delete path has something to remove and both
+        # cases share the same starting point.
+        ProductIntent.objects.create(team=self.team, product_type=ProductKey.EXPERIMENTS)
+        cached_product_intents_for_team(self.team.id)
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            mutate(self)
+
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is None
+
+    def test_invalidates_both_teams_on_reassignment(self):
+        # Codex P2: when an intent's team_id changes, the previous team's cache must
+        # also be evicted, otherwise its /api/users/@me/ payload returns the moved
+        # intent for up to PRODUCT_INTENTS_CACHE_TTL_SECONDS.
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.SURVEYS)
+        cached_product_intents_for_team(self.team.id)
+        cached_product_intents_for_team(other_team.id)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            intent.team = other_team
+            intent.save()
+
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is None
+        assert cache.get(_team_product_intents_cache_key(other_team.id)) is None
+
+    def test_isolates_per_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        ProductIntent.objects.create(team=self.team, product_type=ProductKey.SURVEYS)
+        ProductIntent.objects.create(team=other_team, product_type=ProductKey.EXPERIMENTS)
+
+        team_a = cached_product_intents_for_team(self.team.id)
+        team_b = cached_product_intents_for_team(other_team.id)
+        assert {row["product_type"] for row in team_a} == {"surveys"}
+        assert {row["product_type"] for row in team_b} == {"experiments"}

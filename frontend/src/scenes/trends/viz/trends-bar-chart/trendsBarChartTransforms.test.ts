@@ -1,6 +1,10 @@
 import { hexToRGBA } from 'lib/utils'
 
-import { buildTrendsBarTimeSeries, type TrendsBarResultLike } from './trendsBarChartTransforms'
+import {
+    buildTrendsBarAggregatedSeries,
+    buildTrendsBarTimeSeries,
+    type TrendsBarResultLike,
+} from './trendsBarChartTransforms'
 
 const RED = '#ff0000'
 
@@ -53,5 +57,70 @@ describe('buildTrendsBarTimeSeries', () => {
     it('falls back to empty string label when result label is null', () => {
         const series = buildTrendsBarTimeSeries([makeResult({ label: null })], { getColor: () => RED })
         expect(series[0].label).toBe('')
+    })
+})
+
+describe('buildTrendsBarAggregatedSeries', () => {
+    const mkResult = (overrides: Partial<TrendsBarResultLike> = {}): TrendsBarResultLike => ({
+        id: 0,
+        label: 'Pageview',
+        data: [],
+        aggregated_value: 42,
+        ...overrides,
+    })
+
+    it('returns labels aligned with results, in the same order', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', aggregated_value: 1 }),
+            mkResult({ id: 'b', label: 'B', aggregated_value: 2 }),
+            mkResult({ id: 'c', label: 'C', aggregated_value: 3 }),
+        ]
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(labels).toEqual(['A', 'B', 'C'])
+    })
+
+    it('places each aggregated_value at the index matching its own band — zero everywhere else', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', aggregated_value: 10 }),
+            mkResult({ id: 'b', label: 'B', aggregated_value: 20 }),
+            mkResult({ id: 'c', label: 'C', aggregated_value: 30 }),
+        ]
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(series[0].data).toEqual([10, 0, 0])
+        expect(series[1].data).toEqual([0, 20, 0])
+        expect(series[2].data).toEqual([0, 0, 30])
+    })
+
+    it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, undefined])(
+        'replaces non-finite aggregated_value (%p) with 0 at the result index',
+        (badValue) => {
+            const { series } = buildTrendsBarAggregatedSeries([mkResult({ aggregated_value: badValue })], {
+                getColor: () => RED,
+            })
+            expect(series[0].data).toEqual([0])
+        }
+    )
+
+    it('passes per-result colors through from getColor', () => {
+        const colors = ['#aaa', '#bbb', '#ccc']
+        const results = colors.map((_, i) => mkResult({ id: `r${i}` }))
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: (_r, i) => colors[i] })
+        expect(series.map((s) => s.color)).toEqual(colors)
+    })
+
+    it('drops hidden results so visible bars are densely packed', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', aggregated_value: 1 }),
+            mkResult({ id: 'b', label: 'B', aggregated_value: 2 }),
+            mkResult({ id: 'c', label: 'C', aggregated_value: 3 }),
+        ]
+        const { series, labels } = buildTrendsBarAggregatedSeries(results, {
+            getColor: () => RED,
+            getHidden: (_r, i) => i === 1,
+        })
+        expect(labels).toEqual(['A', 'C'])
+        expect(series).toHaveLength(2)
+        expect(series[0].data).toEqual([1, 0])
+        expect(series[1].data).toEqual([0, 3])
     })
 })

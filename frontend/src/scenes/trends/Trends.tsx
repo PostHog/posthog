@@ -54,6 +54,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         inSharedMode,
     }
 
+    const showHogChartsBar =
+        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR] && !isLifecycle && !isStickiness
+
     const renderViz = (): JSX.Element | undefined => {
         if (
             !display ||
@@ -67,8 +70,8 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
-            if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR]) {
-                return <TrendsBarChart context={context} />
+            if (showHogChartsBar) {
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
             }
             return <ActionsLineGraph {...commonProps} />
         }
@@ -90,6 +93,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
+            if (showHogChartsBar) {
+                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+            }
             return <ActionsHorizontalBar {...commonProps} />
         }
         if (display === ChartDisplayType.WorldMap) {

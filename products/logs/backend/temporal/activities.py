@@ -1,9 +1,14 @@
 """Temporal activities for logs alerting."""
 
+import gc
 import time
 import asyncio
+import contextlib
 import dataclasses
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
+from itertools import batched
+from typing import TYPE_CHECKING
 
 from django.db import transaction
 from django.db.models import Q
@@ -24,6 +29,7 @@ from products.logs.backend.alert_check_query import (
     fetch_live_logs_checkpoint,
     is_projection_eligible,
     resolve_alert_date_to,
+    rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
@@ -40,11 +46,12 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.temporal.constants import MAX_CONCURRENT_ALERT_EVALS
+from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE, MAX_CONCURRENT_ALERT_EVALS
 from products.logs.backend.temporal.metrics import (
     increment_check_errors,
     increment_checkpoint_unavailable,
     increment_checks_total,
+    increment_cohort_query_fallback,
     increment_cohort_save_fallback,
     increment_notification_failures,
     increment_state_transition,
@@ -59,9 +66,59 @@ from products.logs.backend.temporal.metrics import (
     record_pending_alerts,
     record_scheduler_lag,
     record_semaphore_wait,
+    record_worker_memory_snapshot,
 )
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 logger = structlog.get_logger(__name__)
+
+
+def _log_metric_failure(label: str, e: BaseException, **context: object) -> None:
+    """Warn about a best-effort metric failure WITHOUT a traceback.
+
+    `logger.exception` sets `exc_info=True`, making the underlying `LogRecord`
+    retain the exception's `__traceback__` — and through it, every frame's
+    `f_locals`. Handlers that buffer records (Sentry breadcrumbs, pytest log
+    capture) then pin the entire cohort state alive across activity invocations.
+    Metric failures are non-actionable; label + error type + message is enough.
+    """
+    logger.warning(
+        "Failed to record metric",
+        label=label,
+        error=str(e),
+        error_type=type(e).__name__,
+        **context,
+    )
+
+
+def _safe_record(label: str, fn, *args, **kwargs) -> None:
+    """Best-effort metric recording — failures must never break alerting."""
+    try:
+        fn(*args, **kwargs)
+    except Exception as e:
+        _log_metric_failure(label, e)
+
+
+@contextlib.contextmanager
+def _safe_record_block(label: str, **context: object) -> Iterator[None]:
+    """Context-manager form of `_safe_record` for try-blocks wrapping multiple
+    metric calls (where extracting them into a single callable would obscure
+    branching logic). Same warning-without-traceback semantics."""
+    try:
+        yield
+    except Exception as e:
+        _log_metric_failure(label, e, **context)
+
+
+def _post_cohort_memory_cleanup() -> None:
+    """gc.collect() then snapshot the post-GC live-object count. Called after each cohort."""
+    try:
+        gc.collect()
+    except Exception:
+        logger.exception("gc.collect failed in post-cohort cleanup")
+    _safe_record("worker_gc_objects gauge", record_worker_memory_snapshot)
 
 
 def _derive_breaches(
@@ -101,17 +158,21 @@ class CheckAlertsInput:
 class _AlertCohort:
     """Group of alerts that share team + bucket grid and can be batched into one CH query.
 
-    Cohort key (implicit, derived in `_build_cohorts`):
-    `(team_id, window_minutes, evaluation_periods, projection_eligible, date_to)`.
-
-    All five must match for two alerts to share a query. `date_to` matters because
-    checkpoint clamping can pull alerts with different `next_check_at` values onto
-    the same window, and we want them to share the scan when that happens.
+    Cohort key (built in `_build_cohorts`): (team_id, window_minutes,
+    evaluation_periods, check_interval_minutes, projection_eligible, date_to).
     """
 
     alerts: tuple[LogsAlertConfiguration, ...]
     date_to: datetime
     projection_eligible: bool
+
+    @property
+    def team(self) -> "Team":
+        return self.alerts[0].team
+
+    @property
+    def team_id(self) -> int:
+        return self.alerts[0].team_id
 
     @property
     def window_minutes(self) -> int:
@@ -122,22 +183,33 @@ class _AlertCohort:
         return self.alerts[0].evaluation_periods
 
     @property
+    def check_interval_minutes(self) -> int:
+        return self.alerts[0].check_interval_minutes
+
+    @property
     def date_from(self) -> datetime:
-        return self.date_to - timedelta(minutes=self.window_minutes * self.evaluation_periods)
+        return self.date_to - timedelta(
+            minutes=rolling_check_lookback_minutes(
+                self.window_minutes, self.check_interval_minutes, self.evaluation_periods
+            )
+        )
 
 
 @dataclasses.dataclass(frozen=True)
 class _PrefetchedQuery:
-    """Result of a batched query for one alert in a cohort.
-
-    Either `buckets` is set (success path; `query_duration_ms` is the shared
-    batch duration) or `error` is set (failure — re-raised inside the per-alert
-    eval to flow through the same classification as a per-alert query failure).
-    """
+    """CH query result for one alert: either `buckets` or `error` is set."""
 
     buckets: list[BucketedCount] | None = None
     query_duration_ms: int | None = None
     error: Exception | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class _CohortQueryResult:
+    per_alert: dict[str, _PrefetchedQuery]
+
+    def for_alert(self, alert: LogsAlertConfiguration) -> _PrefetchedQuery:
+        return self.per_alert.get(str(alert.id), _PrefetchedQuery(buckets=[]))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -153,7 +225,6 @@ class _AlertEvaluation:
     check_result: CheckResult
     date_from: datetime
     date_to: datetime
-    error_category: AlertErrorCode | None
     state_before: str
 
 
@@ -210,7 +281,7 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
     # we run it as a sync list comprehension. Dispatch is Kafka I/O and gets
     # a thread-pool wrap + gather for actual concurrency.
     dispatch_async = database_sync_to_async_pool(_dispatch_for_alert)
-    batched_query_async = database_sync_to_async_pool(_run_batched_query)
+    cohort_query_async = database_sync_to_async_pool(_run_cohort_query)
     save_cohort_async = database_sync_to_async_pool(_save_cohort_outcomes)
 
     async def _bounded_cohort_eval(cohort: _AlertCohort) -> dict[str, int]:
@@ -218,30 +289,10 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
         local_stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
         async with semaphore:
             wait_ms = int((time.perf_counter() - wait_start) * 1000)
-            try:
-                record_cohort_size(len(cohort.alerts))
-            except Exception:
-                logger.exception("Failed to record cohort_size histogram")
+            _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
 
-            # Phase 1: batched CH query.
-            batched_result: BatchedBucketedResult | None
-            cohort_error: Exception | None = None
-            try:
-                batched_result = await batched_query_async(cohort)
-            except Exception as e:
-                # Propagate the cohort error to each alert in the cohort so they
-                # advance `consecutive_failures` independently. Re-raising per
-                # alert flows through the same classification as a per-alert
-                # query failure would.
-                logger.warning(
-                    "Batched alert query failed",
-                    team_id=cohort.alerts[0].team_id,
-                    cohort_size=len(cohort.alerts),
-                    error=str(e),
-                )
-                capture_exception(e, {"team_id": cohort.alerts[0].team_id, "cohort_size": len(cohort.alerts)})
-                batched_result = None
-                cohort_error = e
+            # Phase 1: cohort CH query (batched, with per-alert fallback on failure).
+            query_result = await cohort_query_async(cohort)
 
             # Phase 2a: evaluate all alerts (sync, in-memory).
             evaluations: list[_AlertEvaluation] = []
@@ -254,7 +305,7 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
                             alert,
                             now,
                             checkpoint=checkpoint,
-                            prefetched=_prefetch_for_alert(alert, batched_result, cohort_error),
+                            prefetched=query_result.for_alert(alert),
                         )
                     )
                     kept_eval_starts.append(eval_start)
@@ -301,14 +352,16 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
             except Exception as e:
                 logger.exception(
                     "Cohort bulk save failed (non-recoverable)",
-                    team_id=cohort.alerts[0].team_id,
+                    team_id=cohort.team_id,
                     cohort_size=len(dispatched),
                 )
-                capture_exception(e, {"team_id": cohort.alerts[0].team_id, "phase": "bulk_save"})
+                capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
                 # Saves failed — count alerts as errored so the cycle stat
                 # reflects that this cohort didn't advance state.
                 local_stats["errored"] += len(dispatched)
                 local_stats["checked"] += len(dispatched)
+                # Off-thread: gc.collect() is CPU-bound and would block the event loop.
+                await asyncio.to_thread(_post_cohort_memory_cleanup)
                 return local_stats
 
             # Phase 4 (serial): finalize stats + per-alert post-save metrics.
@@ -319,10 +372,8 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
                 # Alert's per-alert fallback save failed — count as errored.
                 local_stats["checked"] += 1
                 local_stats["errored"] += 1
-        try:
-            record_semaphore_wait(wait_ms)
-        except Exception:
-            logger.exception("Failed to record semaphore_wait histogram")
+            await asyncio.to_thread(_post_cohort_memory_cleanup)
+        _safe_record("semaphore_wait histogram", record_semaphore_wait, wait_ms)
         return local_stats
 
     tasks: list[asyncio.Task[dict[str, int]]] = []
@@ -338,11 +389,22 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
     if aggregated["checked"] > 0:
         logger.info("Alert check cycle complete", **aggregated)
 
+    # DB failure here is actionable (connection/timeout/query error) so log at
+    # error level with full error context — but skip `logger.exception` because
+    # retained tracebacks pin cohort state alive across invocations (see
+    # `_log_metric_failure` docstring). Metric record stays best-effort.
     try:
         pending = await database_sync_to_async_pool(_count_pending_alerts)()
-        record_pending_alerts(pending)
-    except Exception:
-        logger.exception("Failed to record pending_alerts gauge")
+    except Exception as e:
+        # `logger.exception` would retain the traceback (and frame locals like
+        # `cohorts`) across activity invocations via buffered LogRecords.
+        logger.error(  # noqa: TRY400
+            "Failed to count pending alerts",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+    else:
+        _safe_record("pending_alerts gauge", record_pending_alerts, pending)
 
     return CheckAlertsOutput(
         alerts_checked=aggregated["checked"],
@@ -373,82 +435,148 @@ def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration
 
     all_alerts = list(_due_alerts_qs(now).select_related("team"))
 
-    try:
-        record_alerts_active(len(all_alerts))
-    except Exception:
-        logger.exception("Failed to record alerts_active gauge")
+    _safe_record("alerts_active gauge", record_alerts_active, len(all_alerts))
 
     checkpoint: datetime | None = None
     if all_alerts:
         try:
             checkpoint = fetch_live_logs_checkpoint(all_alerts[0].team)
-        except Exception:
-            logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock")
+        except Exception as e:
+            # Real failure (CH unavailable, etc.) — traceback wanted; one record per cycle, not cohort-scoped.
+            logger.exception("Failed to fetch logs ingestion checkpoint; falling back to wall-clock", error=str(e))
 
-    try:
+    with _safe_record_block("checkpoint metric"):
         if checkpoint is None:
             increment_checkpoint_unavailable()
         else:
             record_checkpoint_lag(now, checkpoint)
-    except Exception:
-        logger.exception("Failed to record checkpoint metric")
 
     return now, all_alerts, checkpoint
 
 
 def _build_cohorts(
-    alerts: list[LogsAlertConfiguration],
+    alerts: Sequence[LogsAlertConfiguration],
     *,
     now: datetime,
     checkpoint: datetime | None,
 ) -> list[_AlertCohort]:
     """Group alerts into cohorts that can share a batched CH query.
 
-    Cohort key: (team_id, window_minutes, evaluation_periods, projection_eligible, date_to).
-    A single-alert "cohort" is fine — `BatchedAlertCheckQuery` with N=1 has the
-    same shape as `AlertCheckQuery.execute_bucketed`, so we don't bother
-    bypassing the batched path for cohorts of one.
+    Each cohort holds at most `MAX_ALERT_COHORT_SIZE` alerts. Larger groups (same
+    team / window / cadence / projection / date_to) split into multiple cohorts
+    so each individual batched query stays bounded — and the existing outer
+    semaphore (`MAX_CONCURRENT_ALERT_EVALS`) is the only concurrency control.
     """
-    grouped: dict[tuple, list[LogsAlertConfiguration]] = {}
+    grouped: dict[tuple, tuple[list[LogsAlertConfiguration], datetime, bool]] = {}
     for alert in alerts:
         nca = alert.next_check_at if alert.next_check_at is not None else now
         date_to = resolve_alert_date_to(nca, checkpoint)
+        projection_eligible = is_projection_eligible(alert.filters)
         key = (
             alert.team_id,
             alert.window_minutes,
             alert.evaluation_periods,
-            is_projection_eligible(alert.filters),
+            alert.check_interval_minutes,
+            projection_eligible,
             date_to,
         )
-        grouped.setdefault(key, []).append(alert)
+        grouped.setdefault(key, ([], date_to, projection_eligible))[0].append(alert)
 
-    return [
-        _AlertCohort(alerts=tuple(members), date_to=key[4], projection_eligible=key[3])
-        for key, members in grouped.items()
-    ]
+    cohorts: list[_AlertCohort] = []
+    for members, date_to, projection_eligible in grouped.values():
+        for chunk in batched(members, MAX_ALERT_COHORT_SIZE):
+            cohorts.append(_AlertCohort(alerts=chunk, date_to=date_to, projection_eligible=projection_eligible))
+    return cohorts
 
 
 def _run_batched_query(cohort: _AlertCohort) -> BatchedBucketedResult:
     return BatchedAlertCheckQuery(
-        team=cohort.alerts[0].team,
+        team=cohort.team,
         alerts=list(cohort.alerts),
         date_from=cohort.date_from,
         date_to=cohort.date_to,
         projection_eligible=cohort.projection_eligible,
-    ).execute_bucketed(interval_minutes=cohort.window_minutes, limit=cohort.evaluation_periods)
+    ).execute_rolling_checks(
+        nca=cohort.date_to,
+        window_minutes=cohort.window_minutes,
+        cadence_minutes=cohort.check_interval_minutes,
+        period_count=cohort.evaluation_periods,
+    )
 
 
-def _prefetch_for_alert(
-    alert: LogsAlertConfiguration,
-    batched_result: BatchedBucketedResult | None,
-    cohort_error: Exception | None,
-) -> _PrefetchedQuery:
-    if batched_result is not None:
-        return _PrefetchedQuery(
-            buckets=batched_result.per_alert.get(str(alert.id), []),
-            query_duration_ms=batched_result.query_duration_ms,
+def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
+    per_alert: dict[str, _PrefetchedQuery] = {}
+    for alert in cohort.alerts:
+        start = time.monotonic_ns()
+        try:
+            buckets = AlertCheckQuery(
+                team=alert.team,
+                alert=alert,
+                date_from=cohort.date_from,
+                date_to=cohort.date_to,
+            ).execute_rolling_checks(
+                nca=cohort.date_to,
+                window_minutes=cohort.window_minutes,
+                cadence_minutes=cohort.check_interval_minutes,
+                period_count=cohort.evaluation_periods,
+            )
+            duration_ms = (time.monotonic_ns() - start) // 1_000_000
+            per_alert[str(alert.id)] = _PrefetchedQuery(buckets=buckets, query_duration_ms=duration_ms)
+        except Exception as e:
+            duration_ms = (time.monotonic_ns() - start) // 1_000_000
+            per_alert[str(alert.id)] = _PrefetchedQuery(error=e, query_duration_ms=duration_ms)
+    return _CohortQueryResult(per_alert=per_alert)
+
+
+def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
+    """Batched CH query for a cohort; per-alert fallback on non-transient failure.
+
+    Cohorts are pre-sized at `_build_cohorts` time so this function operates on a
+    single bounded group. Skip fallback for single-alert cohorts (would hit the
+    same error) and transient cluster errors (would hammer a struggling cluster
+    with N more failing queries).
+    """
+    try:
+        batched_result = _run_batched_query(cohort)
+    except Exception as e:
+        team_id = cohort.team_id
+        cohort_size = len(cohort.alerts)
+
+        if cohort_size == 1:
+            return _CohortQueryResult(per_alert={str(cohort.alerts[0].id): _PrefetchedQuery(error=e)})
+
+        classified = classify_alert_error(e)
+        if classified.is_transient:
+            logger.warning(
+                "Batched cohort query failed (transient); skipping per-alert fallback",
+                team_id=team_id,
+                cohort_size=cohort_size,
+                error=str(e),
+                classification=classified.code,
+            )
+            _safe_record("cohort_query_fallback counter", increment_cohort_query_fallback, "transient_no_fallback")
+            return _CohortQueryResult(per_alert={str(a.id): _PrefetchedQuery(error=e) for a in cohort.alerts})
+
+        logger.warning(
+            "Batched cohort query failed; falling back to per-alert queries",
+            team_id=team_id,
+            cohort_size=cohort_size,
+            error=str(e),
+            classification=classified.code,
         )
-    return _PrefetchedQuery(error=cohort_error)
+        capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size})
+        _safe_record("cohort_query_fallback counter", increment_cohort_query_fallback, "batched_failure")
+        return _run_per_alert_queries(cohort)
+
+    return _CohortQueryResult(
+        per_alert={
+            str(alert.id): _PrefetchedQuery(
+                buckets=batched_result.per_alert.get(str(alert.id), []),
+                query_duration_ms=batched_result.query_duration_ms,
+            )
+            for alert in cohort.alerts
+        }
+    )
 
 
 def _check_alerts_sync() -> CheckAlertsOutput:
@@ -462,26 +590,10 @@ def _check_alerts_sync() -> CheckAlertsOutput:
 
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
     for cohort in cohorts:
-        try:
-            record_cohort_size(len(cohort.alerts))
-        except Exception:
-            logger.exception("Failed to record cohort_size histogram")
+        _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
 
-        # Phase 1
-        batched_result: BatchedBucketedResult | None
-        cohort_error: Exception | None = None
-        try:
-            batched_result = _run_batched_query(cohort)
-        except Exception as e:
-            logger.warning(
-                "Batched alert query failed",
-                team_id=cohort.alerts[0].team_id,
-                cohort_size=len(cohort.alerts),
-                error=str(e),
-            )
-            capture_exception(e, {"team_id": cohort.alerts[0].team_id, "cohort_size": len(cohort.alerts)})
-            batched_result = None
-            cohort_error = e
+        # Phase 1: cohort CH query (batched, with per-alert fallback on failure).
+        query_result = _run_cohort_query(cohort)
 
         # Phase 2a: evaluate all alerts.
         evaluations: list[_AlertEvaluation] = []
@@ -493,7 +605,7 @@ def _check_alerts_sync() -> CheckAlertsOutput:
                     alert,
                     now,
                     checkpoint=checkpoint,
-                    prefetched=_prefetch_for_alert(alert, batched_result, cohort_error),
+                    prefetched=query_result.for_alert(alert),
                 )
             except Exception:
                 logger.exception(
@@ -538,12 +650,13 @@ def _check_alerts_sync() -> CheckAlertsOutput:
         except Exception as e:
             logger.exception(
                 "Cohort bulk save failed (non-recoverable)",
-                team_id=cohort.alerts[0].team_id,
+                team_id=cohort.team_id,
                 cohort_size=len(dispatched),
             )
-            capture_exception(e, {"team_id": cohort.alerts[0].team_id, "phase": "bulk_save"})
+            capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
             stats["errored"] += len(dispatched)
             stats["checked"] += len(dispatched)
+            _post_cohort_memory_cleanup()
             continue
 
         # Phase 4: finalize stats + per-alert post-save metrics.
@@ -553,6 +666,7 @@ def _check_alerts_sync() -> CheckAlertsOutput:
         for _ in failed:
             stats["checked"] += 1
             stats["errored"] += 1
+        _post_cohort_memory_cleanup()
 
     if stats["checked"] > 0:
         logger.info("Alert check cycle complete", **stats)
@@ -746,14 +860,12 @@ def _save_cohort_outcomes(
         saved, failed = _save_staged_per_alert(staged)
 
     save_ms = int((time.perf_counter() - save_start) * 1000)
-    try:
+    with _safe_record_block("cohort save metrics"):
         record_cohort_save_duration(save_ms)
         if event_insert_ms is not None:
             record_cohort_event_insert_duration(event_insert_ms)
         if update_ms is not None:
             record_cohort_update_duration(update_ms)
-    except Exception:
-        logger.exception("Failed to record cohort save metrics")
 
     return saved, failed
 
@@ -811,7 +923,7 @@ def _finalize_alert(dispatched: _DispatchedAlert, elapsed_ms: int, stats: dict[s
         elif outcome.notification == NotificationAction.RESOLVE:
             stats["resolved"] += 1
 
-    try:
+    with _safe_record_block("alert finalize metrics", alert_id=str(evaluation.alert.id)):
         record_check_duration(elapsed_ms)
 
         if outcome.error_message:
@@ -831,8 +943,6 @@ def _finalize_alert(dispatched: _DispatchedAlert, elapsed_ms: int, stats: dict[s
         state_before_enum = AlertState(evaluation.state_before)
         if committed_state != state_before_enum:
             increment_state_transition(state_before_enum, committed_state)
-    except Exception:
-        logger.exception("Failed to record alert finalize metrics", alert_id=str(evaluation.alert.id))
 
 
 def _evaluate_single_alert(
@@ -859,13 +969,13 @@ def _evaluate_single_alert(
     """
     original_next_check_at = alert.next_check_at
 
-    # First-run alerts (`next_check_at` still null after enable) anchor on `now`;
-    # from the second eval onward, `next_check_at` is set and idempotence holds.
     nca = alert.next_check_at if alert.next_check_at is not None else now
     date_to = resolve_alert_date_to(nca, checkpoint)
-    # Each bucket represents one historical "what the alert query would have
-    # returned" — window_minutes of data. M buckets cover M * window_minutes total.
-    date_from = date_to - timedelta(minutes=alert.window_minutes * alert.evaluation_periods)
+    date_from = date_to - timedelta(
+        minutes=rolling_check_lookback_minutes(
+            alert.window_minutes, alert.check_interval_minutes, alert.evaluation_periods
+        )
+    )
 
     check_result: CheckResult
     recent_breaches: tuple[bool, ...] = ()
@@ -883,13 +993,14 @@ def _evaluate_single_alert(
                 alert=alert,
                 date_from=date_from,
                 date_to=date_to,
-            ).execute_bucketed(interval_minutes=alert.window_minutes, limit=alert.evaluation_periods)
+            ).execute_rolling_checks(
+                nca=date_to,
+                window_minutes=alert.window_minutes,
+                cadence_minutes=alert.check_interval_minutes,
+                period_count=alert.evaluation_periods,
+            )
             query_duration_ms = int((time.perf_counter() - query_start) * 1000)
 
-        # execute_bucketed returns ASC (oldest first); state machine wants newest first.
-        # Buckets that are entirely empty are absent from the result, so a sparse window
-        # naturally produces a shorter breaches tuple — same behavior as today's
-        # get_recent_breaches when fewer than M CHECK rows exist.
         breaches = _derive_breaches(buckets, alert.threshold_count, alert.threshold_operator, alert.evaluation_periods)
         latest_count = buckets[-1].count if buckets else 0
         check_result = CheckResult(
@@ -921,7 +1032,7 @@ def _evaluate_single_alert(
 
     # Eval-phase metrics: CH-side and scheduler lag. Save/dispatch metrics fire
     # later in their own phases.
-    try:
+    with _safe_record_block("alert eval metrics", alert_id=str(alert.id)):
         if check_result.query_duration_ms is not None:
             record_clickhouse_duration(check_result.query_duration_ms)
         if original_next_check_at is not None:
@@ -930,8 +1041,6 @@ def _evaluate_single_alert(
                 record_scheduler_lag(lag_ms)
         if error_category is not None:
             increment_check_errors(error_category)
-    except Exception:
-        logger.exception("Failed to record alert eval metrics", alert_id=str(alert.id))
 
     return _AlertEvaluation(
         alert=alert,
@@ -939,7 +1048,6 @@ def _evaluate_single_alert(
         check_result=check_result,
         date_from=date_from,
         date_to=date_to,
-        error_category=error_category,
         state_before=alert.state,
     )
 

@@ -14,10 +14,12 @@ export type McpCatIdentityProvider = {
     getRegion: () => Promise<string | undefined>
     getAnalyticsContext: () => Promise<MCPAnalyticsContext | undefined>
     getClientUserAgent: () => Promise<string | undefined>
-    getVersion: () => Promise<number | undefined>
+    getMcpVersion: () => Promise<number | undefined>
     getOAuthClientName: () => Promise<string | undefined>
     getReadOnly: () => Promise<boolean | undefined>
     getTransport: () => Promise<string | undefined>
+    getMcpConsumer: () => Promise<string | undefined>
+    getMcpMode: () => Promise<string | undefined>
 }
 
 export function redactSensitiveInformation(text: string): string {
@@ -75,8 +77,10 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
                     oauthClientName,
                     readOnly,
                     transport,
+                    mcpConsumer,
+                    mcpMode,
                 ] = await Promise.all([
-                    identity.getVersion(),
+                    identity.getMcpVersion(),
                     identity.getClientUserAgent(),
                     identity.getMcpClientName(),
                     identity.getMcpClientVersion(),
@@ -86,6 +90,8 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
                     identity.getOAuthClientName(),
                     identity.getReadOnly(),
                     identity.getTransport(),
+                    identity.getMcpConsumer(),
+                    identity.getMcpMode(),
                 ])
 
                 // `$groups` is the raw event-payload key; mcpcat doesn't expose a typed
@@ -110,6 +116,8 @@ export async function initMcpCatObservability(server: McpServer, identity: McpCa
                     mcp_oauth_client_name: oauthClientName,
                     read_only: readOnly,
                     mcp_transport: transport,
+                    mcp_consumer: mcpConsumer,
+                    mcp_mode: mcpMode,
                     ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
                 }
             },

@@ -37,7 +37,7 @@ export function SavedInsight({
 
     if (insightLoading) {
         return (
-            <div className="text-center">
+            <div className="flex flex-col flex-1 justify-center items-center w-full h-full">
                 <LoadingBar />
             </div>
         )

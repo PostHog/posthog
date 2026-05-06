@@ -45,7 +45,15 @@ import { FunnelExclusionLegacy, LegacyRecordingFilters } from '~/types'
 // is filtered through the migrate function below that ensures integrity
 export const NOTEBOOKS_VERSION = '1'
 
-export async function migrate(notebook: NotebookType): Promise<NotebookType> {
+export interface MigrateOptions {
+    /**
+     * Skips the query migrate step which issues a POST request to the backend which will result
+     * in a 403 error for unauthenticated users viewing a shared notebook.
+     */
+    skipApiUpgrade?: boolean
+}
+
+export async function migrate(notebook: NotebookType, options: MigrateOptions = {}): Promise<NotebookType> {
     let content = notebook.content?.content
 
     if (!content) {
@@ -56,7 +64,9 @@ export async function migrate(notebook: NotebookType): Promise<NotebookType> {
     content = convertInsightQueryStringsToObjects(content)
     content = convertInsightQueriesToNewSchema(content)
     content = convertPlaylistFiltersToUniversalFilters(content)
-    content = await upgradeQueryNode(content)
+    if (!options.skipApiUpgrade) {
+        content = await upgradeQueryNode(content)
+    }
 
     return { ...notebook, content: { type: 'doc', content: content } }
 }

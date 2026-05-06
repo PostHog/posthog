@@ -51,6 +51,13 @@ interface OpenApiParam {
     required?: boolean
     description?: string
     schema: OpenApiSchema
+    /**
+     * Set by the Django factories in posthog/api/openapi_parameters.py for
+     * params whose wire format is a URL-encoded JSON string but whose semantic
+     * shape is an object (e.g. variables_override / filters_override). The
+     * codegen widens these into z.union([z.string(), z.record(...)]).
+     */
+    'x-accepts-stringified-json'?: boolean
 }
 
 interface OpenApiSchema {
@@ -265,6 +272,16 @@ function toPascalCase(str: string): string {
 function toCamelCase(str: string): string {
     const pascal = toPascalCase(str)
     return pascal.charAt(0).toLowerCase() + pascal.slice(1)
+}
+
+/**
+ * Escape a description string for embedding inside a single-quoted Zod
+ * `.describe('...')` call. Backslashes first, then single quotes, then collapse
+ * line breaks to spaces. Order matters — escape the escape character before
+ * anything else.
+ */
+function escapeForDescribe(desc: string): string {
+    return desc.trim().replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n\s*/g, ' ')
 }
 
 /**
@@ -512,12 +529,7 @@ function composeToolSchema(
                         expr += `.default(${JSON.stringify(override.default)}).optional()`
                     }
                     if (override.description) {
-                        const escaped = override.description
-                            .trim()
-                            .replace(/\\/g, '\\\\')
-                            .replace(/'/g, "\\'")
-                            .replace(/\n\s*/g, ' ')
-                        expr += `.describe('${escaped}')`
+                        expr += `.describe('${escapeForDescribe(override.description)}')`
                     }
                     if (override.optional) {
                         expr += '.optional()'
@@ -542,6 +554,37 @@ function composeToolSchema(
             schemaExpr += `\n    .omit({ '${original}': true })`
             schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
         }
+    }
+
+    // Query params marked `x-accepts-stringified-json` (set by Django factories
+    // in posthog/api/openapi_parameters.py) are stringified-JSON-objects on the
+    // wire but conceptually objects. Widen the schema to accept either shape so
+    // LLM agents can pass the object literal they just read from a sibling
+    // tool's response, without a JSON.stringify round-trip that frequently
+    // breaks on escaping. ApiClient.request() in services/mcp/src/api/client.ts
+    // JSON-stringify-s object query params automatically, so the schema-side
+    // union is sufficient — no handler changes required. Skipped when the YAML
+    // config also defines a param_overrides entry for the field, so explicit
+    // YAML always wins.
+    const explicitOverrideKeys = new Set(Object.keys(config.param_overrides ?? {}))
+    const stringifiedJsonQueryParams = queryParams.filter(
+        (p) =>
+            p['x-accepts-stringified-json'] === true &&
+            // queryParamNames is the post-include/exclude set, so this drops
+            // params the YAML excluded via include_params / exclude_params.
+            queryParamNames.includes(p.name) &&
+            !explicitOverrideKeys.has(p.name)
+    )
+    if (stringifiedJsonQueryParams.length > 0) {
+        const overrideEntries = stringifiedJsonQueryParams.map((p) => {
+            let expr = 'z.union([z.string(), z.record(z.string(), z.unknown())]).optional()'
+            const desc = p.description ?? p.schema?.description
+            if (desc) {
+                expr += `.describe('${escapeForDescribe(desc)}')`
+            }
+            return `${p.name}: ${expr}`
+        })
+        schemaExpr = `(${schemaExpr}).extend({ ${overrideEntries.join(', ')} })`
     }
 
     return {
