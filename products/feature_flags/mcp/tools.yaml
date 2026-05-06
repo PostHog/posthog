@@ -189,13 +189,6 @@ tools:
             (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple
             flags, variant key string for multivariate flags, false if disabled). Optionally pass `groups` as a JSON
             object to evaluate group-based flags.
-        response:
-            include:
-                - feature_flag.id
-                - feature_flag.key
-                - feature_flag.name
-                - feature_flag.active
-                - value
     feature-flags-remote-config-retrieve:
         operation: feature_flags_remote_config_retrieve
         enabled: false
