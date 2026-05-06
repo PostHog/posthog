@@ -15,6 +15,8 @@ import pytest
 
 from django.conf import settings
 
+from temporalio.testing import WorkflowEnvironment
+
 from posthog.models import OAuthApplication
 from posthog.temporal.common.worker import create_worker
 
@@ -85,6 +87,14 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
 
 # Sandbox container name prefix used by the eval harness (set in SandboxConfig.name)
 _EVAL_CONTAINER_PREFIX = "task-sandbox-"
+
+
+def _temporal_client_target(env: WorkflowEnvironment) -> tuple[str, str]:
+    config = env.client.config()
+    service_client = config["service_client"]
+    target_host = service_client.config.target_host
+    host, port = target_host.rsplit(":", maxsplit=1)
+    return host, port
 
 
 def _cleanup_eval_containers():
@@ -224,12 +234,48 @@ def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandbox_settings(_django_live_server, _llm_gateway, _posthog_oauth_app):
+def _temporal_test_server() -> Generator[tuple[str, str, str], None, None]:
+    """Start an isolated Temporal dev server for sandboxed eval workflows."""
+    loop = asyncio.new_event_loop()
+    temporal_namespace = settings.TEMPORAL_NAMESPACE
+    env: WorkflowEnvironment | None = None
+
+    try:
+        env = loop.run_until_complete(
+            WorkflowEnvironment.start_local(
+                namespace=temporal_namespace,
+                ip="127.0.0.1",
+                port=None,
+                dev_server_log_level="warn",
+            )
+        )
+        host, port = _temporal_client_target(env)
+        logger.info("Sandboxed eval Temporal server ready at %s:%s namespace=%s", host, port, temporal_namespace)
+
+        yield host, port, temporal_namespace
+    finally:
+        if env is not None:
+            logger.info("Shutting down sandboxed eval Temporal server")
+            loop.run_until_complete(env.shutdown())
+        loop.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sandbox_settings(
+    _django_live_server: object,
+    _llm_gateway: object,
+    _posthog_oauth_app: OAuthApplication,
+    _temporal_test_server: tuple[str, str, str],
+) -> Generator[None, None, None]:
     """Configure Django settings required by the sandbox/temporal activities.
 
     All URLs use ``host.docker.internal`` so they're reachable from inside
     Docker sandbox containers. Points at the in-process Django live server
     which shares the test database.
+
+    Temporal is pointed at a per-session local dev server and task queue. That
+    keeps eval workflows away from any dev worker already polling the normal
+    tasks queue in the developer's environment.
 
     Also patches ``posthoganalytics.feature_enabled`` to return True for all
     flags so permission checks (TasksAccessPermission) and workflow guards pass.
@@ -241,6 +287,8 @@ def _sandbox_settings(_django_live_server, _llm_gateway, _posthog_oauth_app):
     # Docker containers reach the host via host.docker.internal
     docker_api_url = f"http://host.docker.internal:{DJANGO_LIVE_PORT}"
     docker_llm_gateway_url = f"http://host.docker.internal:{LLM_GATEWAY_PORT}"
+    temporal_host, temporal_port, temporal_namespace = _temporal_test_server
+    temporal_task_queue = f"sandboxed-evals-tasks-{os.getpid()}"
 
     import posthoganalytics
 
@@ -251,6 +299,12 @@ def _sandbox_settings(_django_live_server, _llm_gateway, _posthog_oauth_app):
             SANDBOX_API_URL=docker_api_url,
             SANDBOX_LLM_GATEWAY_URL=docker_llm_gateway_url,
             SANDBOX_MCP_URL=f"http://host.docker.internal:{MCP_PORT}/mcp",
+            TEMPORAL_HOST=temporal_host,
+            TEMPORAL_PORT=temporal_port,
+            TEMPORAL_NAMESPACE=temporal_namespace,
+            TEMPORAL_CLIENT_CERT=None,
+            TEMPORAL_CLIENT_KEY=None,
+            TASKS_TASK_QUEUE=temporal_task_queue,
         ),
         patch.object(posthoganalytics, "feature_enabled", return_value=True),
     ):
