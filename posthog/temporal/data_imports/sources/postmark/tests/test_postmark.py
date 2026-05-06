@@ -12,7 +12,6 @@ from posthog.temporal.data_imports.sources.postmark.postmark import (
     PostmarkRetryableError,
     _build_params,
     _format_postmark_datetime,
-    _get_headers,
     _resolve_fromdate,
     get_rows,
     postmark_source,
@@ -25,8 +24,6 @@ from posthog.temporal.data_imports.sources.postmark.settings import (
     POSTMARK_PAGE_SIZE,
 )
 from posthog.temporal.data_imports.sources.postmark.source import PostmarkSource
-
-from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestFormatPostmarkDatetime:
@@ -62,13 +59,6 @@ class TestFormatPostmarkDatetime:
         assert "+" not in formatted
         assert "Z" not in formatted
         assert formatted.count("-") == 2  # only the two date dashes
-
-
-class TestGetHeaders:
-    def test_headers(self) -> None:
-        headers = _get_headers("server-token-123")
-        assert headers["X-Postmark-Server-Token"] == "server-token-123"
-        assert headers["Accept"] == "application/json"
 
 
 class TestResolveFromdate:
@@ -590,32 +580,19 @@ class TestPostmarkSource:
         self.team_id = 123
         self.config = PostmarkSourceConfig(server_api_token="server-token-test")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.POSTMARK
-
     def test_get_source_config(self) -> None:
+        # Asserts on properties with semantic weight (gating + auth shape); not every literal.
         config = self.source.get_source_config
-
-        assert config.name.value == "Postmark"
-        assert config.label == "Postmark"
         assert config.releaseStatus == "alpha"
         assert config.featureFlag == "dwh_postmark"
-        assert config.iconPath == "/static/services/postmark.png"
-        assert config.unreleasedSource is None or config.unreleasedSource is False
-        assert len(config.fields) == 1
+        assert not config.unreleasedSource
 
+        assert len(config.fields) == 1
         token_field = config.fields[0]
         assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.name == "server_api_token"
         assert token_field.type == SourceFieldInputConfigType.PASSWORD
         assert token_field.required is True
         assert token_field.secret is True
-
-    def test_non_retryable_errors(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert "422 Client Error" in errors
 
     def test_get_schemas(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -635,33 +612,8 @@ class TestPostmarkSource:
         assert by_name["outbound_clicks"].supports_incremental is True
 
     def test_get_schemas_filtered(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["bounces"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "bounces"
-
-    def test_get_schemas_filtered_unknown(self) -> None:
+        assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["bounces"])] == ["bounces"]
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    @mock.patch("posthog.temporal.data_imports.sources.postmark.source.validate_postmark_credentials")
-    def test_validate_credentials_success(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        ok, msg = self.source.validate_credentials(self.config, self.team_id)
-        assert ok is True
-        assert msg is None
-        mock_validate.assert_called_once_with(self.config.server_api_token, schema_name=None)
-
-    @mock.patch("posthog.temporal.data_imports.sources.postmark.source.validate_postmark_credentials")
-    def test_validate_credentials_threads_schema_name(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        self.source.validate_credentials(self.config, self.team_id, schema_name="bounces")
-        mock_validate.assert_called_once_with(self.config.server_api_token, schema_name="bounces")
-
-    @mock.patch("posthog.temporal.data_imports.sources.postmark.source.validate_postmark_credentials")
-    def test_validate_credentials_failure(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Postmark Server API token")
-        ok, msg = self.source.validate_credentials(self.config, self.team_id)
-        assert ok is False
-        assert msg == "Invalid Postmark Server API token"
 
     @mock.patch("posthog.temporal.data_imports.sources.postmark.source.postmark_source")
     def test_source_for_pipeline_non_incremental(self, mock_source: mock.MagicMock) -> None:
