@@ -261,11 +261,53 @@ class TestConversationEvents(BaseTest):
             assert "$groups" not in call_kwargs["properties"]
 
     @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._has_identified_person_by_email", return_value=False)
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids", side_effect=Exception("db timeout"))
-    def test_capture_ticket_created_still_fires_on_person_lookup_failure(self, mock_get_persons, mock_capture):
+    def test_capture_ticket_created_still_fires_on_person_lookup_failure(
+        self, mock_get_persons, mock_email_fallback, mock_capture
+    ):
         capture_ticket_created(self.ticket)
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["process_person_profile"] is False
         assert "$groups" not in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._has_identified_person_by_email", return_value=True)
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids", return_value=[])
+    def test_capture_ticket_created_email_fallback_finds_person(
+        self, mock_get_persons, mock_email_fallback, mock_capture
+    ):
+        capture_ticket_created(self.ticket)
+
+        mock_email_fallback.assert_called_once_with(self.team.id, "test@example.com")
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        assert "$groups" in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._has_identified_person_by_email", return_value=False)
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids", return_value=[])
+    def test_capture_ticket_created_email_fallback_no_match(self, mock_get_persons, mock_email_fallback, mock_capture):
+        capture_ticket_created(self.ticket)
+
+        mock_email_fallback.assert_called_once_with(self.team.id, "test@example.com")
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._has_identified_person_by_email")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids", return_value=[])
+    def test_capture_ticket_created_skips_email_fallback_without_email_trait(
+        self, mock_get_persons, mock_email_fallback, mock_capture
+    ):
+        self.ticket.anonymous_traits = {"name": "No Email"}
+        self.ticket.save()
+
+        capture_ticket_created(self.ticket)
+
+        mock_email_fallback.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False

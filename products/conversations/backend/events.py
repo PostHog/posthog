@@ -10,6 +10,7 @@ import structlog
 
 from posthog.api.capture import capture_internal
 from posthog.event_usage import groups as build_groups
+from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.person.util import get_persons_by_distinct_ids
 
 from products.conversations.backend.models import Ticket
@@ -17,6 +18,16 @@ from products.conversations.backend.models import Ticket
 logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "conversations_events"
+
+
+def _has_identified_person_by_email(team_id: int, email: str) -> bool:
+    # No personhog RPC exists for property-based person lookup yet
+    return (
+        Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
+        .filter(team_id=team_id, is_identified=True, properties__email=email)
+        .only("id")
+        .exists()
+    )
 
 
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
@@ -47,6 +58,16 @@ def capture_ticket_created(ticket: Ticket) -> None:
                 properties["$groups"] = build_groups(team.organization, team)
         except Exception:
             logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
+
+    if not process_person:
+        customer_email = traits.get("email", "")
+        if customer_email:
+            try:
+                if _has_identified_person_by_email(team_id, customer_email):
+                    process_person = True
+                    properties["$groups"] = build_groups(team.organization, team)
+            except Exception:
+                logger.exception("ticket_created_email_fallback_failed", team_id=team_id, ticket_id=str(ticket.id))
 
     capture_internal(
         token=team.api_token,
