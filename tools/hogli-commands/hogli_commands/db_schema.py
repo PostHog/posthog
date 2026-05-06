@@ -114,6 +114,8 @@ def _github_token() -> str | None:
 
 
 def _github_request(url: str, token: str) -> bytes:
+    if not url.startswith("https://api.github.com/"):
+        raise click.ClickException(f"Refusing non-GitHub URL: {url}")
     request = urllib.request.Request(
         url,
         headers={
@@ -123,6 +125,7 @@ def _github_request(url: str, token: str) -> bytes:
             "User-Agent": "posthog-hogli",
         },
     )
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected (URL pinned to api.github.com above)
     with urllib.request.urlopen(request, timeout=60) as response:
         return response.read()
 
