@@ -9,12 +9,13 @@ import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
+import { getCurrentTeamId } from '~/lib/utils/getAppContext'
 import { hogql } from '~/queries/utils'
 
+import { llmAnalyticsOfflineEvaluationsExperimentItemsCreate } from '../generated/api'
 import type { offlineEvaluationsLogicType } from './offlineEvaluationsLogicType'
 
 const OFFLINE_EXPERIMENTS_LIMIT = 200
-const OFFLINE_EXPERIMENT_ITEMS_LIMIT = 20000
 const INITIAL_OFFLINE_DATE_FROM = 'dStart' as string | null
 const INITIAL_OFFLINE_DATE_TO = null as string | null
 
@@ -118,15 +119,19 @@ function getEmptyOfflineExperimentData(): OfflineExperimentData {
     }
 }
 
+function parseOfflineDateFilter(dateFilter: OfflineDateFilter): { dateFrom: string | null; dateTo: string | null } {
+    return {
+        dateFrom: dateFilter.dateFrom ? (dateStringToDayJs(dateFilter.dateFrom)?.toISOString() ?? null) : null,
+        dateTo: dateFilter.dateTo ? (dateStringToDayJs(dateFilter.dateTo)?.toISOString() ?? null) : null,
+    }
+}
+
 function getOfflineDateClauses(dateFilter: OfflineDateFilter): { dateFromClause: string; dateToClause: string } {
-    const parsedDateFrom = dateFilter.dateFrom ? dateStringToDayJs(dateFilter.dateFrom) : null
-    const parsedDateTo = dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo) : null
+    const { dateFrom, dateTo } = parseOfflineDateFilter(dateFilter)
 
     return {
-        dateFromClause: parsedDateFrom
-            ? `AND timestamp >= parseDateTimeBestEffort('${parsedDateFrom.toISOString()}')`
-            : '',
-        dateToClause: parsedDateTo ? `AND timestamp <= parseDateTimeBestEffort('${parsedDateTo.toISOString()}')` : '',
+        dateFromClause: dateFrom ? `AND timestamp >= parseDateTimeBestEffort('${dateFrom}')` : '',
+        dateToClause: dateTo ? `AND timestamp <= parseDateTimeBestEffort('${dateTo}')` : '',
     }
 }
 
@@ -434,42 +439,15 @@ export const offlineEvaluationsLogic = kea<offlineEvaluationsLogicType>([
                         return getEmptyOfflineExperimentData()
                     }
 
-                    const { dateFromClause, dateToClause } = getOfflineDateClauses(values.offlineDateFilter)
-
                     try {
-                        const response = await api.queryHogQL(
-                            hogql`
-                                SELECT
-                                    ${hogql.raw(EXPERIMENT_ITEM_ID_EXPRESSION)} as item_id,
-                                    argMax(properties.$ai_experiment_item_name, timestamp) as experiment_item_name,
-                                    argMax(properties.$ai_experiment_name, timestamp) as experiment_name,
-                                    ${hogql.raw(METRIC_NAME_EXPRESSION)} as metric_name,
-                                    ${hogql.raw(METRIC_VERSION_EXPRESSION)} as metric_version,
-                                    argMax(properties.$ai_status, timestamp) as status,
-                                    argMax(properties.$ai_score, timestamp) as score,
-                                    argMax(properties.$ai_score_min, timestamp) as score_min,
-                                    argMax(properties.$ai_score_max, timestamp) as score_max,
-                                    argMax(properties.$ai_result_type, timestamp) as result_type,
-                                    argMax(properties.$ai_reasoning, timestamp) as reasoning,
-                                    argMax(properties.$ai_trace_id, timestamp) as trace_id,
-                                    argMax(properties.$ai_dataset_id, timestamp) as dataset_id,
-                                    argMax(properties.$ai_dataset_item_id, timestamp) as dataset_item_id,
-                                    argMax(properties.$ai_input, timestamp) as ai_input,
-                                    argMax(properties.$ai_output, timestamp) as ai_output,
-                                    argMax(properties.$ai_expected, timestamp) as ai_expected,
-                                    max(timestamp) as last_seen_at
-                                FROM events
-                                WHERE
-                                    event = '$ai_evaluation'
-                                    AND properties.$ai_experiment_id = ${selectedExperimentId}
-                                    AND ${hogql.raw(EXPERIMENT_ITEM_ID_EXPRESSION)} IS NOT NULL
-                                    ${hogql.raw(dateFromClause)}
-                                    ${hogql.raw(dateToClause)}
-                                GROUP BY item_id, metric_name, metric_version
-                                ORDER BY last_seen_at DESC
-                                LIMIT ${OFFLINE_EXPERIMENT_ITEMS_LIMIT}
-                            `,
-                            { productKey: 'llm_analytics', scene: 'LLMAnalyticsEvaluations' }
+                        const { dateFrom, dateTo } = parseOfflineDateFilter(values.offlineDateFilter)
+                        const response = await llmAnalyticsOfflineEvaluationsExperimentItemsCreate(
+                            String(getCurrentTeamId()),
+                            {
+                                experiment_id: selectedExperimentId,
+                                date_from: dateFrom,
+                                date_to: dateTo,
+                            }
                         )
 
                         return mapOfflineExperimentItems((response.results || []) as RawOfflineExperimentMetricRow[])

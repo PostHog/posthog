@@ -22521,6 +22521,26 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    export interface OfflineExperimentItemsRequest {
+      /** `$ai_experiment_id` whose offline-evaluation items to return. */
+      experiment_id: string;
+      /**
+       * Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.
+       * @nullable
+       */
+      date_from?: string | null;
+      /**
+       * Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.
+       * @nullable
+       */
+      date_to?: string | null;
+    }
+
+    export interface OfflineExperimentItemsResponse {
+      /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
+      results: unknown[][];
+    }
+
     /**
      * * `later` - Later
     * `other` - Other
@@ -41220,6 +41240,10 @@ export namespace Schemas {
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
     } as const;
+
+    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
 
