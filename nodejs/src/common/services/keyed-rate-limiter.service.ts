@@ -20,10 +20,14 @@ export interface KeyedRateLimiterConfig {
      * production keys when sharing a Redis.
      */
     name: string
-    /** Default bucket params used when a request doesn't specify its own. */
-    bucketSize: number
-    refillRate: number
-    ttlSeconds: number
+    /**
+     * Default bucket params used when a request doesn't specify its own.
+     * Optional — callers that always supply per-request overrides can omit them.
+     * `rateLimitArgs` throws if a request reaches Redis without either source.
+     */
+    bucketSize?: number
+    refillRate?: number
+    ttlSeconds?: number
 }
 
 export interface KeyedRateLimitRequest {
@@ -63,20 +67,29 @@ export class KeyedRateLimiterService {
 
     private rateLimitArgs(req: KeyedRateLimitRequest): [string, number, number, number, number, number] {
         const nowSeconds = Math.round(Date.now() / 1000)
-        return [
-            `${this.keyPrefix}/${req.id}`,
-            nowSeconds,
-            req.cost,
-            req.bucketSize ?? this.config.bucketSize,
-            req.refillRate ?? this.config.refillRate,
-            req.ttlSeconds ?? this.config.ttlSeconds,
-        ]
+        const bucketSize = req.bucketSize ?? this.config.bucketSize
+        const refillRate = req.refillRate ?? this.config.refillRate
+        const ttlSeconds = req.ttlSeconds ?? this.config.ttlSeconds
+        if (bucketSize == null || refillRate == null || ttlSeconds == null) {
+            throw new Error(
+                `KeyedRateLimiterService(${this.config.name}): missing bucketSize/refillRate/ttlSeconds for ${req.id}`
+            )
+        }
+        return [`${this.keyPrefix}/${req.id}`, nowSeconds, req.cost, bucketSize, refillRate, ttlSeconds]
     }
 
     public async rateLimitMany(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
             return []
         }
+
+        const bucketSizes = requests.map((req) => {
+            const bucketSize = req.bucketSize ?? this.config.bucketSize
+            if (bucketSize == null) {
+                throw new Error(`KeyedRateLimiterService(${this.config.name}): missing bucketSize for ${req.id}`)
+            }
+            return bucketSize
+        })
 
         const res = await this.redis.usePipeline(
             { name: `keyed-rate-limiter:${this.config.name}`, failOpen: true },
@@ -91,15 +104,12 @@ export class KeyedRateLimiterService {
             // failOpen swallowed an error — treat all as not rate limited so we
             // don't drop ingestion just because Redis blipped. Reflect each
             // request's own (potentially overridden) bucketSize in the response.
-            return requests.map((req) => [
-                req.id,
-                { tokens: req.bucketSize ?? this.config.bucketSize, isRateLimited: false },
-            ])
+            return requests.map((req, i) => [req.id, { tokens: bucketSizes[i], isRateLimited: false }])
         }
 
         return requests.map((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const tokensAfter = tokenRes[1]?.[1] ?? req.bucketSize ?? this.config.bucketSize
+            const tokensAfter = tokenRes[1]?.[1] ?? bucketSizes[index]
             return [
                 req.id,
                 {

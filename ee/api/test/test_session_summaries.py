@@ -282,6 +282,49 @@ class TestSessionSummariesAPI(APIBaseTest):
             self.assertIn("segment_outcomes", data[session_id])
             self.assertIn("session_outcome", data[session_id])
 
+    @parameterized.expand(
+        [
+            ("group", "create_session_summaries"),
+            ("individually", "create_session_summaries_individually"),
+        ]
+    )
+    def test_marks_mcp_source_for_mcp_requests(self, _name: str, endpoint: str) -> None:
+        if endpoint == "create_session_summaries":
+            sessions_lookup_patch = patch(
+                "ee.api.session_summaries.find_sessions_timestamps",
+                return_value=(datetime(2024, 1, 1, 10, 0, 0), datetime(2024, 1, 1, 11, 0, 0)),
+            )
+            executor_patch = patch(
+                "ee.api.session_summaries.execute_summarize_session_group",
+                return_value=self._create_async_generator((self.create_mock_result(), "session-group-summary-id")),
+            )
+        else:
+            sessions_lookup_patch = patch(
+                "ee.api.session_summaries.partition_sessions_by_recording_existence",
+                return_value=(["session1"], []),
+            )
+            executor_patch = patch(
+                "ee.api.session_summaries.execute_summarize_session",
+                side_effect=lambda session_id, **kwargs: get_mock_enriched_llm_json_response(session_id),
+            )
+
+        with (
+            sessions_lookup_patch,
+            executor_patch,
+            patch("ee.api.session_summaries.capture_session_summary_started") as mock_capture_started,
+            patch("ee.api.session_summaries.capture_session_summary_generated") as mock_capture_generated,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/session_summaries/{endpoint}/",
+                {"session_ids": ["session1"]},
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_capture_started.call_args[1]["summary_source"], "mcp")
+        self.assertEqual(mock_capture_generated.call_args[1]["summary_source"], "mcp")
+
     @patch("ee.api.session_summaries.partition_sessions_by_recording_existence")
     @patch("ee.api.session_summaries.execute_summarize_session")
     def test_create_summaries_individually_partial_failure(
