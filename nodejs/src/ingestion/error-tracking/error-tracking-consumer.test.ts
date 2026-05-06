@@ -7,6 +7,7 @@ import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, PipelineEvent, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
@@ -161,8 +162,6 @@ describe('ErrorTrackingConsumer', () => {
             rateLimiterRedisHost: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
             rateLimiterRedisPort: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
             rateLimiterRedisTls: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
-            rateLimiterBucketSize: hub.ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE,
-            rateLimiterRefillRate: hub.ERROR_TRACKING_RATE_LIMITER_REFILL_RATE,
             rateLimiterTtlSeconds: hub.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
             fallbackRedisUrl: hub.REDIS_URL,
             rateLimiterRedisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
@@ -200,6 +199,7 @@ describe('ErrorTrackingConsumer', () => {
                 ),
             }),
             teamManager: hub.teamManager,
+            errorTrackingSettingsManager: new ErrorTrackingSettingsManager(hub.postgres),
             hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,
             redisPool: hub.redisPool,

@@ -3387,6 +3387,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "strum 0.28.0",
+ "subtle",
  "test-case",
  "thiserror 2.0.18",
  "tokio",

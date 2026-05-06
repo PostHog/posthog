@@ -18,6 +18,12 @@ export const ColumnConfigurationsCreateBody = /* @__PURE__ */ zod.object({
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsCreateBodyNameMax).optional(),
     filters: zod.unknown().optional(),
+    order_by: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
     visibility: zod
         .enum(['private', 'shared'])
         .optional()
@@ -33,6 +39,12 @@ export const ColumnConfigurationsUpdateBody = /* @__PURE__ */ zod.object({
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsUpdateBodyNameMax).optional(),
     filters: zod.unknown().optional(),
+    order_by: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
     visibility: zod
         .enum(['private', 'shared'])
         .optional()
@@ -48,6 +60,12 @@ export const ColumnConfigurationsPartialUpdateBody = /* @__PURE__ */ zod.object(
     columns: zod.array(zod.string()).optional(),
     name: zod.string().max(columnConfigurationsPartialUpdateBodyNameMax).optional(),
     filters: zod.unknown().optional(),
+    order_by: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
+        ),
     visibility: zod
         .enum(['private', 'shared'])
         .optional()

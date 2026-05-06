@@ -562,6 +562,13 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 20
+        # checks: write is needed so the "Publish Migration risk check" step
+        # can POST to /repos/.../check-runs. Workflow-level perms only grant
+        # contents:read + pull-requests:write.
+        permissions:
+            contents: read
+            pull-requests: write
+            checks: write
 
         name: Validate migrations and OpenAPI types
         runs-on: depot-ubuntu-latest
@@ -803,9 +810,11 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  # Get risk analysis for all unapplied migrations (including third-party)
+                  # Get risk analysis for all unapplied migrations (including third-party).
+                  # --output-json gives downstream consumers (the check-run step
+                  # below, and any other tool) a stable structured shape to read.
                   set +e  # Don't exit immediately on error
-                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json 2>/dev/null)
                   EXIT_CODE=$?
                   set -e  # Re-enable exit on error
 
@@ -864,12 +873,97 @@ jobs:
                     exit $EXIT_CODE
                   fi
 
+            - name: Publish Migration risk check
+              # Migration risk classification is published as a GitHub check on
+              # the head commit so it shows up in the PR UI alongside CI checks
+              # and so any tool that already reads check_runs (review bots,
+              # branch-protection rules, dashboards) can consume it without
+              # parsing the comment. The check is a CI feature; consumers and
+              # the analyzer are decoupled.
+              #
+              # Always published — even with zero migrations to analyze, or
+              # when the analyzer crashed — so every PR ends up with a
+              # definitive verdict on its head SHA. Consumers can then treat
+              # "no completed check yet" purely as "CI hasn't finished" and
+              # don't need a fallback heuristic.
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  if [ ! -f migration_analysis.json ]; then
+                    # Analyzer crashed before writing JSON. Publish a failure
+                    # check so stamphog (or any consumer) gets a definitive
+                    # verdict instead of looping in "wait for the check."
+                    echo "No migration_analysis.json — analyzer didn't run; publishing failure check"
+                    jq -n \
+                      --arg name "Migration risk" \
+                      --arg head_sha "$HEAD_SHA" \
+                      '{name: $name, head_sha: $head_sha, status: "completed",
+                        conclusion: "failure",
+                        output: {title: "❌ Analyzer failed",
+                                 summary: "<!-- stamphog:v1 [] -->\nMigration analyzer did not produce migration_analysis.json. Re-run the Backend CI job; if it keeps failing, inspect the analyzer step logs."}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input -
+                    exit 0
+                  fi
+
+                  MAX_LEVEL=$(jq -r '.max_level // "none"' migration_analysis.json)
+
+                  case "$MAX_LEVEL" in
+                    "Safe")          CONCLUSION=success; TITLE="✅ All migrations safe" ;;
+                    "Needs Review")  CONCLUSION=neutral; TITLE="⚠️ Needs review" ;;
+                    "Blocked")       CONCLUSION=failure; TITLE="❌ Blocked migrations" ;;
+                    "none"|"null")
+                      # Zero Django migrations to analyze. Publish success so
+                      # PRs that touch only ClickHouse/async/rbac migrations
+                      # (which the analyzer doesn't cover) don't leave
+                      # consumers waiting on a check that would never come.
+                      CONCLUSION=success
+                      TITLE="✅ No Django migrations to analyze"
+                      ;;
+                    *)
+                      echo "Unknown max_level '$MAX_LEVEL' — publishing failure"
+                      CONCLUSION=failure
+                      TITLE="❌ Unknown analyzer output"
+                      ;;
+                  esac
+
+                  # Embed the analyzed file paths in the summary as a hidden
+                  # marker. Stamphog parses this to scope its deny-list bypass
+                  # to exactly the files the analyzer classified — heuristics
+                  # over directory names produce false bypasses for unrelated
+                  # systems (ClickHouse, async migrations) that share the
+                  # `migrations/` directory naming.
+                  ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
+                  MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
+
+                  # Truncate the human report to fit the check-run output
+                  # limit (~64KB); the full markdown is also posted as a PR
+                  # comment for humans. The marker stays at the top so it's
+                  # never lost to truncation.
+                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See PR comment")
+                  SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
+
+                  jq -n \
+                    --arg name "Migration risk" \
+                    --arg head_sha "$HEAD_SHA" \
+                    --arg conclusion "$CONCLUSION" \
+                    --arg title "$TITLE" \
+                    --arg summary "$SUMMARY" \
+                    '{name: $name, head_sha: $head_sha, status: "completed",
+                      conclusion: $conclusion,
+                      output: {title: $title, summary: $summary}}' \
+                    | gh api "repos/$REPO/check-runs" --method POST --input -
+
             - name: Upload migration analysis artifact
               if: always() && github.event_name == 'pull_request'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migration-analysis
-                  path: migration_analysis.md
+                  path: |
+                      migration_analysis.md
+                      migration_analysis.json
                   if-no-files-found: ignore
 
             - name: Run migrations for this PR
