@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
@@ -22,8 +22,18 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
     const handleDisconnect = (): void => {
         LemonDialog.open({
             title: `Disconnect ${accountName || 'GitHub installation'}?`,
-            description:
-                'PostHog will no longer be able to access repos from this installation or act on your behalf there.',
+            description: (
+                <>
+                    <LemonBanner type="warning" className="my-4 text-balance">
+                        Any PostHog Code agent runs <em>currently in progress</em> will be unable to push commits or
+                        open pull requests on GitHub.
+                    </LemonBanner>
+                    <p>
+                        PostHog will no longer be able to access repos from this installation or act on your behalf
+                        there.
+                    </p>
+                </>
+            ),
             primaryButton: {
                 children: 'Disconnect',
                 status: 'danger',
