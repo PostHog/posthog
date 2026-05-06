@@ -350,14 +350,18 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     user_id=self.request.user.id,
                     queryset=queryset,
                 )
-                queryset = queryset.order_by(F("last_viewed_at").desc(nulls_last=True), "-created_at")
+                queryset = queryset.filter(last_viewed_at__isnull=False).order_by(
+                    F("last_viewed_at").desc(), "-created_at"
+                )
             elif order_by_param == "last_viewed_at" and self.request.user.is_authenticated:
                 queryset = annotate_file_system_with_view_logs(
                     team_id=self.team.id,
                     user_id=self.request.user.id,
                     queryset=queryset,
                 )
-                queryset = queryset.order_by(F("last_viewed_at").asc(nulls_first=True), "created_at")
+                queryset = queryset.filter(last_viewed_at__isnull=False).order_by(
+                    F("last_viewed_at").asc(), "created_at"
+                )
             else:
                 queryset = queryset.order_by("-created_at")
         elif self.action == "list":

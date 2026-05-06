@@ -345,10 +345,30 @@ class TestFileSystemOrdering(APIBaseTest):
 
         results = response.json()["results"]
         paths = [item["path"] for item in results]
-        assert paths == ["Testing/Second", "Testing/First", "Testing/Fourth", "Testing/Third"]
+        # Only entries the user has actually viewed are returned, ordered by most recent view first.
+        assert paths == ["Testing/Second", "Testing/First"]
 
         assert parse_datetime(results[0]["last_viewed_at"]) == timestamp - timedelta(hours=1)
         assert parse_datetime(results[1]["last_viewed_at"]) == timestamp - timedelta(hours=3)
+
+    def test_order_by_last_viewed_at_desc_returns_empty_when_user_has_no_views(self) -> None:
+        FileSystem.objects.create(
+            team=self.team,
+            path="Testing/Untouched",
+            depth=2,
+            type="insight",
+            ref="untouched",
+            shortcut=False,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/file_system/",
+            {"order_by": "-last_viewed_at", "parent": "Testing", "not_type": "folder"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
 
 
 class TestFileSystemSearchNameOnly(APIBaseTest):
