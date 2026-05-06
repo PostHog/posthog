@@ -1,63 +1,37 @@
-"""Smoke tests for ProductTeamModel + TeamScopedManager integration.
+"""Smoke tests for ProductTeamModel wiring.
 
-The manager mechanics are covered exhaustively in test_manager.py
-(against FeatureFlag). These tests verify the ProductTeamModel
-abstract base wires `objects = TeamScopedManager()` correctly for
-separate-DB models (visual_review's Repo).
+Manager mechanics (filtering, raise-on-no-context, unscoped, etc.) are
+covered exhaustively in test_manager.py against FeatureFlag. After the
+ProductTeamManager → TeamScopedManager consolidation those tests apply
+unchanged to ProductTeamModel-based models.
+
+Concrete-model integration tests live inside the consuming product
+(e.g. visual_review/backend/tests/) where they can import the model
+internally without crossing tach product-isolation boundaries.
+
+This file just verifies the abstract base itself is wired up correctly.
 """
 
-import pytest
-
+from django.db import models
 from django.test import SimpleTestCase
 
-from posthog.models.scoping import team_scope, unscoped
-from posthog.models.scoping.manager import TeamScopedManager, TeamScopedQuerySet, TeamScopeError
+from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.scoping.product_mixin import ProductTeamModel
 
 
-class TestProductTeamModelManager(SimpleTestCase):
-    def _make_manager(self) -> TeamScopedManager:
-        from products.visual_review.backend.models import Repo
+class TestProductTeamModelWiring(SimpleTestCase):
+    def test_objects_is_team_scoped_manager(self) -> None:
+        """The default manager is fail-closed by team scope."""
+        self.assertIsInstance(ProductTeamModel._meta.managers_map["objects"], TeamScopedManager)
 
-        mgr: TeamScopedManager = TeamScopedManager()
-        mgr.model = Repo
-        mgr.auto_created = True
-        return mgr
+    def test_all_teams_is_plain_manager(self) -> None:
+        """The bypass manager is a plain Django Manager (no scope enforcement)."""
+        all_teams_manager = ProductTeamModel._meta.managers_map["all_teams"]
+        self.assertIsInstance(all_teams_manager, models.Manager)
+        self.assertNotIsInstance(all_teams_manager, TeamScopedManager)
 
-    def test_unscoped_queryset_returns_fresh_unfiltered_queryset(self) -> None:
-        from products.visual_review.backend.models import Repo
-
-        qs: TeamScopedQuerySet = TeamScopedQuerySet(model=Repo)
-        unscoped_qs = qs.unscoped()
-        self.assertIsInstance(unscoped_qs, TeamScopedQuerySet)
-        self.assertIsNot(qs, unscoped_qs)
-
-    def test_no_context_raises_team_scope_error(self) -> None:
-        with pytest.raises(TeamScopeError, match="No team context set"):
-            self._make_manager().get_queryset()
-
-    def test_with_context_filters_by_team(self) -> None:
-        # Manager filters directly by ctx.team_id — no DB lookup required,
-        # so synthetic team ids work fine in this SimpleTestCase.
-        with team_scope(42, canonical=True):
-            qs = self._make_manager().get_queryset()
-            self.assertTrue(qs.query.has_filters())
-
-    def test_unscoped_context_manager_raises_without_scope(self) -> None:
-        with team_scope(42, canonical=True):
-            with unscoped():
-                with pytest.raises(TeamScopeError):
-                    self._make_manager().get_queryset()
-
-    def test_for_team_explicit_scoping(self) -> None:
-        # canonical=True so the synthetic id doesn't trigger a Team lookup
-        qs = self._make_manager().for_team(99, canonical=True)
-        self.assertTrue(qs.query.has_filters())
-
-    def test_unscoped_manager_returns_unfiltered(self) -> None:
-        with team_scope(42, canonical=True):
-            qs = self._make_manager().unscoped()
-            self.assertFalse(qs.query.has_filters())
-
-    def test_unscoped_manager_works_without_context(self) -> None:
-        qs = self._make_manager().unscoped()
-        self.assertFalse(qs.query.has_filters())
+    def test_team_id_field_is_bigint(self) -> None:
+        """team_id is a plain BigIntegerField (no FK across DBs)."""
+        field = ProductTeamModel._meta.get_field("team_id")
+        self.assertIsInstance(field, models.BigIntegerField)
+        self.assertTrue(field.db_index)
