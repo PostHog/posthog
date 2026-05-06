@@ -2,11 +2,13 @@ from datetime import timedelta
 from typing import Any, Optional
 
 from freezegun import freeze_time
-from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
+from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory, TickingDateTimeFactory
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import User
 
 
@@ -126,7 +128,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         notebook_short_id: str,
         notebook_version: int,
         the_user: User,
-        frozen_time: FrozenDateTimeFactory | StepTickTimeFactory,
+        frozen_time: FrozenDateTimeFactory | StepTickTimeFactory | TickingDateTimeFactory,
     ) -> int:
         self.client.force_login(the_user)
         for created_insight_id in created_insights[:7]:
@@ -191,3 +193,35 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert res.status_code == status.HTTP_200_OK
         assert len(res.json()["results"]) == 6
         assert [r["scope"] for r in res.json()["results"]] == ["FeatureFlag"] * 6
+
+
+class TestActivityLogAuditLogsGate(APIBaseTest):
+    @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
+    def test_endpoint_blocked_on_cloud_without_audit_logs_feature(self, endpoint: str) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True):
+            res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
+    def test_endpoint_allowed_on_cloud_with_audit_logs_feature(self, endpoint: str) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.AUDIT_LOGS, "name": "Activity logs"}]
+        self.organization.save()
+
+        with self.is_cloud(True):
+            res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
+    def test_endpoint_allowed_on_self_hosted_without_audit_logs_feature(self, endpoint: str) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(False):
+            res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_200_OK

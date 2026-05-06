@@ -13,6 +13,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
@@ -52,6 +53,8 @@ class BatchImportSerializer(serializers.ModelSerializer):
             "updated_at",
             "state",
             "display_status_message",
+            "import_config",
+            "status",
         ]
 
     def create(self, validated_data: dict) -> BatchImport:
@@ -450,7 +453,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     scope_object = "INTERNAL"
     queryset = BatchImport.objects.all()
-    serializer_class = BatchImportSerializer
+    serializer_class = _FallbackSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["status"]
     search_fields = ["status_message"]
@@ -467,6 +470,10 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return BatchImportS3GzipSourceCreateSerializer
             elif source_type in ["mixpanel", "amplitude"]:
                 return BatchImportDateRangeSourceCreateSerializer
+            elif source_type is not None:
+                raise serializers.ValidationError("Invalid source type")
+            elif getattr(self, "swagger_fake_view", False):
+                return BatchImportSerializer
             else:
                 raise serializers.ValidationError("Invalid source type")
         return BatchImportSerializer

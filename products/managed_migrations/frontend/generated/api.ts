@@ -69,10 +69,16 @@ export const getManagedMigrationsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/managed_migrations/`
 }
 
-export const managedMigrationsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getManagedMigrationsCreateUrl(projectId), {
+export const managedMigrationsCreate = async (
+    projectId: string,
+    batchImportApi: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
     })
 }
 

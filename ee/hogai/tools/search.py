@@ -49,7 +49,7 @@ Examples:
 If the user's question should be satisfied by using insights, do that before answering using documentation.
 
 Important:
-1. Don’t rely on your training data or previous searches/answers. Always re-check facts against current docs and tutorials.
+1. Don’t rely on your training data or previous searches/answers. Always re-check facts against current docs and tutorials. If current docs or tutorials contradict core memory on product facts, prefer the docs result.
 2. Always search PostHog docs/tutorials and prioritize results from posthog.com over training data.
 3. Always include at least one relevant docs/tutorial link in your reply.
 4. For any SQL question, first check and prioritize: https://posthog.com/docs/product-analytics/sql, https://posthog.com/docs/sql/aggregations, https://posthog.com/docs/sql/clickhouse-functions, https://posthog.com/docs/sql/expressions, https://posthog.com/docs/sql.
@@ -169,36 +169,47 @@ URL: {url}
 """.strip()
 
 
-class InkeepDocsSearchTool(MaxSubtool):
-    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        model = ChatOpenAI(
-            model="inkeep-rag",
-            base_url="https://api.inkeep.com/v1/",
-            api_key=settings.INKEEP_API_KEY,
-            streaming=False,
-            stream_usage=False,
-            disable_streaming=True,
-        )
+async def perform_inkeep_docs_search(query: str, *, include_system_reminder: bool = True) -> str:
+    model = ChatOpenAI(
+        model="inkeep-rag",
+        base_url="https://api.inkeep.com/v1/",
+        api_key=settings.INKEEP_API_KEY,
+        streaming=False,
+        stream_usage=False,
+        disable_streaming=True,
+    )
 
-        prompt = ChatPromptTemplate.from_messages([("user", "{query}")])
-        chain = prompt | model | SimpleJsonOutputParser()
-        rag_context_raw = await chain.ainvoke({"query": query})
+    prompt = ChatPromptTemplate.from_messages([("user", "{query}")])
+    chain = prompt | model | SimpleJsonOutputParser()
+    rag_context_raw = await chain.ainvoke({"query": query})
 
-        if not rag_context_raw or not rag_context_raw.get("content"):
-            return DOCS_SEARCH_NO_RESULTS_TEMPLATE, None
+    return format_inkeep_docs_response(rag_context_raw, include_system_reminder=include_system_reminder)
 
+
+def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_reminder: bool = True) -> str:
+    """Format an Inkeep RAG payload (already JSON-parsed) into the agent-facing markdown.
+
+    Shared between the LangChain `InkeepDocsSearchTool` (which uses ChatOpenAI) and the
+    typed `MCPToolsViewSet.docs_search` endpoint (which uses the plain openai client).
+    """
+    docs: list[str] = []
+    if rag_context_raw and rag_context_raw.get("content"):
         rag_context = InkeepResponse.model_validate(rag_context_raw)
-
-        docs = []
         for doc in rag_context.content:
             if doc.type != "document":
                 continue
-
             text = doc.source.content[0].text if doc.source.content else ""
             docs.append(DOC_ITEM_TEMPLATE.format(title=doc.title, url=doc.url, text=text))
 
-        if not docs:
-            return DOCS_SEARCH_NO_RESULTS_TEMPLATE, None
+    if not docs:
+        return DOCS_SEARCH_NO_RESULTS_TEMPLATE if include_system_reminder else "No documentation found."
 
-        formatted_docs = "\n\n---\n\n".join(docs)
-        return DOCS_SEARCH_RESULTS_TEMPLATE.format(count=len(docs), docs=formatted_docs), None
+    formatted_docs = "\n\n---\n\n".join(docs)
+    if include_system_reminder:
+        return DOCS_SEARCH_RESULTS_TEMPLATE.format(count=len(docs), docs=formatted_docs)
+    return f"Found {len(docs)} relevant documentation page(s):\n\n{formatted_docs}"
+
+
+class InkeepDocsSearchTool(MaxSubtool):
+    async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+        return await perform_inkeep_docs_search(query), None

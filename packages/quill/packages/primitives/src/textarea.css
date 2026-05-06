@@ -1,0 +1,43 @@
+@layer components {
+    .quill-textarea {
+        width: 100%;
+        min-height: 4rem;
+        padding-block: 0.5rem;
+        padding-inline: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        resize: none;
+        background-color: color-mix(in oklab, var(--input) 20%, transparent);
+        border: 1px solid var(--input);
+        border-radius: var(--radius-sm);
+        outline: none;
+        transition:
+            color 0.15s ease,
+            background-color 0.15s ease,
+            border-color 0.15s ease;
+        /* stylelint-disable-next-line property-no-unknown -- field-sizing is a valid CSS property */
+        field-sizing: content;
+    }
+
+    .quill-textarea::placeholder {
+        color: var(--muted-foreground);
+    }
+
+    .quill-textarea:focus-visible {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-textarea:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    .quill-textarea[aria-invalid='true'] {
+        background-color: color-mix(in oklab, var(--destructive) 50%, transparent);
+        border-color: color-mix(in oklab, var(--destructive-foreground) 30%, transparent);
+    }
+
+    .quill-textarea:focus-visible[aria-invalid='true'] {
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive-foreground) 50%, transparent);
+    }
+}

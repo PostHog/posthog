@@ -27,7 +27,7 @@ import { urls } from 'scenes/urls'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
-import { isInsightQueryNode, isValidBreakdown } from '~/queries/utils'
+import { isInsightQueryNode, hasBreakdownFilter } from '~/queries/utils'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
@@ -256,7 +256,7 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
             <div className="ActivityDescription">
                 <SeriesSummary query={query} />
                 <PropertiesSummary properties={query.properties} />
-                {isValidBreakdown(trendsQuery?.breakdownFilter) && <InsightBreakdownSummary query={query} />}
+                {hasBreakdownFilter(trendsQuery?.breakdownFilter) && <InsightBreakdownSummary query={query} />}
             </div>
         ),
     }

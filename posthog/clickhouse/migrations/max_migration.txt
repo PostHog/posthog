@@ -1,1 +1,1 @@
-0238_align_ws_events_kafka_mv_with_msk
+0249_property_values_kafka_named_collection

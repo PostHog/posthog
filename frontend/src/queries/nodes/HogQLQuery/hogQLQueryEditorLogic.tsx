@@ -16,6 +16,7 @@ import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { validateSavedQueryName } from 'scenes/data-warehouse/saved_queries/savedQueryNameValidation'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -165,7 +166,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                     </LemonField>
                 ),
                 errors: {
-                    viewName: (name) => (!name ? 'You must enter a name' : undefined),
+                    viewName: validateSavedQueryName,
                 },
                 onSubmit: ({ viewName }) => actions.saveAsViewSuccess(viewName),
             })

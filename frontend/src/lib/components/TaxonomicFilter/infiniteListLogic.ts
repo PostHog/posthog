@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
@@ -14,8 +15,11 @@ import {
     taxonomicFilterPinnedPropertiesLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
+    ExcludedOperators,
     InfiniteListLogicProps,
+    QuickFilterItem,
     SkeletonItem,
+    isQuickFilterItem,
     isSkeletonItem,
     ListFuse,
     ListStorage,
@@ -425,18 +429,58 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (listGroupType, activeTab): boolean => listGroupType === activeTab,
         ],
         contextFilteredRecentItems: [
-            (s) => [s.recentFilterItems, s.taxonomicGroupTypes],
+            (s) => [
+                s.recentFilterItems,
+                s.taxonomicGroupTypes,
+                (_, props: InfiniteListLogicProps) => props.excludedOperators,
+                (_, props: InfiniteListLogicProps) => props.selectingKeyOnly,
+            ],
             (
                 recentFilterItems: TaxonomicDefinitionTypes[],
-                taxonomicGroupTypes: TaxonomicFilterGroupType[]
+                taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                excludedOperators: ExcludedOperators | undefined,
+                selectingKeyOnly: boolean | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!recentFilterItems?.length) {
                     return []
                 }
                 const availableTypes = new Set(taxonomicGroupTypes)
-                return recentFilterItems.filter(
-                    (item) => hasRecentContext(item) && availableTypes.has(item._recentContext.sourceGroupType)
-                )
+                const inScope = recentFilterItems.filter((item) => {
+                    if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+                        return false
+                    }
+                    const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
+                    if (excludedForGroup?.length) {
+                        const propertyFilter = item._recentContext.propertyFilter
+                        const operator =
+                            propertyFilter && 'operator' in propertyFilter ? propertyFilter.operator : undefined
+                        if (operator && excludedForGroup.includes(operator)) {
+                            return false
+                        }
+                    }
+                    return true
+                })
+                if (!selectingKeyOnly) {
+                    return inScope
+                }
+                const seen = new Set<string>()
+                const dedupedItems: TaxonomicDefinitionTypes[] = []
+                for (const item of inScope) {
+                    if (!hasRecentContext(item)) {
+                        continue
+                    }
+                    // Dedup by the persisted storage key (groupType + value), not by item.name —
+                    // for groups like Cohorts/Actions name is a display label that may be unstable
+                    // or duplicated across distinct ids.
+                    const dedupKey = `${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue ?? ''}`
+                    if (seen.has(dedupKey)) {
+                        continue
+                    }
+                    seen.add(dedupKey)
+                    const { propertyFilter: _propertyFilter, ...restContext } = item._recentContext
+                    dedupedItems.push({ ...item, _recentContext: restContext } as unknown as TaxonomicDefinitionTypes)
+                }
+                return dedupedItems
             },
         ],
         contextFilteredPinnedItems: [
@@ -524,13 +568,24 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 searchQuery: string,
                 isLoading: boolean,
                 results: TaxonomicDefinitionTypes[]
-            ): boolean =>
-                allowNonCapturedEvents &&
-                (listGroupType === TaxonomicFilterGroupType.CustomEvents ||
-                    listGroupType === TaxonomicFilterGroupType.Events) &&
-                searchQuery.trim().length > 0 &&
-                !isLoading &&
-                results.length === 0,
+            ): boolean => {
+                if (!allowNonCapturedEvents) {
+                    return false
+                }
+                if (
+                    listGroupType !== TaxonomicFilterGroupType.CustomEvents &&
+                    listGroupType !== TaxonomicFilterGroupType.Events
+                ) {
+                    return false
+                }
+                if (searchQuery.trim().length === 0 || isLoading) {
+                    return false
+                }
+                // Keyword-shortcut QuickFilterItems don't represent captured events — ignore them
+                // when deciding whether to show the "not seen yet" escape hatch.
+                const realResults = results.filter((item) => !isQuickFilterItem(item))
+                return realResults.length === 0
+            },
         ],
         showEmptyState: [
             (s) => [
@@ -658,7 +713,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         localItems: [
             (s) => [s.rawLocalItems, s.searchQuery, s.fuse, s.group],
             (rawLocalItems, searchQuery, fuse, group): ListStorage => {
-                if (group.localItemsSearch) {
+                if (group?.localItemsSearch) {
                     const filtered = group.localItemsSearch(rawLocalItems || [], searchQuery)
                     return {
                         results: filtered,
@@ -682,14 +737,23 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         topMatchesForQuery: [
-            (s) => [s.localItems, s.remoteItems, s.searchQuery, s.hasRemoteDataSource],
-            (localItems, remoteItems, searchQuery, hasRemoteDataSource): TaxonomicDefinitionTypes[] => {
+            (s) => [s.localItems, s.remoteItems, s.searchQuery, s.hasRemoteDataSource, s.keywordShortcutItems],
+            (
+                localItems,
+                remoteItems,
+                searchQuery,
+                hasRemoteDataSource,
+                keywordShortcutItems
+            ): TaxonomicDefinitionTypes[] => {
                 if (!searchQuery) {
                     return []
                 }
                 const remoteIsFresh = remoteItems.searchQuery === searchQuery
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
-                return promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
+                const realMatches = promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
+                // Shortcuts lead the group's top-match contribution so the aggregated SuggestedFilters
+                // tab surfaces them above real events with the same name.
+                return [...keywordShortcutItems, ...realMatches]
             },
         ],
         suggestedPinnedMatches: [
@@ -709,6 +773,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 )
             },
         ],
+        keywordShortcutItems: [
+            (s) => [s.group, s.searchQuery, (_, props) => props.enableKeywordShortcuts],
+            (
+                group: TaxonomicFilterGroup | undefined,
+                searchQuery: string,
+                enableKeywordShortcuts: boolean | undefined
+            ): QuickFilterItem[] =>
+                enableKeywordShortcuts && searchQuery.trim() ? (group?.keywordShortcuts?.(searchQuery) ?? []) : [],
+        ],
         items: [
             (s) => [
                 s.remoteItems,
@@ -719,6 +792,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.contextFilteredRecentItems,
                 s.contextFilteredPinnedItems,
                 s.suggestedPinnedMatches,
+                s.keywordShortcutItems,
             ],
             (
                 remoteItems,
@@ -728,13 +802,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 searchQuery,
                 contextFilteredRecentItems,
                 contextFilteredPinnedItems,
-                suggestedPinnedMatches
+                suggestedPinnedMatches,
+                keywordShortcutItems
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
                 const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
+                // see the autocapture/event-type shortcut prominently and pressing Enter picks it.
+                // Real events with the same name remain accessible below the shortcut.
                 const combinedResults = [
+                    ...keywordShortcutItems,
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedPinnedMatches,
@@ -745,6 +824,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return {
                     results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,
                     count:
+                        keywordShortcutItems.length +
                         recentPrefix.length +
                         pinnedPrefix.length +
                         suggestedPinnedMatches.length +
@@ -898,12 +978,35 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 if (!isDisabledItem) {
                     const itemValue = selectedItem ? itemGroup?.getValue?.(selectedItem) : null
-                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem)
+                    actions.selectItem(itemGroup, itemValue ?? null, selectedItem, {
+                        position: values.index,
+                    })
                 }
             }
         },
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
+
+            const trimmedQuery = (remoteItems.searchQuery ?? '').trim()
+            const queryReachedBackend = trimmedQuery.length >= values.minSearchQueryLength
+            // Only fire on the tab the user is actually looking at — every list runs the same
+            // search in parallel, so without this gate one keystroke can fire 4-8 empty events
+            // from background tabs the user never sees, inflating the dead-end metric.
+            if (
+                values.isActiveTab &&
+                trimmedQuery.length > 0 &&
+                queryReachedBackend &&
+                remoteItems.results.length === 0
+            ) {
+                const dedupeKey = `${props.listGroupType}::${trimmedQuery}`
+                if (cache.lastEmptyResultDedupeKey !== dedupeKey) {
+                    cache.lastEmptyResultDedupeKey = dedupeKey
+                    posthog.capture('taxonomic filter empty result', {
+                        groupType: props.listGroupType,
+                        searchQuery: trimmedQuery,
+                    })
+                }
+            }
         },
         infiniteListResultsReceived: () => {
             actions.reconcilePinnedRowState()

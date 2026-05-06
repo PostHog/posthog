@@ -13,6 +13,7 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconLinux, IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -238,7 +239,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         <span
             className={
                 !noStyles
-                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
+                    ? cn('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
                     : className
             }
             ref={ref}

@@ -1,0 +1,69 @@
+@layer components {
+    .quill-chip {
+        max-width: 100%;
+        background-color: var(--background);
+        border-radius: var(--radius-xs);
+    }
+
+    .quill-chip:focus-visible {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    /*
+     * ChipGroup piggy-backs on the button-group cascade, which restores the
+     * outer end-corners to var(--radius-sm). That mismatches the chip's own
+     * var(--radius-xs), so force the restore to xs inside a chip-group for
+     * consistent corner rounding at the group's outer edges.
+     */
+    .quill-button-group[data-slot='chip-group'][data-orientation='horizontal'] > [data-slot]:not(:has(~ [data-slot])) {
+        border-start-end-radius: var(--radius-xs) !important;
+        border-end-end-radius: var(--radius-xs) !important;
+    }
+
+    .quill-button-group[data-slot='chip-group'][data-orientation='vertical'] > [data-slot]:not(:has(~ [data-slot])) {
+        border-end-start-radius: var(--radius-xs) !important;
+        border-end-end-radius: var(--radius-xs) !important;
+    }
+
+    /*
+     * Any chip with a ChipClose pulls BOTH inline sides in symmetrically so
+     * the pill reads as balanced regardless of which side the close sits on.
+     * The close button's own negative margin (below) then tucks it right up
+     * to the edge without stealing padding from the label side.
+     */
+    .quill-chip:has(> [data-slot='chip-close']) {
+        padding-inline: 0.25rem;
+    }
+
+    .quill-chip-close {
+        flex-shrink: 0;
+        color: var(--muted-foreground);
+        opacity: 0.6;
+        transition:
+            color 0.15s ease,
+            opacity 0.15s ease,
+            background-color 0.15s ease;
+    }
+
+    .quill-chip-close:hover,
+    .quill-chip-close:focus-visible {
+        color: var(--foreground);
+        opacity: 1;
+    }
+
+    /*
+     * Close tucks up to its chip edge: negative margin on the chip-edge side
+     * cancels the chip's 0.25rem inline padding for just this element, so the
+     * label still gets its symmetric breathing room but the close icon hugs
+     * the border. The small opposite-side negative margin tightens the optical
+     * gap to the adjacent label/icon.
+     */
+    .quill-chip > [data-slot='chip-close']:first-child {
+        margin-inline: -0.25rem -0.125rem;
+    }
+
+    .quill-chip > [data-slot='chip-close']:last-child {
+        margin-inline: -0.125rem -0.25rem;
+    }
+}

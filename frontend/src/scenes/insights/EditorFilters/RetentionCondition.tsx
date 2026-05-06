@@ -5,6 +5,7 @@ import { toast } from 'react-toastify'
 import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getOrdinalSuffix } from 'lib/utils'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
@@ -19,12 +20,44 @@ import {
 import { MAX_BRACKETS, retentionLogic } from 'scenes/retention/retentionLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EditorFilterProps, FilterType, RetentionPeriod, RetentionType } from '~/types'
+import { EditorFilterProps, EntityTypes, FilterType, RetentionPeriod, RetentionType } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 const MAX_RANGE = 1000
+
+const retentionDataWarehousePopoverFields: DataWarehousePopoverField[] = [
+    { key: 'timestamp_field', label: 'Timestamp', allowHogQL: true },
+    { key: 'aggregation_target_field', label: 'Aggregation target', allowHogQL: true },
+]
+
+function retentionEntityToFilter(entity: Record<string, any> | undefined): FilterType {
+    if (!entity) {
+        return {}
+    }
+
+    if (entity.type === EntityTypes.ACTIONS) {
+        return { actions: [entity] }
+    }
+    if (entity.type === EntityTypes.DATA_WAREHOUSE) {
+        return { data_warehouse: [entity] }
+    }
+    return { events: [entity] }
+}
+
+function filterToRetentionEntity(newFilters: FilterType): Record<string, any> | undefined {
+    if (newFilters.events && newFilters.events.length > 0) {
+        return newFilters.events[0]
+    }
+    if (newFilters.actions && newFilters.actions.length > 0) {
+        return newFilters.actions[0]
+    }
+    if (newFilters.data_warehouse && newFilters.data_warehouse.length > 0) {
+        return newFilters.data_warehouse[0]
+    }
+    return undefined
+}
 
 function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['insightProps'] }): JSX.Element {
     const { retentionFilter, localCustomBrackets } = useValues(retentionLogic(insightProps))
@@ -127,10 +160,14 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
 
 export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
-    const { retentionFilter, dateRange } = useValues(retentionLogic(insightProps))
+    const { retentionFilter, dateRange, isRetentionDWHEnabled } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
     const { targetEntity, returningEntity, retentionType, totalIntervals, period, retentionCustomBrackets } =
         retentionFilter || {}
+
+    const actionsTaxonomicGroupTypes = isRetentionDWHEnabled
+        ? [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.DataWarehouse]
+        : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
 
     return (
         <div className="deprecated-space-y-3 mb-4" data-attr="retention-condition">
@@ -147,18 +184,14 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 entitiesLimit={1}
                 mathAvailability={MathAvailability.None}
                 hideRename
-                filters={{ events: [targetEntity] } as FilterType} // retention filters use target and returning entity instead of events
+                filters={retentionEntityToFilter(targetEntity)} // retention filters use target and returning entity instead of events
                 setFilters={(newFilters: FilterType) => {
-                    if (newFilters.events && newFilters.events.length > 0) {
-                        updateInsightFilter({ targetEntity: newFilters.events[0] })
-                    } else if (newFilters.actions && newFilters.actions.length > 0) {
-                        updateInsightFilter({ targetEntity: newFilters.actions[0] })
-                    } else {
-                        updateInsightFilter({ targetEntity: undefined })
-                    }
+                    updateInsightFilter({ targetEntity: filterToRetentionEntity(newFilters) })
                 }}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-targetEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
+                actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
             />
             <LemonSelect
                 options={Object.entries(retentionOptions).map(([key, value]) => ({
@@ -189,18 +222,14 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 mathAvailability={MathAvailability.None}
                 hideRename
                 buttonCopy="Add graph series"
-                filters={{ events: [returningEntity] } as FilterType}
+                filters={retentionEntityToFilter(returningEntity)}
                 setFilters={(newFilters: FilterType) => {
-                    if (newFilters.events && newFilters.events.length > 0) {
-                        updateInsightFilter({ returningEntity: newFilters.events[0] })
-                    } else if (newFilters.actions && newFilters.actions.length > 0) {
-                        updateInsightFilter({ returningEntity: newFilters.actions[0] })
-                    } else {
-                        updateInsightFilter({ returningEntity: undefined })
-                    }
+                    updateInsightFilter({ returningEntity: filterToRetentionEntity(newFilters) })
                 }}
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
                 propertiesTaxonomicGroupTypes={getRetentionPropertyFilterGroupTypes()}
+                actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                dataWarehousePopoverFields={retentionDataWarehousePopoverFields}
             />
             <div className="flex items-center gap-2">
                 {!retentionCustomBrackets ? (

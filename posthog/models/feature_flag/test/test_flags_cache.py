@@ -414,6 +414,61 @@ class TestServiceFlagsCache(BaseTest):
         flags, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "db"
 
+    def test_update_flags_cache_writes_etag(self):
+        """The Rust in-memory FlagDefinitionsCache keys on the etag Django writes
+        alongside the payload. Without it, the etag_missing branch fires on every
+        request and the perf opt is wasted. Pin enable_etag=True for this hypercache.
+        """
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        update_flags_cache(self.team)
+
+        etag = flags_hypercache.get_etag(self.team)
+        assert etag is not None
+        # _compute_etag returns the first 16 hex chars of sha256
+        assert len(etag) == 16
+        assert all(c in "0123456789abcdef" for c in etag)
+
+    def test_clear_flags_cache_clears_etag(self):
+        """clear_cache must remove both the payload and the etag — otherwise
+        a stale etag would point at evicted data on the next read."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+        assert flags_hypercache.get_etag(self.team) is not None
+
+        clear_flags_cache(self.team)
+
+        assert flags_hypercache.get_etag(self.team) is None
+
+    def test_missing_sentinel_clears_etag(self):
+        """The __missing__ sentinel write (empty team) must clear any prior etag —
+        the Rust loader expects sentinel to land on the `sentinel` reason, not
+        `etag_missing`, which only fires when data is present without an etag."""
+        # Prime an etag by writing real data first
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+        assert flags_hypercache.get_etag(self.team) is not None
+
+        # Write the sentinel (data=None) and confirm etag is cleared
+        flags_hypercache.set_cache_value(self.team, None)
+
+        assert flags_hypercache.get_etag(self.team) is None
+
     def test_get_feature_flags_for_service_includes_referenced_cohorts(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1848,6 +1903,53 @@ class TestManagementCommands(BaseTest):
         self.assertIn("db_data", result)
         self.assertIsInstance(result["db_data"], dict)
 
+    @parameterized.expand(
+        [
+            (
+                "extra_key_in_cache_is_tolerated",
+                lambda flag: flag.__setitem__("legacy_field_that_no_longer_exists", True),
+                "match",
+                None,
+            ),
+            (
+                "missing_key_in_cache_still_flagged",
+                lambda flag: flag.pop("filters"),
+                "mismatch",
+                "filters",
+            ),
+        ]
+    )
+    def test_verify_handles_key_drift_between_cache_and_db(
+        self, _name, mutate_cached_flag, expected_status, expected_diff_field
+    ):
+        """The DB serialization is the source of truth: stale extras in the
+        cache must be ignored (otherwise a benign serializer field removal
+        rewrites every team's cache), but a key the DB has and the cache
+        doesn't is a real divergence and must still be flagged."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        cached_data, _source = flags_hypercache.get_from_cache_with_source(self.team)
+        assert cached_data is not None
+        assert len(cached_data["flags"]) == 1
+        mutate_cached_flag(cached_data["flags"][0])
+        flags_hypercache.set_cache_value(self.team, cached_data)
+
+        result = verify_team_flags(self.team, verbose=True)
+
+        self.assertEqual(result["status"], expected_status)
+        if expected_diff_field is not None:
+            field_mismatches = [d for d in result["diffs"] if d["type"] == "FIELD_MISMATCH"]
+            self.assertEqual(len(field_mismatches), 1)
+            self.assertIn(expected_diff_field, field_mismatches[0]["diff_fields"])
+
     def test_verify_miss_includes_db_data(self):
         """Test that cache miss result includes db_data for direct cache write."""
         from posthog.models.feature_flag.flags_cache import clear_flags_cache, verify_team_flags
@@ -1893,6 +1995,92 @@ class TestManagementCommands(BaseTest):
         self.assertEqual(result["issue"], "MISSING_EVALUATION_METADATA")
         self.assertIn("db_data", result)
         self.assertIn("evaluation_metadata", result["db_data"])
+
+    def test_verify_detects_missing_etag(self):
+        """Without an etag, the Rust in-memory cache bypasses every request via
+        the etag_missing branch. The verifier must surface this as a counted
+        mismatch so the regression class cannot recur silently."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Warm the cache normally (writes payload + etag together)
+        update_flags_cache(self.team)
+        assert flags_hypercache.get_etag(self.team) is not None
+
+        # Simulate the regression class: payload present, etag absent.
+        flags_hypercache.cache_client.delete(flags_hypercache.get_etag_key(self.team))
+        assert flags_hypercache.get_etag(self.team) is None
+
+        result = verify_team_flags(self.team)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["issue"], "MISSING_ETAG")
+        self.assertIn("db_data", result)
+
+    def test_verify_missing_etag_takes_priority_over_data_drift(self):
+        """Pin the verifier's priority: when a team has both a missing etag AND
+        drifted cached flags, MISSING_ETAG is reported, not DATA_MISMATCH. The
+        repair path writes db_data back and corrects both, so this is purely
+        about which signal surfaces first."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+        update_flags_cache(self.team)
+
+        # Drift the DB out of sync with the cache by bypassing signals.
+        FeatureFlag.objects.filter(id=flag.id).update(
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]}
+        )
+        # And remove the etag key. Now both MISSING_ETAG and DATA_MISMATCH apply.
+        flags_hypercache.cache_client.delete(flags_hypercache.get_etag_key(self.team))
+
+        result = verify_team_flags(self.team)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["issue"], "MISSING_ETAG")
+
+    def test_verify_uses_batched_etag_no_extra_redis_get(self):
+        """In the verifier hot path the etag must come from cache_batch_data, not
+        from a per-team Redis GET. Otherwise verify_and_fix_flags_cache_task
+        re-introduces an N+1 Redis round trip across ~hundreds of thousands of
+        teams every 30 minutes — exactly the load this PR is trying to reduce."""
+        from unittest.mock import patch
+
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        # Pre-fetch the batch (one MGET) the way the verifier does.
+        cache_batch_data = flags_hypercache.batch_get_from_cache([self.team])
+        db_batch_data = {self.team.id: _get_feature_flags_for_service(self.team)}
+
+        with patch.object(flags_hypercache, "get_etag") as m:
+            result = verify_team_flags(
+                self.team,
+                db_batch_data=db_batch_data,
+                cache_batch_data=cache_batch_data,
+            )
+
+        assert m.call_count == 0, "verifier hot path called get_etag per-team"
+        # And the result is sane: etag was present in the batch, status matches.
+        self.assertEqual(result["status"], "match")
 
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):

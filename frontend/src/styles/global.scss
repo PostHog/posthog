@@ -1,3 +1,16 @@
 @import 'base';
 @import 'fonts';
 @import '../../node_modules/@posthog/tailwind/dist/tailwind.css';
+
+/*
+ * @posthog/quill — scoped tokens + primitive BEM rules. The scoped token
+ * variant gates CSS custom properties behind `[data-quill]` so they don't
+ * collide with this app's existing `--color-*` names. Add `data-quill` to
+ * any subtree that renders quill primitives to opt into the design tokens.
+ * primitives.css is the BEM rule bundle (`.quill-button`, `.quill-drawer`,
+ * etc.) that the primitive components reference by class name.
+ */
+@import '../../node_modules/@posthog/quill/dist/tokens.scoped.css';
+@import '../../node_modules/@posthog/quill/dist/base.scoped.css';
+@import '../../node_modules/@posthog/quill/dist/primitives.css';
+@import 'quill-bridge';

@@ -4,14 +4,19 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
     CachedLegacyExperimentQueryResponse,
+    ExperimentFunnelsQuery,
+    ExperimentTrendsQuery,
+    ExperimentMetric,
 } from '~/queries/schema/schema-general'
-import { experimentLogic } from '~/scenes/experiments/experimentLogic'
-
 import {
     legacyGetHighestProbabilityVariant,
     legacyGetIndexForVariant,
-} from '../calculations/legacyExperimentCalculations'
-import { LegacyVariantTag } from '../components/LegacyVariantTag'
+    getInsightType,
+    LegacyVariantTag,
+    legacyExperimentLogic,
+    getIsPrimaryMetricSignificant,
+    getIsSecondaryMetricSignificant,
+} from '~/scenes/experiments/legacy'
 
 /**
  * @deprecated
@@ -26,13 +31,13 @@ export function LegacyWinningVariantText({
         | CachedExperimentFunnelsQueryResponse
         | CachedExperimentTrendsQueryResponse
 }): JSX.Element {
-    const { getInsightType, experiment } = useValues(experimentLogic)
+    const { experiment } = useValues(legacyExperimentLogic)
 
     const highestProbabilityVariant = legacyGetHighestProbabilityVariant(result)
     const index = legacyGetIndexForVariant(
         result,
         highestProbabilityVariant || '',
-        getInsightType(experiment.metrics[0])
+        getInsightType(experiment.metrics[0] as ExperimentTrendsQuery | ExperimentFunnelsQuery)
     )
     if (highestProbabilityVariant && index !== null && result) {
         const { probability } = result
@@ -64,7 +69,10 @@ export function LegacySignificanceText({
     metricUuid: string
     isSecondary?: boolean
 }): JSX.Element {
-    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant } = useValues(experimentLogic)
+    const { experiment, legacyPrimaryMetricsResults, legacySecondaryMetricsResults } = useValues(legacyExperimentLogic)
+
+    const isSecondaryMetricSignificant = getIsSecondaryMetricSignificant(legacySecondaryMetricsResults, experiment)
+    const isPrimaryMetricSignificant = getIsPrimaryMetricSignificant(legacyPrimaryMetricsResults, experiment)
 
     return (
         <div className="flex-wrap">
@@ -77,6 +85,32 @@ export function LegacySignificanceText({
                 }`}
                 .
             </span>
+        </div>
+    )
+}
+
+/**
+ * @deprecated
+ * Use the Overview component from the experimentLogic instead.
+ */
+export function LegacyOverview({ metricUuid }: { metricUuid: string }): JSX.Element {
+    const { legacyPrimaryMetricsResults, experiment } = useValues(legacyExperimentLogic)
+
+    // Find metric index by UUID
+    const index = experiment.metrics.findIndex(
+        (m: ExperimentTrendsQuery | ExperimentFunnelsQuery | ExperimentMetric) => m.uuid === metricUuid
+    )
+    const result = index >= 0 ? legacyPrimaryMetricsResults?.[index] : null
+    if (!result) {
+        return <></>
+    }
+
+    return (
+        <div>
+            <div className="items-center inline-flex flex-wrap">
+                <LegacyWinningVariantText result={result} />
+                <LegacySignificanceText metricUuid={metricUuid} />
+            </div>
         </div>
     )
 }

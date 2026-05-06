@@ -327,3 +327,16 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["realm"] == "hosted-clickhouse"
             assert response.json()["cloud"] is False
+
+    def test_posthog_code_slack_service_available_when_configured(self):
+        with self.settings(
+            SLACK_POSTHOG_CODE_CLIENT_ID="client-id",
+            SLACK_POSTHOG_CODE_CLIENT_SECRET="client-secret",
+            SLACK_POSTHOG_CODE_SIGNING_SECRET="signing-secret",
+        ):
+            response = self.client.get("/_preflight/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["posthog_code_slack_service"] == {
+            "available": True,
+            "client_id": "client-id",
+        }

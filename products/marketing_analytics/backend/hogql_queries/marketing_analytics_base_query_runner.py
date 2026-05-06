@@ -28,7 +28,10 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models.team.team import DEFAULT_CURRENCY
 
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
-from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    DRILL_DOWN_LEVEL_CONFIG,
+    UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+)
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
@@ -49,6 +52,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         super().__init__(*args, **kwargs)
         self.config = MarketingAnalyticsConfig()
         self._conversion_goal_warnings: list[str] = []
+        self._valid_conversion_goals_count: Optional[int] = None
 
     def calculate(self) -> ResponseType:
         start = time.perf_counter()
@@ -63,13 +67,31 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _capture_query_event(self, event: str, start: float, error: Optional[BaseException] = None) -> None:
         try:
             duration_ms = (time.perf_counter() - start) * 1000
+            if self._valid_conversion_goals_count is not None:
+                conversion_goals_count = self._valid_conversion_goals_count
+            else:
+                team_goals = self.team.marketing_analytics_config.conversion_goals or []
+                draft_goal = getattr(self.query, "draftConversionGoal", None)
+                conversion_goals_count = len(team_goals) + (1 if draft_goal else 0)
+
+            # Compare mode is entered via either compareFilter.compare (previous period)
+            # or compareFilter.compare_to (specific period) — see query_compare_to_date_range.
+            compare_filter = getattr(self.query, "compareFilter", None)
+            has_compare = bool(
+                compare_filter
+                and (
+                    getattr(compare_filter, "compare", False)
+                    or isinstance(getattr(compare_filter, "compare_to", None), str)
+                )
+            )
+
             props: dict = {
                 "query_kind": getattr(self.query, "kind", None),
                 "duration_ms": round(duration_ms, 2),
                 "drill_down_level": getattr(self.config, "drill_down_level", None),
                 "attribution_mode": getattr(self.query, "attributionMode", None),
-                "conversion_goals_count": len(getattr(self.query, "conversionGoals", None) or []),
-                "has_compare": getattr(self.query, "compareFilter", None) is not None,
+                "conversion_goals_count": conversion_goals_count,
+                "has_compare": has_compare,
                 "team_id": self.team.pk,
             }
             if error is None:
@@ -101,6 +123,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             date_range=date_range,
             team=self.team,
             base_currency=self.team.base_currency or DEFAULT_CURRENCY,
+            drill_down_level=self.config.drill_down_level,
         )
         return MarketingSourceFactory(context=context)
 
@@ -137,12 +160,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         if group_by_exprs:
             level = self.config.drill_down_level
             if level == MarketingAnalyticsDrillDownLevel.CHANNEL:
-                # Repurpose campaign_name to hold the channel derived from source
                 select_columns.extend(
                     [
                         ast.Alias(alias=self.config.campaign_field, expr=self._build_channel_type_expr()),
                         ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
-                        ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
                         ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                     ]
                 )
@@ -167,6 +188,33 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         ast.Alias(alias=self.config.campaign_field, expr=ast.Constant(value="")),
                         ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
                         ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+                # Emit the parent campaign hierarchy alongside the ad group fields so the
+                # outer query can show context columns (Campaign + Source + Ad group).
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_id_field]),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.AD:
+                # Full hierarchy: Campaign + Source + Ad group + Ad.
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_id_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_id_field]),
                         ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                     ]
                 )
@@ -485,8 +533,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         )
         ctes[self.config.campaign_costs_cte_name] = campaign_cost_cte
 
-        # Add unified conversion goal CTE if any
-        if conversion_aggregator:
+        # Add unified conversion goal CTE if any. Skip building it entirely at levels
+        # that exclude conversion goals (AD_GROUP / AD) — the main query never references
+        # the CTE there, but ClickHouse still scans the events table to materialize it.
+        # That events scan is the heaviest part of the query, so skipping it is a major
+        # win at hierarchy levels.
+        level_config = DRILL_DOWN_LEVEL_CONFIG.get(self.config.drill_down_level, {})
+        if conversion_aggregator and not level_config.get("excludes_conversion_goals"):
             # Check if this is an aggregated query (no GROUP BY)
             group_by_exprs = self._get_group_by_expressions()
             if not group_by_exprs:
@@ -507,10 +560,28 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _build_channel_type_expr(self) -> ast.Expr:
         """Compute channel_type for adapter data using web analytics' classification."""
         modifiers = create_default_modifiers_for_team(self.team)
+        # Map adapter-internal source aliases to entries that exist in channel_definition_dict.
+        # The Meta Ads adapter emits "meta" (the company/network) as primarySource, but the
+        # dict keys are per-platform: "facebook", "instagram", "messenger", etc. We rewrite to
+        # "facebook" to land in the Paid Social bucket. This goes away when Meta Ads grows a
+        # publisher_platform breakdown (the adapter will emit the real per-platform source).
+        source_field = ast.Field(chain=[self.config.source_field])
+        normalized_source = ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Call(name="lower", args=[source_field]),
+                    right=ast.Constant(value="meta"),
+                ),
+                ast.Constant(value="facebook"),
+                source_field,
+            ],
+        )
         return create_channel_type_expr(
             custom_rules=modifiers.customChannelTypeRules,
             source_exprs=ChannelTypeExprs(
-                source=ast.Field(chain=[self.config.source_field]),
+                source=normalized_source,
                 medium=ast.Constant(value="cpc"),  # all adapter data is paid
                 campaign=ast.Constant(value=""),
                 referring_domain=ast.Constant(value="$direct"),
@@ -546,6 +617,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
                 conversion_goals
             )
+            self._valid_conversion_goals_count = len(valid_conversion_goals)
 
             # Create processors only for valid conversion goals
             processors = (

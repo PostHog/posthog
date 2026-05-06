@@ -25,7 +25,7 @@ class TestPerson(BaseTest):
         person = Person.objects.create(
             team=self.team, version=15
         )  # version be > 0 to check that we don't just assume 0 in deletes
-        delete_person(person, sync=True)
+        delete_person(person)
         ch_persons = sync_execute(
             "SELECT toString(id), version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
@@ -42,7 +42,7 @@ class TestPerson(BaseTest):
         )
         self.assertEqual(ch_distinct_ids, [(0,)])
 
-        delete_person(person, sync=True)
+        delete_person(person)
         ch_distinct_ids = sync_execute(
             "SELECT toString(person_id), version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
             {"team_id": self.team.pk, "distinct_id": "distinct_id1"},

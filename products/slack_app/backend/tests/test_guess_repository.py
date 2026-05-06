@@ -22,6 +22,7 @@ from products.slack_app.backend.api import (
     _match_repo_rule,
     _parse_rules_command,
     _repo_list_cache_key,
+    classify_task_needs_repo,
     select_repository,
 )
 
@@ -58,7 +59,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [
+        mock_github.list_all_cached_repositories.return_value = [
             _repo_dict("posthog", "posthog", 1),
             _repo_dict("posthog", "posthog-js", 2),
             _repo_dict("posthog", "plugin-server", 3),
@@ -80,7 +81,7 @@ class TestGetFullRepoNames:
         page2 = [_repo_dict("org", f"repo-{i}", i) for i in range(100, 120)]
 
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = page1 + page2
+        mock_github.list_all_cached_repositories.return_value = page1 + page2
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -104,10 +105,10 @@ class TestGetFullRepoNames:
         )
 
         gh_a = MagicMock()
-        gh_a.list_all_repositories.return_value = [_repo_dict("orgA", "repo-1", 1)]
+        gh_a.list_all_cached_repositories.return_value = [_repo_dict("orgA", "repo-1", 1)]
 
         gh_b = MagicMock()
-        gh_b.list_all_repositories.return_value = [_repo_dict("orgB", "repo-2", 2)]
+        gh_b.list_all_cached_repositories.return_value = [_repo_dict("orgB", "repo-2", 2)]
 
         mock_github_class.side_effect = [gh_a, gh_b]
 
@@ -124,7 +125,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("org", f"repo-{i}", i) for i in range(10)]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("org", f"repo-{i}", i) for i in range(10)]
         mock_github_class.return_value = mock_github
 
         with caplog.at_level(logging.WARNING):
@@ -142,7 +143,7 @@ class TestGetFullRepoNames:
         )
 
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [
+        mock_github.list_all_cached_repositories.return_value = [
             _repo_dict("posthog", "zebra", 1),
             _repo_dict("posthog", "alpha", 2),
             _repo_dict("posthog", "middle", 3),
@@ -178,7 +179,7 @@ class TestGetFullRepoNamesCache:
     def test_cache_miss_populates_cache(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -189,7 +190,7 @@ class TestGetFullRepoNamesCache:
     def test_cache_hit_avoids_github_api(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -213,10 +214,10 @@ class TestGetFullRepoNamesCache:
         self._create_github_integration(team=team_b, name="orgB")
 
         gh_a = MagicMock()
-        gh_a.list_all_repositories.return_value = [_repo_dict("orgA", "repo-a")]
+        gh_a.list_all_cached_repositories.return_value = [_repo_dict("orgA", "repo-a")]
 
         gh_b = MagicMock()
-        gh_b.list_all_repositories.return_value = [_repo_dict("orgB", "repo-b")]
+        gh_b.list_all_cached_repositories.return_value = [_repo_dict("orgB", "repo-b")]
 
         mock_github_class.side_effect = [gh_a, gh_b]
 
@@ -229,7 +230,7 @@ class TestGetFullRepoNamesCache:
     def test_invalidation_forces_refetch(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -237,7 +238,7 @@ class TestGetFullRepoNamesCache:
 
         assert cache.get(_repo_list_cache_key(self.team.id)) is None
 
-        mock_github.list_all_repositories.return_value = [
+        mock_github.list_all_cached_repositories.return_value = [
             _repo_dict("posthog", "repo-a"),
             _repo_dict("posthog", "repo-b", 2),
         ]
@@ -254,7 +255,7 @@ class TestGetFullRepoNamesCache:
     def test_empty_result_with_github_integrations_not_cached(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = []
+        mock_github.list_all_cached_repositories.return_value = []
         mock_github_class.return_value = mock_github
 
         result = _get_full_repo_names(self.slack_integration)
@@ -265,7 +266,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_invalidates_on_github_save(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -284,7 +285,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_invalidates_on_github_delete(self, mock_github_class):
         gh_record = self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -297,7 +298,7 @@ class TestGetFullRepoNamesCache:
     def test_signal_ignores_non_github_integration(self, mock_github_class):
         self._create_github_integration()
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _get_full_repo_names(self.slack_integration)
@@ -341,7 +342,7 @@ class TestPostRepoPickerPrewarm:
             sensitive_config={"access_token": "ghp-test"},
         )
         mock_github = MagicMock()
-        mock_github.list_all_repositories.return_value = [_repo_dict("posthog", "repo-a")]
+        mock_github.list_all_cached_repositories.return_value = [_repo_dict("posthog", "repo-a")]
         mock_github_class.return_value = mock_github
 
         _post_repo_picker_message(
@@ -785,6 +786,26 @@ class TestHandleRulesCommandActivity:
         assert "No routing rules" in msg.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
+    def test_help_uses_posthog_commands(self, mock_slack_cls):
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+
+        from posthog.temporal.ai.posthog_code_slack_mention import handle_posthog_code_rules_command_activity
+
+        result = handle_posthog_code_rules_command_activity(
+            self._make_inputs("<@U123> help"),
+            self.channel,
+            self.thread_ts,
+            self.slack_user_id,
+            self.user.id,
+        )
+
+        assert result.status == "handled"
+        msg = mock_slack.client.chat_postMessage.call_args
+        assert "@PostHog <task description>" in msg.kwargs["text"]
+        assert "@PostHog Code" not in msg.kwargs["text"]
+
+    @patch("posthog.models.integration.SlackIntegration")
     def test_list_shows_rules(self, mock_slack_cls):
         mock_slack = MagicMock()
         mock_slack_cls.return_value = mock_slack
@@ -951,3 +972,33 @@ class TestRepoRoutingRuleModel:
         team_a_rules = list(RepoRoutingRule.objects.filter(team=self.team_a))
         assert len(team_a_rules) == 1
         assert team_a_rules[0].rule_text == "Team A rule"
+
+
+class TestClassifyTaskNeedsRepo:
+    @parameterized.expand(
+        [
+            (
+                "product_debug_automation",
+                "debug why the automation that sends PostHog AI Feedback always gives a thumbs down",
+                False,
+            ),
+            (
+                "product_debug_destination",
+                "investigate the slack destination configuration for this automation",
+                False,
+            ),
+            (
+                "product_debug_report_not_repo",
+                "debug why this dashboard report always shows a thumbs down",
+                False,
+            ),
+            (
+                "explicit_repo_request",
+                "open a PR in posthog/posthog to fix this serializer",
+                True,
+            ),
+        ]
+    )
+    def test_heuristic_classification(self, _name, text, expected):
+        result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
+        assert result is expected

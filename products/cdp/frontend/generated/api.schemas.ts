@@ -207,16 +207,17 @@ export interface PaginatedHogFunctionMinimalListApi {
  * * `hog` - hog
  * `liquid` - liquid
  */
-export type TemplatingEnumApi = (typeof TemplatingEnumApi)[keyof typeof TemplatingEnumApi]
+export type HogFunctionTemplatingEnumApi =
+    (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
 
-export const TemplatingEnumApi = {
+export const HogFunctionTemplatingEnumApi = {
     Hog: 'hog',
     Liquid: 'liquid',
 } as const
 
 export interface InputsItemApi {
     value?: unknown
-    templating?: TemplatingEnumApi
+    templating?: HogFunctionTemplatingEnumApi
     readonly bytecode: readonly unknown[]
     readonly order: number
     readonly transpiled: unknown
@@ -599,10 +600,6 @@ export type HogFunctionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
     /**
      * Multiple values may be separated by commas.
      */

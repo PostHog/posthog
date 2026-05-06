@@ -152,7 +152,8 @@ jobs:
                   build-args: |
                       SCCACHE_LOG=debug
                       SCCACHE_NO_DAEMON=1
-                      BIN=${{ matrix.image }}
+                      BIN=${{ matrix.bin || matrix.image }}
+                      BUILD_FEATURES=${{ matrix.features || '' }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
@@ -171,7 +172,7 @@ jobs:
 
             - name: Report failure
               if: failure() && github.event_name != 'pull_request'
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: ${{ inputs.event-name }}
@@ -179,7 +180,7 @@ jobs:
             - name: Report failure to DevEx PostHog
               if: failure() && github.event_name != 'pull_request'
               continue-on-error: true
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: ${{ inputs.event-name }}

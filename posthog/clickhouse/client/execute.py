@@ -31,12 +31,13 @@ from posthog.clickhouse.query_tagging import (
     Feature,
     Product,
     QueryTags,
+    add_fallback_query_tags,
     get_caller_source,
     get_query_tag_value,
     get_query_tags,
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
-from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.settings.data_stores import is_enable_analyzer_team
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
@@ -77,6 +78,10 @@ CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
 ]
 
 is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
+
+
+class UntaggedQueryError(Exception):
+    """Raised in DEBUG mode when a ClickHouse query is executed without product or feature tags."""
 
 
 class KillSwitchLevel(StrEnum):
@@ -298,12 +303,30 @@ def sync_execute(
     # update tags if inside temporal (should not)
     update_query_tags_with_temporal_info()
 
+    add_fallback_query_tags(tags)
+
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
 
-    if (
+    # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
+    # hitting this error. Please don't do this. This error is to let us know about queries
+    # that are untagged. It's much better for it to throw in local dev, so that we know
+    # to tag it correctly, than it is to add an incorrect tag to avoid throwing.
+    # See `tag_queries` and `tags_context` in posthog/clickhouse/query_tagging.py for how to
+    # attach tags.
+    # Please add whichever tags are relevant, in particular use helper functions like
+    # `get_request_analytics_properties` in posthog/event_usage.py for anything that was an
+    # http request.
+    if DEBUG and not TEST and (tags.product is None or tags.feature is None):
+        missing = [name for name, value in (("product", tags.product), ("feature", tags.feature)) if value is None]
+        raise UntaggedQueryError(
+            f"sync_execute called with missing query tags: {', '.join(missing)}. "
+            "Wrap the call site in `with tags_context(product=..., feature=...):` or call "
+            "`tag_queries(product=..., feature=...)` from posthog.clickhouse.query_tagging."
+        )
+    elif (
         not TEST
         and ch_user in (ClickHouseUser.APP, ClickHouseUser.DEFAULT)
         and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None)

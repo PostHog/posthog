@@ -43,7 +43,7 @@ class TestEmitDataImportAppMetrics(TestCase):
     def test_terminal_status_emits_expected_metric(self, status, expected_kind, expected_name):
         job = _make_job(status=status, rows_synced=1234)
 
-        with mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_producer_cls:
+        with mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_producer_cls:
             mock_producer = mock_producer_cls.return_value
             emit_data_import_app_metrics(job)
 
@@ -68,7 +68,7 @@ class TestEmitDataImportAppMetrics(TestCase):
         assert rows_payload["timestamp"] == status_payload["timestamp"]
 
     def test_billing_statuses_collapse_to_same_metric_name(self):
-        with mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_producer_cls:
+        with mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_producer_cls:
             mock_producer = mock_producer_cls.return_value
             emit_data_import_app_metrics(_make_job(status=ExternalDataJob.Status.BILLING_LIMIT_REACHED))
             emit_data_import_app_metrics(_make_job(status=ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW))
@@ -88,7 +88,7 @@ class TestEmitDataImportAppMetrics(TestCase):
     def test_rows_synced_suppressed_when_not_positive(self, _name, rows_synced):
         job = _make_job(status=ExternalDataJob.Status.COMPLETED, rows_synced=rows_synced)
 
-        with mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_producer_cls:
+        with mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_producer_cls:
             mock_producer = mock_producer_cls.return_value
             emit_data_import_app_metrics(job)
 
@@ -99,7 +99,7 @@ class TestEmitDataImportAppMetrics(TestCase):
     def test_non_terminal_status_emits_nothing(self):
         job = _make_job(status=ExternalDataJob.Status.RUNNING)
 
-        with mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_producer_cls:
+        with mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_producer_cls:
             mock_producer = mock_producer_cls.return_value
             emit_data_import_app_metrics(job)
 
@@ -109,7 +109,7 @@ class TestEmitDataImportAppMetrics(TestCase):
     def test_kafka_producer_error_is_swallowed(self):
         job = _make_job(status=ExternalDataJob.Status.COMPLETED)
 
-        with mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_producer_cls:
+        with mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_producer_cls:
             mock_producer_cls.return_value.produce.side_effect = RuntimeError("kafka down")
             emit_data_import_app_metrics(job)
 
@@ -120,7 +120,7 @@ class TestEmitDataImportAppMetrics(TestCase):
 
         with (
             freeze_time(frozen_now),
-            mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_producer_cls,
+            mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_producer_cls,
         ):
             mock_producer = mock_producer_cls.return_value
             emit_data_import_app_metrics(job)
@@ -132,7 +132,7 @@ class TestEmitDataImportAppMetrics(TestCase):
         job = _make_job(status=ExternalDataJob.Status.COMPLETED)
         job.schema_id = None
 
-        with mock.patch("posthog.temporal.data_imports.metrics.KafkaProducer") as mock_producer_cls:
+        with mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_producer_cls:
             mock_producer = mock_producer_cls.return_value
             emit_data_import_app_metrics(job)
 

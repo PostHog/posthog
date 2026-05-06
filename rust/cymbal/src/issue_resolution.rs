@@ -474,7 +474,7 @@ async fn send_internal_event(
     }];
 
     let res = send_iter_to_kafka(
-        &context.immediate_producer,
+        &context.cyclotron_producer,
         &context.config.internal_events_topic,
         &iter,
     )
@@ -494,7 +494,7 @@ async fn send_internal_event(
             iter[0].event.properties.remove("exception_props");
             iter[0].event.insert_prop("message_was_too_large", true)?;
             send_iter_to_kafka(
-                &context.immediate_producer,
+                &context.cyclotron_producer,
                 &context.config.internal_events_topic,
                 &iter,
             )

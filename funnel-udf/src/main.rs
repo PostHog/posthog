@@ -1,55 +1,179 @@
+#![allow(unstable_name_collisions)]
+
+mod codec;
+mod io;
 mod parsing;
 mod steps;
 mod trends;
+mod types;
 mod unordered_steps;
 mod unordered_trends;
 
-use serde::{Deserialize, Serialize};
 use std::env;
-use std::io::{self, BufRead, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::process::ExitCode;
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(untagged)]
-enum PropVal {
-    String(String),
-    Vec(Vec<String>),
-    Int(u64),
-    VecInt(Vec<u64>),
+pub use types::{Bytes, PropVal};
+
+use crate::codec::chunk::read_chunk_header;
+use crate::codec::header::{read_block_header, write_block_header};
+use crate::codec::CodecResult;
+use crate::types::BreakdownShape;
+
+#[derive(Clone, Copy, Debug)]
+enum Mode {
+    Steps,
+    Trends,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rstest::rstest;
+#[derive(Clone, Copy, Debug)]
+enum Format {
+    Json,
+    RowBinary,
+}
 
-    #[rstest]
-    #[case(r#""hello""#, PropVal::String("hello".to_string()))]
-    #[case(r#"42"#, PropVal::Int(42))]
-    #[case(r#"4503599627370496"#, PropVal::Int(4503599627370496))] // 2^52 (NOT_IN_COHORT_ID)
-    #[case(r#"["a","b"]"#, PropVal::Vec(vec!["a".to_string(), "b".to_string()]))]
-    #[case(r#"[1, 2, 3]"#, PropVal::VecInt(vec![1, 2, 3]))]
-    #[case(r#"[4503599627370496]"#, PropVal::VecInt(vec![4503599627370496]))]
-    fn test_propval_deserialization(#[case] json: &str, #[case] expected: PropVal) {
-        let result: PropVal = serde_json::from_str(json).unwrap();
-        assert_eq!(result, expected);
+struct Cli {
+    mode: Mode,
+    format: Format,
+    shape: BreakdownShape,
+}
+
+// CLI:
+//   aggregate_funnel <steps|trends> --variant=<plain|cohort|array>
+//     RowBinaryWithNamesAndTypes (default)
+//   aggregate_funnel <steps|trends> --variant=<...> --json
+//     JSONEachRow (debug / benchmark)
+//
+// `--variant` fixes the breakdown wire shape for this process's lifetime.
+// Each XML <function> block (aggregate_funnel, aggregate_funnel_cohort,
+// aggregate_funnel_array) gets its own executable_pool, so the variant is
+// known at startup and never changes per call.
+fn parse_cli(argv: &[String]) -> std::result::Result<Cli, String> {
+    let mut mode: Option<Mode> = None;
+    let mut format = Format::RowBinary;
+    let mut shape: Option<BreakdownShape> = None;
+
+    for arg in &argv[1..] {
+        let s = arg.as_str();
+        match s {
+            "steps" => mode = Some(Mode::Steps),
+            "trends" => mode = Some(Mode::Trends),
+            "--json" => format = Format::Json,
+            "--rowbinary" => format = Format::RowBinary,
+            _ if s.starts_with("--variant=") => {
+                shape = Some(match &s["--variant=".len()..] {
+                    "plain" => BreakdownShape::NullableString,
+                    "cohort" => BreakdownShape::U64,
+                    "array" => BreakdownShape::ArrayString,
+                    v => return Err(format!("unknown --variant value: {v:?}")),
+                });
+            }
+            _ => return Err(format!("unknown argument: {s:?}")),
+        }
+    }
+
+    let mode = mode.ok_or_else(|| "missing mode (steps | trends)".to_string())?;
+    let shape = shape.ok_or_else(|| "missing --variant=<plain|cohort|array>".to_string())?;
+    Ok(Cli {
+        mode,
+        format,
+        shape,
+    })
+}
+
+fn run_json<R: BufRead, W: Write>(reader: R, writer: &mut W, mode: Mode) -> std::io::Result<()> {
+    for line in reader.lines() {
+        let line = line?;
+        let output = match mode {
+            Mode::Steps => steps::process_line(&line),
+            Mode::Trends => trends::process_line(&line),
+        };
+        writeln!(writer, "{}", output)?;
+        writer.flush()?;
+    }
+    Ok(())
+}
+
+fn run_rowbinary<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    mode: Mode,
+    shape: BreakdownShape,
+) -> CodecResult<()> {
+    // One loop iteration per UDF invocation. executable_pool keeps us alive
+    // across invocations to skip fork/exec; each invocation's input/output is
+    // self-contained (own `N\n` chunk header, own RBWNAT block header + rows).
+    loop {
+        let n = match read_chunk_header(reader)? {
+            Some(n) => n,
+            None => return Ok(()),
+        };
+        let columns = read_block_header(reader)?;
+
+        match mode {
+            Mode::Steps => {
+                let mut results = Vec::with_capacity(n as usize);
+                for _ in 0..n {
+                    let args = io::steps_io::read_args(reader, shape, &columns)?;
+                    results.push(steps::run(&args));
+                }
+                let out_cols = io::steps_io::output_columns(shape);
+                write_block_header(writer, &out_cols)?;
+                for r in &results {
+                    io::steps_io::write_results(writer, r, shape)?;
+                }
+            }
+            Mode::Trends => {
+                let mut results = Vec::with_capacity(n as usize);
+                for _ in 0..n {
+                    let args = io::trends_io::read_args(reader, shape, &columns)?;
+                    results.push(trends::run(&args));
+                }
+                let out_cols = io::trends_io::output_columns(shape);
+                write_block_header(writer, &out_cols)?;
+                for r in &results {
+                    io::trends_io::write_results(writer, r, shape)?;
+                }
+            }
+        }
+        writer.flush()?;
     }
 }
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    let arg = args.get(1).map(|x| x.as_str());
+fn main() -> ExitCode {
+    let argv: Vec<String> = env::args().collect();
+    let cli = match parse_cli(&argv) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = writeln!(
+                std::io::stderr(),
+                "funnels: {e}\n\nusage: {} <steps|trends> --variant=<plain|cohort|array> [--json]\n  default format is RowBinaryWithNamesAndTypes; --variant pins the breakdown wire shape",
+                argv.first().map(String::as_str).unwrap_or("aggregate_funnel")
+            );
+            return ExitCode::FAILURE;
+        }
+    };
 
-    let stdin = io::stdin();
-    let mut stdout = io::stdout();
+    let stdin = std::io::stdin();
+    let stdout = std::io::stdout();
+    let mut reader = BufReader::with_capacity(64 * 1024, stdin.lock());
+    let mut writer = BufWriter::with_capacity(64 * 1024, stdout.lock());
 
-    for line in stdin.lock().lines() {
-        if let Ok(line) = line {
-            let output = match arg {
-                Some("trends") => trends::process_line(&line),
-                _ => steps::process_line(&line),
-            };
-            writeln!(stdout, "{}", output).unwrap();
-            stdout.flush().unwrap();
+    let result: std::result::Result<(), Box<dyn std::error::Error>> = match cli.format {
+        Format::Json => run_json(&mut reader, &mut writer, cli.mode).map_err(Into::into),
+        Format::RowBinary => {
+            run_rowbinary(&mut reader, &mut writer, cli.mode, cli.shape).map_err(Into::into)
+        }
+    };
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            let _ = writeln!(std::io::stderr(), "funnels error: {e}");
+            ExitCode::FAILURE
         }
     }
 }
+
+#[cfg(test)]
+mod e2e_tests;

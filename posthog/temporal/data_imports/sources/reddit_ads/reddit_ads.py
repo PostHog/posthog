@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -10,9 +11,15 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclasses.dataclass
+class RedditAdsResumeConfig:
+    next_url: str
 
 
 def _get_incremental_date_range(
@@ -114,8 +121,14 @@ class RedditAdsPaginator(BasePaginator):
 
     def __init__(self):
         super().__init__()
-        self._next_url = None
+        self._next_url: Optional[str] = None
         self._has_next_page = False
+
+    def init_request(self, request: Request) -> None:
+        # When seeded via set_resume_state, the paginator already holds the
+        # URL of the next page to fetch — redirect the initial request to it.
+        if self._next_url:
+            request.url = self._next_url
 
     def update_state(self, response: Response, data: Optional[Any] = None) -> None:
         """Update pagination state from response"""
@@ -136,6 +149,17 @@ class RedditAdsPaginator(BasePaginator):
         if self._next_url:
             request.url = self._next_url
 
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._next_url and self._has_next_page:
+            return {"next_url": self._next_url}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url:
+            self._next_url = next_url
+            self._has_next_page = True
+
 
 def reddit_ads_source(
     account_id: str,
@@ -144,6 +168,7 @@ def reddit_ads_source(
     job_id: str,
     access_token: str,
     db_incremental_field_last_value: Optional[Any],
+    resumable_source_manager: ResumableSourceManager[RedditAdsResumeConfig],
     should_use_incremental_field: bool = False,
 ):
     config: RESTAPIConfig = {
@@ -171,7 +196,26 @@ def reddit_ads_source(
         ],
     }
 
-    resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None:
+            initial_paginator_state = {"next_url": resume_config.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Match klaviyo: only persist when there's a next page to resume to. The
+        # Redis TTL handles cleanup on completion.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(RedditAdsResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     endpoint_config = REDDIT_ADS_CONFIG[endpoint]
 

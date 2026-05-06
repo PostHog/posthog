@@ -670,16 +670,17 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
+    // Walk up the DOM and find the nearest ancestor that is actually scrollable.
+    // This is more robust than checking for specific tags or attributes, because
+    // wrapper components like ScrollableShadows place attributes on a non-scrollable
+    // root while the actual scrollable element is a child (ScrollArea.Viewport).
     let current = element.parentElement
     while (current) {
-        if (current.tagName === 'MAIN') {
-            return current
-        }
-        if (current instanceof HTMLElement && current.dataset.attr === 'side-panel-content') {
-            return current
-        }
-        if (current instanceof HTMLElement && current.dataset.attr === 'max-scrollable') {
-            return current
+        if (current instanceof HTMLElement) {
+            const { overflowY } = getComputedStyle(current)
+            if (overflowY === 'auto' || overflowY === 'scroll') {
+                return current
+            }
         }
         current = current.parentElement
     }

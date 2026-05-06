@@ -94,9 +94,9 @@ export const NullEnumApi = {} as const
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type TypeE27EnumApi = (typeof TypeE27EnumApi)[keyof typeof TypeE27EnumApi]
+export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
 
-export const TypeE27EnumApi = {
+export const PropertyFilterTypeEnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -132,7 +132,7 @@ export interface PropertyItemApi {
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string | number | boolean | (string | number)[]
     operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: TypeE27EnumApi | BlankEnumApi
+    type?: PropertyFilterTypeEnumApi | BlankEnumApi
 }
 
 export interface PropertyApi {
@@ -183,7 +183,7 @@ Or you can create more complicated queries with AND and OR:
     values: PropertyItemApi[]
 }
 
-export interface PersonApi {
+export interface PersonRecordApi {
     /** Numeric person ID. */
     readonly id: number
     /** Display name derived from person properties (email, name, or username). */
@@ -202,16 +202,16 @@ export interface PersonApi {
     readonly last_seen_at: string | null
 }
 
-export interface PaginatedPersonListApi {
+export interface PaginatedPersonRecordListApi {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
     count?: number
-    results?: PersonApi[]
+    results?: PersonRecordApi[]
 }
 
-export interface PatchedPersonApi {
+export interface PatchedPersonRecordApi {
     /** Numeric person ID. */
     readonly id?: number
     /** Display name derived from person properties (email, name, or username). */
@@ -442,14 +442,14 @@ export const PersonsPartialUpdateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsActivityRetrieve2Params = {
-    format?: PersonsActivityRetrieve2Format
+export type PersonsActivityRetrieveParams = {
+    format?: PersonsActivityRetrieveFormat
 }
 
-export type PersonsActivityRetrieve2Format =
-    (typeof PersonsActivityRetrieve2Format)[keyof typeof PersonsActivityRetrieve2Format]
+export type PersonsActivityRetrieveFormat =
+    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
 
-export const PersonsActivityRetrieve2Format = {
+export const PersonsActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -501,14 +501,14 @@ export const PersonsUpdatePropertyCreateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsActivityRetrieveParams = {
-    format?: PersonsActivityRetrieveFormat
+export type PersonsAllActivityRetrieveParams = {
+    format?: PersonsAllActivityRetrieveFormat
 }
 
-export type PersonsActivityRetrieveFormat =
-    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
+export type PersonsAllActivityRetrieveFormat =
+    (typeof PersonsAllActivityRetrieveFormat)[keyof typeof PersonsAllActivityRetrieveFormat]
 
-export const PersonsActivityRetrieveFormat = {
+export const PersonsAllActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

@@ -24,6 +24,18 @@ class BasePaginator(ABC):
     @abstractmethod
     def update_request(self, request: Request) -> None: ...
 
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        """Return a JSON-serializable snapshot pointing to the next page, or
+        ``None`` if this paginator does not support resume. Sources opt in by
+        overriding this together with ``set_resume_state``."""
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:  # noqa: B027
+        """Seed this paginator from a previously returned ``get_resume_state``
+        value. After seeding, ``init_request`` must emit a request that targets
+        the resumed page."""
+        pass
+
 
 class SinglePagePaginator(BasePaginator):
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:

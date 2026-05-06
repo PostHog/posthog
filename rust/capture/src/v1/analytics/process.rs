@@ -78,9 +78,9 @@ fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, Wrap
     let mut events: HashMap<Uuid, WrappedEvent> = HashMap::with_capacity(batch.batch.len());
 
     for event in batch.batch.into_iter() {
-        let uuid = Uuid::parse_str(&event.uuid).map_err(|_| Error::MissingEventUuid)?;
+        let uuid = Uuid::parse_str(event.uuid()).map_err(|_| Error::MissingEventUuid)?;
         if events.contains_key(&uuid) {
-            return Err(Error::DuplicateEventUuid(event.uuid));
+            return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
         }
 
         match validate_event(&event) {
@@ -91,11 +91,12 @@ fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, Wrap
                     uuid,
                     WrappedEvent {
                         event,
+                        uuid,
                         adjusted_timestamp: Some(adjusted),
                         result: EventResult::Ok,
                         details: None,
                         destination: Destination::default(),
-                        skip_person_processing: false,
+                        force_disable_person_processing: false,
                     },
                 );
             }
@@ -104,11 +105,12 @@ fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, Wrap
                     uuid,
                     WrappedEvent {
                         event,
+                        uuid,
                         adjusted_timestamp: None,
                         result: EventResult::Drop,
                         details: Some(err.tag()),
                         destination: Destination::default(),
-                        skip_person_processing: false,
+                        force_disable_person_processing: false,
                     },
                 );
             }
@@ -259,7 +261,7 @@ async fn apply_restrictions(
             distinct_id: Some(&event.event.distinct_id),
             session_id: event.event.session_id.as_deref(),
             event_name: Some(&event.event.event),
-            event_uuid: Some(&event.event.uuid),
+            event_uuid: Some(event.event.uuid()),
             now_ts,
         };
 
@@ -285,7 +287,7 @@ async fn apply_restrictions(
         }
 
         if applied.skip_person_processing() {
-            event.skip_person_processing = true;
+            event.force_disable_person_processing = true;
         }
     }
 }
@@ -306,7 +308,7 @@ async fn apply_token_distinct_id_limits(
             GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
-            event.skip_person_processing = true;
+            event.force_disable_person_processing = true;
             event.details = Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID);
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
         } else {
@@ -570,9 +572,9 @@ mod tests {
             event: "$performance_event".to_string(),
             ..valid_event()
         };
-        let perf_uuid = Uuid::parse_str(&perf.uuid).unwrap();
+        let perf_uuid = Uuid::parse_str(perf.uuid()).unwrap();
         let normal = valid_event();
-        let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
+        let normal_uuid = Uuid::parse_str(normal.uuid()).unwrap();
         let batch = valid_batch(vec![perf, normal]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
@@ -667,7 +669,7 @@ mod tests {
             properties: raw_obj("[1,2,3]"),
             ..valid_event()
         };
-        let uuid = Uuid::parse_str(&bad_event.uuid).unwrap();
+        let uuid = Uuid::parse_str(bad_event.uuid()).unwrap();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
             historical_migration: false,
@@ -824,7 +826,7 @@ mod tests {
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
         assert_eq!(ev.destination, Destination::AnalyticsMain);
-        assert!(!ev.skip_person_processing);
+        assert!(!ev.force_disable_person_processing);
     }
 
     #[tokio::test]
@@ -952,7 +954,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn restrictions_skip_person_processing() {
+    async fn restrictions_force_disable_person_processing() {
         let service = restriction_service(
             "phc_token",
             vec![Restriction {
@@ -971,7 +973,7 @@ mod tests {
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
         assert_eq!(ev.destination, Destination::AnalyticsMain);
-        assert!(ev.skip_person_processing);
+        assert!(ev.force_disable_person_processing);
     }
 
     #[tokio::test]
@@ -1133,7 +1135,7 @@ mod tests {
         let limited_ev = find_by_did(&events, "user-2");
         assert_eq!(limited_ev.result, EventResult::Ok);
         assert_eq!(limited_ev.destination, Destination::AnalyticsMain);
-        assert!(limited_ev.skip_person_processing);
+        assert!(limited_ev.force_disable_person_processing);
         assert_eq!(
             limited_ev.details,
             Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
@@ -1173,7 +1175,10 @@ mod tests {
                 Destination::AnalyticsMain,
                 "should stay on main topic"
             );
-            assert!(ev.skip_person_processing, "should skip person processing");
+            assert!(
+                ev.force_disable_person_processing,
+                "should skip person processing"
+            );
             assert_eq!(
                 ev.details,
                 Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID),
@@ -1187,7 +1192,7 @@ mod tests {
         let limiter = mock_limiter(vec!["phc_tok:user-2"]);
         let ctx = td_context();
         let pre_drop = wrapped_event("$pageview", "user-1");
-        let pre_drop_uuid = Uuid::parse_str(&pre_drop.event.uuid).unwrap();
+        let pre_drop_uuid = pre_drop.uuid;
         let mut events = events_map(vec![pre_drop, wrapped_event("$identify", "user-2")]);
         // Simulate event already dropped by restrictions
         events.get_mut(&pre_drop_uuid).unwrap().result = EventResult::Drop;
@@ -1203,7 +1208,7 @@ mod tests {
         let limited = find_by_did(&events, "user-2");
         assert_eq!(limited.result, EventResult::Ok);
         assert_eq!(limited.destination, Destination::AnalyticsMain);
-        assert!(limited.skip_person_processing);
+        assert!(limited.force_disable_person_processing);
         assert_eq!(limited.details, Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID));
     }
 
@@ -1271,14 +1276,14 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.historical_migration = true;
         let ev = wrapped_event("$pageview", "user-1");
-        let uuid = Uuid::parse_str(&ev.event.uuid).unwrap();
+        let ev_uuid = ev.uuid;
         let mut events = events_map(vec![ev]);
-        events.get_mut(&uuid).unwrap().destination = Destination::Overflow;
+        events.get_mut(&ev_uuid).unwrap().destination = Destination::Overflow;
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
         assert_eq!(
-            events.get(&uuid).unwrap().destination,
+            events.get(&ev_uuid).unwrap().destination,
             Destination::Overflow
         );
     }
@@ -1289,15 +1294,15 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.historical_migration = true;
         let ev = wrapped_event("$pageview", "user-1");
-        let uuid = Uuid::parse_str(&ev.event.uuid).unwrap();
+        let ev_uuid = ev.uuid;
         let mut events = events_map(vec![ev]);
-        let e = events.get_mut(&uuid).unwrap();
+        let e = events.get_mut(&ev_uuid).unwrap();
         e.result = EventResult::Drop;
         e.destination = Destination::Drop;
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
-        assert_eq!(events.get(&uuid).unwrap().destination, Destination::Drop);
+        assert_eq!(events.get(&ev_uuid).unwrap().destination, Destination::Drop);
     }
 
     #[test]
@@ -1319,7 +1324,7 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.historical_migration = true;
         let dlq_ev = wrapped_event("$identify", "user-2");
-        let dlq_uuid = Uuid::parse_str(&dlq_ev.event.uuid).unwrap();
+        let dlq_uuid = dlq_ev.uuid;
         let mut events = events_map(vec![wrapped_event("$pageview", "user-1"), dlq_ev]);
         events.get_mut(&dlq_uuid).unwrap().destination = Destination::Dlq;
 

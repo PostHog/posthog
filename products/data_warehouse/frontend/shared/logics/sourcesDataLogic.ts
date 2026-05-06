@@ -1,7 +1,7 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
+import api, { ApiError, ApiMethodOptions, PaginatedResponse } from 'lib/api'
 
 import { ExternalDataSource, ExternalDataSourceRevenueAnalyticsConfig } from '~/types'
 
@@ -33,12 +33,24 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
 
                         return res
                     } catch (error: any) {
-                        // On 403, return empty result instead of failing - user doesn't have access
-                        if (error.status === 403) {
-                            cache.abortController = null
-                            return { results: [], count: 0, next: null, previous: null }
+                        // Transient failures shouldn't surface as exceptions:
+                        //   - 403: the user has no access to the endpoint
+                        //   - AbortError: abortAnyRunningQuery cancelled this request mid-flight
+                        //   - ApiError with no HTTP status: handleFetch wraps native fetch
+                        //     failures (offline, DNS, CORS) as ApiError(err, undefined)
+                        // Anything else (including kea's BreakPointException) propagates.
+                        const isTransient =
+                            error?.status === 403 ||
+                            error?.name === 'AbortError' ||
+                            (error instanceof ApiError && error.status === undefined)
+                        if (!isTransient) {
+                            throw error
                         }
-                        throw error
+                        // Bail out if a newer loadSources has superseded this one so we don't
+                        // clobber its state with an empty result.
+                        breakpoint()
+                        cache.abortController = null
+                        return { results: [], count: 0, next: null, previous: null }
                     }
                 },
                 updateSource: async (source: ExternalDataSource) => {

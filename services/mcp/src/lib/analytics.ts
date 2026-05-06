@@ -7,6 +7,8 @@ export enum AnalyticsEvent {
     MCP_INIT = 'mcp init',
     MCP_PROJECT_SWITCHED = 'mcp project switched',
     MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
+    MCP_TOOL_CALL = 'mcp_tool_call', // matching mcpcat
+    MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
 }
 
 export type MCPAnalyticsContext = {
@@ -75,10 +77,7 @@ export async function isFeatureFlagEnabled(flagKey: string, distinctId: string):
  * Evaluate multiple feature flags in parallel for the given user.
  * Returns a map of flag key → boolean.
  */
-export async function evaluateFeatureFlags(
-    flagKeys: string[],
-    distinctId: string
-): Promise<Record<string, boolean>> {
+export async function evaluateFeatureFlags(flagKeys: string[], distinctId: string): Promise<Record<string, boolean>> {
     if (flagKeys.length === 0) {
         return {}
     }

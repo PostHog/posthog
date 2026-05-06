@@ -9,7 +9,10 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.comment import Comment
-from posthog.temporal.data_imports.signals.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
+from posthog.temporal.data_imports.signals.conversations_tickets import (
+    CONVERSATIONS_TICKETS_CONFIG,
+    conversations_ticket_emitter,
+)
 from posthog.temporal.data_imports.signals.fetchers.conversations import conversations_ticket_fetcher
 
 from products.conversations.backend.models import Ticket
@@ -30,7 +33,7 @@ def _backdate_ticket(ticket, hours=2):
     Ticket.objects.filter(id=ticket.id).update(created_at=timezone.now() - timedelta(hours=hours))
 
 
-def _add_comment(team, ticket, content="Hello", author_type="customer", deleted=False):
+def _add_comment(team, ticket, content="Hello", author_type="customer", deleted=False, rich_content=None):
     return Comment.objects.create(
         team=team,
         scope="conversations_ticket",
@@ -38,7 +41,15 @@ def _add_comment(team, ticket, content="Hello", author_type="customer", deleted=
         content=content,
         item_context={"author_type": author_type},
         deleted=deleted,
+        rich_content=rich_content,
     )
+
+
+def _rich_content_with_images(*srcs):
+    return {
+        "type": "doc",
+        "content": [{"type": "image", "attrs": {"src": src, "alt": "image"}} for src in srcs],
+    }
 
 
 @pytest.mark.django_db
@@ -128,6 +139,40 @@ class TestConversationsTicketFetcherMessages(BaseTest):
         assert len(result) == 1
         assert result[0]["messages"] == []
 
+    def test_extracts_image_attachments_from_rich_content_with_author_attribution(self):
+        _add_comment(
+            self.team,
+            self.ticket,
+            content="See screenshot",
+            author_type="customer",
+            rich_content=_rich_content_with_images("https://media.posthog.com/a.png"),
+        )
+        _add_comment(
+            self.team,
+            self.ticket,
+            content="Here's our annotated version",
+            author_type="team",
+            rich_content=_rich_content_with_images(
+                "https://media.posthog.com/b.png", "https://media.posthog.com/c.png"
+            ),
+        )
+
+        result = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
+
+        assert len(result) == 1
+        assert result[0]["image_attachments"] == [
+            {"url": "https://media.posthog.com/a.png", "author": "customer"},
+            {"url": "https://media.posthog.com/b.png", "author": "team"},
+            {"url": "https://media.posthog.com/c.png", "author": "team"},
+        ]
+
+    def test_image_attachments_empty_when_no_rich_content(self):
+        _add_comment(self.team, self.ticket, content="Plain text only", author_type="customer")
+
+        result = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
+
+        assert result[0]["image_attachments"] == []
+
     def test_comments_isolated_by_ticket(self):
         other_ticket = _make_ticket(self.team)
         _backdate_ticket(other_ticket, hours=2)
@@ -185,6 +230,40 @@ class TestConversationsTicketFetcherAuthorType(BaseTest):
 
         messages = result[0]["messages"]
         assert messages[0][0] == "AI"
+
+
+@pytest.mark.django_db
+class TestConversationsTicketFetcherEmitterIntegration(BaseTest):
+    """End-to-end: Postgres ticket + comments → fetcher → emitter → signal output."""
+
+    def test_image_attachments_flow_from_rich_content_into_signal_extra(self):
+        ticket = _make_ticket(self.team, status="open", priority="high")
+        _backdate_ticket(ticket, hours=2)
+        _add_comment(
+            self.team,
+            ticket,
+            content="Something's broken, see screenshot",
+            author_type="customer",
+            rich_content=_rich_content_with_images("https://media.posthog.com/bug.png"),
+        )
+        _add_comment(
+            self.team,
+            ticket,
+            content="Got it, reproducing now",
+            author_type="team",
+            rich_content=_rich_content_with_images("https://media.posthog.com/repro.png"),
+        )
+
+        records = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
+        assert len(records) == 1
+
+        output = conversations_ticket_emitter(team_id=self.team.id, record=records[0])
+
+        assert output is not None
+        assert output.extra["images"] == [
+            {"url": "https://media.posthog.com/bug.png", "author": "customer"},
+            {"url": "https://media.posthog.com/repro.png", "author": "team"},
+        ]
 
 
 @pytest.mark.django_db

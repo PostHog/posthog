@@ -390,7 +390,8 @@ describe('log-record-avro', () => {
             ]
 
             const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
-            const outputBuffer = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
+            const { value: outputBuffer, pii } = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
+            expect(pii).toEqual({ piiReplacements: 0 })
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
 
             expect(decoded[0]?.attributes).toEqual({
@@ -436,7 +437,8 @@ describe('log-record-avro', () => {
             ]
 
             const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
-            const outputBuffer = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
+            const { value: outputBuffer, pii } = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
+            expect(pii).toEqual({ piiReplacements: 0 })
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
 
             expect(decoded).toHaveLength(2)
@@ -471,12 +473,13 @@ describe('log-record-avro', () => {
             ]
 
             const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
-            const outputBuffer = await processLogMessageBuffer(inputBuffer, {
+            const { value: out, pii } = await processLogMessageBuffer(inputBuffer, {
                 json_parse_logs: false,
                 pii_scrub_logs: false,
             })
 
-            expect(outputBuffer).toBe(inputBuffer)
+            expect(out).toBe(inputBuffer)
+            expect(pii).toEqual({ piiReplacements: 0 })
         })
 
         it('decodes and scrubs only when PII scrub is on without JSON parse', async () => {
@@ -500,11 +503,12 @@ describe('log-record-avro', () => {
             ]
 
             const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
-            const outputBuffer = await processLogMessageBuffer(inputBuffer, {
+            const { value: outputBuffer, pii } = await processLogMessageBuffer(inputBuffer, {
                 json_parse_logs: false,
                 pii_scrub_logs: true,
             })
             expect(outputBuffer).not.toBe(inputBuffer)
+            expect(pii.piiReplacements).toBeGreaterThanOrEqual(1)
 
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
             expect(decoded[0]?.attributes).toBeNull()
@@ -513,7 +517,38 @@ describe('log-record-avro', () => {
             expect(body.message).toContain('{{REDACTED}}')
         })
 
-        it('enriches then scrubs when both JSON parse and PII scrub are on', async () => {
+        it('scrubs log attributes when json parse is off and pii scrub is on', async () => {
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: 'plain',
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: { note: 'only-attr@example.com' },
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const { value: outputBuffer, pii } = await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: false,
+                pii_scrub_logs: true,
+            })
+            expect(pii.piiReplacements).toBe(1)
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
+            expect(decoded[0]?.body).toBe('plain')
+            expect(decoded[0]?.attributes).toEqual({ note: PII_REDACTED })
+        })
+
+        it('scrubs body then enriches when both JSON parse and PII scrub are on', async () => {
             const records: LogRecord[] = [
                 {
                     uuid: 'test-uuid',
@@ -534,16 +569,48 @@ describe('log-record-avro', () => {
             ]
 
             const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
-            const outputBuffer = await processLogMessageBuffer(inputBuffer, {
+            const { value: outputBuffer, pii } = await processLogMessageBuffer(inputBuffer, {
                 json_parse_logs: true,
                 pii_scrub_logs: true,
             })
+            expect(pii.piiReplacements).toBe(2)
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
             expect(decoded[0]?.attributes).toEqual({
                 level: encodeAttributeCell('info'),
                 message: encodeAttributeCell(PII_REDACTED),
-                note: encodeAttributeCell(PII_REDACTED),
+                note: PII_REDACTED,
             })
+        })
+
+        it('does not call parseLogBodyForIngestion when only PII scrub is on', async () => {
+            const spy = jest.spyOn(logBodyParse, 'parseLogBodyForIngestion')
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ level: 'info', message: 'only@pii.test' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: false,
+                pii_scrub_logs: true,
+            })
+
+            expect(spy).not.toHaveBeenCalled()
+            spy.mockRestore()
         })
 
         it('calls parseLogBodyForIngestion once per record when both JSON parse and PII scrub are on', async () => {
@@ -593,7 +660,7 @@ describe('log-record-avro', () => {
             spy.mockRestore()
         })
 
-        it('flattens nested JSON keys then scrubs sensitive flattened attribute keys when both flags are on', async () => {
+        it('flattens nested JSON keys when both flags are on; body is pattern-scrubbed only', async () => {
             const records: LogRecord[] = [
                 {
                     uuid: 'test-uuid',
@@ -614,16 +681,18 @@ describe('log-record-avro', () => {
             ]
 
             const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
-            const outputBuffer = await processLogMessageBuffer(inputBuffer, {
+            const { value: outputBuffer, pii } = await processLogMessageBuffer(inputBuffer, {
                 json_parse_logs: true,
                 pii_scrub_logs: true,
             })
+            expect(pii).toEqual({ piiReplacements: 0 })
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
             const body = parseJSON(decoded[0]?.body || '{}') as { meta: { api_key: string }; ok: string }
-            expect(body.meta.api_key).toBe(PII_REDACTED)
+            // Body is pattern-scrubbed only; nested JSON keys are not redacted by key name.
+            expect(body.meta.api_key).toBe('leak-value')
             expect(body.ok).toBe('keep')
             expect(decoded[0]?.attributes).toEqual({
-                'meta.api_key': encodeAttributeCell(PII_REDACTED),
+                'meta.api_key': encodeAttributeCell('leak-value'),
                 ok: encodeAttributeCell('keep'),
             })
         })
@@ -663,7 +732,8 @@ describe('log-record-avro', () => {
             ]
 
             const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
-            const outputBuffer = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
+            const { value: outputBuffer, pii } = await processLogMessageBuffer(inputBuffer, { json_parse_logs: true })
+            expect(pii).toEqual({ piiReplacements: 0 })
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
 
             expect(Object.keys(decoded[0]?.attributes || {}).length).toBe(50)

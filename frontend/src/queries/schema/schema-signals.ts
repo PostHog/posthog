@@ -10,17 +10,20 @@ export enum SignalSourceProduct {
     ZENDESK = 'zendesk',
     CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
+    ENDPOINTS = 'endpoints',
 }
 
 export enum SignalSourceType {
     SESSION_ANALYSIS_CLUSTER = 'session_analysis_cluster',
     SESSION_PROBLEM = 'session_problem',
     EVALUATION = 'evaluation',
+    EVALUATION_REPORT = 'evaluation_report',
     ISSUE = 'issue',
     TICKET = 'ticket',
     ISSUE_CREATED = 'issue_created',
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
+    ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -111,6 +114,27 @@ export interface LlmEvaluationSignalInput {
     description: string
     weight: number
     extra: LlmEvalSignalExtra
+}
+
+// LLM evaluation report (one signal per report run, distilled from many results)
+
+export interface LlmEvalReportSignalExtra {
+    evaluation_id: string
+    evaluation_name: string
+    evaluation_description: string
+    report_id: string
+    report_run_id: string
+    period_start: string
+    period_end: string
+}
+
+export interface LlmEvaluationReportSignalInput {
+    source_type: 'evaluation_report'
+    source_product: 'llm_analytics'
+    source_id: string
+    description: string
+    weight: number
+    extra: LlmEvalReportSignalExtra
 }
 
 // Zendesk ticket
@@ -215,6 +239,26 @@ export interface ErrorTrackingSignalInput {
     extra: ErrorTrackingSignalExtra
 }
 
+// Endpoint execution failure
+
+export interface EndpointExecutionFailedSignalExtra {
+    endpoint_name: string
+    endpoint_version: number | null
+    materialized: boolean
+    saved_query_id: string | null
+    error_class: string
+    error_message: string
+}
+
+export interface EndpointExecutionFailedSignalInput {
+    source_type: 'endpoint_execution_failed'
+    source_product: 'endpoints'
+    source_id: string
+    description: string
+    weight: number
+    extra: EndpointExecutionFailedSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -238,14 +282,18 @@ export interface EnrichedReviewer {
     user: SignalReviewerUserInfo | null
 }
 
-// ── Discriminated union over all signal variants ─────────────────────────────────
+// ── Union over all signal variants ─────────────────────────────────
+// Discrimination is handled at the application layer via a (source_product, source_type)
+// lookup in products/signals/backend/api.py — see _SIGNAL_VARIANT_LOOKUP. We can't use a
+// Pydantic discriminator here because some products (llm_analytics) have multiple variants.
 
-/** @discriminator source_product */
 export type SignalInput =
     | SessionProblemSignalInput
     | LlmEvaluationSignalInput
+    | LlmEvaluationReportSignalInput
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
+    | EndpointExecutionFailedSignalInput

@@ -47,9 +47,10 @@ export interface PaginatedMessageCategoryListApi {
  * * `hog` - hog
  * `liquid` - liquid
  */
-export type TemplatingEnumApi = (typeof TemplatingEnumApi)[keyof typeof TemplatingEnumApi]
+export type HogFunctionTemplatingEnumApi =
+    (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
 
-export const TemplatingEnumApi = {
+export const HogFunctionTemplatingEnumApi = {
     Hog: 'hog',
     Liquid: 'liquid',
 } as const
@@ -62,7 +63,7 @@ export interface EmailTemplateApi {
 }
 
 export interface MessageTemplateContentApi {
-    templating?: TemplatingEnumApi
+    templating?: HogFunctionTemplatingEnumApi
     email?: EmailTemplateApi | null
 }
 

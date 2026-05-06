@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CohortApi,
+    CohortPersonsResponseApi,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     PaginatedCohortListApi,
@@ -140,12 +141,12 @@ export const cohortsDestroy = async (projectId: string, id: number, options?: Re
     })
 }
 
-export const getCohortsActivityRetrieve2Url = (projectId: string, id: number) => {
+export const getCohortsActivityRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/cohorts/${id}/activity/`
 }
 
-export const cohortsActivityRetrieve2 = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCohortsActivityRetrieve2Url(projectId, id), {
+export const cohortsActivityRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCohortsActivityRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -205,8 +206,8 @@ export const cohortsPersonsRetrieve = async (
     id: number,
     params?: CohortsPersonsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
+): Promise<CohortPersonsResponseApi> => {
+    return apiMutator<CohortPersonsResponseApi>(getCohortsPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -230,12 +231,12 @@ export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
     })
 }
 
-export const getCohortsActivityRetrieveUrl = (projectId: string) => {
+export const getCohortsAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/cohorts/activity/`
 }
 
-export const cohortsActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCohortsActivityRetrieveUrl(projectId), {
+export const cohortsAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCohortsAllActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

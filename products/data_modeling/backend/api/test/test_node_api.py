@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
@@ -81,21 +82,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.json()["upstream_count"], 0)
         self.assertEqual(response.json()["downstream_count"], 0)
 
-    def test_list_excludes_conflict_dag_nodes(self):
-        conflict_dag = DAG.objects.create(team=self.team, name="conflict_abc_posthog_1")
-        Node.objects.create(
-            team=self.team,
-            dag=conflict_dag,
-            name="conflict_node",
-            type=NodeType.TABLE,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        names = {node["name"] for node in response.json()["results"]}
-        self.assertNotIn("conflict_node", names)
-
     def test_list_nodes_with_dag_filter(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")
         Node.objects.create(
@@ -145,15 +131,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dag_names = {d["name"] for d in response.json()["dag_ids"]}
         self.assertEqual(dag_names, {"another_dag", self.dag_id})
-
-    def test_dag_ids_action_excludes_conflict_dags(self):
-        DAG.objects.create(team=self.team, name="conflict_abc_posthog_1")
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/dag_ids/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        dag_names = {d["name"] for d in response.json()["dag_ids"]}
-        self.assertNotIn("conflict_abc_posthog_1", dag_names)
 
     def test_run_requires_direction(self):
         response = self.client.post(
@@ -381,6 +358,65 @@ class TestNodeViewSet(APIBaseTest):
         self.assertNotIn(str(other_table.id), node_ids)
         self.assertNotIn(str(other_view.id), node_ids)
 
+    @parameterized.expand(["post", "put", "patch"])
+    def test_dag_field_rejects_other_teams_dag(self, method):
+        other_team = Team.objects.create(organization=self.organization)
+        foreign_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
+
+        if method == "post":
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/",
+                data={"name": "new_table", "type": NodeType.TABLE, "dag": str(foreign_dag.id)},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertFalse(Node.objects.filter(name="new_table", dag=foreign_dag).exists())
+            return
+
+        original_dag_id = self.view_node.dag_id
+        url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        if method == "patch":
+            response = self.client.patch(url, data={"dag": str(foreign_dag.id)}, format="json")
+        else:
+            response = self.client.put(
+                url,
+                data={"name": "test_view", "type": NodeType.VIEW, "dag": str(foreign_dag.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.view_node.refresh_from_db()
+        self.assertEqual(self.view_node.dag_id, original_dag_id)
+
+    @parameterized.expand(["put", "patch"])
+    def test_saved_query_id_cannot_be_bound_to_other_teams_query(self, method):
+        other_team = Team.objects.create(organization=self.organization)
+        foreign_sq = DataWarehouseSavedQuery.objects.create(
+            name="leaked_name",
+            team=other_team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        original_saved_query_id = self.view_node.saved_query_id
+        url = f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/"
+        if method == "patch":
+            self.client.patch(url, data={"saved_query_id": str(foreign_sq.id)}, format="json")
+        else:
+            self.client.put(
+                url,
+                data={
+                    "name": "test_view",
+                    "type": NodeType.VIEW,
+                    "dag": str(self.dag.id),
+                    "saved_query_id": str(foreign_sq.id),
+                },
+                format="json",
+            )
+
+        self.view_node.refresh_from_db()
+        self.assertEqual(self.view_node.saved_query_id, original_saved_query_id)
+        self.assertNotEqual(self.view_node.name, foreign_sq.name)
+
 
 class TestEdgeViewSet(APIBaseTest):
     def setUp(self):
@@ -425,32 +461,6 @@ class TestEdgeViewSet(APIBaseTest):
         self.assertEqual(edge["source_id"], str(self.source_node.id))
         self.assertEqual(edge["target_id"], str(self.target_node.id))
         self.assertEqual(edge["dag"], str(self.dag.id))
-
-    def test_list_edges_excludes_conflict_dags(self):
-        conflict_dag = DAG.objects.create(team=self.team, name="conflict_abc_posthog_1")
-        conflict_source = Node.objects.create(
-            team=self.team,
-            dag=conflict_dag,
-            name="conflict_source",
-            type=NodeType.TABLE,
-        )
-        conflict_target = Node.objects.create(
-            team=self.team,
-            dag=conflict_dag,
-            name="conflict_target",
-            type=NodeType.TABLE,
-        )
-        Edge.objects.create(
-            team=self.team,
-            dag=conflict_dag,
-            source=conflict_source,
-            target=conflict_target,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
 
     def test_list_edges_with_dag_filter(self):
         another_dag = DAG.objects.create(team=self.team, name="another_dag")

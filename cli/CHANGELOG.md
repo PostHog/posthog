@@ -1,5 +1,21 @@
 # posthog-cli
 
+# 0.7.11
+
+- fix: resolve release once in `process` command to avoid race condition when multiple workers run in parallel
+- fix: skip synthetic Swift CU names (e.g. `<swift-imported-modules>`) before joining with `comp_dir` so they no longer dominate the project-root prefix and reject real source files
+
+# 0.7.10
+
+- feat: add `symbol-sets download` command to download symbol sets by ID or ref
+- feat: add `symbol-sets extract` command for local file extraction
+- fix: prevent ZIP path traversal in dSYM extraction
+- fix: validate symbol set ID is a UUID before download
+
+# 0.7.9
+
+- feat: warn and skip empty sourcemaps (no mappings/sources/names) during upload to surface bundler misconfigurations instead of silently uploading useless symbol sets
+
 # 0.7.8
 
 - feat: add `--build` flag to all upload commands (hermes, dsym, proguard, sourcemap) via shared ReleaseArgs

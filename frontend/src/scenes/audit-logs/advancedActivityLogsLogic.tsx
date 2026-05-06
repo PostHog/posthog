@@ -72,8 +72,10 @@ export interface ExportedAsset {
 }
 
 // Constants
+export const DEFAULT_START_DATE = '-30d'
+
 const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
-    start_date: '-30d',
+    start_date: DEFAULT_START_DATE,
     users: [],
     scopes: [],
     activities: [],

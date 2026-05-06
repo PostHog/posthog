@@ -6,7 +6,7 @@ from typing import Any, Literal, cast
 
 from temporalio import activity
 
-AnalysisLevel = Literal["trace", "generation"]
+AnalysisLevel = Literal["trace", "generation", "evaluation"]
 
 
 @dataclass

@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
-from products.mcp_store.backend.models import MCPServer, MCPServerInstallation
+from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 
 
 class TestGetActiveInstallations(BaseTest):
@@ -71,15 +71,18 @@ class TestGetActiveInstallations(BaseTest):
 
         assert results[0].name == "My Custom Server"
 
-    def test_name_falls_back_to_server_name(self) -> None:
-        server = MCPServer.objects.create(
-            name="Linear", url="https://linear.app/.well-known/oauth", created_by=self.user
+    def test_name_falls_back_to_template_name(self) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Custom Template",
+            url="https://mcp.custom-template.example.com/mcp",
+            auth_type="oauth",
+            created_by=self.user,
         )
-        self._create_installation(display_name="", server=server)
+        self._create_installation(display_name="", template=template, url=template.url)
 
         results = get_active_installations(self.team.id, self.user.id)
 
-        assert results[0].name == "Linear"
+        assert results[0].name == "Custom Template"
 
     def test_name_falls_back_to_url(self) -> None:
         self._create_installation(display_name="", url="https://mcp.notion.com/mcp")

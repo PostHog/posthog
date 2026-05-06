@@ -2,6 +2,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -59,7 +60,7 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         tags=["web_analytics"],
     )
     @action(detail=False, methods=["get"], url_path="weekly_digest")
-    def weekly_digest(self, request, **kwargs) -> Response:
+    def weekly_digest(self, request: "Request", **kwargs: object) -> Response:
         query_serializer = _DigestQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         params = query_serializer.validated_data

@@ -62,3 +62,24 @@ class TestConversationsTicketEmitter:
 
         assert result is not None
         assert result.extra["priority"] is None
+
+    def test_extra_includes_image_attachments_when_present(self, conversations_ticket_record):
+        conversations_ticket_record["image_attachments"] = [
+            {"url": "https://media.posthog.com/a.png", "author": "customer"},
+            {"url": "https://media.posthog.com/b.png", "author": "team"},
+        ]
+        result = conversations_ticket_emitter(team_id=1, record=conversations_ticket_record)
+
+        assert result is not None
+        assert result.extra["images"] == [
+            {"url": "https://media.posthog.com/a.png", "author": "customer"},
+            {"url": "https://media.posthog.com/b.png", "author": "team"},
+        ]
+
+    @pytest.mark.parametrize("image_attachments", [None, []])
+    def test_extra_omits_images_key_when_no_attachments(self, conversations_ticket_record, image_attachments):
+        conversations_ticket_record["image_attachments"] = image_attachments
+        result = conversations_ticket_emitter(team_id=1, record=conversations_ticket_record)
+
+        assert result is not None
+        assert "images" not in result.extra

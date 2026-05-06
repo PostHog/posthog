@@ -37,9 +37,30 @@ export const nameOrLinkToExperiment = (name: string | null, id?: string): JSX.El
  */
 type AllowedExperimentFields = Pick<
     Experiment,
-    'conclusion' | 'start_date' | 'end_date' | 'metrics' | 'metrics_secondary' | 'exposure_criteria'
+    | 'conclusion'
+    | 'start_date'
+    | 'end_date'
+    | 'metrics'
+    | 'metrics_secondary'
+    | 'exposure_criteria'
+    | 'primary_metrics_ordered_uuids'
+    | 'secondary_metrics_ordered_uuids'
 > & {
     deleted: boolean
+}
+
+/**
+ * Detect a pure metric reorder. Returns the description only when the two
+ * arrays contain the same set of UUIDs in a different order — additions,
+ * removals, and swaps are described by the `metrics` field matcher instead.
+ */
+const describeMetricReorder = (before: unknown, after: unknown, description: string): string | null => {
+    const b = (before as string[] | null) ?? []
+    const a = (after as string[] | null) ?? []
+    if (equal(b, a) || !equal([...b].sort(), [...a].sort())) {
+        return null
+    }
+    return description
 }
 
 export const getExperimentChangeDescription = (
@@ -69,11 +90,11 @@ export const getExperimentChangeDescription = (
                     const duration = dayjs.duration(Math.abs(diff), 'minute')
                     const sign = diff > 0 ? 'moved the start date forward' : 'moved the start date back'
 
-                    return `${sign} by ${duration.humanize()} on`
+                    return `${sign} by ${duration.humanize()}`
                 }
             }
 
-            return 'updated the start date of'
+            return 'changed the start date'
         })
         .with({ field: 'end_date' }, ({ action, before, after }) => {
             /**
@@ -83,7 +104,7 @@ export const getExperimentChangeDescription = (
                 return 'stopped experiment'
             }
 
-            return 'updated the end date of'
+            return 'changed the end date'
         })
         .with({ field: 'conclusion' }, ({ action, before, after }) => {
             /**
@@ -102,12 +123,11 @@ export const getExperimentChangeDescription = (
                 return (
                     <span>
                         changed the conclusion to <ExperimentConclusionTag conclusion={after as ExperimentConclusion} />
-                        &nbsp;for
                     </span>
                 )
             }
 
-            return 'updated conclusion for'
+            return 'changed the conclusion'
         })
         .with({ field: 'metrics', action: 'created', before: null }, () => 'added the first metric to')
         .with({ field: 'metrics', action: 'changed' }, ({ before, after }) =>
@@ -115,6 +135,12 @@ export const getExperimentChangeDescription = (
         )
         .with({ field: 'metrics_secondary', action: 'changed' }, ({ before, after }) =>
             getMetricChanges(before as ExperimentMetric[], after as ExperimentMetric[])
+        )
+        .with({ field: 'primary_metrics_ordered_uuids', action: 'changed' }, ({ before, after }) =>
+            describeMetricReorder(before, after, 'reordered the primary metrics')
+        )
+        .with({ field: 'secondary_metrics_ordered_uuids', action: 'changed' }, ({ before, after }) =>
+            describeMetricReorder(before, after, 'reordered the secondary metrics')
         )
         .with({ field: 'exposure_criteria' }, ({ before, after }) => {
             /**

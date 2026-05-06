@@ -89,6 +89,7 @@ function createProducePromises(personsStoreMessages: FlushResult[], outputs: Per
                 .produce(message.output, {
                     key: null,
                     value: message.value,
+                    teamId: record.teamId,
                 })
                 .catch((error) => {
                     // Handle message size errors gracefully by capturing a warning

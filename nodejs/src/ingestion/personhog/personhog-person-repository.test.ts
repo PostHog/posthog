@@ -124,6 +124,11 @@ function createGrpcClient(): { client: PersonHogClient; handlers: ServiceHandler
             upsertHashKeyOverrides: () => ({}),
             deleteHashKeyOverridesByTeams: () => ({}),
             checkCohortMembership: () => ({ memberships: [] }),
+            countCohortMembers: () => ({ count: 0n }),
+            deleteCohortMember: () => ({ deleted: false }),
+            deleteCohortMembersBulk: () => ({ deletedCount: 0n }),
+            insertCohortMembers: () => ({ insertedCount: 0n }),
+            listCohortMemberIds: () => ({ personIds: [], nextCursor: 0n }),
             updatePersonProperties: () => ({}),
         })
     })
