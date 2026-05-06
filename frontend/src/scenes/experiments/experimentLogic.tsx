@@ -1843,10 +1843,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to reset experiment')
             }
         },
-        updateExperimentSuccess: async ({ experiment, payload }) => {
-            actions.updateExperiments(experiment)
-            if (payload?.update_feature_flag_params && experiment.feature_flag) {
-                actions.updateFlagFromPartial(experiment.feature_flag)
+        updateExperimentSuccess: async ({ experimentUpdate, payload }) => {
+            if (experimentUpdate) {
+                actions.updateExperiments(experimentUpdate)
+                if (payload?.update_feature_flag_params && experimentUpdate.feature_flag) {
+                    actions.updateFlagFromPartial(experimentUpdate.feature_flag)
+                }
             }
             // NOTE: No implicit metric reload here. Each action that calls updateExperiment
             // is responsible for triggering its own reload if needed. This prevents:
@@ -2476,17 +2478,25 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
                 return NEW_EXPERIMENT
             },
-            updateExperiment: async (update: Partial<Experiment> & { update_feature_flag_params?: boolean }) => {
-                const response: Experiment = await api.update(
-                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
-                    update
-                )
-                const responseWithMetricsOrdering = initializeMetricOrdering(response)
-                refreshTreeItem('experiment', String(values.experimentId))
-                actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                return responseWithMetricsOrdering
-            },
         },
+        // Separate loader for updates to avoid triggering experimentLoading
+        experimentUpdate: [
+            null as Experiment | null,
+            {
+                updateExperiment: async (update: Partial<Experiment> & { update_feature_flag_params?: boolean }) => {
+                    const response: Experiment = await api.update(
+                        `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                        update
+                    )
+                    const responseWithMetricsOrdering = initializeMetricOrdering(response)
+                    refreshTreeItem('experiment', String(values.experimentId))
+                    actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                    // Also update the main experiment state
+                    actions.setExperiment(responseWithMetricsOrdering)
+                    return responseWithMetricsOrdering
+                },
+            },
+        ],
         exposureCohort: [
             null as CohortType | null,
             {
