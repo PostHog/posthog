@@ -15,8 +15,7 @@ import pytest
 
 from django.conf import settings
 
-from temporalio.testing import WorkflowEnvironment
-
+from posthog.models import OAuthApplication
 from posthog.temporal.common.worker import create_worker
 
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
@@ -46,31 +45,18 @@ LLM_GATEWAY_PORT = 13308  # Non-default port to avoid conflicts with dev LLM gat
 SANDBOXED_EVAL_DATABASES = ("default", "persons_db_writer", "persons_db_reader")
 
 
-@pytest.fixture(scope="session")
-def _sandboxed_temporal_environment() -> Generator[tuple[str, int], None, None]:
-    """Start an isolated Temporal server for sandboxed eval workflows.
-
-    The repo's Docker Temporal service depends on Elasticsearch and can accept a
-    TCP connection before Temporal frontend is actually ready. Using the SDK test
-    server keeps these evals independent from that local service state.
-    """
-    environment = asyncio.run(WorkflowEnvironment.start_local())
-    target_host = environment.client.service_client.config.target_host
-    host, port = target_host.rsplit(":", 1)
-    logger.info("Sandboxed eval Temporal server ready at %s", target_host)
-
-    try:
-        yield host, int(port)
-    finally:
-        asyncio.run(environment.shutdown())
-
-
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
     """Auto-extend ``@pytest.mark.django_db`` for every sandboxed eval.
 
     Tests under this directory transparently get access to the persons
     replicas. If a test ever needs a narrower whitelist it can set
     ``databases=...`` on its own marker — explicit kwargs win.
+
+    ``transaction=True`` is applied by default so ORM writes are committed and
+    visible to Temporal activities, which run on worker threads with their own
+    DB connections. Without this, ``get_task_processing_context`` raises
+    ``TaskRun matching query does not exist`` while the test transaction is
+    still open.
 
     Prepended via ``append=False`` so it beats the function-level
     ``@pytest.mark.django_db`` in pytest's ``iter_markers``/``get_closest_marker``
@@ -92,6 +78,8 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             continue  # respect explicit per-test override
         args = existing.args if existing is not None else ()
         kwargs = {**(existing.kwargs if existing is not None else {}), "databases": list(SANDBOXED_EVAL_DATABASES)}
+        if "transaction" not in kwargs:
+            kwargs["transaction"] = True
         item.add_marker(pytest.mark.django_db(*args, **kwargs), append=False)
 
 
@@ -137,6 +125,50 @@ def _cleanup_sandbox_containers(pytestconfig):
         logger.info("--keep-sandbox-containers set, skipping container cleanup")
         return
     _cleanup_eval_containers()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _posthog_oauth_app(django_db_setup, django_db_blocker):
+    """Seed the Array OAuth application required by sandbox MCP auth.
+
+    The temporal workflow's ``provision_sandbox`` activity creates an OAuth
+    access token so the sandbox can authenticate with the PostHog MCP server.
+    Without this record the activity raises ``OAuthTokenError``.
+
+    Uses ``get_array_app()`` first (succeeds if the app already exists in a
+    reused DB), falling back to creating it with the client ID that
+    ``get_array_app()`` would resolve for the current ``CLOUD_DEPLOYMENT``.
+    """
+    from posthog.temporal.oauth import (
+        ARRAY_APP_CLIENT_ID_DEV,
+        ARRAY_APP_CLIENT_ID_EU,
+        ARRAY_APP_CLIENT_ID_US,
+        get_array_app,
+    )
+    from posthog.utils import get_instance_region
+
+    with django_db_blocker.unblock():
+        try:
+            app = get_array_app()
+        except RuntimeError:
+            region = get_instance_region()
+            if region == "EU":
+                client_id = ARRAY_APP_CLIENT_ID_EU
+            elif region == "US":
+                client_id = ARRAY_APP_CLIENT_ID_US
+            else:
+                client_id = ARRAY_APP_CLIENT_ID_DEV
+            app, _ = OAuthApplication.objects.get_or_create(
+                client_id=client_id,
+                defaults={
+                    "name": "Array Test App",
+                    "client_type": OAuthApplication.CLIENT_PUBLIC,
+                    "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                    "redirect_uris": "https://app.posthog.com/callback",
+                    "algorithm": "RS256",
+                },
+            )
+    yield app
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -192,7 +224,7 @@ def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandbox_settings(_django_live_server, _llm_gateway, _posthog_oauth_app, _sandboxed_temporal_environment):
+def _sandbox_settings(_django_live_server, _llm_gateway, _posthog_oauth_app):
     """Configure Django settings required by the sandbox/temporal activities.
 
     All URLs use ``host.docker.internal`` so they're reachable from inside
@@ -209,7 +241,6 @@ def _sandbox_settings(_django_live_server, _llm_gateway, _posthog_oauth_app, _sa
     # Docker containers reach the host via host.docker.internal
     docker_api_url = f"http://host.docker.internal:{DJANGO_LIVE_PORT}"
     docker_llm_gateway_url = f"http://host.docker.internal:{LLM_GATEWAY_PORT}"
-    temporal_host, temporal_port = _sandboxed_temporal_environment
 
     import posthoganalytics
 
@@ -220,11 +251,6 @@ def _sandbox_settings(_django_live_server, _llm_gateway, _posthog_oauth_app, _sa
             SANDBOX_API_URL=docker_api_url,
             SANDBOX_LLM_GATEWAY_URL=docker_llm_gateway_url,
             SANDBOX_MCP_URL=f"http://host.docker.internal:{MCP_PORT}/mcp",
-            TEMPORAL_HOST=temporal_host,
-            TEMPORAL_PORT=str(temporal_port),
-            TEMPORAL_NAMESPACE="default",
-            TEMPORAL_CLIENT_CERT=None,
-            TEMPORAL_CLIENT_KEY=None,
         ),
         patch.object(posthoganalytics, "feature_enabled", return_value=True),
     ):
