@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NotRequired, Required, TypedDict
 
 from django.conf import settings
 from django.db import models
@@ -60,6 +60,60 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(seconds=60),
     backoff_coefficient=2.0,
 )
+
+
+class LLMJudgeResult(TypedDict, total=False):
+    """Result produced by `execute_llm_judge_activity`, `_build_errored_trace_result`, and
+    `execute_hog_eval_activity`.
+
+    `total=False` is used as the default so individual fields opt in via `Required` /
+    `NotRequired`, making the contract honest about which keys every path actually sets:
+
+    - `verdict`, `reasoning`, `allows_na` are set on every path (LLM judge success, errored-
+      trace skip, hog eval) and are `Required`.
+    - `applicable` is set only when `allows_na=True`.
+    - `skipped` and `skip_reason` are set only on the skip path (e.g. errored source trace).
+    - `model`, `provider`, `key_id`, `is_byok`, and the `*_tokens` fields come from the LLM
+      judge success path. The skip path omits `model`/`provider` so downstream cost
+      attribution doesn't credit phantom calls, and `execute_hog_eval_activity` (whose
+      output also flows into `emit_evaluation_event_activity`) emits only `verdict`,
+      `reasoning`, `allows_na`, and optionally `applicable`.
+    """
+
+    verdict: Required[bool | None]
+    reasoning: Required[str]
+    allows_na: Required[bool]
+    input_tokens: NotRequired[int]
+    output_tokens: NotRequired[int]
+    total_tokens: NotRequired[int]
+    is_byok: NotRequired[bool]
+    key_id: NotRequired[str | None]
+    model: NotRequired[str]
+    provider: NotRequired[str]
+    applicable: NotRequired[bool]
+    skipped: NotRequired[bool]
+    skip_reason: NotRequired[str]
+
+
+class WorkflowResult(TypedDict, total=False):
+    """Result returned by `RunEvaluationWorkflow.run`.
+
+    Composes a subset of `LLMJudgeResult` with workflow-level identifiers. Both branches
+    that build this dict — the skip-on-error branch (e.g. `trial_limit_reached`,
+    `key_invalid`) and the normal-completion branch — always set `verdict`, `evaluation_id`,
+    `evaluation_type`, and `skipped`, so those four are `Required`. The skip-on-error branch
+    omits `reasoning` and `is_byok` and adds `message`; `skip_reason` is set only when
+    `skipped=True`.
+    """
+
+    verdict: Required[bool | None]
+    evaluation_id: Required[str]
+    evaluation_type: Required[str]
+    skipped: Required[bool]
+    reasoning: NotRequired[str]
+    is_byok: NotRequired[bool]
+    skip_reason: NotRequired[str]
+    message: NotRequired[str]
 
 
 class BooleanEvalResult(BaseModel):
@@ -445,18 +499,17 @@ def _is_errored_trace(properties: dict[str, Any]) -> bool:
     return False
 
 
-def _build_errored_trace_result(allows_na: bool) -> dict[str, Any]:
+def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
     """Result returned when the source trace errored — skips the LLM call entirely.
 
-    Keep the keys here in sync with the success-path result built around the bottom of
-    `execute_llm_judge_activity`; `emit_evaluation_event_activity` and the workflow downstream
-    both branch on the same shape. `model` and `provider` are deliberately omitted so the
-    `.get(..., DEFAULT_JUDGE_MODEL)` defaults don't silently attribute phantom calls to a model
-    that was never invoked — the emit activity instead detects the `skipped` flag and drops
-    cost / model attribution entirely.
+    `model` and `provider` are deliberately omitted so the `.get(..., DEFAULT_JUDGE_MODEL)`
+    defaults in downstream activities don't silently attribute phantom calls to a model that
+    was never invoked — the emit activity instead detects the `skipped` flag and drops cost
+    and model attribution entirely. The `LLMJudgeResult` TypedDict expresses the shape
+    contract previously enforced by convention.
     """
     reasoning = "Source trace errored before producing output; evaluation skipped."
-    result: dict[str, Any] = {
+    result: LLMJudgeResult = {
         "verdict": None if allows_na else False,
         "reasoning": reasoning,
         "input_tokens": 0,
@@ -474,7 +527,7 @@ def _build_errored_trace_result(allows_na: bool) -> dict[str, Any]:
 
 
 @temporalio.activity.defn
-async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str, Any]:
+async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
     """Execute LLM judge to evaluate the target event.
 
     Fetches API key configuration internally to avoid passing sensitive data between activities.
@@ -722,7 +775,7 @@ Output: {output_data}"""
         bind_contextvars(provider=provider, model=model)
 
     # Build result dict based on allows_na config
-    result_dict: dict[str, Any] = {
+    result_dict: LLMJudgeResult = {
         "verdict": result.verdict,
         "reasoning": result.reasoning,
         "input_tokens": usage.input_tokens if usage else 0,
@@ -846,8 +899,14 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
 
 
 @temporalio.activity.defn
-async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
-    """Execute Hog code to evaluate the target event."""
+async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> LLMJudgeResult:
+    """Execute Hog code to evaluate the target event.
+
+    Returns a strict subset of `LLMJudgeResult` (verdict, reasoning, allows_na, optionally
+    applicable). The shared TypedDict lets both this activity and `execute_llm_judge_activity`
+    feed `EmitEvaluationEventInputs.result` without a wider union — downstream code already
+    branches on `evaluation_type` and `result.get("skipped")` before reading LLM-only keys.
+    """
     if evaluation["evaluation_type"] != "hog":
         raise ApplicationError(
             f"Unsupported evaluation type: {evaluation['evaluation_type']}",
@@ -873,7 +932,7 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
             non_retryable=True,
         )
 
-    activity_result: dict[str, Any] = {
+    activity_result: LLMJudgeResult = {
         "verdict": result["verdict"],
         "reasoning": result["reasoning"],
         "allows_na": allows_na,
@@ -888,7 +947,7 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
 class EmitEvaluationEventInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
-    result: dict[str, Any]
+    result: LLMJudgeResult
     start_time: datetime
 
     @property
@@ -992,7 +1051,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
 class EmitInternalTelemetryInputs:
     evaluation: dict[str, Any]
     team_id: int
-    result: dict[str, Any]
+    result: LLMJudgeResult
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -1046,7 +1105,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         )
 
     @temporalio.workflow.run
-    async def run(self, inputs: RunEvaluationInputs) -> dict[str, Any]:
+    async def run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
         start_time = temporalio.workflow.now()
         evaluation = await temporalio.workflow.execute_activity(
             fetch_evaluation_activity,
@@ -1135,7 +1194,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                                             evaluation_id=evaluation["id"],
                                             team_id=evaluation["team_id"],
                                         )
-                        return {
+                        skip_result: WorkflowResult = {
                             "verdict": None,
                             "skipped": True,
                             "skip_reason": error_type,
@@ -1143,6 +1202,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                             "evaluation_id": evaluation["id"],
                             "evaluation_type": evaluation_type,
                         }
+                        return skip_result
 
                     # Update key state for API-related errors
                     key_id = details.get("key_id")
@@ -1276,7 +1336,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         team_id=evaluation["team_id"],
                     )
 
-        workflow_result: dict[str, Any] = {
+        workflow_result: WorkflowResult = {
             "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
@@ -1288,5 +1348,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # above) so consumers can group skipped workflows by reason without special-casing the
         # source of the skip.
         if result.get("skipped"):
-            workflow_result["skip_reason"] = result.get("skip_reason")
+            skip_reason = result.get("skip_reason")
+            if skip_reason is not None:
+                workflow_result["skip_reason"] = skip_reason
         return workflow_result

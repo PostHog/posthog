@@ -417,6 +417,8 @@ SPECTACULAR_SETTINGS = {
         "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
         "HogFlowStatusEnum": "posthog.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
+        "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [

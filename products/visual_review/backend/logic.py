@@ -29,7 +29,16 @@ from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .diff_metadata import DiffMetadata
+from .facade.enums import (
+    ChangeKind,
+    ReviewDecision,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    SnapshotResult,
+    ToleratedReason,
+)
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -2363,6 +2372,9 @@ def update_snapshot_diff(
     diff_artifact: Artifact,
     diff_percentage: float,
     diff_pixel_count: int,
+    ssim_score: float,
+    change_kind: ChangeKind,
+    diff_metadata: DiffMetadata,
     team_id: int | None = None,
 ) -> RunSnapshot:
     qs = RunSnapshot.objects.select_related("run")
@@ -2379,7 +2391,22 @@ def update_snapshot_diff(
     snapshot.diff_artifact = diff_artifact
     snapshot.diff_percentage = diff_percentage
     snapshot.diff_pixel_count = diff_pixel_count
-    snapshot.save(update_fields=["diff_artifact", "diff_percentage", "diff_pixel_count"])
+    snapshot.ssim_score = ssim_score
+    snapshot.change_kind = change_kind.value
+    # The Pydantic dump is the only legal write path into this column; reads
+    # go through DiffMetadata.model_validate. Storage is JSONB; the schema
+    # lives in diff_metadata.py.
+    snapshot.diff_metadata = diff_metadata.model_dump(mode="json")
+    snapshot.save(
+        update_fields=[
+            "diff_artifact",
+            "diff_percentage",
+            "diff_pixel_count",
+            "ssim_score",
+            "change_kind",
+            "diff_metadata",
+        ]
+    )
     return snapshot
 
 

@@ -153,7 +153,8 @@ export interface RoleLookupResponseApi {
 }
 
 /**
- * * `apns` - Apple Push
+ * * `anthropic` - Anthropic
+ * `apns` - Apple Push
  * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
  * `clickup` - Clickup
@@ -191,6 +192,7 @@ export interface RoleLookupResponseApi {
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
+    Anthropic: 'anthropic',
     Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
@@ -416,6 +418,44 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 
 export type IntegrationsListParams = {
     /**
+     * * `anthropic` - Anthropic
+     * `apns` - Apple Push
+     * `azure-blob` - Azure Blob
+     * `bing-ads` - Bing Ads
+     * `clickup` - Clickup
+     * `customerio-app` - Customerio App
+     * `customerio-track` - Customerio Track
+     * `customerio-webhook` - Customerio Webhook
+     * `databricks` - Databricks
+     * `email` - Email
+     * `firebase` - Firebase
+     * `github` - Github
+     * `gitlab` - Gitlab
+     * `google-ads` - Google Ads
+     * `google-cloud-service-account` - Google Cloud Service Account
+     * `google-cloud-storage` - Google Cloud Storage
+     * `google-pubsub` - Google Pubsub
+     * `google-sheets` - Google Sheets
+     * `hubspot` - Hubspot
+     * `intercom` - Intercom
+     * `jira` - Jira
+     * `linear` - Linear
+     * `linkedin-ads` - Linkedin Ads
+     * `meta-ads` - Meta Ads
+     * `pinterest-ads` - Pinterest Ads
+     * `postgresql` - Postgresql
+     * `reddit-ads` - Reddit Ads
+     * `salesforce` - Salesforce
+     * `slack` - Slack
+     * `slack-posthog-code` - Slack Posthog Code
+     * `snapchat` - Snapchat
+     * `stripe` - Stripe
+     * `tiktok-ads` - Tiktok Ads
+     * `twilio` - Twilio
+     * `vercel` - Vercel
+     */
+    kind?: IntegrationsListKind
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -424,6 +464,46 @@ export type IntegrationsListParams = {
      */
     offset?: number
 }
+
+export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof IntegrationsListKind]
+
+export const IntegrationsListKind = {
+    Anthropic: 'anthropic',
+    Apns: 'apns',
+    AzureBlob: 'azure-blob',
+    BingAds: 'bing-ads',
+    Clickup: 'clickup',
+    CustomerioApp: 'customerio-app',
+    CustomerioTrack: 'customerio-track',
+    CustomerioWebhook: 'customerio-webhook',
+    Databricks: 'databricks',
+    Email: 'email',
+    Firebase: 'firebase',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    GoogleAds: 'google-ads',
+    GoogleCloudServiceAccount: 'google-cloud-service-account',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GooglePubsub: 'google-pubsub',
+    GoogleSheets: 'google-sheets',
+    Hubspot: 'hubspot',
+    Intercom: 'intercom',
+    Jira: 'jira',
+    Linear: 'linear',
+    LinkedinAds: 'linkedin-ads',
+    MetaAds: 'meta-ads',
+    PinterestAds: 'pinterest-ads',
+    Postgresql: 'postgresql',
+    RedditAds: 'reddit-ads',
+    Salesforce: 'salesforce',
+    Slack: 'slack',
+    SlackPosthogCode: 'slack-posthog-code',
+    Snapchat: 'snapchat',
+    Stripe: 'stripe',
+    TiktokAds: 'tiktok-ads',
+    Twilio: 'twilio',
+    Vercel: 'vercel',
+} as const
 
 export type IntegrationsGithubBranchesRetrieveParams = {
     /**

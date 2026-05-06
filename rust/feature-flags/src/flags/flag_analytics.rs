@@ -13,14 +13,20 @@ pub fn is_billable_flag_key(key: &str) -> bool {
         && !key.starts_with(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
 }
 
-const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
+pub const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
+
+/// Current 2-minute bucket, expressed as `unix_seconds / CACHE_BUCKET_SIZE`.
+pub fn current_bucket() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() / CACHE_BUCKET_SIZE)
+        .unwrap_or(0)
+}
 
 pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> String {
     match request_type {
         FlagRequestType::Decide => format!("posthog:decide_requests:{team_id}"),
-        FlagRequestType::FlagDefinitions => {
-            format!("posthog:local_evaluation_requests:{team_id}")
-        }
+        FlagRequestType::FlagDefinitions => format!("posthog:local_evaluation_requests:{team_id}"),
     }
 }
 
@@ -30,15 +36,40 @@ pub fn get_team_request_library_key(
     library: Library,
 ) -> String {
     match request_type {
-        FlagRequestType::Decide => {
-            format!("posthog:decide_requests:sdk:{team_id}:{library}")
-        }
+        FlagRequestType::Decide => format!("posthog:decide_requests:sdk:{team_id}:{library}"),
         FlagRequestType::FlagDefinitions => {
             format!("posthog:local_evaluation_requests:sdk:{team_id}:{library}")
         }
     }
 }
 
+/// Suffix appended to a production key to obtain its shadow-keyspace mirror.
+/// The `BillingAggregator` writes to shadow keys so its counts can be
+/// reconciled against the authoritative synchronous path without affecting
+/// billing.
+pub const SHADOW_KEY_SUFFIX: &str = ":shadow";
+
+pub fn get_team_request_shadow_key(team_id: i32, request_type: FlagRequestType) -> String {
+    format!(
+        "{}{SHADOW_KEY_SUFFIX}",
+        get_team_request_key(team_id, request_type)
+    )
+}
+
+pub fn get_team_request_library_shadow_key(
+    team_id: i32,
+    request_type: FlagRequestType,
+    library: Library,
+) -> String {
+    format!(
+        "{}{SHADOW_KEY_SUFFIX}",
+        get_team_request_library_key(team_id, request_type, library)
+    )
+}
+
+/// Synchronous, per-request HINCRBY into the production billing keyspace.
+/// This is the authoritative billing write — see `crate::billing` for the
+/// dual-write contract.
 pub async fn increment_request_count(
     redis_client: Arc<dyn RedisClient + Send + Sync>,
     team_id: i32,
@@ -46,13 +77,7 @@ pub async fn increment_request_count(
     request_type: FlagRequestType,
     library: Option<Library>,
 ) -> Result<(), CustomRedisError> {
-    let time_bucket = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        / CACHE_BUCKET_SIZE;
-
-    let time_bucket_str = time_bucket.to_string();
+    let time_bucket_str = current_bucket().to_string();
     let key_name = get_team_request_key(team_id, request_type);
 
     // Build pipeline commands for a single Redis round-trip
@@ -126,6 +151,54 @@ mod tests {
             get_team_request_library_key(102, FlagRequestType::Decide, Library::Other),
             "posthog:decide_requests:sdk:102:other"
         );
+    }
+
+    #[test]
+    fn test_get_team_request_shadow_key() {
+        assert_eq!(
+            get_team_request_shadow_key(123, FlagRequestType::Decide),
+            "posthog:decide_requests:123:shadow"
+        );
+        assert_eq!(
+            get_team_request_shadow_key(456, FlagRequestType::FlagDefinitions),
+            "posthog:local_evaluation_requests:456:shadow"
+        );
+    }
+
+    #[test]
+    fn test_get_team_request_library_shadow_key() {
+        assert_eq!(
+            get_team_request_library_shadow_key(123, FlagRequestType::Decide, Library::PosthogNode),
+            "posthog:decide_requests:sdk:123:posthog-node:shadow"
+        );
+        assert_eq!(
+            get_team_request_library_shadow_key(
+                456,
+                FlagRequestType::FlagDefinitions,
+                Library::PosthogJs
+            ),
+            "posthog:local_evaluation_requests:sdk:456:posthog-js:shadow"
+        );
+    }
+
+    #[test]
+    fn test_shadow_keys_never_collide_with_production_keys() {
+        // The reconciliation strategy depends on the two keyspaces being
+        // disjoint — a shared key would corrupt the production count.
+        for team_id in [1, 100_000, i32::MAX] {
+            for rt in [FlagRequestType::Decide, FlagRequestType::FlagDefinitions] {
+                assert_ne!(
+                    get_team_request_key(team_id, rt),
+                    get_team_request_shadow_key(team_id, rt)
+                );
+                for lib in [Library::PosthogNode, Library::PosthogJs, Library::Other] {
+                    assert_ne!(
+                        get_team_request_library_key(team_id, rt, lib),
+                        get_team_request_library_shadow_key(team_id, rt, lib)
+                    );
+                }
+            }
+        }
     }
 
     #[tokio::test]

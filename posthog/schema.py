@@ -6183,6 +6183,17 @@ class AssistantTrendsBreakdownFilter(BaseModel):
         extra="forbid",
     )
     breakdown_limit: int | None = Field(default=25, description="How many distinct values to show.")
+    breakdown_path_cleaning: bool | None = Field(
+        default=None,
+        description=(
+            "When `true`, applies the project's configured path cleaning rules to URL"
+            " or path breakdown values (e.g. `$pathname`, `$current_url`). Use this"
+            " whenever the user asks for a breakdown by a URL or path property and"
+            " there is no specific reason to keep the raw values. The user does not"
+            " need to provide a regex — path cleaning rules come from the project's"
+            " settings."
+        ),
+    )
     breakdowns: list[AssistantGroupMultipleBreakdownFilter | AssistantGenericMultipleBreakdownFilter] = Field(
         ..., description="Use this field to define breakdowns.", max_length=3
     )
@@ -9405,6 +9416,24 @@ class AssistantFunnelsEventsNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class AssistantFunnelsGroupNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    kind: Literal["GroupNode"] = "GroupNode"
+    name: str | None = Field(default=None, description="Display name for the combined step.")
+    nodes: list[AssistantFunnelsEventsNode | AssistantFunnelsActionsNode] = Field(
+        ...,
+        description=(
+            "Events and actions combined into the step. Use per-node `properties` to"
+            " filter each event; there is no step-wide filter on a grouped step."
+        ),
+        min_length=2,
+    )
+    operator: Literal["OR"] = Field(default="OR", description="Only `OR` is supported.")
+
+
 class AssistantFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9477,7 +9506,7 @@ class AssistantFunnelsQuery(BaseModel):
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
     )
-    series: list[AssistantFunnelsEventsNode | AssistantFunnelsActionsNode] = Field(
+    series: list[AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode] = Field(
         ...,
         description=("Events or actions to include. Prioritize the more popular and fresh events and actions."),
     )
@@ -21726,6 +21755,7 @@ class VisualizationBlock(BaseModel):
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
@@ -22008,6 +22038,7 @@ class VisualizationItem(BaseModel):
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
@@ -22037,6 +22068,7 @@ class VisualizationMessage(BaseModel):
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
@@ -23607,7 +23639,8 @@ class VisualizationArtifactContent(BaseModel):
     name: str | None = None
     plan: str | None = None
     query: (
-        AssistantTrendsQuery
+        DataVisualizationNode
+        | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
         | AssistantStickinessQuery

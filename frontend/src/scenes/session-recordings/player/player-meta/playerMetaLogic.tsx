@@ -113,7 +113,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById'],
+            ['recordingPropertiesById', 'recordingPropertiesLoading'],
             sessionRecordingPinnedPropertiesLogic,
             ['pinnedProperties'],
             sessionSummaryProgressLogic,
@@ -462,7 +462,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
-            if (values.sessionPlayerMetaData) {
+            // Skip if the list-wide fetch is in flight; calling again cancels it via breakpoint.
+            if (values.sessionPlayerMetaData && !values.recordingPropertiesLoading) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
             }
             if (values.sessionPlayerMetaData?.has_summary && !values.sessionSummary && !values.sessionSummaryLoading) {

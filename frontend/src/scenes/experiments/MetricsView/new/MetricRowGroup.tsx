@@ -118,7 +118,7 @@ interface CollapsibleBreakdownSectionProps {
     onRetry: () => void
     query?: Record<string, any>
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
-    handleTooltipMouseLeave: () => void
+    handleTooltipMouseLeave: (e: React.MouseEvent) => void
     handleTooltipMouseMove: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
 }
 
@@ -534,6 +534,28 @@ export function MetricRowGroup({
         }
     }
 
+    const hideTooltipState = (): void => {
+        setTooltipState((prev) => ({
+            ...prev,
+            isVisible: false,
+            variantResult: null,
+            isPositioned: false,
+        }))
+    }
+
+    const scheduleTooltipClose = (): void => {
+        clearTooltipCloseTimer()
+        tooltipCloseTimerRef.current = setTimeout(() => {
+            tooltipCloseTimerRef.current = null
+            hideTooltipState()
+        }, 150)
+    }
+
+    const closeTooltipNow = (): void => {
+        clearTooltipCloseTimer()
+        hideTooltipState()
+    }
+
     useEffect(() => {
         return () => {
             clearTooltipCloseTimer()
@@ -612,18 +634,17 @@ export function MetricRowGroup({
         })
     }
 
-    // Defer closing so the user can move onto the portaled tooltip without it disappearing.
-    const handleTooltipMouseLeave = (): void => {
-        clearTooltipCloseTimer()
-        tooltipCloseTimerRef.current = setTimeout(() => {
-            tooltipCloseTimerRef.current = null
-            setTooltipState((prev) => ({
-                ...prev,
-                isVisible: false,
-                variantResult: null,
-                isPositioned: false,
-            }))
-        }, 150)
+    // The portaled tooltip sits above the row. Defer closing only when the cursor
+    // exits upward (toward the tooltip) so the click affordance is reachable.
+    // Sideways or downward exits — i.e. moving to another variant row — close
+    // immediately so row-to-row transitions stay snappy.
+    const handleTooltipMouseLeave = (e: React.MouseEvent): void => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        if (e.clientY <= rect.top + 1) {
+            scheduleTooltipClose()
+        } else {
+            closeTooltipNow()
+        }
     }
 
     const handleTooltipMouseMove = (e: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
@@ -755,7 +776,15 @@ export function MetricRowGroup({
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
                         onMouseEnter={clearTooltipCloseTimer}
-                        onMouseLeave={handleTooltipMouseLeave}
+                        onMouseLeave={(e) => {
+                            // Defer only when leaving downward — toward a row that may pick the tooltip back up.
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            if (e.clientY >= rect.bottom - 1) {
+                                scheduleTooltipClose()
+                            } else {
+                                closeTooltipNow()
+                            }
+                        }}
                         onClick={
                             timeseriesEnabled && tooltipState.variantResult
                                 ? () => handleTimeseriesClick(tooltipState.variantResult!)
