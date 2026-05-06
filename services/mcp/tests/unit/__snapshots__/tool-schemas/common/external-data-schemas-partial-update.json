@@ -14,6 +14,20 @@
             ],
             "description": "For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both"
         },
+        "enabled_columns": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here."
+        },
         "id": {
             "description": "A UUID string identifying this external data schema.",
             "type": "string"
@@ -108,20 +122,6 @@
                 }
             ],
             "description": "Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc"
-        },
-        "synced_columns": {
-            "anyOf": [
-                {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here."
         }
     },
     "required": ["id"],
