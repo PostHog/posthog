@@ -1,5 +1,7 @@
 // Signal taxonomy types - shared contract between emitters and consumers
 
+import { integer } from './type-utils'
+
 // ── Source taxonomy enums ───────────────────────────────────────────────────────
 
 export enum SignalSourceProduct {
@@ -276,7 +278,7 @@ export interface SignalsAgentSignalExtra {
     agent_run_id: string
     finding_id: string
     skill_name: string
-    skill_version: number
+    skill_version: integer
     /** Agent's self-reported confidence in [0, 1]. Independent of the top-level `weight`. */
     confidence: number
     severity?: 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
