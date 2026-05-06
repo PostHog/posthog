@@ -46,7 +46,6 @@ import {
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
-import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { createOkContext } from '../ingestion/pipelines/helpers'
@@ -326,12 +325,6 @@ export class IngestionApiServer implements NodeServer {
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             groupId,
             outputs: ingestionOutputs,
-            splitAiEventsConfig: parseSplitAiEventsConfig(
-                this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
-                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
-            ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
