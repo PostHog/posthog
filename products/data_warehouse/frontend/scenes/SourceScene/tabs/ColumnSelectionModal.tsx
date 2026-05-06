@@ -61,7 +61,9 @@ function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSele
 
     useEffect(() => {
         const currentSynced = schema?.synced_columns
-        if (Array.isArray(currentSynced) && currentSynced.length > 0) {
+        if (Array.isArray(currentSynced)) {
+            // Empty array means "sync only required columns" — keep selected as an empty Set,
+            // not null (null is reserved for "sync all").
             setSelected(new Set(currentSynced))
         } else {
             setSelected(null)
