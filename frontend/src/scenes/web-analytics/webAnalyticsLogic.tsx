@@ -2479,6 +2479,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return
             }
 
+            // Stamp the last-used timestamp for feature flag targeting (throttled to once per day per browser).
+            const stampKey = `ph_last_web_analytics_stamp_${posthog.get_distinct_id()}`
+            const oneDayMs = 24 * 60 * 60 * 1000
+            const lastStamp = Number(localStorage.getItem(stampKey) || 0)
+            if (Date.now() - lastStamp > oneDayMs) {
+                posthog.setPersonProperties({ last_used_web_analytics_at: new Date().toISOString() })
+                localStorage.setItem(stampKey, Date.now().toString())
+            }
+
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
             if (parsedFilters) {
                 if (productTab === ProductTab.BOT_ANALYTICS) {

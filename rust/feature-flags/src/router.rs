@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
@@ -18,7 +18,7 @@ use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
-use common_metrics::setup_metrics_routes_for_product;
+use common_metrics::setup_metrics_routes_for_product_with_overrides;
 use common_redis::Client as RedisClient;
 use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics::gauge;
@@ -44,6 +44,7 @@ use crate::{
         flag_group_type_mapping::GroupTypeCacheManager,
     },
     metrics::{
+        buckets::bucket_overrides,
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
             FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
@@ -99,6 +100,9 @@ pub struct State {
     pub auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     /// Provider for realtime/behavioral cohort membership lookups
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    /// Shadow-keyspace billing aggregator. See `crate::billing` for the
+    /// dual-write contract.
+    pub billing_aggregator: Option<Arc<BillingAggregator>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -123,6 +127,7 @@ pub fn router(
     team_negative_cache: NegativeCache,
     auth_token_cache: Arc<ReadThroughCacheWithMetrics>,
     cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
+    billing_aggregator: Option<Arc<BillingAggregator>>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -210,6 +215,7 @@ pub fn router(
         team_negative_cache,
         cohort_membership_provider,
         auth_token_cache,
+        billing_aggregator,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -325,7 +331,11 @@ pub fn router(
     // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
-        setup_metrics_routes_for_product(router, "feature_flags")
+        setup_metrics_routes_for_product_with_overrides(
+            router,
+            "feature_flags",
+            &bucket_overrides(),
+        )
     } else {
         router
     }

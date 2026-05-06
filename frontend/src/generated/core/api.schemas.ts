@@ -3051,6 +3051,8 @@ export interface UserApi {
     readonly onboarding_delegation_accepted_at: string | null
     /** @nullable */
     readonly is_organization_first_user: boolean | null
+    /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+    readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
 }
 
@@ -3147,6 +3149,8 @@ export interface PatchedUserApi {
     readonly onboarding_delegation_accepted_at?: string | null
     /** @nullable */
     readonly is_organization_first_user?: boolean | null
+    /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
+    readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
 }
 

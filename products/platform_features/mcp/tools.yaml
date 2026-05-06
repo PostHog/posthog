@@ -201,6 +201,9 @@ tools:
         title: Get all replies in a comment thread.
         description: |
             Get the full thread of replies for a parent comment. Useful for reading complete discussions on a resource.
+    comments-complete-create:
+        operation: comments_complete_create
+        enabled: false
     comments-create:
         operation: comments_create
         enabled: false
@@ -222,6 +225,9 @@ tools:
             find discussions on specific resources. Returns comment content, author, and threading info.
     comments-partial-update:
         operation: comments_partial_update
+        enabled: false
+    comments-reopen-create:
+        operation: comments_reopen_create
         enabled: false
     comments-update:
         operation: comments_update

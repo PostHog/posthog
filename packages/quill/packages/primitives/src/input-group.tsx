@@ -23,7 +23,7 @@ const InputGroup = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>
 InputGroup.displayName = 'InputGroup'
 
 const inputGroupAddonVariants = cva(
-    'quill-input-group__addon group/input-group-addon flex h-auto items-center justify-center gap-1 select-none whitespace-nowrap',
+    'quill-input-group__addon group/input-group-addon empty:hidden flex h-auto items-center justify-center gap-1 select-none whitespace-nowrap',
     {
         variants: {
             align: {
