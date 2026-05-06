@@ -6,7 +6,16 @@ import { ChartDisplayType } from '~/types'
 
 import { DataTableVisualization } from './DataVisualization'
 
-const mockLemonTable = jest.fn((): null => null)
+type LemonTableMockProps = {
+    embedded?: boolean
+    allowContentScroll?: boolean
+}
+
+let mockLatestLemonTableProps: LemonTableMockProps | null = null
+const mockLemonTable = jest.fn((props: LemonTableMockProps): null => {
+    mockLatestLemonTableProps = props
+    return null
+})
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -34,6 +43,7 @@ describe('DataTableVisualization', () => {
 
     beforeEach(() => {
         initKeaTests()
+        mockLatestLemonTableProps = null
         mockLemonTable.mockClear()
     })
 
@@ -59,14 +69,16 @@ describe('DataTableVisualization', () => {
             )
 
             await waitFor(() => {
-                if (mockLemonTable.mock.calls.length === 0) {
+                if (!mockLatestLemonTableProps) {
                     throw new Error('Expected LemonTable to render')
                 }
             })
 
-            const lemonTableProps = mockLemonTable.mock.calls[mockLemonTable.mock.calls.length - 1][0]
-            expect(lemonTableProps.embedded).toBe(embedded)
-            expect(lemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
+            if (!mockLatestLemonTableProps) {
+                throw new Error('Expected LemonTable props to be recorded')
+            }
+            expect(mockLatestLemonTableProps.embedded).toBe(embedded)
+            expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
         }
     )
 })
