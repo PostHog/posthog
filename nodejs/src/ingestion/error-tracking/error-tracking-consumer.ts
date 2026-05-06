@@ -296,8 +296,7 @@ export class ErrorTrackingConsumer {
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:team_global',
                 getBucketConfig: (input) => {
-                    // Only called for inputs where getKey returned non-null, so the team has a
-                    // positive project_rate_limit_value. User model: "N events per M minutes".
+                    // User model: "N events per M minutes".
                     // Token bucket: bucketSize=N (max burst), refillRate=N/(M*60) per second.
                     const settings = input.errorTrackingSettings!
                     const value = settings.projectRateLimitValue!

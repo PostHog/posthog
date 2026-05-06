@@ -83,6 +83,14 @@ export class KeyedRateLimiterService {
             return []
         }
 
+        const bucketSizes = requests.map((req) => {
+            const bucketSize = req.bucketSize ?? this.config.bucketSize
+            if (bucketSize == null) {
+                throw new Error(`KeyedRateLimiterService(${this.config.name}): missing bucketSize for ${req.id}`)
+            }
+            return bucketSize
+        })
+
         const res = await this.redis.usePipeline(
             { name: `keyed-rate-limiter:${this.config.name}`, failOpen: true },
             (pipeline) => {
@@ -96,15 +104,12 @@ export class KeyedRateLimiterService {
             // failOpen swallowed an error — treat all as not rate limited so we
             // don't drop ingestion just because Redis blipped. Reflect each
             // request's own (potentially overridden) bucketSize in the response.
-            return requests.map((req) => [
-                req.id,
-                { tokens: req.bucketSize ?? this.config.bucketSize ?? 0, isRateLimited: false },
-            ])
+            return requests.map((req, i) => [req.id, { tokens: bucketSizes[i], isRateLimited: false }])
         }
 
         return requests.map((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const tokensAfter = tokenRes[1]?.[1] ?? req.bucketSize ?? this.config.bucketSize ?? 0
+            const tokensAfter = tokenRes[1]?.[1] ?? bucketSizes[index]
             return [
                 req.id,
                 {
