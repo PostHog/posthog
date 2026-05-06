@@ -40,7 +40,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -1762,9 +1761,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         updateTileColor: async ({ tileId, color }) => {
-            if (isSharedView()) {
-                return
-            }
             const previousColor = values.tiles.find((tile) => tile.id === tileId)?.color
             actions.setTileProperty(tileId, { color })
             try {
@@ -1777,9 +1773,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         toggleTileDescription: async ({ tileId }) => {
-            if (isSharedView()) {
-                return
-            }
             const matchingTile = values.tiles.find((tile) => tile.id === tileId)
             const previousValue = matchingTile?.show_description
             const newValue = previousValue === false
@@ -2373,7 +2366,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 .map((insight: QueryBasedInsightModel) => insight?.id)
                 .filter((id): id is number => !!id)
 
-            if (insightIds.length > 0 && values.currentTeamId && !isSharedView()) {
+            if (insightIds.length > 0 && values.currentTeamId) {
                 void api.create(`api/environments/${values.currentTeamId}/insights/viewed`, {
                     insight_ids: insightIds,
                 })
