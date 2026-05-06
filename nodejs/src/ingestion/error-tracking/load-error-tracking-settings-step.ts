@@ -12,10 +12,10 @@ export type WithErrorTrackingSettings<T> = T & {
 }
 
 export function createLoadErrorTrackingSettingsStep<T extends LoadErrorTrackingSettingsInput>(
-    manager: ErrorTrackingSettingsManager
+    manager: ErrorTrackingSettingsManager | undefined
 ): ProcessingStep<T, WithErrorTrackingSettings<T>> {
     return async function loadErrorTrackingSettingsStep(input) {
-        const errorTrackingSettings = await manager.getSettings(input.team.id)
+        const errorTrackingSettings = manager ? await manager.getSettings(input.team.id) : null
         return ok({ ...input, errorTrackingSettings })
     }
 }

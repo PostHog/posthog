@@ -172,8 +172,8 @@ export function createErrorTrackingPipeline(
     const pipeline = newBatchPipelineBuilder<ErrorTrackingPipelineInput, { message: Message }>()
         .messageAware((b) =>
             b
-                .sequentially((b) => {
-                    const afterTeam = b
+                .sequentially((b) =>
+                    b
                         // Parse headers from Kafka message [REUSE]
                         .pipe(createParseHeadersStep())
                         // Apply event restrictions (billing limits, drop/overflow) [REUSE]
@@ -193,10 +193,10 @@ export function createErrorTrackingPipeline(
                                 })),
                             ])
                         )
-                    return errorTrackingSettingsManager
-                        ? afterTeam.pipe(createLoadErrorTrackingSettingsStep(errorTrackingSettingsManager))
-                        : afterTeam
-                })
+                        // Attach per-team error-tracking settings. No-op when the manager isn't wired
+                        // (rate limiter disabled) — keeps the type chain consistent regardless.
+                        .pipe(createLoadErrorTrackingSettingsStep(errorTrackingSettingsManager))
+                )
                 // Map team to context for handleIngestionWarnings, and carry
                 // the Kafka message byte size through for Cymbal batch chunking.
                 .filterMap(

@@ -41,4 +41,15 @@ describe('createLoadErrorTrackingSettingsStep', () => {
             })
         }
     })
+
+    it('attaches null without calling the manager when no manager is provided', async () => {
+        const step = createLoadErrorTrackingSettingsStep<{ team: { id: number } }>(undefined)
+
+        const result = await step({ team: { id: 1 } })
+
+        expect(isOkResult(result)).toBe(true)
+        if (isOkResult(result)) {
+            expect(result.value.errorTrackingSettings).toBeNull()
+        }
+    })
 })
