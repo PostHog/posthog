@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { _LogAttributeEntryApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
+import type { logsColumnsModalLogicType } from './logsColumnsModalLogicType'
 
 export interface LogsColumnsModalLogicProps {
     viewerId: string
@@ -15,7 +16,7 @@ export interface LogsColumnsModalLogicProps {
 
 // Intentionally untyped (no *LogicType.ts): `*Type.ts` is gitignored and phrocs `typegen:watch` must
 // generate files locally — a new keyed logic would otherwise brick the bundle until typegen succeeds.
-export const logsColumnsModalLogic = kea([
+export const logsColumnsModalLogic = kea<logsColumnsModalLogicType>([
     props({} as LogsColumnsModalLogicProps),
     key((props) => props.viewerId),
     path((key) => [
