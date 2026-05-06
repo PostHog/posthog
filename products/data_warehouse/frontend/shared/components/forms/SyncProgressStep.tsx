@@ -37,7 +37,7 @@ export function getPreviewQueryUrl(
 }
 
 export const SyncProgressStep = (): JSX.Element => {
-    const { sourceId, isWrapped, source: wizardSource, returnConfig } = useValues(sourceWizardLogic)
+    const { sourceId, isWrapped, source: wizardSource, nextButtonText } = useValues(sourceWizardLogic)
     const { cancelWizard, closeWizard } = useActions(sourceWizardLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourceManagementLogic)
     const source = dataWarehouseSources?.results.find((n) => n.id === sourceId)
@@ -179,7 +179,7 @@ export const SyncProgressStep = (): JSX.Element => {
             actions={
                 !isWrapped && (
                     <LemonButton type="primary" onClick={closeWizard} data-attr="sync-progress-return">
-                        {returnConfig ? `Return to ${returnConfig.returnLabel}` : 'Return to sources'}
+                        {nextButtonText}
                     </LemonButton>
                 )
             }
