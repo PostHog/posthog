@@ -39646,7 +39646,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    short_id?: string;
     };
 
     export type EnvironmentsInsightsTrendingRetrieveFormat = typeof EnvironmentsInsightsTrendingRetrieveFormat[keyof typeof EnvironmentsInsightsTrendingRetrieveFormat];
@@ -44128,7 +44127,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    short_id?: string;
     };
 
     export type InsightsTrendingRetrieveFormat = typeof InsightsTrendingRetrieveFormat[keyof typeof InsightsTrendingRetrieveFormat];

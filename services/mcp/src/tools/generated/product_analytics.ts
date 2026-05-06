@@ -415,7 +415,6 @@ const insightsTrendingRetrieve = (): ToolBase<
                 days: params.days,
                 limit: params.limit,
                 offset: params.offset,
-                short_id: params.short_id,
             },
         })
         const filtered = {

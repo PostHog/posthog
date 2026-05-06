@@ -10275,7 +10275,6 @@ export type InsightsTrendingRetrieveParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-    short_id?: string
 }
 
 export type InsightsTrendingRetrieveFormat =

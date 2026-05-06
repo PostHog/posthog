@@ -1500,6 +1500,7 @@ class InsightViewSet(
 
     @extend_schema(
         operation_id="insights_trending_retrieve",
+        filters=False,
         parameters=[
             OpenApiParameter(
                 name="days",

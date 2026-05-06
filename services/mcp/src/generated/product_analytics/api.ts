@@ -344,5 +344,4 @@ export const InsightsTrendingRetrieveQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     limit: zod.number().optional().describe('Maximum number of insights to return. Defaults to 10. Capped at 100.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    short_id: zod.string().optional(),
 })
