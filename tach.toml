@@ -36,6 +36,7 @@ path = "ee"
 depends_on = [
     "posthog",
     "products.alerts",
+    "products.cdp",
     "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",

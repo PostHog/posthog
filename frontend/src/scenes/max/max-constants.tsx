@@ -988,6 +988,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return toolCall.status === 'completed' ? 'Created alert' : 'Creating alert...'
         },
     },
+    upsert_hog_function: {
+        name: 'Manage CDP functions',
+        description: 'Manage CDP functions for destinations, transformations, and alert delivery',
+        product: Scene.Transformations,
+        icon: iconForType('data_warehouse'),
+        modes: [AgentMode.ProductAnalytics],
+        displayFormatter: (toolCall) => {
+            if (isObject(toolCall.args?.action) && 'function_id' in toolCall.args.action) {
+                return toolCall.status === 'completed' ? 'Updated function' : 'Updating function...'
+            }
+            return toolCall.status === 'completed' ? 'Created function' : 'Creating function...'
+        },
+    },
     finalize_plan: {
         name: 'Finalize plan',
         description: 'Finalize plan',
