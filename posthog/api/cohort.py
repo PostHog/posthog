@@ -75,6 +75,8 @@ from posthog.models.person.util import validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.personhog_client.client import get_personhog_client
+from posthog.personhog_client.proto import GetPersonByUuidRequest
 from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.base import determine_parsed_date_for_property_matching, property_group_to_Q
 from posthog.queries.person_query import PersonQuery
@@ -1407,14 +1409,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_id must be a valid UUID")
 
         # Check if person exists and belongs to this team
-        try:
-            person_uuid = (
-                # nosemgrep: no-direct-persons-db-orm
-                Person.objects.db_manager(READ_DB_FOR_PERSONS)
-                .get(team_id=self.team_id, uuid=person_id)
-                .uuid  # nosemgrep: no-direct-persons-db-orm
-            )  # nosemgrep: no-direct-persons-db-orm
-        except Person.DoesNotExist:
+        person_uuid = _get_person_uuid_by_uuid(self.team_id, person_id)
+        if person_uuid is None:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
 
         # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues)
@@ -1542,6 +1538,31 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
 class LegacyCohortViewSet(CohortViewSet):
     param_derived_from_user_current_team = "team_id"
+
+
+def _get_person_uuid_by_uuid(team_id: int, person_uuid_str: str) -> uuid.UUID | None:
+    """Look up a person's UUID by their UUID string, verifying team membership.
+
+    Uses personhog gRPC when available, falls back to ORM.
+    """
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.get_person_by_uuid(GetPersonByUuidRequest(team_id=team_id, uuid=person_uuid_str))
+            if not resp.person or not resp.person.id or resp.person.team_id != team_id:
+                return None
+            return uuid.UUID(resp.person.uuid)
+        except Exception:
+            logger.warning("personhog_get_person_by_uuid_failure", team_id=team_id, exc_info=True)
+
+    try:
+        return (
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
+            .get(team_id=team_id, uuid=person_uuid_str)
+            .uuid
+        )
+    except Person.DoesNotExist:
+        return None
 
 
 def will_create_loops(cohort: Cohort) -> bool:
