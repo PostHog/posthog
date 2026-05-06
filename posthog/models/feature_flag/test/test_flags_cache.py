@@ -1903,6 +1903,58 @@ class TestManagementCommands(BaseTest):
         self.assertIn("db_data", result)
         self.assertIsInstance(result["db_data"], dict)
 
+    def test_verify_ignores_extra_keys_in_cached_flag(self):
+        """A serializer field removal leaves stale extra keys in pre-existing cache
+        entries. Those extras must not trigger FIELD_MISMATCH; otherwise every
+        team's cache would be needlessly rewritten on every benign field removal."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        cached_data, _source = flags_hypercache.get_from_cache_with_source(self.team)
+        assert cached_data is not None
+        assert len(cached_data["flags"]) == 1
+        cached_data["flags"][0]["legacy_field_that_no_longer_exists"] = True
+        flags_hypercache.set_cache_value(self.team, cached_data)
+
+        result = verify_team_flags(self.team, verbose=True)
+
+        self.assertEqual(result["status"], "match")
+
+    def test_verify_flags_field_missing_from_cached_flag(self):
+        """If a key is present in db_flag but missing from cached_flag, that's a
+        real divergence (e.g. cache entry pre-dates a newly added field) and
+        must still be reported as FIELD_MISMATCH so the cache gets refreshed."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        cached_data, _source = flags_hypercache.get_from_cache_with_source(self.team)
+        assert cached_data is not None
+        assert len(cached_data["flags"]) == 1
+        assert "filters" in cached_data["flags"][0]
+        del cached_data["flags"][0]["filters"]
+        flags_hypercache.set_cache_value(self.team, cached_data)
+
+        result = verify_team_flags(self.team, verbose=True)
+
+        self.assertEqual(result["status"], "mismatch")
+        field_mismatches = [d for d in result["diffs"] if d["type"] == "FIELD_MISMATCH"]
+        self.assertEqual(len(field_mismatches), 1)
+        self.assertIn("filters", field_mismatches[0]["diff_fields"])
+
     def test_verify_miss_includes_db_data(self):
         """Test that cache miss result includes db_data for direct cache write."""
         from posthog.models.feature_flag.flags_cache import clear_flags_cache, verify_team_flags
