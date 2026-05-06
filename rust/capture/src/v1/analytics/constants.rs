@@ -51,7 +51,8 @@ pub(crate) const CAPTURE_V1_EVENTS_QUOTA_LIMITED: &str = "capture_v1_events_quot
 pub(crate) const CAPTURE_V1_RATE_LIMITER: &str = "capture_v1_rate_limiter";
 
 /// Detail tag for events flagged by the per-token:distinct_id rate limiter.
-pub(super) const DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID: &str = "rate_limited_token_distinct_id";
+/// Matches the OpenAPI BatchEntryStatusError example for `result: limited`.
+pub(super) const DETAIL_PERSON_PROCESSING_DISABLED: &str = "person_processing_disabled";
 
 // ---------------------------------------------------------------------------
 // Payload size limits

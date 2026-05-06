@@ -107,8 +107,13 @@ impl SinkEvent for WrappedEvent {
 
     // Helps the Sink implementations filter events that were marked
     // as ineligible for publishing in the request preprocessing step.
+    // Limited events DO publish (e.g. token:distinct_id rate limiting:
+    // event accepted with person processing disabled per RFC), unless
+    // they were also routed to Drop (e.g. scoped billing quota).
     fn should_publish(&self) -> bool {
-        self.result == EventResult::Ok && self.destination != Destination::Drop
+        self.result != EventResult::Drop
+            && self.result != EventResult::Retry
+            && self.destination != Destination::Drop
     }
 
     // Resolve the storage-agnostic Destination scope for this event.
@@ -723,9 +728,27 @@ mod tests {
     }
 
     #[test]
-    fn should_publish_false_when_limited() {
+    fn should_publish_true_when_limited_and_main_destination() {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = EventResult::Limited;
+        assert!(
+            ev.should_publish(),
+            "Limited+main must publish per RFC: event accepted, person processing disabled"
+        );
+    }
+
+    #[test]
+    fn should_publish_false_when_limited_and_destination_drop() {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.result = EventResult::Limited;
+        ev.destination = Destination::Drop;
+        assert!(!ev.should_publish());
+    }
+
+    #[test]
+    fn should_publish_false_when_retry() {
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.result = EventResult::Retry;
         assert!(!ev.should_publish());
     }
 
