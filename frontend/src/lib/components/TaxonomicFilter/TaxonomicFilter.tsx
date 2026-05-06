@@ -68,6 +68,8 @@ function TaxonomicFilterLegacy({
     hideSearchInput,
     searchQuery: controlledSearchQuery,
     enableKeywordShortcuts,
+    excludedOperators,
+    selectingKeyOnly,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -113,6 +115,8 @@ function TaxonomicFilterLegacy({
         minSearchQueryLength,
         suggestedFiltersLabel: resolvedSuggestedFiltersLabel,
         enableKeywordShortcuts,
+        excludedOperators,
+        selectingKeyOnly,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

@@ -459,8 +459,13 @@ interface ShortcutItem {
     name?: string
     id?: unknown
     value?: unknown
+    // `_pinnedContext.value` and `_recentContext.sourceValue` mean the
+    // same thing — the source-group field name diverged in master while
+    // this branch was in flight; consumers (this menu) read whichever
+    // shape exists. See `taxonomicFilterPinnedPropertiesLogic` /
+    // `recentTaxonomicFiltersLogic`.
     _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: unknown }
-    _recentContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: unknown }
+    _recentContext?: { sourceGroupType?: TaxonomicFilterGroupType; sourceValue?: unknown }
 }
 
 /**
@@ -510,7 +515,11 @@ function mapShortcutItems(items: ShortcutItem[], groups: TaxonomicFilterGroup[])
         .map((item) => {
             const ctx = item._recentContext ?? item._pinnedContext
             const sourceType = ctx?.sourceGroupType
-            const sourceValue = ctx?.value
+            // Recent stores the value under `sourceValue`, pinned under
+            // `value`. Read whichever side exists.
+            const sourceValue =
+                (ctx as { sourceValue?: unknown } | undefined)?.sourceValue ??
+                (ctx as { value?: unknown } | undefined)?.value
             const group = resolveShortcutGroup(item, sourceType, sourceValue, groups)
             if (!group) {
                 return null

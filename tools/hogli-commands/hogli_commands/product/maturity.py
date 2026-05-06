@@ -35,7 +35,7 @@ from .ast_helpers import (
 )
 from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, find_views_path, get_tach_block
 from .product_yaml import load_all_product_yamls, load_product_yaml
-from .ts_helpers import codegen_adoption
+from .ts_helpers import codegen_adoption, codegen_call_sites
 
 # ---------------------------------------------------------------------------
 # Config loading (best-effort from migration_config.json)
@@ -498,10 +498,8 @@ def score_codegen(product_dir: Path) -> DimensionScore:
     manual api.* calls. Having generated/api.ts is free (hogli build:openapi
     creates it for everyone) — what matters is actual usage.
 
-    Points breakdown (100 total):
-      frontend imports any generated function:         40
-      no manual api.* HTTP calls:                      60 (proportional —
-        loses points as manual/(manual+generated_used) increases)
+    Score = percentage of API calls using generated client:
+      100 * generated_used / (generated_used + manual_calls)
     """
     frontend_dir = product_dir / "frontend"
     if not frontend_dir.exists():
@@ -516,23 +514,16 @@ def score_codegen(product_dir: Path) -> DimensionScore:
     if available == 0 and manual == 0:
         return DimensionScore("codegen", 0, "no API usage")
 
-    score = 0
-    parts = []
-
-    if used > 0:
-        score += 40
-        parts.append(f"{used} generated endpoints used")
-    else:
-        parts.append("0 generated used")
-
     total_calls = used + manual
+
     if total_calls > 0:
-        score += round(60 * used / total_calls)
+        score = round(100 * used / total_calls)
+        detail = f"{score}% codegen ({used} generated, {manual} manual)"
+    else:
+        score = 0
+        detail = "no API usage"
 
-    if manual > 0:
-        parts.append(f"{manual} manual")
-
-    return DimensionScore("codegen", score, ", ".join(parts))
+    return DimensionScore("codegen", score, detail)
 
 
 # ---------------------------------------------------------------------------
@@ -609,11 +600,11 @@ _DIM_SHORT = {
     "facade": "facade",
     "presentation": "presnt",
     "boundaries": "bounds",
-    "codegen": "codegn",
+    "codegen": "codgen",
 }
 
 _BAR_WIDTH = 15
-_MINI_WIDTH = 5
+_MINI_WIDTH = 6
 
 
 def _bar(score: int, width: int = _BAR_WIDTH) -> str:
@@ -710,4 +701,71 @@ def generate_detail(ps: ProductScore) -> str:
         lines.append("")
         lines.append(f"  {'overall':>17s}  {overall:3d}  {_bar(overall)}")
 
+    # Append codegen call-site details if there are manual calls
+    frontend_dir = PRODUCTS_DIR / ps.product / "frontend"
+    if frontend_dir.exists():
+        sites = codegen_call_sites(frontend_dir)
+        if sites:
+            lines.append("")
+            lines.append("  codegen call sites:")
+            for site in sites:
+                arrow = f"\u2192 {site.generated_equivalent}" if site.generated_equivalent else "(no match)"
+                lines.append(f"    {site.file}:{site.line}  {site.verb}  {arrow}")
+
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Codegen detail report
+# ---------------------------------------------------------------------------
+
+
+def generate_codegen_report(products: list[str] | None = None) -> str:
+    """Generate a detailed codegen adoption report showing call sites and matches.
+
+    If products is None, reports on all products with manual API calls.
+    """
+
+    if products is None:
+        products = sorted(
+            d.name
+            for d in PRODUCTS_DIR.iterdir()
+            if d.is_dir()
+            and not d.name.startswith((".", "_"))
+            and d.name != "__pycache__"
+            and (d / "__init__.py").exists()
+        )
+
+    lines: list[str] = []
+    total_manual = 0
+    total_matched = 0
+
+    for name in products:
+        frontend_dir = PRODUCTS_DIR / name / "frontend"
+        if not frontend_dir.exists():
+            continue
+
+        sites = codegen_call_sites(frontend_dir)
+        if not sites:
+            continue
+
+        matched = sum(1 for s in sites if s.generated_equivalent)
+        total_manual += len(sites)
+        total_matched += matched
+
+        pct = round(100 * matched / len(sites)) if sites else 0
+        lines.append(f"{name}  {matched}/{len(sites)} matched ({pct}%)")
+
+        for site in sites:
+            arrow = f"→ {site.generated_equivalent}" if site.generated_equivalent else "  (no match)"
+            lines.append(f"  {site.file}:{site.line}  {site.verb}({site.url[:50]})  {arrow}")
+
+        lines.append("")
+
+    if total_manual > 0:
+        overall_pct = round(100 * total_matched / total_manual)
+        header = f"Codegen adoption: {total_matched}/{total_manual} manual calls have generated equivalents ({overall_pct}%)\n"
+    else:
+        header = "No manual API calls found.\n"
+
+    return header + "\n" + "\n".join(lines)

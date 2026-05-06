@@ -11,6 +11,7 @@ from celery import shared_task
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person, PersonDistinctId
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +44,7 @@ HAVING argMax(is_deleted, version) = 0 AND person_id IN (%(person_ids)s)
 
 
 @shared_task(max_retries=1, ignore_result=True)
+@skip_team_scope_audit
 def verify_persons_data_in_sync(
     period_start: timedelta = PERIOD_START,
     period_end: timedelta = PERIOD_END,

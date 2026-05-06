@@ -8,6 +8,10 @@ workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+# `futures-timer` (not `tokio::time::sleep`) lets the mock module simulate
+# blocking pipeline calls without making `tokio` a runtime dependency of every
+# crate that links `common-redis`. Tiny crate, runtime-agnostic.
+futures-timer = { workspace = true }
 redis = { workspace = true }
 serde-pickle = { version = "1.1.1" }
 thiserror = { workspace = true }
@@ -15,6 +19,6 @@ tracing = { workspace = true }
 zstd = "0.13"
 
 [dev-dependencies]
-tokio = { workspace = true }
 testcontainers = { workspace = true }
+tokio = { workspace = true }
 
