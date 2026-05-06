@@ -1,4 +1,5 @@
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
+import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 
 import { ExportedData } from '../types'
 
@@ -9,19 +10,7 @@ export default function ExporterInsightScene({
 }: {
     insight: NonNullable<ExportedData['insight']>
     themes: NonNullable<ExportedData['themes']>
-    exportOptions: Omit<
-        ExportedData,
-        | 'type'
-        | 'dashboard'
-        | 'insight'
-        | 'recording'
-        | 'notebook'
-        | 'insights'
-        | 'inline_query_results'
-        | 'themes'
-        | 'accessToken'
-        | 'exportToken'
-    >
+    exportOptions: SharingConfigurationSettings
 }): JSX.Element {
     return <ExportedInsight insight={insight} themes={themes} exportOptions={exportOptions} />
 }

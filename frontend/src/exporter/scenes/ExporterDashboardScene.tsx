@@ -41,13 +41,17 @@ export default function ExporterDashboardScene({
     dashboard,
     type,
     themes,
-}: Pick<ExportedData, 'dashboard' | 'type' | 'themes'>): JSX.Element {
+}: {
+    dashboard: NonNullable<ExportedData['dashboard']>
+    type: ExportedData['type']
+    themes: ExportedData['themes']
+}): JSX.Element {
     return (
         <>
-            {type !== ExportType.Image && <SharedDashboardAutoRefresh dashboardId={dashboard!.id} />}
+            {type !== ExportType.Image && <SharedDashboardAutoRefresh dashboardId={dashboard.id} />}
             <Dashboard
-                id={String(dashboard!.id)}
-                dashboard={getQueryBasedDashboard(dashboard!)!}
+                id={String(dashboard.id)}
+                dashboard={getQueryBasedDashboard(dashboard)!}
                 placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 themes={themes}
             />
