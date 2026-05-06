@@ -56,16 +56,20 @@ export interface Series<Meta = unknown> {
          *  filling down to the x-axis baseline. */
         lowerData?: number[]
     }
-    /** Per-axis visibility flags. Each defaults to false (the series is included in everything). */
+    /** Auxiliary overlay derived from primary data — trend lines and moving averages.
+     *  Excluded from stack computation and from the y-axis baseline calculation, so a
+     *  trendline projection won't drag the axis below 0 when the underlying data is
+     *  non-negative. (CI bands are not overlays — they represent real data uncertainty
+     *  whose range should still influence the axis.) */
+    overlay?: boolean
+    /** Per-location visibility flags — control where this series appears. */
     visibility?: {
         /** Fully exclude the series — no rendering, no scale contribution, no tooltip, no hit-testing. */
         excluded?: boolean
-        /** Render and participate in scales/hit-testing, but omit from tooltip seriesData. */
-        fromTooltip?: boolean
-        /** ValueLabels overlay skips this series. */
-        fromValueLabels?: boolean
-        /** Excluded from d3 stack computation (auxiliary overlays like trend lines / moving averages). */
-        fromStack?: boolean
+        /** Whether the series appears in the tooltip's seriesData. Defaults to true. */
+        tooltip?: boolean
+        /** Whether the ValueLabels overlay draws a label for this series. Defaults to true. */
+        valueLabel?: boolean
     }
 }
 

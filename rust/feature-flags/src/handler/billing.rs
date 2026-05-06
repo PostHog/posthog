@@ -60,7 +60,8 @@ pub async fn check_limits(
 /// the shadow-keyspace tee via the aggregator.
 ///
 /// Caller is responsible for the predicate (skip_writes, billable flags,
-/// etc.) — by the time this is called the request is known to be billable.
+/// internal requests, etc.) — by the time this is called the request is
+/// known to be billable.
 ///
 /// The shadow tee only fires when the synchronous write succeeds. Recording
 /// a request the production keyspace did not capture would surface as a
@@ -116,8 +117,13 @@ pub async fn record_usage(
     filtered_flags: &FeatureFlagList,
     team_id: i32,
     library: Library,
+    is_internal: bool,
 ) {
     if *context.state.config.skip_writes {
+        return;
+    }
+    // Skip billing for internal requests.
+    if is_internal {
         return;
     }
     if !contains_billable_flags(filtered_flags) {

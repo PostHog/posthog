@@ -141,9 +141,10 @@ You can verify by checking `curl -s -o /dev/null -w "%{http_code}" http://localh
 
 ### `JS_URL` doesn't affect Vite dev scripts
 
-In development, the Vite dev server script tags (`@vite/client`, `@react-refresh`, `src/index.tsx`) are hardcoded to `http://localhost:8234` in `posthog/utils.py`.
+In development, the Vite dev server script tags (`@vite/client`, `@react-refresh`, `src/index.tsx`) are emitted by `get_js_url()` in `posthog/utils.py`.
+When the page is served over HTTPS (e.g. via ngrok), the URL stays as `http://localhost:8234` so the browser can load Vite assets directly — browsers exempt `localhost` from mixed-content blocking.
+For HTTP requests where `JS_URL=http://localhost:8234`, the host is rewritten to the request origin so non-localhost dev environments (Docker containers, sandboxes) can still reach Vite.
 `JS_URL` only sets `window.JS_URL` for the production bundle loader.
-Browsers exempt `localhost` from mixed content blocking, so this works even when the page is served over HTTPS via ngrok.
 
 ### 1Password shows "<concealed by 1Password>" in logs
 
