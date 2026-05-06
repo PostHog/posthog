@@ -2399,6 +2399,9 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
         # the session and sets `session.accessed=True` even on requests that never went through
         # `auth.login()`. The gate must rely on `BACKEND_SESSION_KEY`, not on `session.accessed`.
         request = RequestFactory().get("/api/some_endpoint")
+        # Pretend the request carried a session cookie so the cookie pre-gate doesn't short-circuit;
+        # we want the test to land on the BACKEND_SESSION_KEY check itself.
+        request.COOKIES[settings.SESSION_COOKIE_NAME] = "fake-session-key"
         SessionMiddleware(lambda r: HttpResponse()).process_request(request)
         # Touch the session the way an upstream middleware would — flips `accessed` but does not log in
         request.session.get("anything")
@@ -2409,6 +2412,25 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
         response = KnownLoginDeviceCookieMiddleware(lambda r: HttpResponse())(request)
 
         assert response.status_code == 200
+        assert not any(name.startswith("ph_device_") for name in response.cookies)
+
+    def test_does_not_touch_session_when_no_session_cookie_present(self):
+        # Token / API-key requests carry no session cookie. The gate must not read the session at
+        # all — doing so triggers a cold `SessionStore.load()` and flips `session.accessed=True`,
+        # which causes upstream `SessionMiddleware` to add `Vary: Cookie` to the response and
+        # breaks downstream caching for API responses that are otherwise cookie-independent.
+        request = RequestFactory().get("/api/some_endpoint")
+        SessionMiddleware(lambda r: HttpResponse()).process_request(request)
+        request.__dict__["user"] = self.user
+        assert settings.SESSION_COOKIE_NAME not in request.COOKIES
+        assert request.session.accessed is False
+
+        response = KnownLoginDeviceCookieMiddleware(lambda r: HttpResponse())(request)
+
+        assert response.status_code == 200
+        # The gate short-circuited before touching the session — `accessed` is still False, so
+        # SessionMiddleware will not patch `Vary: Cookie` onto the response.
+        assert request.session.accessed is False
         assert not any(name.startswith("ph_device_") for name in response.cookies)
 
 
@@ -2470,3 +2492,11 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
 
     assert response.status_code == status.HTTP_200_OK, response.text
     assert not any(name.startswith("ph_device_") for name in response.cookies)
+    # Token-auth responses must not be smeared with `Vary: Cookie`. Upstream `SessionMiddleware`
+    # adds it whenever `request.session.accessed` flipped during the request — which is exactly
+    # what `KnownLoginDeviceCookieMiddleware` used to do when its gate read the session on every
+    # response. The cookie pre-gate keeps token-auth responses cacheable.
+    vary = {token.strip().lower() for token in response.headers.get("vary", "").split(",") if token.strip()}
+    assert "cookie" not in vary, (
+        f"unexpected Vary: Cookie on token-auth response (full Vary: {response.headers.get('vary')!r})"
+    )
