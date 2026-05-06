@@ -83,21 +83,23 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _iter_servers(session: Any, api_url: str, organization_slug: str) -> Iterator[dict[str, Any]]:
+def _fetch_servers(session: Any, api_url: str, organization_slug: str) -> list[dict[str, Any]]:
     data = _post_graphql(session, api_url, SERVERS_QUERY, {"organizationSlug": organization_slug})
+    return data.get("getServers") or []
+
+
+def _iter_servers(session: Any, api_url: str, organization_slug: str) -> Iterator[dict[str, Any]]:
     synced_at = _utc_now_iso()
-    for server in data.get("getServers") or []:
+    for server in _fetch_servers(session, api_url, organization_slug):
         yield {**server, "synced_at": synced_at}
 
 
 def _iter_issues(
     session: Any,
     api_url: str,
-    organization_slug: str,
+    servers: list[dict[str, Any]],
     logger: FilteringBoundLogger,
 ) -> Iterator[dict[str, Any]]:
-    servers_payload = _post_graphql(session, api_url, SERVERS_QUERY, {"organizationSlug": organization_slug})
-    servers = servers_payload.get("getServers") or []
     logger.debug(f"pganalyze: fetched {len(servers)} servers for issues fan-out")
 
     for server in servers:
@@ -139,7 +141,8 @@ def pganalyze_source(
                 return
 
             if endpoint_name == "issues":
-                yield from _iter_issues(session, resolved_api_url, organization_slug, logger)
+                servers = _fetch_servers(session, resolved_api_url, organization_slug)
+                yield from _iter_issues(session, resolved_api_url, servers, logger)
                 return
 
             raise ValueError(f"Unhandled pganalyze endpoint: {endpoint_name}")

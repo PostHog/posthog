@@ -59,10 +59,10 @@ EXTRA_FIELDS = (
 )
 
 
-def _references_to_url_and_title(record: dict[str, Any]) -> tuple[str | None, str | None]:
+def _parse_references(record: dict[str, Any]) -> list[dict[str, Any]]:
     raw_refs = record.get("references")
     if raw_refs is None:
-        return None, None
+        return []
     if isinstance(raw_refs, str):
         try:
             parsed: Any = json.loads(raw_refs)
@@ -74,12 +74,16 @@ def _references_to_url_and_title(record: dict[str, Any]) -> tuple[str | None, st
         parsed = raw_refs
     if not isinstance(parsed, list):
         msg = f"pganalyze issue references field is not a list: {parsed!r}"
-        logger.exception(msg, record=record, signals_type="data-import-signals")
+        logger.error(msg, record=record, signals_type="data-import-signals")
         raise ValueError(msg)
-    if not parsed:
-        return None, None
-    first = parsed[0] if isinstance(parsed[0], dict) else {}
-    return first.get("url"), first.get("name")
+    return parsed
+
+
+def _first_reference_name(references: list[dict[str, Any]]) -> str | None:
+    if not references:
+        return None
+    first = references[0] if isinstance(references[0], dict) else {}
+    return first.get("name")
 
 
 def pganalyze_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
@@ -92,12 +96,13 @@ def pganalyze_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitt
         raise ValueError(msg) from e
     if not issue_id or not description:
         msg = f"pganalyze issue record has empty required field: id={issue_id!r}, description={description!r}"
-        logger.exception(msg, record=record, team_id=team_id, signals_type="data-import-signals")
+        logger.error(msg, record=record, team_id=team_id, signals_type="data-import-signals")
         raise ValueError(msg)
 
     severity = record.get("severity") or "unknown"
     server_name = record.get("server_name") or record.get("server_human_id") or "unknown server"
-    _, ref_name = _references_to_url_and_title(record)
+    references = _parse_references(record)
+    ref_name = _first_reference_name(references)
 
     title_parts = [f"[{severity}]", server_name]
     if ref_name:
@@ -110,31 +115,13 @@ def pganalyze_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitt
         source_id=str(issue_id),
         description=signal_description,
         weight=1.0,
-        extra=_build_extra(record),
+        extra=_build_extra(record, references),
     )
 
 
-def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
+def _build_extra(record: dict[str, Any], references: list[dict[str, Any]]) -> dict[str, Any]:
     extra = {k: v for k, v in record.items() if k in EXTRA_FIELDS}
-    raw_refs = extra.get("references")
-    if raw_refs is None:
-        extra["references"] = []
-    elif isinstance(raw_refs, str):
-        try:
-            parsed: Any = json.loads(raw_refs)
-        except (json.JSONDecodeError, TypeError) as e:
-            msg = f"pganalyze issue references field is not valid JSON: {raw_refs!r}"
-            logger.exception(msg, record=record, signals_type="data-import-signals")
-            raise ValueError(msg) from e
-        if not isinstance(parsed, list):
-            msg = f"pganalyze issue references field is not a JSON array: {raw_refs!r}"
-            logger.exception(msg, record=record, signals_type="data-import-signals")
-            raise ValueError(msg)
-        extra["references"] = parsed
-    elif not isinstance(raw_refs, list):
-        msg = f"pganalyze issue references field has unexpected type {type(raw_refs).__name__}: {raw_refs!r}"
-        logger.exception(msg, record=record, signals_type="data-import-signals")
-        raise ValueError(msg)
+    extra["references"] = references
     return extra
 
 
