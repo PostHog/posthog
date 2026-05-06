@@ -1,8 +1,9 @@
+2026-05-05  check product maturity: hogli product:maturity <product>, or --all for a leaderboard
 2026-05-05  start-vite fixed — ESM vite.config now loads correctly
 2026-05-02  OpenAPI type generation fixed — components.parameters no longer dropped
 2026-05-01  personhog enabled by default in local dev
+2026-04-30  hogli now supports detached mode: hogli up -d, then hogli wait / hogli down
 2026-04-15  press 't' in phrocs to toggle services on/off
-2026-03-15  hogli now supports detached mode: hogli up -d, then hogli wait / hogli down
 2026-02-20  hogli telemetry is on — run 'hogli telemetry:status' for details
 2026-02-10  use 'hogli dev:explain' to see why each service is running
 2026-02-01  hogli dev:setup lets you configure which services start
