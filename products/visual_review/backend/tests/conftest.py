@@ -29,11 +29,17 @@ def _set_team_scope(request):
     """Set team context for visual_review tests that use the database.
 
     ProductTeamModel is fail-closed — queries without context raise
-    TeamScopeError. Only activates for tests marked with django_db
-    to avoid pulling in DB access for pure unit tests.
+    TeamScopeError. Activates for two cases:
+    - Tests marked with @pytest.mark.django_db (raw pytest tests).
+    - Tests inheriting Django TestCase / APIBaseTest (which get DB access
+      automatically via pytest-django without needing the marker).
+
+    Pure unit tests that touch neither path skip this fixture so we
+    don't pull in DB access just to set up scoping context.
     """
-    marker = request.node.get_closest_marker("django_db")
-    if marker is None:
+    has_django_db_marker = request.node.get_closest_marker("django_db") is not None
+    is_django_testcase = request.cls is not None and any(cls.__name__ == "TestCase" for cls in request.cls.__mro__)
+    if not has_django_db_marker and not is_django_testcase:
         yield
         return
 
