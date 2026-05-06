@@ -21,7 +21,6 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 
 from products.signals.backend.temporal.agentic.agent_coordinator import (
     COORDINATOR_INTERVAL_MINUTES,
-    DEFAULT_STAGGER_MINUTES,
     CoordinatorWorkflowInput,
 )
 
@@ -34,13 +33,14 @@ async def create_signals_agent_coordinator_schedule(client: Client) -> None:
 
     The coordinator runs on the existing signals task queue (currently
     `VIDEO_EXPORT_TASK_QUEUE`, shared with the rest of the signals temporal worker).
-    `ScheduleOverlapPolicy.SKIP` ensures a slow batch never collides with itself —
-    a tick that takes longer than the interval just suppresses the next one.
+    `ScheduleOverlapPolicy.SKIP` is a defense-in-depth guard against pathologically
+    slow ticks; the coordinator itself dispatches children fire-and-forget so its
+    lifetime is normally seconds and overlap should never fire in practice.
     """
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             SIGNALS_AGENT_COORDINATOR_WORKFLOW_NAME,
-            asdict(CoordinatorWorkflowInput(stagger_minutes=DEFAULT_STAGGER_MINUTES)),
+            asdict(CoordinatorWorkflowInput()),
             id=SIGNALS_AGENT_COORDINATOR_SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),

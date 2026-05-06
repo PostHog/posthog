@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import random
-from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
@@ -16,7 +16,6 @@ from posthog.sync import database_sync_to_async
 from products.llm_analytics.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalAgentConfig
 from products.signals.backend.temporal.agentic.agent_coordinator import (
-    DEFAULT_STAGGER_MINUTES,
     MAX_RUNS_PER_TICK,
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
@@ -25,7 +24,6 @@ from products.signals.backend.temporal.agentic.agent_coordinator import (
     SignalsAgentCoordinatorWorkflow,
     fetch_enabled_signals_agent_runs_activity,
 )
-from products.signals.backend.temporal.agentic.agent_scheduler import RunSignalsAgentOutput
 
 
 @pytest_asyncio.fixture
@@ -172,10 +170,12 @@ async def test_lazy_seeds_canonical_skills_for_brand_new_team(ateam):
             LLMSkill.objects.filter(team=ateam, name__startswith="signals-agent-").values_list("name", flat=True)
         )
     )()
-    # signals-agent-scout is the canonical skill shipped in-repo; assert membership
-    # rather than equality so future canonical additions don't break this test.
-    assert "signals-agent-scout" in seeded
-    assert any(p.skill_name == "signals-agent-scout" for p in output.planned_runs)
+    # The canonical fleet ships `signals-agent-general` (cross-product generalist) plus
+    # specialists; assert at least one canonical skill was seeded and made it into
+    # planned runs, rather than naming a specific one (so future canonical additions
+    # or renames don't break this test).
+    assert any(name.startswith("signals-agent-") for name in seeded)
+    assert any(p.skill_name.startswith("signals-agent-") for p in output.planned_runs)
 
 
 @pytest.mark.asyncio
@@ -219,11 +219,11 @@ async def test_truncates_above_hard_cap(ateam):
 
 # ── Workflow-level tests ────────────────────────────────────────────────────────
 #
-# We test the workflow's fan-out logic by patching the activity + child workflow
-# launcher and driving `SignalsAgentCoordinatorWorkflow.run` directly. The full
-# `WorkflowEnvironment` round-trip is more elaborate than necessary for the
-# orchestration logic — the parts that matter (skip, fail, success aggregation,
-# stagger sleep) are pure async control flow.
+# The coordinator dispatches child workflows fire-and-forget via `start_child_workflow`
+# with `ParentClosePolicy.ABANDON`, so it returns as soon as the last dispatch resolves.
+# We patch the activity + `start_child_workflow` and assert dispatch counts (started vs
+# already-running skip) rather than completion outcomes — child runtime success is the
+# child workflow's contract, not the coordinator's.
 
 
 @pytest.mark.asyncio
@@ -236,13 +236,13 @@ async def test_workflow_returns_zero_counts_when_no_planned_runs():
         new_callable=AsyncMock,
         return_value=fake_fetch_result,
     ):
-        output = await coordinator.run(CoordinatorWorkflowInput(stagger_minutes=DEFAULT_STAGGER_MINUTES))
+        output = await coordinator.run(CoordinatorWorkflowInput())
 
-    assert output == CoordinatorWorkflowOutput(0, 0, 0, 0)
+    assert output == CoordinatorWorkflowOutput(0, 0, 0)
 
 
 @pytest.mark.asyncio
-async def test_workflow_aggregates_triggered_skipped_failed():
+async def test_workflow_dispatches_children_fire_and_forget():
     planned = [
         PlannedRun(team_id=1, skill_name="signals-agent-a"),
         PlannedRun(team_id=1, skill_name="signals-agent-b"),
@@ -250,30 +250,21 @@ async def test_workflow_aggregates_triggered_skipped_failed():
     ]
     fake_fetch_result = type("R", (), {"planned_runs": planned})()
 
-    outcomes: list[Any] = [
-        RunSignalsAgentOutput(
-            run_id="abc",
-            status="completed",
-            runtime_s=1.0,
-            skill_name="signals-agent-a",
-            skill_version=1,
-        ),
-        RunSignalsAgentOutput(
-            run_id=None,
-            status=None,
-            runtime_s=0.0,
-            skill_name="signals-agent-b",
-            skill_version=1,
-            skip_reason="prior run still in RUNNING status",
-        ),
-        RuntimeError("sandbox refused to start"),
+    # Second dispatch raises WorkflowAlreadyStartedError → counted as skipped, others as started.
+    dispatch_outcomes: list[BaseException | None] = [
+        None,
+        WorkflowAlreadyStartedError("dup", "signals-agent-run-1-signals-agent-b-tick-1-1"),
+        None,
     ]
+    dispatch_calls: list[tuple[int, str]] = []
 
-    async def fake_launch(*, idx: int, **_kwargs: Any) -> RunSignalsAgentOutput:
-        outcome = outcomes[idx]
+    async def fake_start_child(_workflow_run, run_input, **kwargs):
+        idx = len(dispatch_calls)
+        dispatch_calls.append((run_input.team_id, run_input.skill_name))
+        outcome = dispatch_outcomes[idx]
         if isinstance(outcome, BaseException):
             raise outcome
-        return outcome
+        return AsyncMock()
 
     coordinator = SignalsAgentCoordinatorWorkflow()
     with (
@@ -290,13 +281,18 @@ async def test_workflow_aggregates_triggered_skipped_failed():
             "products.signals.backend.temporal.agentic.agent_coordinator.workflow.logger",
         ),
         patch(
-            "products.signals.backend.temporal.agentic.agent_coordinator._launch_child_with_stagger",
-            side_effect=fake_launch,
+            "products.signals.backend.temporal.agentic.agent_coordinator.workflow.start_child_workflow",
+            side_effect=fake_start_child,
         ),
     ):
-        output = await coordinator.run(CoordinatorWorkflowInput(stagger_minutes=0))
+        output = await coordinator.run(CoordinatorWorkflowInput())
 
     assert output.planned_count == 3
-    assert output.triggered_count == 1
+    assert output.started_count == 2
     assert output.skipped_count == 1
-    assert output.failed_count == 1
+    # All three planned runs were dispatched in order, even though one was a dedupe-skip.
+    assert dispatch_calls == [
+        (1, "signals-agent-a"),
+        (1, "signals-agent-b"),
+        (2, "signals-agent-c"),
+    ]

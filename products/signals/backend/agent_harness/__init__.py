@@ -1,7 +1,7 @@
 """Headless Signals agent harness.
 
-Spawns sandbox agents on a stagger schedule, persists run rows, and emits
-signals via `emit_signal()`.
+Spawns sandbox agents from an hourly Temporal coordinator, persists run rows,
+and emits signals via `emit_signal()`.
 """
 
 from products.signals.backend.agent_harness.budgets import DEFAULT_BUDGET, BudgetCaps, resolve_budget

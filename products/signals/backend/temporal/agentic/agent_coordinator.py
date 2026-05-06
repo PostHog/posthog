@@ -1,34 +1,25 @@
 from __future__ import annotations
 
 import json
-import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
 import structlog
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.llm_analytics.backend.models.skills import LLMSkill
 from products.signals.backend.agent_harness.lazy_seed import seed_canonical_skills
 from products.signals.backend.agent_harness.skill_loader import SIGNALS_AGENT_SKILL_PREFIX
 from products.signals.backend.models import SignalAgentConfig
-from products.signals.backend.temporal.agentic.agent_scheduler import (
-    RunSignalsAgentInput,
-    RunSignalsAgentOutput,
-    RunSignalsAgentWorkflow,
-)
+from products.signals.backend.temporal.agentic.agent_scheduler import RunSignalsAgentInput, RunSignalsAgentWorkflow
 
 logger = structlog.get_logger(__name__)
-
-# Stagger between consecutive child launches inside one coordinator tick. With the hourly
-# schedule and a 30-min runtime cap, ~12 min between starts gives space for one team's
-# runs to mostly serialize via skip-if-running while letting different teams run in
-# parallel. Tunable later from telemetry.
-DEFAULT_STAGGER_MINUTES = 12
 
 # Hard cap on planned runs per coordinator tick. Defends against a config explosion
 # (e.g. someone seeds 50 skills) overwhelming the worker pool. If we exceed this we
@@ -63,15 +54,16 @@ class FetchEnabledRunsOutput:
 
 @dataclass
 class CoordinatorWorkflowInput:
-    stagger_minutes: int = DEFAULT_STAGGER_MINUTES
+    """Placeholder input for forward-compat (e.g. future dry-run / debug flags)."""
+
+    pass
 
 
 @dataclass
 class CoordinatorWorkflowOutput:
     planned_count: int
-    triggered_count: int
+    started_count: int
     skipped_count: int
-    failed_count: int
 
 
 @activity.defn
@@ -85,13 +77,13 @@ async def fetch_enabled_signals_agent_runs_activity(
     `enabled_skill_names` is null. Skips configs where the resulting skill list is empty.
     """
     async with Heartbeater():
-        planned = await asyncio.to_thread(_collect_planned_runs)
+        planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)()
     logger.info("signals_agent coordinator: planned runs", count=len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned)
 
 
 def _collect_planned_runs() -> list[PlannedRun]:
-    """Sync DB scan. Runs in a worker thread via `asyncio.to_thread`."""
+    """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt."""
     # TODO(phase 4): gate behind the `signals-agent-dogfood` feature flag once it
     # exists. For now the `enabled=False` default on `SignalAgentConfig` is the gate.
     configs = list(SignalAgentConfig.objects.filter(enabled=True).select_related("team").order_by("team__id"))
@@ -110,7 +102,7 @@ def _collect_planned_runs() -> list[PlannedRun]:
         except Exception:
             logger.exception(
                 "signals_agent coordinator: lazy seed failed for team; continuing",
-                extra={"team_id": team_id},
+                team_id=team_id,
             )
         skill_names = _resolve_skill_names_for_config(config, team_id=team_id)
         for skill_name in skill_names:
@@ -121,8 +113,8 @@ def _collect_planned_runs() -> list[PlannedRun]:
                     budget_overrides=dict(config.budget_overrides or {}),
                 )
             )
-    # Stable order: team_id then skill_name. Keeps stagger assignment deterministic
-    # across ticks and makes child workflow IDs predictable.
+    # Stable order: team_id then skill_name. Keeps child workflow IDs predictable
+    # and makes the truncation deterministic across ticks.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
     if len(planned) > MAX_RUNS_PER_TICK:
         logger.warning(
@@ -140,6 +132,8 @@ def _resolve_skill_names_for_config(config: SignalAgentConfig, *, team_id: int) 
     `enabled_skill_names = None` → glob all `signals-agent-*` skills on the team.
     `enabled_skill_names = [list]` → use the list verbatim, but still validate each
     name actually exists on the team so the activity output is grounded in reality.
+    Duplicates in the configured list are collapsed (preserving first-seen order) so
+    a noisy config row can't fan out the same skill twice in one tick.
     """
     available = set(
         LLMSkill.objects.filter(
@@ -151,7 +145,7 @@ def _resolve_skill_names_for_config(config: SignalAgentConfig, *, team_id: int) 
     )
     if config.enabled_skill_names is None:
         return sorted(available)
-    requested = list(config.enabled_skill_names)
+    requested = list(dict.fromkeys(config.enabled_skill_names))
     resolved = [name for name in requested if name in available]
     missing = [name for name in requested if name not in available]
     if missing:
@@ -167,9 +161,16 @@ def _resolve_skill_names_for_config(config: SignalAgentConfig, *, team_id: int) 
 class SignalsAgentCoordinatorWorkflow:
     """Hourly coordinator: scans enabled configs, fans out per-(team, skill) child runs.
 
-    Single coordinator workflow per tick; child workflows own their own run-row lifecycle
-    via `RunSignalsAgentWorkflow`. Failures are isolated: one failing child does not abort
-    siblings or future ticks.
+    Dispatch is fire-and-forget: each child is started with `ParentClosePolicy.ABANDON`
+    so it outlives this workflow, and the coordinator returns immediately after the
+    last `start_child_workflow` call. This keeps the coordinator's lifetime to seconds
+    regardless of how many children are dispatched, so the schedule's `SKIP` overlap
+    policy never collapses ticks at scale. Temporal's task queue + worker concurrency
+    handles the throttling — if workers are saturated, the children just queue.
+
+    Idempotency: child workflow IDs are deterministic per `(team_id, skill_name, tick_id)`,
+    so a retried coordinator can't double-launch within a single tick. A separate
+    skip-if-running guard inside the runner protects against tick-over-tick collisions.
     """
 
     @staticmethod
@@ -180,7 +181,7 @@ class SignalsAgentCoordinatorWorkflow:
         return CoordinatorWorkflowInput(**loaded)
 
     @workflow.run
-    async def run(self, input: CoordinatorWorkflowInput) -> CoordinatorWorkflowOutput:
+    async def run(self, _input: CoordinatorWorkflowInput) -> CoordinatorWorkflowOutput:
         fetch_result = await workflow.execute_activity(
             fetch_enabled_signals_agent_runs_activity,
             FetchEnabledRunsInput(),
@@ -189,51 +190,53 @@ class SignalsAgentCoordinatorWorkflow:
         )
         planned_runs = fetch_result.planned_runs
         if not planned_runs:
-            return CoordinatorWorkflowOutput(0, 0, 0, 0)
+            return CoordinatorWorkflowOutput(0, 0, 0)
 
-        stagger_seconds = max(0, int(input.stagger_minutes)) * 60
         tick_id = workflow.info().workflow_id
-        tasks = [
-            asyncio.create_task(
-                _launch_child_with_stagger(
-                    idx=idx,
-                    stagger_seconds=stagger_seconds,
-                    planned=planned,
-                    tick_id=tick_id,
-                )
-            )
-            for idx, planned in enumerate(planned_runs)
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        return _summarize_results(planned_runs, results)
+        started = 0
+        skipped = 0
+        for idx, planned in enumerate(planned_runs):
+            if await _start_child(planned=planned, tick_id=tick_id, idx=idx):
+                started += 1
+            else:
+                skipped += 1
+        return CoordinatorWorkflowOutput(
+            planned_count=len(planned_runs),
+            started_count=started,
+            skipped_count=skipped,
+        )
 
 
-async def _launch_child_with_stagger(
-    *,
-    idx: int,
-    stagger_seconds: int,
-    planned: PlannedRun,
-    tick_id: str,
-) -> RunSignalsAgentOutput:
-    """Sleep for our stagger slot, then synchronously execute the child workflow.
+async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
+    """Fire-and-forget child dispatch. Returns True if started, False if dedupe-skipped.
 
-    Using `execute_child_workflow` (vs `start_child_workflow`) keeps the coordinator
-    waiting on completion so we can surface aggregate counts. With the hourly tick and
-    `ScheduleOverlapPolicy.SKIP`, a slow batch just delays the next tick — better than
-    fire-and-forget which would lose visibility into failures.
+    `WorkflowAlreadyStartedError` covers the case where a previous tick's child for the
+    same `(team, skill, tick)` is still alive — we never overwrite, we let it finish.
+    Any other exception bubbles up: the coordinator's `RetryPolicy` will replay the
+    activity and re-dispatch idempotently because workflow IDs are deterministic.
     """
-    if idx > 0 and stagger_seconds > 0:
-        await workflow.sleep(idx * stagger_seconds)
     child_id = _child_workflow_id(planned, tick_id, idx)
-    return await workflow.execute_child_workflow(
-        RunSignalsAgentWorkflow.run,
-        RunSignalsAgentInput(
+    try:
+        await workflow.start_child_workflow(
+            RunSignalsAgentWorkflow.run,
+            RunSignalsAgentInput(
+                team_id=planned.team_id,
+                skill_name=planned.skill_name,
+                budget_overrides=planned.budget_overrides or None,
+            ),
+            id=child_id,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+        )
+        return True
+    except WorkflowAlreadyStartedError:
+        workflow.logger.info(
+            "signals_agent coordinator: child already running, skipping",
             team_id=planned.team_id,
             skill_name=planned.skill_name,
-            budget_overrides=planned.budget_overrides or None,
-        ),
-        id=child_id,
-    )
+            child_id=child_id,
+        )
+        return False
 
 
 def _child_workflow_id(planned: PlannedRun, tick_id: str, idx: int) -> str:
@@ -242,32 +245,3 @@ def _child_workflow_id(planned: PlannedRun, tick_id: str, idx: int) -> str:
     # planning step already dedupes via sorted unique).
     safe_skill = planned.skill_name.replace(" ", "_")[:60]
     return f"signals-agent-run-{planned.team_id}-{safe_skill}-{tick_id}-{idx}"
-
-
-def _summarize_results(planned: list[PlannedRun], results: list[Any]) -> CoordinatorWorkflowOutput:
-    triggered = 0
-    skipped = 0
-    failed = 0
-    failures: list[tuple[str, str]] = []
-    for plan, outcome in zip(planned, results):
-        label = f"{plan.team_id}:{plan.skill_name}"
-        if isinstance(outcome, BaseException):
-            failed += 1
-            failures.append((label, f"{type(outcome).__name__}: {outcome}"))
-            continue
-        # outcome is `RunSignalsAgentOutput`. Skip-if-running surfaces as `skip_reason` set.
-        if outcome.skip_reason is not None:
-            skipped += 1
-        else:
-            triggered += 1
-    if failures:
-        workflow.logger.warning(
-            "signals_agent coordinator: child workflow errors",
-            extra={"failed_count": len(failures), "failures": failures},
-        )
-    return CoordinatorWorkflowOutput(
-        planned_count=len(planned),
-        triggered_count=triggered,
-        skipped_count=skipped,
-        failed_count=failed,
-    )
