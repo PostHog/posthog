@@ -38,11 +38,11 @@ export function OnboardingBreadcrumbs(): JSX.Element | null {
             return step.label
         }
         // The posthog-js install step is shared across products via dedup, so it gets
-        // a generic "Install SDK" label rather than being titled after whichever
-        // product happens to be the dedup survivor (which would be misleading when
-        // it actually installs the SDK for several products at once).
+        // a generic "Install" label rather than being titled after whichever product
+        // happens to be the dedup survivor (which would be misleading when it
+        // actually installs the SDK for several products at once).
         if (step.stepKey === OnboardingStepKey.INSTALL && step.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS) {
-            return 'Install SDK'
+            return 'Install'
         }
         const base = stepKeyToTitle(step.stepKey) ?? step.stepKey
         if (stepKeyCounts[step.stepKey] > 1) {

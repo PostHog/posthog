@@ -627,9 +627,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // URL self-correction: if the user navigated to a stepId we can't resolve
             // (typo'd bookmark, deprecated step name, secondary product not in `?with=`),
             // `currentFlowStep` returns null and the host shows a spinner forever.
-            // Reconcile by falling through to flow[0] — but only once the flow has been
-            // built (otherwise we'd race the initial billing/team load).
-            if (stepId && values.flow.length > 0) {
+            // Reconcile by falling through to flow[0].
+            //
+            // Important: only self-correct when the stepId is genuinely unknown — NOT when
+            // it's a valid OnboardingStepKey that simply hasn't been emitted into the flow
+            // yet. Steps like `plans` are appended async (after billing loads) by
+            // `appendSharedTrailingSteps`; self-correcting too eagerly here would clobber
+            // the URL before the flow settles, leaving the user on `flow[0]` even after
+            // billing arrives.
+            const isKnownStepKey = (id: string): boolean =>
+                Object.values(OnboardingStepKey).includes(id as OnboardingStepKey) || id.includes(':')
+            if (stepId && values.flow.length > 0 && !isKnownStepKey(stepId)) {
                 const exact = values.flow.find((step) => step.id === stepId)
                 const loose = exact ? null : values.flow.find((step) => step.stepKey === stepId)
                 if (!exact && !loose) {

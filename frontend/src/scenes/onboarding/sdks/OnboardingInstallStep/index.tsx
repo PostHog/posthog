@@ -83,13 +83,13 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
     // The posthog-js install step is shared across many products via dedup, so it
-    // gets a generic "Install SDK" title rather than tying it to whichever product
+    // gets a generic "Install" title rather than tying it to whichever product
     // happens to be the dedup survivor (which would mislead users picking PA + WA +
     // SR into thinking the step only installs Product Analytics, etc.).
     // Product-specific install steps (LLM Analytics, Workflows, Logs) keep their
     // product-titled label since they really are product-specific.
     const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
-    const installTitle = isSdkInstallStep ? 'Install SDK' : productName ? `Install ${productName}` : 'Install your SDK'
+    const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
