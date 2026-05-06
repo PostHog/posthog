@@ -551,7 +551,7 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
 @click.option(
     "--configure-git-signing/--skip-configure-git-signing",
     default=None,
-    help="Pick a 1Password SSH key to sign commits inside Coder workspaces",
+    help="Propagate your local git signing key into Coder devboxes (reads git config user.signingkey)",
 )
 @click.option(
     "--configure-dotfiles/--skip-configure-dotfiles",
