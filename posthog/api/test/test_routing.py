@@ -111,12 +111,18 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.user.current_team = self.team
         self.user.save()
 
+        # Capture the scope before the request — `dispatch()` resets via
+        # ContextVar.reset(token), which restores whatever was in scope before
+        # the view fired. Some test runners may have leftover scope from
+        # earlier tests on the same thread; we just assert the wrapper
+        # restored the pre-request value, not unconditionally None.
+        pre_request_scope = get_current_team_id()
+
         response = self.client.get(f"/api/environments/{other_team.id}/foos/current_scope/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], other_team.id)
-        # And after the request, context should be reset
-        self.assertIsNone(get_current_team_id())
+        self.assertEqual(get_current_team_id(), pre_request_scope)
 
     def test_team_scope_context_set_from_url_for_project_view(self):
         response = self.client.get(f"/api/projects/{self.team.id}/foos/current_scope/")

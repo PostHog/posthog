@@ -64,15 +64,27 @@ class VisualReviewTeamScopedTestMixin:
         class TestFoo(VisualReviewTeamScopedTestMixin, APIBaseTest):
             def test_thing(self):
                 Repo.objects.create(...)  # auto-scoped
+
+    The `_team_scope_cm` attribute is initialized to None up front so a
+    partial-init failure in setUp (e.g. team_scope() raising during
+    resolve, or super().setUp() raising) doesn't leave tearDown trying
+    to __exit__ an unentered context manager.
     """
+
+    _team_scope_cm = None
 
     def setUp(self) -> None:
         super().setUp()  # type: ignore[misc]
-        self._team_scope_cm = team_scope(self.team.id)  # type: ignore[attr-defined]
-        self._team_scope_cm.__enter__()
+        cm = team_scope(self.team.id)  # type: ignore[attr-defined]
+        cm.__enter__()
+        self._team_scope_cm = cm
 
     def tearDown(self) -> None:
-        self._team_scope_cm.__exit__(None, None, None)
+        if self._team_scope_cm is not None:
+            try:
+                self._team_scope_cm.__exit__(None, None, None)
+            finally:
+                self._team_scope_cm = None
         super().tearDown()  # type: ignore[misc]
 
 
