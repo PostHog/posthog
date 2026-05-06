@@ -458,10 +458,16 @@ impl GroupStorage for PostgresStorage {
 
         let fetch_limit = (limit as i64) + 1;
         let has_key_filter = !group_key_contains.is_empty();
-        let escaped_key = group_key_contains.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let escaped_key = group_key_contains
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
         let key_pattern = format!("%{}%", escaped_key);
         let has_search = !search.is_empty();
-        let escaped_search = search.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let escaped_search = search
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
         let search_pattern = format!("%{}%", escaped_search);
         let has_cursor = cursor_created_at.is_some();
 

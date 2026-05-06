@@ -24,13 +24,13 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
-    ListGroupsRequest, ListGroupsResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
@@ -144,10 +144,7 @@ pub trait PersonHogBackend: Send + Sync {
         &self,
         request: GetGroupsBatchRequest,
     ) -> Result<GetGroupsBatchResponse, Status>;
-    async fn list_groups(
-        &self,
-        request: ListGroupsRequest,
-    ) -> Result<ListGroupsResponse, Status>;
+    async fn list_groups(&self, request: ListGroupsRequest) -> Result<ListGroupsResponse, Status>;
 
     // Group type mappings
     async fn get_group_type_mappings_by_team_id(

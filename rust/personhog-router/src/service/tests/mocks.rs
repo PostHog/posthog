@@ -15,15 +15,14 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
-    ListGroupsRequest, ListGroupsResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, Person, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::sync::Mutex;
 use tonic::Status;
@@ -258,10 +257,7 @@ impl PersonHogBackend for MockBackend {
         Ok(GetGroupsBatchResponse { results: vec![] })
     }
 
-    async fn list_groups(
-        &self,
-        _request: ListGroupsRequest,
-    ) -> Result<ListGroupsResponse, Status> {
+    async fn list_groups(&self, _request: ListGroupsRequest) -> Result<ListGroupsResponse, Status> {
         self.check_error()?;
         Ok(ListGroupsResponse {
             groups: vec![],

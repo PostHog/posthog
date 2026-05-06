@@ -24,8 +24,7 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
     GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
     GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest, ListGroupsRequest,
-    ListGroupsResponse,
+    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
     GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
@@ -33,11 +32,11 @@ use personhog_proto::personhog::types::v1::{
     GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
     HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, PersonDistinctIds, PersonWithDistinctIds,
-    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, PersonDistinctIds,
+    PersonWithDistinctIds, PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, TeamDistinctId, UpdateGroupRequest,
+    UpdateGroupResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
