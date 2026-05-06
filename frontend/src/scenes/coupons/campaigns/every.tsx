@@ -45,5 +45,5 @@ export const everyCampaign: CampaignConfig = {
         'Active paid subscription to PostHog',
         `Organizations already paying before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} receive the PostHog AI benefit only`,
     ],
-    footerNote: `*Excludes PostHog Code. Credits and campaign plan benefits expire 12 months from redemption. The $2K credit grant applies only to eligible organizations without paid invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF}.`,
+    footerNote: <span className="text-xs">*Excludes PostHog Code.</span>,
 }
