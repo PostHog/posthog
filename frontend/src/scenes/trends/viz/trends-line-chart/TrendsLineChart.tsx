@@ -179,7 +179,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         () => ({
             xAxis: { tickFormatter: xTickFormatter },
             yAxis: yAxisConfig,
-            valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
+            valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : undefined,
             goalLines: goalLineConfigs,
             ...derivedConfigs,
             percentStackView: isPercentStackView,

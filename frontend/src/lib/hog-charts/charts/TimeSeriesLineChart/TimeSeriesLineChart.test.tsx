@@ -78,24 +78,16 @@ describe('TimeSeriesLineChart', () => {
     })
 
     describe('config.valueLabels', () => {
-        it.each([
-            ['omitted', undefined],
-            ['false', false as const],
-        ])('does not render value labels when %s', (_, valueLabels) => {
+        it('does not render value labels when omitted', () => {
             const { chart } = renderHogChart(
-                <TimeSeriesLineChart
-                    series={SERIES}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={valueLabels === undefined ? undefined : { valueLabels }}
-                />
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} />
             )
             expect(chart.valueLabels()).toHaveLength(0)
         })
 
-        it('renders one value label per visible point when valueLabels=true', () => {
+        it('renders one value label per visible point when valueLabels is set', () => {
             const { chart } = renderHogChart(
-                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ valueLabels: true }} />
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={{ valueLabels: {} }} />
             )
             expect(chart.valueLabels()).toHaveLength(SERIES[0].data.length)
         })
@@ -119,7 +111,7 @@ describe('TimeSeriesLineChart', () => {
                     series={[{ key: 'a', label: 'A', data: [50] }]}
                     labels={['Mon']}
                     theme={THEME}
-                    config={{ yAxis: { format: 'percentage' }, valueLabels: true }}
+                    config={{ yAxis: { format: 'percentage' }, valueLabels: {} }}
                 />
             )
             expect(chart.valueLabels().map((l) => l.text)).toEqual(['50%'])
@@ -132,7 +124,7 @@ describe('TimeSeriesLineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ yAxis: { tickFormatter: explicit }, valueLabels: true }}
+                    config={{ yAxis: { tickFormatter: explicit }, valueLabels: {} }}
                 />
             )
             expect(chart.valueLabels().map((l) => l.text)).toEqual(['y:1', 'y:2', 'y:3'])

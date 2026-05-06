@@ -30,7 +30,7 @@ export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
     yAxis?: YAxisConfig
-    valueLabels?: boolean | ValueLabelsConfig
+    valueLabels?: ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     confidenceIntervals?: ConfidenceIntervalConfig[]
     movingAverage?: MovingAverageConfig[]
@@ -58,16 +58,6 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-function resolveValueLabelsConfig(valueLabels: TimeSeriesLineChartConfig['valueLabels']): ValueLabelsConfig | null {
-    if (valueLabels === undefined || valueLabels === false) {
-        return null
-    }
-    if (valueLabels === true) {
-        return {}
-    }
-    return valueLabels
-}
-
 export function TimeSeriesLineChart<Meta = unknown>({
     series,
     labels,
@@ -83,7 +73,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const {
         xAxis,
         yAxis,
-        valueLabels,
+        valueLabels: valueLabelsConfig,
         goalLines,
         confidenceIntervals,
         movingAverage,
@@ -94,8 +84,6 @@ export function TimeSeriesLineChart<Meta = unknown>({
         tooltip: tooltipConfig,
     } = config ?? {}
     const yTickFormatter = useYTickFormatter(yAxis)
-
-    const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
 
     // Stable primitive key so callers can pass `valueLabels: { seriesKeys: ['a'] }` inline
     // without re-running the transform on every render.
