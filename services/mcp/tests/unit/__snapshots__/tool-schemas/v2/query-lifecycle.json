@@ -1661,6 +1661,7 @@
                     }
                 ]
             },
+            "maxItems": 1,
             "type": "array"
         }
     },

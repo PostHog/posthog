@@ -1,8 +1,9 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -25,13 +26,43 @@ import { CommentType } from '~/types'
 
 import { SCOPE_OPTIONS, commentsLogic, openURLFor } from './commentsLogic'
 
+const KIND_OPTIONS = [
+    { value: 'any', label: 'Any' },
+    { value: 'comment', label: 'Comments' },
+    { value: 'task', label: 'Tasks' },
+] as const
+
+const COMPLETED_OPTIONS = [
+    { value: 'any', label: 'Any' },
+    { value: 'open', label: 'Open' },
+    { value: 'completed', label: 'Completed' },
+] as const
+
 export function Comments(): JSX.Element {
     const { user } = useValues(userLogic)
 
-    const { comments, shouldShowEmptyState, commentsLoading, scope, filterCreatedBy, searchText } =
-        useValues(commentsLogic)
+    const {
+        comments,
+        shouldShowEmptyState,
+        commentsLoading,
+        scope,
+        filterCreatedBy,
+        searchText,
+        kind,
+        completedFilter,
+    } = useValues(commentsLogic)
 
-    const { setScope, setFilterCreatedBy, setSearchText, deleteComment, loadComments } = useActions(commentsLogic)
+    const {
+        setScope,
+        setFilterCreatedBy,
+        setSearchText,
+        setKind,
+        setCompletedFilter,
+        deleteComment,
+        completeComment,
+        reopenComment,
+        loadComments,
+    } = useActions(commentsLogic)
 
     useEffect(() => {
         loadComments()
@@ -43,12 +74,30 @@ export function Comments(): JSX.Element {
             key: 'content',
             width: '45%',
             render: function RenderComment(_, comment: CommentType): JSX.Element {
+                const isCompleted = !!comment.completed_at
+                const completionTooltip = isCompleted
+                    ? `Completed by ${comment.completed_by?.first_name ?? 'Unknown user'}`
+                    : 'Mark as complete'
                 return (
-                    <div
-                        className="whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
-                        data-attr="comment-scene-comment-title-rendered-content"
-                    >
-                        {getText(comment)}
+                    <div className="flex items-center gap-2">
+                        {comment.is_task ? (
+                            <Tooltip title={completionTooltip}>
+                                <LemonCheckbox
+                                    checked={isCompleted}
+                                    onChange={() => (isCompleted ? reopenComment(comment) : completeComment(comment))}
+                                    data-attr="comment-task-checkbox"
+                                />
+                            </Tooltip>
+                        ) : null}
+                        <div
+                            className={clsx(
+                                'whitespace-pre-wrap break-words max-h-64 overflow-y-auto min-w-0 flex-1',
+                                isCompleted && 'line-through text-secondary'
+                            )}
+                            data-attr="comment-scene-comment-title-rendered-content"
+                        >
+                            {getText(comment)}
+                        </div>
                     </div>
                 )
             },
@@ -60,6 +109,13 @@ export function Comments(): JSX.Element {
                 return <TZLabel time={dayjs(comment.created_at)} />
             },
             sorter: (a, b) => dayjs(a.created_at).diff(dayjs(b.created_at)),
+        },
+        {
+            title: 'Kind',
+            key: 'kind',
+            render: function RenderKind(_, comment: CommentType): JSX.Element {
+                return <span>{comment.is_task ? 'Task' : 'Comment'}</span>
+            },
         },
         {
             title: 'Scope',
@@ -139,6 +195,23 @@ export function Comments(): JSX.Element {
 
                 <div>
                     <div className="flex flex-row items-center gap-4 flex-wrap">
+                        <div className="flex flex-row items-center gap-2">
+                            <div>Kind:</div>
+                            <LemonSelect options={[...KIND_OPTIONS]} value={kind} onSelect={setKind} size="small" />
+                        </div>
+
+                        {kind === 'task' ? (
+                            <div className="flex flex-row items-center gap-2">
+                                <div>Status:</div>
+                                <LemonSelect
+                                    options={[...COMPLETED_OPTIONS]}
+                                    value={completedFilter}
+                                    onSelect={setCompletedFilter}
+                                    size="small"
+                                />
+                            </div>
+                        ) : null}
+
                         <div className="flex flex-row items-center gap-2">
                             <div>Scope:</div>
                             <LemonSelect options={SCOPE_OPTIONS} value={scope} onSelect={setScope} size="small" />

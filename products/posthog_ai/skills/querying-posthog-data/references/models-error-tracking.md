@@ -38,7 +38,50 @@ Status | Description
 
 ---
 
+## ErrorTrackingSymbolSet (`system.error_tracking_symbol_sets`)
+
+Symbol sets represent uploaded source maps used to unminify JavaScript stack frames.
+Rows can also track missing symbol sets so future uploads know which stack frames may need reprocessing.
+
+### Columns
+
+Column | Type | Nullable | Description
+`id` | uuid | NOT NULL | Primary key (UUID)
+`team_id` | integer | NOT NULL | FK to `system.teams.id`
+`ref` | text | NOT NULL | Symbol set reference matched from stack frames
+`release_id` | uuid | NULL | Associated error tracking release ID
+`created_at` | timestamp with tz | NOT NULL | Creation timestamp
+`last_used` | timestamp with tz | NULL | Last time this symbol set was used for frame resolution
+`failure_reason` | text | NULL | Reason lookup failed when the source map is missing or invalid
+
+### Important Notes
+
+- Internal storage pointers and content hashes are intentionally omitted from HogQL.
+- Use `posthog:error-tracking-symbol-sets-list` with `status = 'valid'` or `status = 'invalid'` to check upload availability.
+- Use `posthog:error-tracking-symbol-sets-list` with an exact `ref` to resolve a reference to an ID, then `posthog:error-tracking-symbol-sets-retrieve` or `posthog:error-tracking-symbol-sets-download-retrieve` by ID. Download URLs expire after one hour; use them immediately and do not echo them back unless the user explicitly asks.
+
+---
+
 ## Common Query Patterns
+
+**Find symbol set lookup failures:**
+
+```sql
+SELECT id, ref, failure_reason, created_at, last_used
+FROM system.error_tracking_symbol_sets
+WHERE failure_reason IS NOT NULL
+ORDER BY created_at DESC
+LIMIT 20
+```
+
+**Find symbol set metadata by reference:**
+
+```sql
+SELECT id, ref, release_id, created_at, last_used, failure_reason
+FROM system.error_tracking_symbol_sets
+WHERE ref = 'https://example.com/static/app.min.js'
+LIMIT 1
+```
 
 **Find issues by status:**
 

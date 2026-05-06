@@ -115,6 +115,11 @@ export interface TaxonomicFilterProps {
      *  query matches a known autocapture interaction keyword. Consumers must handle
      *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
     enableKeywordShortcuts?: boolean
+    /** Treat every selection as final — there is no operator/value picker after the user picks a key
+     *  (e.g. picking columns to add, or picking an event name). Selections from property groups are
+     *  recorded to recents directly instead of waiting for `propertyFilterLogic` to record a complete
+     *  filter, and only key-only recents are surfaced in the recents tab. */
+    selectingKeyOnly?: boolean
 }
 
 export interface DataWarehousePopoverField {
