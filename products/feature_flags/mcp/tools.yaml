@@ -175,7 +175,27 @@ tools:
         enabled: false
     feature-flags-my-flags-retrieve:
         operation: feature_flags_my_flags_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Get my evaluated feature flags
+        description: >
+            List all feature flags in the current project along with their evaluated value for the authenticated user
+            (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple
+            flags, variant key string for multivariate flags, false if disabled). Optionally pass `groups` as a JSON
+            object to evaluate group-based flags.
+        response:
+            include:
+                - feature_flag.id
+                - feature_flag.key
+                - feature_flag.name
+                - feature_flag.active
+                - value
     feature-flags-remote-config-retrieve:
         operation: feature_flags_remote_config_retrieve
         enabled: false
