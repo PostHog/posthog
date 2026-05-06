@@ -285,33 +285,26 @@ export class ErrorTrackingConsumer {
                 rateLimiter: this.rateLimiter,
                 appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
                 appSource: 'exceptions',
-                // Skip rate limiting entirely when the team hasn't configured a project-wide
-                // limit (no row, null value, or non-positive value — the API rejects the
-                // latter but legacy rows or manual edits could slip through). Returning null
-                // here makes the rate-limiter step pass the input through as `ok()`.
-                getKey: (input) => {
-                    const value = input.errorTrackingSettings?.projectRateLimitValue
-                    if (value == null || value <= 0) {
-                        return null
-                    }
-                    return `${input.team.id}:exceptions:global`
-                },
+                // Skip rate limiting when the team hasn't opted in (no row or null value).
+                // Returning null makes the rate-limiter step pass the input through as `ok()`.
+                // The serializer enforces min_value=1, so a non-null value is always positive.
+                getKey: (input) =>
+                    input.errorTrackingSettings?.projectRateLimitValue == null
+                        ? null
+                        : `${input.team.id}:exceptions:global`,
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:team_global',
                 getBucketConfig: (input) => {
                     // Only called for inputs where getKey returned non-null, so the team has a
-                    // valid project_rate_limit_value. User model: "N events per M minutes".
+                    // positive project_rate_limit_value. User model: "N events per M minutes".
                     // Token bucket: bucketSize=N (max burst), refillRate=N/(M*60) per second.
-                    // Defensive `safeMinutes` handles the edge case where the row exists but
-                    // bucket_size_minutes is null/zero.
                     const settings = input.errorTrackingSettings!
                     const value = settings.projectRateLimitValue!
-                    const minutes = settings.projectRateLimitBucketSizeMinutes
-                    const safeMinutes = minutes != null && minutes > 0 ? minutes : 60
+                    const minutes = settings.projectRateLimitBucketSizeMinutes ?? 60
                     return {
                         bucketSize: value,
-                        refillRate: value / (safeMinutes * 60),
+                        refillRate: value / (minutes * 60),
                     }
                 },
             },
