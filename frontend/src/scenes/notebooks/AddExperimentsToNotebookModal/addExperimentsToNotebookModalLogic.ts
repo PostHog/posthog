@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
@@ -119,13 +119,6 @@ export const addExperimentsToNotebookModalLogic = kea<addExperimentsToNotebookMo
             const newFilters = values.filters
 
             if (!objectsEqual(oldFilters, newFilters)) {
-                actions.loadExperiments()
-            }
-        },
-    })),
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            if (values.isAddExperimentsToNotebookModalOpen) {
                 actions.loadExperiments()
             }
         },
