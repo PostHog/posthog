@@ -575,9 +575,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
         assert (
-            SignalReportArtefact.objects.filter(
-                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
-            ).count()
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL).count()
             == 0
         )
 
@@ -599,9 +597,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert report.status == SignalReport.Status.SUPPRESSED
 
         artefacts = list(
-            SignalReportArtefact.objects.filter(
-                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
-            )
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
         )
         assert len(artefacts) == 1
         content = json.loads(artefacts[0].content)
@@ -618,9 +614,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        artefact = SignalReportArtefact.objects.get(
-            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
-        )
+        artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
         content = json.loads(artefact.content)
         assert content["reason"] is None
         assert content["note"] == "free-form note"
@@ -637,7 +631,9 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert report.status == SignalReport.Status.READY
 
     def test_dismissal_reason_rejected_when_not_suppressing(self):
-        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        # Suppressed reports are filtered out of the default queryset (404 before validation),
+        # so use a READY report and target state=potential to exercise the validation path.
+        report = self._create_report(report_status=SignalReport.Status.READY)
         response = self.client.post(
             self._state_url(str(report.id)),
             data=json.dumps({"state": "potential", "dismissal_reason": "other"}),
@@ -649,9 +645,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         report = self._create_report()
         response = self.client.post(
             self._state_url(str(report.id)),
-            data=json.dumps(
-                {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "x" * 4001}
-            ),
+            data=json.dumps({"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "x" * 4001}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
