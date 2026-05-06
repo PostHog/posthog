@@ -208,6 +208,121 @@ mod tests {
         );
     }
 
+    /// Regression test for the local-evaluation `distinct_id` injection (issue
+    /// #55165). `evaluate_all_feature_flags` is called with `Some(HashMap::new())`
+    /// person property overrides, so the only thing that can populate
+    /// `distinct_id` in the override map is the matcher's own injection of
+    /// `self.distinct_id`. If that injection ever regresses, this test fails.
+    #[tokio::test]
+    async fn test_request_distinct_id_matches_distinct_id_flag_locally() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "request_only_user".to_string();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: mock!(crate::properties::property_models::PropertyFilter,
+                key: "distinct_id".mock_into(),
+                value: Some(json!(distinct_id.clone())),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(HashMap::new()),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true),
+            "request distinct_id should be injected into person properties and match the flag locally"
+        );
+    }
+
+    /// Caller-supplied `person_properties.distinct_id` should win over the
+    /// matcher's auto-injected value (mirrors Python's spread semantics).
+    #[tokio::test]
+    async fn test_explicit_distinct_id_override_wins_over_request_distinct_id() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: mock!(crate::properties::property_models::PropertyFilter,
+                key: "distinct_id".mock_into(),
+                value: Some(json!("explicit_user")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "request_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(HashMap::from([(
+                    "distinct_id".to_string(),
+                    json!("explicit_user"),
+                )])),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true),
+            "explicit person_properties.distinct_id should be preserved and used for matching"
+        );
+    }
+
     #[tokio::test]
     async fn test_person_only_flags_succeed_without_group_type_mappings() {
         let context = TestContext::new(None).await;

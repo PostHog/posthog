@@ -363,6 +363,26 @@ impl FlagSnapshot {
     }
 }
 
+/// Surface the request's `distinct_id` as a `distinct_id` person property
+/// unless the caller already supplied one. Mirrors Python local evaluation
+/// (`add_local_person_and_group_properties`), keeping flag conditions that
+/// match on `distinct_id` evaluable without a DB lookup. Empty strings are
+/// skipped so a `distinct_id == ""` flag does not match every empty-distinct_id
+/// request that slips past the request decoder.
+fn merge_distinct_id_into_person_properties(
+    distinct_id: &str,
+    overrides: Option<HashMap<String, Value>>,
+) -> Option<HashMap<String, Value>> {
+    if distinct_id.is_empty() {
+        return overrides;
+    }
+    let mut overrides = overrides.unwrap_or_default();
+    overrides
+        .entry("distinct_id".to_string())
+        .or_insert_with(|| Value::String(distinct_id.to_string()));
+    Some(overrides)
+}
+
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -460,6 +480,9 @@ impl FeatureFlagMatcher {
         optimize_experience_continuity_lookups: bool,
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
+
+        let person_property_overrides =
+            merge_distinct_id_into_person_properties(&self.distinct_id, person_property_overrides);
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, flag_keys.as_deref());
 
@@ -2495,5 +2518,61 @@ mod tests {
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());
         }
+    }
+
+    #[test]
+    fn test_merge_distinct_id_injects_when_overrides_absent() {
+        let result = merge_distinct_id_into_person_properties("user_42", None)
+            .expect("expected overrides to be returned");
+        assert_eq!(
+            result.get("distinct_id"),
+            Some(&Value::String("user_42".to_string()))
+        );
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_merge_distinct_id_injects_when_overrides_lack_distinct_id() {
+        let overrides =
+            HashMap::from([("email".to_string(), Value::String("a@x.com".to_string()))]);
+        let result = merge_distinct_id_into_person_properties("user_42", Some(overrides))
+            .expect("expected overrides to be returned");
+        assert_eq!(
+            result.get("distinct_id"),
+            Some(&Value::String("user_42".to_string()))
+        );
+        assert_eq!(
+            result.get("email"),
+            Some(&Value::String("a@x.com".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_merge_distinct_id_explicit_override_wins() {
+        let overrides = HashMap::from([(
+            "distinct_id".to_string(),
+            Value::String("explicit".to_string()),
+        )]);
+        let result = merge_distinct_id_into_person_properties("user_42", Some(overrides))
+            .expect("expected overrides to be returned");
+        assert_eq!(
+            result.get("distinct_id"),
+            Some(&Value::String("explicit".to_string())),
+            "person_properties.distinct_id should win over the request's distinct_id"
+        );
+    }
+
+    #[test]
+    fn test_merge_distinct_id_skips_empty_string() {
+        // An empty distinct_id reaches us when the request decoder accepts it
+        // (see flag_request::extract_distinct_id). Skip the injection so a
+        // `distinct_id == ""` flag does not match every empty-distinct_id request.
+        assert_eq!(merge_distinct_id_into_person_properties("", None), None);
+
+        let overrides = HashMap::from([("foo".to_string(), Value::String("bar".to_string()))]);
+        let result = merge_distinct_id_into_person_properties("", Some(overrides.clone()))
+            .expect("non-empty overrides should be returned unchanged");
+        assert!(result.get("distinct_id").is_none());
+        assert_eq!(result.get("foo"), Some(&Value::String("bar".to_string())));
     }
 }
