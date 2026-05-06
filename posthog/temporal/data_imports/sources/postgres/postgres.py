@@ -41,7 +41,6 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     PARTITIONED_TABLE_MAX_CHUNK_SIZE,
     build_partition_query,
-    build_select_clause,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
     get_partition_settings_for_partitioned_table as _get_partition_settings_for_partitioned_table,
     get_partition_strategy,
@@ -51,6 +50,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     iterate_partitions,
     list_child_partitions,
 )
+from posthog.temporal.data_imports.sources.postgres.query_builders import build_select_clause
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
