@@ -414,7 +414,10 @@ export function OverViewTab({
                         }
                         description={
                             featureFlag.name ? (
-                                <Tooltip title={featureFlag.name} delayMs={500}>
+                                <Tooltip
+                                    title={featureFlag.name.length > 80 ? featureFlag.name : undefined}
+                                    delayMs={500}
+                                >
                                     <div className="line-clamp-2 max-w-[30rem]">{featureFlag.name}</div>
                                 </Tooltip>
                             ) : undefined
