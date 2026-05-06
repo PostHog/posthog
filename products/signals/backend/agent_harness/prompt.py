@@ -138,7 +138,11 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 
 Your bound skill is the brain of this run. Before doing anything else, call:
 
-    llma-skill-get(skill_name="{skill.name}")
+    llma-skill-get(skill_name="{skill.name}", version={skill.version})
+
+Pin to v{skill.version} explicitly — the run row, your tool resolution, and
+your budget were all snapshotted against that version. Fetching by name alone
+would race against any new version published mid-run.
 
 The body tells you what to investigate, in what order, with what hypotheses.
 Pull files on demand with `llma-skill-file-get` only when the body references
