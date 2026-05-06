@@ -203,6 +203,7 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
             }
 
             try {
+                // nosemgrep: prefer-codegen-api
                 const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/batch_check/`, {
                     trace_ids: traceIds,
                     mode: 'minimal',
@@ -278,6 +279,7 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 // Build the hierarchy tree from full trace events
                 const hierarchy = restoreTree(fullTrace.events || [], traceId)
 
+                // nosemgrep: prefer-codegen-api
                 const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, {
                     summarize_type: 'trace',
                     mode: 'minimal',
