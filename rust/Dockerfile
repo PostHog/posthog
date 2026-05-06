@@ -80,3 +80,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends redis-tools awscli && \
     rm -rf /var/lib/apt/lists/*
 USER nobody
+
+# Keep the file's final stage equivalent to `runtime` so builds without an
+# explicit `--target` (e.g. canary-flags-enable.yml, ad-hoc `docker build`)
+# keep producing the minimal image instead of silently inheriting the larger
+# jumphost layer.
+FROM runtime AS default
