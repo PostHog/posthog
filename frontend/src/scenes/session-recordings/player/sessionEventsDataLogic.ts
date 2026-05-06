@@ -9,8 +9,10 @@ import { ViewportResolution } from '@posthog/replay-shared'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
+import { getEventsWithPrimaryProperty } from 'lib/utils/primaryEventProperty'
 import { TimeTree } from 'lib/utils/time-tree'
 
+import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { HogQLQueryString, hogql } from '~/queries/utils'
 import { RecordingEventType } from '~/types'
 
@@ -27,8 +29,8 @@ export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([
     connect((props: SessionRecordingMetaLogicProps) => {
         const metaLogic = sessionRecordingMetaLogic(props)
         return {
-            values: [metaLogic, ['sessionPlayerMetaData']],
-            actions: [metaLogic, ['loadRecordingMetaSuccess']],
+            values: [metaLogic, ['sessionPlayerMetaData'], primaryEventPropertiesModel, ['primaryProperties']],
+            actions: [metaLogic, ['loadRecordingMetaSuccess'], primaryEventPropertiesModel, ['ensureLoadedForEvents']],
         }
     }),
     actions({
@@ -216,6 +218,13 @@ AND properties.$lib != 'web'`
         loadRecordingMetaSuccess: () => {
             actions.loadEvents()
         },
+        loadEventsSuccess: ({ sessionEventsData }) => {
+            // Make sure the primary-property override map is populated for every event in the
+            // recording, so the `eventsWithPrimaryProperty` selector can preload them.
+            if (sessionEventsData?.length) {
+                actions.ensureLoadedForEvents(Array.from(new Set(sessionEventsData.map((e) => e.event))))
+            }
+        },
     })),
     selectors(() => ({
         webVitalsEvents: [
@@ -234,13 +243,24 @@ AND properties.$lib != 'web'`
             (sessionEventsData): RecordingEventType[] =>
                 (sessionEventsData || []).filter((e) => e.event === '$exception'),
         ],
+        eventsWithPrimaryProperty: [
+            (s) => [s.sessionEventsData, s.primaryProperties],
+            (sessionEventsData, primaryProperties): RecordingEventType[] =>
+                getEventsWithPrimaryProperty(sessionEventsData || [], primaryProperties),
+        ],
         preloadableEvents: [
-            (s) => [s.webVitalsEvents, s.AIEvents, s.exceptionEvents],
-            (webVitalsEvents, AIEvents, exceptionEvents): RecordingEventType[] => [
-                ...webVitalsEvents,
-                ...AIEvents,
-                ...exceptionEvents,
-            ],
+            (s) => [s.webVitalsEvents, s.AIEvents, s.exceptionEvents, s.eventsWithPrimaryProperty],
+            (webVitalsEvents, AIEvents, exceptionEvents, eventsWithPrimaryProperty): RecordingEventType[] => {
+                const seen = new Set<string>()
+                const merged: RecordingEventType[] = []
+                for (const e of [...webVitalsEvents, ...AIEvents, ...exceptionEvents, ...eventsWithPrimaryProperty]) {
+                    if (!seen.has(e.id)) {
+                        seen.add(e.id)
+                        merged.push(e)
+                    }
+                }
+                return merged
+            },
             { resultEqualityCheck: equal },
         ],
         eventViewportsItems: [

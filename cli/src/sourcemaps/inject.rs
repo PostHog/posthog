@@ -34,7 +34,11 @@ impl InjectArgs {
     }
 }
 
-pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool + 'static) -> Result<()> {
+pub fn inject_impl(
+    args: &InjectArgs,
+    matcher: impl Fn(&DirEntry) -> bool + 'static,
+    existing_release: Option<&Release>,
+) -> Result<()> {
     let InjectArgs {
         file_selection,
         public_path_prefix,
@@ -53,12 +57,14 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool + 'sta
         bail!("no source files found");
     }
 
-    let cwd = std::env::current_dir()?;
-
-    let created_release_id =
+    let created_release_id = if let Some(r) = existing_release {
+        Some(r.id.to_string())
+    } else {
+        let cwd = std::env::current_dir()?;
         get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
             .as_ref()
-            .map(|r| r.id.to_string());
+            .map(|r| r.id.to_string())
+    };
 
     pairs = inject_pairs(pairs, created_release_id)?;
 

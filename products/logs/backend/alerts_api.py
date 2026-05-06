@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
@@ -60,8 +61,9 @@ UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 STATE_TIMELINE_LOOKBACK_HOURS = 24
-# Mirrors LogsAlertConfiguration.check_interval_minutes' default — kept here so
-# the simulate endpoint evaluates at the same cadence production runs at.
+# Mirrors LogsAlertConfiguration.check_interval_minutes' default — used as the
+# simulate endpoint's default cadence so it matches production when callers
+# don't override it.
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
@@ -109,20 +111,29 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     )
     name = serializers.CharField(
         max_length=255,
-        help_text="Human-readable name for this alert.",
+        required=False,
+        allow_blank=True,
+        help_text="Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
     )
     enabled = serializers.BooleanField(
         default=True,
         help_text="Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
     )
     filters = serializers.JSONField(
+        required=False,
         help_text="Filter criteria — subset of LogsViewerFilters. Must contain at least one of: "
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
-        "or filterGroup (property filter group object)."
+        "or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
     )
     threshold_count = serializers.IntegerField(
         min_value=1,
-        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window.",
+        default=100,
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.",
+    )
+    first_enabled_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the alert was first enabled. Null means the alert is still in draft state.",
     )
     threshold_operator = serializers.ChoiceField(
         choices=LogsAlertConfiguration.ThresholdOperator.choices,
@@ -363,6 +374,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "first_enabled_at",
             "created_at",
             "created_by",
             "updated_at",
@@ -378,6 +390,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
+            "first_enabled_at",
             "created_at",
             "created_by",
             "updated_at",
@@ -385,7 +398,15 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
-        _validate_filters(filters)
+
+        if self.instance is not None:
+            effective_enabled = attrs.get("enabled", self.instance.enabled)
+        else:
+            effective_enabled = attrs.get("enabled", True)
+
+        # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
+        if effective_enabled or filters:
+            _validate_filters(filters)
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
         if window is not None and window not in ALLOWED_WINDOW_MINUTES:
@@ -407,6 +428,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         return attrs
 
     def update(self, instance: LogsAlertConfiguration, validated_data: dict) -> LogsAlertConfiguration:
+        if "name" in validated_data and not validated_data.get("name", "").strip():
+            validated_data["name"] = "Untitled alert"
+
         snooze_data = validated_data.pop("snooze_until", _SENTINEL)
 
         threshold_or_filter_fields = {
@@ -434,6 +458,10 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # place that actually writes to `state`/`consecutive_failures`.
             snapshot = instance.to_snapshot()
             if enabled_change is True:
+                if instance.first_enabled_at is None:
+                    instance.first_enabled_at = timezone.now()
+                    if "first_enabled_at" not in validated_data:
+                        validated_data["first_enabled_at"] = instance.first_enabled_at
                 apply_outcome(instance, apply_enable(snapshot), kind=LogsAlertEvent.Kind.ENABLE)
             elif enabled_change is False:
                 apply_outcome(instance, apply_disable(snapshot), kind=LogsAlertEvent.Kind.DISABLE)
@@ -458,6 +486,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
+
+        if not validated_data.get("name", "").strip():
+            validated_data["name"] = "Untitled alert"
+
+        if validated_data.get("enabled", True):
+            validated_data["first_enabled_at"] = timezone.now()
 
         with transaction.atomic():
             # select_for_update().count() doesn't acquire row locks because
@@ -523,6 +557,12 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     window_minutes = serializers.IntegerField(
         help_text="Window size in minutes — determines bucket interval.",
     )
+    check_interval_minutes = serializers.IntegerField(
+        default=DEFAULT_CHECK_INTERVAL_MINUTES,
+        min_value=1,
+        max_value=max(ALLOWED_WINDOW_MINUTES),
+        help_text="How often the alert is evaluated, in minutes.",
+    )
     evaluation_periods = serializers.IntegerField(
         default=1,
         min_value=1,
@@ -566,6 +606,8 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     def validate(self, attrs: dict) -> dict:
         if attrs.get("datapoints_to_alarm", 1) > attrs.get("evaluation_periods", 1):
             raise ValidationError({"datapoints_to_alarm": "Cannot exceed evaluation_periods."})
+        if attrs["check_interval_minutes"] > attrs["window_minutes"]:
+            raise ValidationError({"check_interval_minutes": "Cannot exceed window_minutes."})
         return attrs
 
 
@@ -961,25 +1003,34 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             threshold_count=data["threshold_count"],
             threshold_operator=data["threshold_operator"],
             window_minutes=window_minutes,
+            check_interval_minutes=data["check_interval_minutes"],
         )
+        cadence_minutes = fake_alert.check_interval_minutes
 
         sparse_buckets: list[BucketedCount] = AlertCheckQuery(
             team=self.team,
             alert=fake_alert,
             date_from=date_from_dt,
             date_to=date_to_dt,
-        ).execute_bucketed(interval_minutes=DEFAULT_CHECK_INTERVAL_MINUTES, limit=MAX_SIMULATE_BUCKETS)
+        ).execute_bucketed(interval_minutes=cadence_minutes, limit=MAX_SIMULATE_BUCKETS)
 
-        cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, DEFAULT_CHECK_INTERVAL_MINUTES)
+        cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, cadence_minutes)
 
-        # ALLOWED_WINDOW_MINUTES is bounded below by DEFAULT_CHECK_INTERVAL_MINUTES,
+        # ALLOWED_WINDOW_MINUTES is bounded below by the configured cadence,
         # so integer division here is always >= 1.
-        buckets_per_window = window_minutes // DEFAULT_CHECK_INTERVAL_MINUTES
+        buckets_per_window = window_minutes // cadence_minutes
         counts = [b.count for b in cadence_buckets]
         rolling_counts: list[int] = []
+        # Bucket i represents `[T_i, T_i + check_interval)`. The actual evaluator
+        # at moment T queries `[T - window, T)` — purely past — so the simulator's
+        # rolling sum at bucket time T_i must exclude bucket i (which holds future
+        # data) and sum the previous `buckets_per_window` buckets ending just
+        # before T_i. Without this, the simulator looks `check_interval` minutes
+        # into the future and produces fire/resolve transitions that don't match
+        # production.
         for i in range(len(counts)):
-            window_start = max(0, i - buckets_per_window + 1)
-            rolling_counts.append(sum(counts[window_start : i + 1]))
+            window_start = max(0, i - buckets_per_window)
+            rolling_counts.append(sum(counts[window_start:i]))
 
         threshold = data["threshold_count"]
         is_above = data["threshold_operator"] == LogsAlertConfiguration.ThresholdOperator.ABOVE

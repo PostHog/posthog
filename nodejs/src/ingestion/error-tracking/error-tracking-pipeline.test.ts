@@ -292,6 +292,12 @@ describe('ErrorTrackingPipeline', () => {
                 dlq: new SingleIngestionOutput('dlq', 'error_tracking_dlq', mockKafkaProducer, 'test'),
                 overflow: new SingleIngestionOutput('overflow', 'error_tracking_overflow', mockKafkaProducer, 'test'),
                 tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', mockKafkaProducer, 'test'),
+                app_metrics: new SingleIngestionOutput(
+                    'app_metrics',
+                    'clickhouse_app_metrics2_test',
+                    mockKafkaProducer,
+                    'test'
+                ),
             }),
             groupId: 'error-tracking-test',
             promiseScheduler,

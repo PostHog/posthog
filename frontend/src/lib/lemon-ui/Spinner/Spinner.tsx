@@ -6,6 +6,8 @@ import { twJoin, twMerge } from 'tailwind-merge'
 
 import { IconPencil } from '@posthog/icons'
 
+import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
+
 function useTimingCapture(captureTime: boolean): void {
     const mountTimeRef = useRef<number>(performance.now())
 
@@ -44,9 +46,11 @@ export function Spinner({
     size = 'small',
 }: SpinnerProps): JSX.Element {
     useTimingCapture(captureTime)
+    const ref = useCancelAnimationsOnUnmount<SVGSVGElement>()
 
     return (
         <svg
+            ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ '--spinner-speed': speed } as React.CSSProperties}
             className={twMerge(

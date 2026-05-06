@@ -37,6 +37,7 @@ import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
+import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
@@ -88,6 +89,7 @@ const MetricsTab = (): JSX.Element => {
 
             <div className="w-full mb-4">
                 <Exposures />
+                <MultiVariantBiasWarning />
             </div>
 
             {/* Show overview if there's only a single primary metric */}

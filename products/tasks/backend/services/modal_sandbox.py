@@ -6,6 +6,7 @@ import shlex
 import shutil
 import logging
 import tempfile
+import threading
 from collections.abc import Iterable
 from functools import lru_cache
 from io import StringIO
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
+
+from cachetools import TTLCache, cached
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -90,10 +93,14 @@ LOCAL_MODAL_DOCKERFILES = {
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 
 
-@lru_cache(maxsize=2)
+_image_ref_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_image_ref_lock = threading.Lock()
+
+
+@cached(cache=_image_ref_cache, lock=_image_ref_lock)
 def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     """Modal caches sandbox images indefinitely. This function resolves the digest of the master tag
-    so Modal fetches the correct version. Queries GHCR once per deployment.
+    so Modal fetches the correct version. Re-resolves from GHCR every ~5 minutes.
     """
     image_repo = image.replace("ghcr.io/", "")
     try:
@@ -152,7 +159,11 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     return image
 
 
-@lru_cache(maxsize=2)
+_template_image_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_template_image_lock = threading.Lock()
+
+
+@cached(cache=_template_image_cache, lock=_template_image_lock)
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
@@ -550,7 +561,7 @@ class ModalSandbox(SandboxBase):
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
 
-        if allowed_domains:
+        if allowed_domains is not None:
             return (
                 f"cd /scripts && env -0 > {ENV_FILE} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
@@ -595,7 +606,7 @@ class ModalSandbox(SandboxBase):
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        if allowed_domains:
+        if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
 
         mcp_servers_arg = ""
@@ -631,7 +642,7 @@ class ModalSandbox(SandboxBase):
         logger.info(f"Agent-server started in sandbox {self.id}")
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
-        if allowed_domains:
+        if allowed_domains is not None:
             logger.info("Configuring agentsh in sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains))
         else:
             logger.info("Configuring agentsh in sandbox %s (allow-all mode)", self.id)
