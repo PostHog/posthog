@@ -234,23 +234,6 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         return response.Response({"cancelled": True})
 
 
-def _normalize_legacy_s3_type(export_type: str, config: dict[str, typing.Any]) -> str:
-    """Map the legacy `S3` type alias to a provider-specific type.
-
-    `type=S3` is still accepted on input for backward compatibility, but new
-    rows are normalized to `AwsS3` (no endpoint_url) or `S3Compatible`
-    (endpoint_url set) so they match the post-split API shape.
-
-    TODO: this helper (and the legacy `S3` enum value) can be removed once all
-    existing rows with `type=S3` have been migrated to `AwsS3` / `S3Compatible`.
-    """
-    if export_type != BatchExportDestination.Destination.S3:
-        return export_type
-    if config.get("endpoint_url"):
-        return BatchExportDestination.Destination.S3_COMPATIBLE
-    return BatchExportDestination.Destination.AWS_S3
-
-
 class DatabricksDestinationConfigSerializer(serializers.Serializer):
     """Typed configuration for a Databricks batch-export destination.
 
@@ -521,12 +504,6 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         export_type, config = data["type"], data["config"]
         request = self.context.get("request")
         is_patch = request is not None and request.method == "PATCH"
-
-        if not is_patch:
-            normalized_type = _normalize_legacy_s3_type(export_type, config)
-            if normalized_type != export_type:
-                export_type = normalized_type
-                data = {**data, "type": export_type}
 
         _, workflow_inputs = DESTINATION_WORKFLOWS[export_type]
         base_field_names = {field.name for field in dataclasses.fields(BaseBatchExportInputs)}
@@ -950,18 +927,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         else:
             existing_config = {}
 
-        if instance is not None:
-            existing_type = instance.destination.type
-            # Accept the legacy `S3` alias as a no-op when the row was already
-            # normalized to a refined S3-family type on create.
-            if destination_type == BatchExportDestination.Destination.S3 and existing_type in S3_FAMILY_TYPES:
-                destination_type = existing_type
-                destination_attrs["type"] = existing_type
-            if destination_type != existing_type:
-                raise serializers.ValidationError(
-                    f"Cannot change destination type from '{existing_type}' to '{destination_type}'. "
-                    "Delete this batch export and create a new one with the new destination type."
-                )
+        if instance is not None and destination_type != instance.destination.type:
+            raise serializers.ValidationError(
+                f"Cannot change destination type from '{instance.destination.type}' to '{destination_type}'. "
+                "Delete this batch export and create a new one with the new destination type."
+            )
         merged_config = recursive_dict_merge(existing_config, config)
 
         # SSRF protection for HTTP batch exports

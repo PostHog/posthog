@@ -23,19 +23,16 @@ _S3_FAMILY_BASE_CONFIG = {
     "aws_secret_access_key": "secret",
 }
 
-# TODO: 'S3' can be removed as a destination type once the legacy alias is no longer supported
-
 
 @pytest.mark.parametrize(
     "destination_type,extra_config,expected_persisted_type",
     [
-        # Legacy `S3` alias: no endpoint_url → normalized to AwsS3 on save
-        ("S3", {}, "AwsS3"),
-        # Legacy `S3` alias: endpoint_url set → normalized to S3Compatible on save
-        ("S3", {"endpoint_url": "https://localhost:9000"}, "S3Compatible"),
-        # Direct AwsS3 (with AWS-only encryption field)
+        # Legacy `S3` alias is accepted and persisted as-is (no coercion).
+        ("S3", {}, "S3"),
+        ("S3", {"endpoint_url": "https://localhost:9000"}, "S3"),
+        # Refined AwsS3 (with AWS-only encryption field)
         ("AwsS3", {"encryption": "AES256"}, "AwsS3"),
-        # Direct S3Compatible (endpoint_url is required)
+        # Refined S3Compatible (endpoint_url is required)
         ("S3Compatible", {"endpoint_url": "https://localhost:9000"}, "S3Compatible"),
     ],
 )

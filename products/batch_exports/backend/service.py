@@ -252,10 +252,11 @@ class S3BatchExportInputs(BaseBatchExportInputs):
 
     This is the canonical input dataclass consumed by the `s3-export` Temporal
     workflow and is the superset of every S3-family destination's fields. The
-    legacy `type="S3"` batch exports dispatch with this dataclass directly; new
-    S3-family types (AwsS3, S3Compatible) dispatch with their own narrower
-    dataclass and rely on the workflow's `parse_inputs` to fill any missing
-    fields as their defaults here.
+    legacy `type="S3"` batch exports dispatch with this dataclass directly; the
+    refined S3-family types (AwsS3, S3Compatible) dispatch with their own
+    narrower dataclass — Temporal's data converter serializes that to JSON,
+    and on the worker side deserializes into `S3BatchExportInputs`, with any
+    missing fields falling through to the defaults declared here.
 
     Attributes:
         bucket_name: The S3 bucket we are exporting to.
@@ -292,10 +293,6 @@ class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
     Per-destination dataclasses extend this with provider-specific fields.
-    The Temporal `s3-export` workflow accepts `S3BatchExportInputs`, which
-    is a superset with sensible defaults for every field — so we serialize
-    per-destination instances directly via `dataclasses.asdict` and the
-    workflow's `parse_inputs` fills in any missing fields as their defaults.
     """
 
     bucket_name: str
@@ -536,11 +533,8 @@ DESTINATION_WORKFLOWS = {
     "NoOp": ("no-op", NoOpInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
-    # "S3" is the legacy alias accepted on input; new rows are normalized to
-    # AwsS3 or S3Compatible by the serializer. Existing rows with type="S3"
-    # continue to dispatch to the s3-export workflow with the canonical input
-    # dataclass directly.
-    # TODO: clean this up once all existing rows have been migrated to AwsS3/S3Compatible.
+    # "S3" is the legacy alias still accepted on input and persisted as-is.
+    # AwsS3 and S3Compatible are the refined types preferred for new rows
     "S3": ("s3-export", S3BatchExportInputs),
     "S3Compatible": ("s3-export", S3CompatibleBatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),

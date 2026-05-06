@@ -63,7 +63,7 @@ class BatchExportDestination(UUIDTModel):
     class Destination(models.TextChoices):
         """Enumeration of supported destinations for PostHog BatchExports."""
 
-        S3 = "S3"  # legacy alias accepted on input; new rows are normalized to AwsS3 / S3Compatible by the serializer
+        S3 = "S3"  # legacy alias; AwsS3 / S3Compatible are the preferred types for new rows
         AWS_S3 = "AwsS3"
         S3_COMPATIBLE = "S3Compatible"
         SNOWFLAKE = "Snowflake"
