@@ -61,7 +61,7 @@ def _default_workflows_dir() -> Path:
     "--check",
     "check_id",
     metavar="ID",
-    help="Run only the check with the given id (e.g. WF001-job-timeouts)",
+    help="Run only the check with the given id (full id or WF### prefix, e.g. WF001 or WF001-job-timeouts)",
 )
 @click.option("--list", "list_checks", is_flag=True, help="List registered checks and exit")
 @click.option(

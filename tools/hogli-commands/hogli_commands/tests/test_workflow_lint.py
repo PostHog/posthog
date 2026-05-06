@@ -484,8 +484,15 @@ class TestRegistry:
         for c in CHECKS:
             assert get_check(c.id) is c
 
+    def test_get_check_accepts_prefix(self) -> None:
+        for c in CHECKS:
+            prefix = c.id.split("-", 1)[0]
+            assert get_check(prefix) is c
+            assert get_check(prefix.lower()) is c
+
     def test_get_check_unknown_returns_none(self) -> None:
         assert get_check("not-a-real-id") is None
+        assert get_check("WF999") is None
 
     def test_run_returns_check_result(self, tmp_path: Path) -> None:
         # A near-empty workflow set should not crash any check.

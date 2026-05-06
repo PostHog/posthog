@@ -25,8 +25,17 @@ CHECKS: list[WorkflowCheck] = [
 ]
 
 
+def _check_aliases(check: WorkflowCheck) -> tuple[str, str]:
+    """Lookup keys for a check: the full id and its ``WF###`` prefix."""
+    return check.id.lower(), check.id.partition("-")[0].lower()
+
+
+_LOOKUP: dict[str, WorkflowCheck] = {alias: c for c in CHECKS for alias in _check_aliases(c)}
+
+
 def get_check(check_id: str) -> WorkflowCheck | None:
-    return next((c for c in CHECKS if c.id == check_id), None)
+    """Resolve a check by full id or by its ``WF###`` prefix (case-insensitive)."""
+    return _LOOKUP.get(check_id.strip().lower())
 
 
 __all__ = ["CHECKS", "get_check"]
