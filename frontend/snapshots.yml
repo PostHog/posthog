@@ -3263,15 +3263,15 @@ snapshots:
     lemon-ui-visual-image-diff-viewer--changed-snapshot--dark:
         hash: v1.k794b7964.0f8650ee61bfe5a53ac0cafd544db33ae724e8a470707a3a9cd4848576ecfab8.I1OHmY6oDliifw_Miwe4wCAtWGmgMCmWmZjycUErVrQ
     lemon-ui-visual-image-diff-viewer--changed-snapshot--light:
-        hash: v1.k794b7964.1edde6def7ddc09fae37740edfc5610b7f8fb1bc49dfccbb732de864b24ab76c.NEpNa4596dWklW6q_mksidX5Fj8oHiCExpD9Smkdn4w
+        hash: v1.k794b7964.78a2dc393e6cadbff95e17265942865b9493707226331d451547293548e89e6d.kR_9KW862PEOmcPEo3sD7XuQPbStEU5xUakYPa4Laec
     lemon-ui-visual-image-diff-viewer--new-snapshot--dark:
-        hash: v1.k794b7964.d7cf0011eac7312939314dc6d9f2afc84894da71a5680ae456e5af7d663b7aa3.EuOUwGAHE_FCzySQsteEyWqkineGs1ybMeI9ODksECI
+        hash: v1.k794b7964.f234d8bba15a289ddcb3f7344727caa2ec9359787701b7a4aed7e9956b2d21cd.8wKBjxsi-RYHaS6deJvY80dmc3qK40nOhl8ln1ZF-dU
     lemon-ui-visual-image-diff-viewer--new-snapshot--light:
-        hash: v1.k794b7964.539502d9c12bc218a17557e69dc7ef2960d44bc3db608b65056b2a149dceeaf2.nV3KWY5nmgN6rUg87FGNYtVm0Pyw9xvXsFxiGtU_gFU
+        hash: v1.k794b7964.8eaf961359bfd2691a63ba1e0f98bad8da5d1d2f7598ce140a5cc361f656fdea.nVw_NtDUWN8hjco2koeQvjHQ6MPktn54QYMj-_6kzOA
     lemon-ui-visual-image-diff-viewer--small-image--dark:
         hash: v1.k794b7964.13781e9369ccfad5542a85edfbd547e4d6d770df8b5e5d0d8ec540e50608d453.RPeQpda22EpHoIa5b4UePdKIimFuTS9NAwcGP9ccfpM
     lemon-ui-visual-image-diff-viewer--small-image--light:
-        hash: v1.k794b7964.7b70b3e558ee6423735df0ab00f9c0d1d8ec0d4556483ae8db5edce6b3602fb3.UWi5QxvA5OPlUYmD5ERLCxVUyuFuFaAVDykiWktxv2Q
+        hash: v1.k794b7964.ed31587820d0216f2281ec8e610da8cb9fe8cb45f9c13e0280f17771cf84994a.spusB2C8AKwu5Tv0KOr8pkjDxgEZw5jcOlEikYAzKWI
     mcp-apps-actions--list--light:
         hash: v1.k794b7964.24244bf73bd4914893a2811f39274aaa957ad7792e52f5b2d90c662e8deeaed6.g0Ag3Rdrj7Bb1pHIE8oQsqzY8mkA7yb_vFEe-iDM-b0
     mcp-apps-actions--multi-step--light:

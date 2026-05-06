@@ -237,9 +237,30 @@ class RunSnapshot(models.Model):
     # Frozen at run finalization — reflects quarantine policy at that point in time
     is_quarantined = models.BooleanField(default=False)
 
-    # Diff metrics
+    # Diff metrics. `diff_percentage` always means "fraction of pixels that
+    # differ" — the previous behavior where the SSIM tier overwrote this with
+    # SSIM dissimilarity is gone (split into `ssim_score` + `change_kind`
+    # below). Pre-split rows have been backfilled accordingly: SSIM-tier
+    # rows have `diff_percentage = NULL`, `ssim_score` derived from the
+    # original dissimilarity, and `change_kind = 'structural'`.
     diff_percentage = models.FloatField(null=True, blank=True)
     diff_pixel_count = models.PositiveIntegerField(null=True, blank=True)
+    # SSIM score (0.0–1.0). 1.0 = identical, lower = more structurally
+    # different. Populated for every diffed snapshot regardless of which
+    # tier classified it.
+    ssim_score = models.FloatField(null=True, blank=True)
+    # Categorical: see ChangeKind enum. Empty for snapshots that haven't
+    # been diffed (NEW, REMOVED, exact-match UNCHANGED).
+    change_kind = models.CharField(max_length=24, blank=True, default="")
+    # System-computed metadata produced by the diff pipeline (not the
+    # uploader's `metadata` field above, which is for ingestion-time
+    # context like browser/viewport). Storage is JSONB but the Python
+    # shape is governed by `DiffMetadata` in `diff_metadata.py` — all
+    # writes go through `.model_dump()` and reads through
+    # `.model_validate()`. Currently holds `cluster_summary`; future
+    # additions like `engine_version` land alongside without a schema
+    # migration.
+    diff_metadata = models.JSONField(default=dict, blank=True)
 
     # Review state — only set on actionable snapshots (CHANGED, NEW, REMOVED).
     # Empty for unchanged snapshots that don't need review.
