@@ -1336,7 +1336,12 @@ def toolbar_oauth_callback(request):
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
     toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
     if original_fragment:
-        fragment = f"{original_fragment}&{toolbar_param}"
+        # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
+        # as the path, so `&` would make the auth params part of the route and
+        # 404. `?` is the standard hash-query separator that React Router,
+        # Vue Router, etc. split on.
+        separator = "?" if original_fragment.startswith("/") else "&"
+        fragment = f"{original_fragment}{separator}{toolbar_param}"
     else:
         fragment = toolbar_param
     return redirect(f"{base_url}#{fragment}")

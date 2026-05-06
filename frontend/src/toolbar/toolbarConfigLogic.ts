@@ -252,9 +252,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             // posthog-js reads these at load time but never cleans them from the URL.
             // Including them would cause a re-initialization loop after OAuth callback.
             const hash = window.location.hash
-                .replace(/[#&]__posthog=[^&]*/g, '')
-                .replace(/[#&]__posthog_toolbar=[^&]*/g, '')
-                .replace(/^&/, '#')
+                .replace(/[#?&]__posthog=[^&]*/g, '')
+                .replace(/[#?&]__posthog_toolbar=[^&]*/g, '')
+                .replace(/^[?&]/, '#')
                 .replace(/^#$/, '')
             const redirect = encodeURIComponent(
                 window.location.origin + window.location.pathname + window.location.search + hash

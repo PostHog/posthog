@@ -507,12 +507,16 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
         assert "__posthog_toolbar=code:auth_code_123" in location
 
     def test_callback_preserves_spa_hash_route(self):
+        # SPA hash routes (fragment starts with `/`) must use `?` as the
+        # separator so hash routers split route from auth params instead of
+        # treating the whole substring as one path and 404ing.
         state = self._authorize_and_get_state(redirect_url="https://example.com/#/dashboard/settings")
         response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
 
         assert response.status_code == 302
         location = response["Location"]
-        assert "/dashboard/settings&__posthog_toolbar=code:abc" in location
+        assert "/dashboard/settings?__posthog_toolbar=code:abc" in location
+        assert "/dashboard/settings&__posthog_toolbar" not in location
 
     def test_callback_preserves_fragment_params_after_stripping_toolbar(self):
         state = self._authorize_and_get_state(

@@ -67,9 +67,9 @@ export function cleanToolbarAuthHash(): void {
     }
 
     const cleanHash = hash
-        .replace(/__posthog_toolbar=[^&]*/g, '')
+        .replace(/[?&]?__posthog_toolbar=[^&]*/g, '')
         .replace(/&&+/g, '&')
-        .replace(/&$/, '')
+        .replace(/[?&]$/, '')
         .replace(/^#&/, '#')
         .replace(/^#$/, '')
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
