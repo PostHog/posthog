@@ -24,6 +24,10 @@ from posthog.models.utils import UUIDTModel
 # (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
+# All destination types that share the s3-export Temporal workflow.
+# Includes the legacy "S3" alias for backwards compatibility.
+S3_FAMILY_TYPES: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible"})
+
 
 class DayOfWeek(IntEnum):
     """Day of the week enum for batch export schedules.
@@ -59,7 +63,9 @@ class BatchExportDestination(UUIDTModel):
     class Destination(models.TextChoices):
         """Enumeration of supported destinations for PostHog BatchExports."""
 
-        S3 = "S3"
+        S3 = "S3"  # legacy alias accepted on input; new rows are normalized to AwsS3 / S3Compatible by the serializer
+        AWS_S3 = "AwsS3"
+        S3_COMPATIBLE = "S3Compatible"
         SNOWFLAKE = "Snowflake"
         POSTGRES = "Postgres"
         REDSHIFT = "Redshift"
@@ -73,6 +79,8 @@ class BatchExportDestination(UUIDTModel):
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
+        "AwsS3": {"aws_access_key_id", "aws_secret_access_key"},
+        "S3Compatible": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
         "Postgres": {"user", "password"},
         "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
