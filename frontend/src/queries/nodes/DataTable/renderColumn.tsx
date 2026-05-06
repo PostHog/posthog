@@ -47,7 +47,7 @@ import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llm
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
-const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
+export const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
 
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
@@ -203,15 +203,18 @@ export function renderColumn(
         )
     } else if ((isActorsQuery(query.source) || isActorsQuery(query)) && key === 'last_seen_at') {
         const isWithinLastHour = dayjs().diff(dayjs(value), 'hour', true) < 1
+        // Hide the "last hour" pill when the absolute-time mode is on — TZLabel's children
+        // override the formatted text, so the pill would otherwise mask the absolute timestamp.
+        const showLastHourPill = isWithinLastHour && !query.showAbsoluteTime
         return (
-            <TZLabel time={value} showSeconds>
-                {isWithinLastHour ? (
+            <TZLabel time={value} showSeconds timestampStyle={query.showAbsoluteTime ? 'absolute' : 'relative'}>
+                {showLastHourPill ? (
                     <span className="whitespace-nowrap align-middle border-dotted border-b">last hour</span>
                 ) : undefined}
             </TZLabel>
         )
     } else if (DATETIME_KEYS.includes(key)) {
-        return <TZLabel time={value} showSeconds />
+        return <TZLabel time={value} showSeconds timestampStyle={query.showAbsoluteTime ? 'absolute' : 'relative'} />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table
         const propertyKey = trimQuotes(key.substring('properties.'.length))
