@@ -141,14 +141,14 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v6
 
-            # Custom rules only — the broader JS/security packs (p/javascript, p/owasp-top-ten,
-            # p/trailofbits) would surface a long tail of un-triaged findings on product frontend
-            # code. Keep this job tight: enforce our internal product conventions and grow
-            # incrementally.
+            # Single-rule scan — keeps the failure surface here aligned with the
+            # job name. Other custom TS rules (no-direct-fuse-instantiation,
+            # require-iframe-sandbox, ...) live in semgrep-js. When more
+            # product-specific rules land, extend the --config list explicitly.
             - name: Run Semgrep
               run: |
                   semgrep \
-                    --config ".semgrep/rules/" \
+                    --config ".semgrep/rules/prefer-codegen-api.yaml" \
                     --error \
                     --metrics=off \
                     --verbose \

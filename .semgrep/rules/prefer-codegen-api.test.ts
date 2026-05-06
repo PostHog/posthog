@@ -30,6 +30,12 @@ const h = await api.create<Foo>(`api/foo`, {})
 // ruleid: prefer-codegen-api
 const i = await api.get<Foo>(`api/foo`)
 
+// ruleid: prefer-codegen-api
+const i2 = await api.get<PaginatedResponse<Foo>>(`api/foo`)
+
+// ruleid: prefer-codegen-api
+const i3 = await api.get<CountedPaginatedResponse<ChangeRequest>>(`api/foo`)
+
 // ok: prefer-codegen-api
 const j = await api.integrations.authorizeUrl()
 
