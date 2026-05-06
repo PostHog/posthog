@@ -121,17 +121,11 @@ export function createEvent(
 }
 
 /**
- * Compute dmat column values for one event from the team's slot configuration.
+ * Missing properties are left unset → ClickHouse stores NULL → HogQL falls back to JSON for
+ * events that pre-date the slot. All dmat columns are `Nullable(String)`; HogQL casts at read.
  *
- * Returns a flat map of `dmat_string_<index>` → string. Only properties present on the event
- * are included; missing properties are left unset so ClickHouse stores NULL, which lets HogQL
- * fall back to JSON extraction for events that pre-date the slot.
- *
- * All dmat columns are `Nullable(String)`; HogQL casts at read time using the same wrapper
- * it applies to normal `mat_*` columns (toFloat / toBool / parseDateTime64BestEffortOrNull).
- * The string we write here MUST be byte-identical to what
- * `_generate_property_extraction_sql` produces against the same property — that's the contract
- * the parity fixture pins.
+ * The string MUST be byte-identical to `_generate_property_extraction_sql`. Parity is pinned
+ * by `posthog/temporal/backfill_materialized_property/coercion_fixtures.json`.
  */
 function extractDynamicMaterializedColumns(
     properties: Properties,
@@ -152,10 +146,8 @@ function extractDynamicMaterializedColumns(
 
         out[`dmat_string_${slot.slot_index}`] = raw
 
-        // Dual-write during compaction: the slot is being repacked, so write the same value to
-        // the future column too. HogQL still reads from `slot_index` until the workflow swaps
-        // them post-mutation; once swapped, future events land directly on the new column and
-        // the old column becomes orphaned (still has data, but no slot points to it).
+        // Dual-write during compaction: HogQL still reads from `slot_index` until the workflow
+        // swaps post-mutation, so we keep the future column current.
         if (slot.compaction_target_slot_index !== null) {
             out[`dmat_string_${slot.compaction_target_slot_index}`] = raw
         }
@@ -165,33 +157,21 @@ function extractDynamicMaterializedColumns(
 }
 
 /**
- * Mirror the SQL extraction `replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, key), ''), 'null'), '^"|"$', '')`
- * on a parsed JS value, so the live-ingest column write produces byte-identical output to the
- * historical-backfill mutation and to HogQL's JSON fallback (which uses the same SQL).
- *
- * Plugin-server gets the parsed JS value, not the raw JSON text — so we re-encode and apply
- * the SQL nullIf+regex rules. Without this step `String({a:1})` writes `[object Object]` while
- * the SQL backfill writes `{"a":1}`, and the same row reads differently before vs after backfill.
- *
- * The shared fixture at posthog/temporal/backfill_materialized_property/coercion_fixtures.json
- * pins down the cases this function MUST agree with the SQL on.
+ * Mirrors SQL `replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, key), ''), 'null'), '^"|"$', '')`
+ * on a parsed JS value. Plugin-server gets parsed values, not raw JSON text — without this
+ * `String({a:1})` would write `[object Object]` while the SQL backfill writes `{"a":1}`, and
+ * the same row would read differently before vs after backfill.
  */
 export function jsonExtractRawAndTrimQuotes(value: unknown): string | null {
     if (value === null || value === undefined) {
-        // Mirrors `nullIf(extract, 'null')`: a JSON `null` becomes SQL NULL.
         return null
     }
     const json = JSON.stringify(value)
-    // `JSON.stringify(undefined)` returns `undefined` — handled above. For all other inputs
-    // it returns a string, never the empty string, so the SQL `nullIf(extract, '')` branch is
-    // unreachable from real ingestion input.
     if (json === 'null') {
-        // JSON.stringify(null) === 'null' but we already returned for that. This is for any
-        // future edge case where the encoder produces the literal 'null' string; keep parity
-        // with SQL's nullIf(..., 'null').
+        // SQL nullIf(..., 'null') parity for any future encoder change.
         return null
     }
-    // Strip exactly one leading and one trailing `"` if both present (mirrors `^"|"$`).
+    // Mirrors SQL `^"|"$`: strip one leading and one trailing `"` if both present.
     if (json.length >= 2 && json[0] === '"' && json[json.length - 1] === '"') {
         return json.slice(1, -1)
     }

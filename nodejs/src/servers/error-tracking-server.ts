@@ -40,7 +40,6 @@ import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { DmatKillSwitch } from '../utils/dmat-kill-switch'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { MaterializedColumnSlotManager } from '../utils/materialized-column-slot-manager'
@@ -145,8 +144,7 @@ export class ErrorTrackingServer implements NodeServer {
         await this.pubsub.start()
 
         const teamManager = new TeamManager(this.postgres)
-        const dmatKillSwitch = new DmatKillSwitch(this.redisPool)
-        const materializedColumnSlotManager = new MaterializedColumnSlotManager(this.postgres, dmatKillSwitch)
+        const materializedColumnSlotManager = new MaterializedColumnSlotManager(this.postgres)
 
         // 2. Services needed by ErrorTrackingConsumer and HogTransformer
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)

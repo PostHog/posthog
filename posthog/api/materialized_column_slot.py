@@ -11,7 +11,7 @@ from rest_framework import (
 from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.materialized_column_slots import MAX_SLOTS_PER_TEAM
 from posthog.permissions import IsStaffUserOrImpersonating
@@ -215,6 +215,9 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         try:
             with transaction.atomic():
+                # Serialize concurrent assign_slot calls per team so the MAX_SLOTS_PER_TEAM
+                # check below can't be raced past by two requests both reading 4 existing slots.
+                Team.objects.select_for_update().get(id=self.team_id)
                 property_definition = PropertyDefinition.objects.select_for_update().get(
                     id=property_definition_id, team_id=self.team_id
                 )

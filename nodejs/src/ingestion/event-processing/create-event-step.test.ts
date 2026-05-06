@@ -10,13 +10,11 @@ import { EVENTS_OUTPUT } from '../analytics/outputs'
 import { isOkResult } from '../pipelines/results'
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
 
-// Slot manager that always returns no slots — covers the path where dmat is not configured
-// for the team. Tests that exercise dmat behavior should pass their own manager instance.
-const noSlotsManager: Pick<MaterializedColumnSlotManager, 'getSlots' | 'getSlotsForTeams'> = {
+const slotManager: Pick<MaterializedColumnSlotManager, 'getSlots'> = {
     getSlots: () => Promise.resolve([]),
-    getSlotsForTeams: () => Promise.resolve({}),
 }
-const slotManager = noSlotsManager as MaterializedColumnSlotManager
+
+const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
 
 describe('create-event-step', () => {
     let mockPerson: Person
@@ -46,7 +44,6 @@ describe('create-event-step', () => {
 
     describe('createCreateEventStep', () => {
         it('should create event with processPerson=true', async () => {
-            const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -81,7 +78,6 @@ describe('create-event-step', () => {
         })
 
         it('should create event with processPerson=false', async () => {
-            const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -111,7 +107,6 @@ describe('create-event-step', () => {
                 force_upgrade: true,
             }
 
-            const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
             const input = {
                 person: personWithForceUpgrade,
                 preparedEvent: mockPreparedEvent,
@@ -140,7 +135,6 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithSetProperties,
@@ -165,7 +159,6 @@ describe('create-event-step', () => {
         })
 
         it('should preserve event properties as native object', async () => {
-            const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -197,7 +190,6 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithElements,
@@ -244,7 +236,6 @@ describe('create-event-step', () => {
         })
 
         it('should set correct timestamps', async () => {
-            const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
@@ -275,7 +266,6 @@ describe('create-event-step', () => {
                     event: eventName,
                 }
 
-                const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
                 const input = {
                     person: mockPerson,
                     preparedEvent: eventWithType,
@@ -298,7 +288,6 @@ describe('create-event-step', () => {
 
         describe('historicalMigration flag', () => {
             it('should include historical_migration in event when historicalMigration=true', async () => {
-                const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
@@ -319,7 +308,6 @@ describe('create-event-step', () => {
             })
 
             it('should not include historical_migration in event when historicalMigration=false', async () => {
-                const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
@@ -351,7 +339,6 @@ describe('create-event-step', () => {
                     force_upgrade: config.force_upgrade,
                 }
 
-                const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
                 const input = {
                     person,
                     preparedEvent: mockPreparedEvent,
@@ -374,7 +361,6 @@ describe('create-event-step', () => {
 
         describe('optional person (undefined)', () => {
             it('should generate deterministic person_id from distinct_id when person is undefined', async () => {
-                const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
                 const input = {
                     person: undefined,
                     preparedEvent: mockPreparedEvent,
@@ -396,7 +382,6 @@ describe('create-event-step', () => {
             })
 
             it('should return empty person_properties when person is undefined', async () => {
-                const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
                 const input = {
                     person: undefined,
                     preparedEvent: mockPreparedEvent,
@@ -417,7 +402,6 @@ describe('create-event-step', () => {
             })
 
             it('should set person_created_at to null when person is undefined', async () => {
-                const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
                 const input = {
                     person: undefined,
                     preparedEvent: mockPreparedEvent,
@@ -438,7 +422,6 @@ describe('create-event-step', () => {
             })
 
             it('should set person_mode to full when person is undefined and processPerson=true', async () => {
-                const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
                 const input = {
                     person: undefined,
                     preparedEvent: mockPreparedEvent,
@@ -459,7 +442,6 @@ describe('create-event-step', () => {
             })
 
             it('should set person_mode to propertyless when person is undefined and processPerson=false', async () => {
-                const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
                 const input = {
                     person: undefined,
                     preparedEvent: mockPreparedEvent,

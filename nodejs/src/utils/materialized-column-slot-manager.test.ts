@@ -1,5 +1,4 @@
 import { PostgresRouter } from './db/postgres'
-import { DmatKillSwitch } from './dmat-kill-switch'
 import { MaterializedColumnSlotManager } from './materialized-column-slot-manager'
 
 interface FakeRow {
@@ -120,52 +119,5 @@ describe('MaterializedColumnSlotManager', () => {
         expect(sql).toContain('s.slot_index IS NOT NULL')
         // Property name is read off posthog_propertydefinition rather than denormalized on the slot row.
         expect(sql).toContain('JOIN posthog_propertydefinition pd')
-    })
-
-    describe('with kill switch', () => {
-        function fakeKillSwitch(disabled: boolean): DmatKillSwitch {
-            return { isDisabled: jest.fn().mockReturnValue(disabled) } as unknown as DmatKillSwitch
-        }
-
-        it('returns empty slots and does NOT hit Postgres when the kill switch is disabled', async () => {
-            const postgres = fakePostgres([
-                {
-                    team_id: 1,
-                    property_name: 'browser',
-                    slot_index: 0,
-                    state: 'READY',
-                    compaction_target_slot_index: null,
-                },
-            ])
-            const manager = new MaterializedColumnSlotManager(postgres, fakeKillSwitch(true))
-
-            await expect(manager.getSlots(1)).resolves.toEqual([])
-            await expect(manager.getSlotsForTeams([1, 2])).resolves.toEqual({ '1': [], '2': [] })
-            // Postgres must never be hit when the kill switch fires — the whole point is to
-            // bypass the cache + DB read entirely.
-            expect(postgres.query as jest.Mock).not.toHaveBeenCalled()
-        })
-
-        it('passes through normally when the kill switch is enabled (i.e. NOT disabled)', async () => {
-            const postgres = fakePostgres([
-                {
-                    team_id: 1,
-                    property_name: 'browser',
-                    slot_index: 0,
-                    state: 'READY',
-                    compaction_target_slot_index: null,
-                },
-            ])
-            const manager = new MaterializedColumnSlotManager(postgres, fakeKillSwitch(false))
-
-            await expect(manager.getSlots(1)).resolves.toEqual([
-                {
-                    property_name: 'browser',
-                    slot_index: 0,
-                    state: 'READY',
-                    compaction_target_slot_index: null,
-                },
-            ])
-        })
     })
 })

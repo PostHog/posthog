@@ -1,35 +1,18 @@
 import { MaterializedColumnSlot } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { DmatKillSwitch } from './dmat-kill-switch'
 import { LazyLoader, TEAM_AND_SLOTS_REFRESH_AGE_MS, TEAM_AND_SLOTS_REFRESH_JITTER_MS } from './lazy-loader'
 
 /**
- * Loads each team's dmat (dynamic materialized column) slot configuration so the
- * ingestion pipeline can populate `dmat_<type>_<index>` columns alongside each event.
+ * Loads each team's dmat slot config for ingestion. Cache TTL is 2min ± 30s; the workflow's
+ * 3-min wait before submitting mutations is calibrated against this.
  *
- * Cache TTL matches `TeamManager` (2min ± 30s) so that when an operator changes a slot,
- * every plugin-server instance picks up the change within ~2.5 min. The dmat Temporal
- * workflow waits 3 min between transitioning slots to BACKFILL and submitting the
- * historical mutation, so by the time the mutation runs every ingester is already
- * writing to the new column.
- *
- * Only slots in BACKFILL or READY state with a non-null `slot_index` are loaded — PENDING
- * slots have not been packed into a column yet, and ERROR slots are quiesced until
- * an operator transitions them back to PENDING for retry.
- *
- * If the optional `DmatKillSwitch` is provided and currently `isDisabled()`, every
- * `getSlots*` call short-circuits to an empty array — `extractDynamicMaterializedColumns`
- * already does nothing when the slot list is empty, so the kill switch cascades through
- * the existing code path with no per-event branch in the hot loop. HogQL reads are
- * unaffected; this only stops new dmat-column writes.
+ * Only READY / BACKFILL slots with a non-null `slot_index` are loaded. To kill dmat
+ * ingestion, transition slots to PENDING with `slot_index = NULL` — see `docs/internal/dmat-deployment.md`.
  */
 export class MaterializedColumnSlotManager {
     private lazyLoader: LazyLoader<MaterializedColumnSlot[]>
 
-    constructor(
-        private postgres: PostgresRouter,
-        private killSwitch?: DmatKillSwitch
-    ) {
+    constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
             name: 'MaterializedColumnSlotManager',
             refreshAgeMs: TEAM_AND_SLOTS_REFRESH_AGE_MS,
@@ -42,24 +25,11 @@ export class MaterializedColumnSlotManager {
 
     /** Returns the team's slot config, or an empty array if none are configured. */
     public async getSlots(teamId: number): Promise<MaterializedColumnSlot[]> {
-        if (this.killSwitch?.isDisabled()) {
-            return []
-        }
         return (await this.lazyLoader.get(String(teamId))) ?? []
     }
 
-    /**
-     * Batched variant — used by the prefetch step to warm the cache for an entire
-     * batch of events before per-event lookups happen.
-     */
+    /** Batched variant used by the prefetch step to warm the cache for a whole batch. */
     public async getSlotsForTeams(teamIds: number[]): Promise<Record<string, MaterializedColumnSlot[]>> {
-        if (this.killSwitch?.isDisabled()) {
-            const empty: Record<string, MaterializedColumnSlot[]> = {}
-            for (const id of teamIds) {
-                empty[String(id)] = []
-            }
-            return empty
-        }
         const results = await this.lazyLoader.getMany(teamIds.map(String))
         const converted: Record<string, MaterializedColumnSlot[]> = {}
         for (const [key, value] of Object.entries(results)) {
@@ -71,10 +41,7 @@ export class MaterializedColumnSlotManager {
     private async fetchSlots(teamIds: string[]): Promise<Record<string, MaterializedColumnSlot[] | null>> {
         const numericTeamIds = teamIds.map(Number)
 
-        // We JOIN posthog_propertydefinition because the slot table only stores the FK —
-        // property_name lives on the definition row. The JOIN is per-team-per-refresh
-        // (covered by the team-id index on slots and the PK on prop defs) and the result
-        // is small (≤ 5 rows per team), so the cost is negligible.
+        // property_name lives on posthog_propertydefinition — the slot table only stores the FK.
         const queryResult = await this.postgres.query<{
             team_id: number
             property_name: string
@@ -113,7 +80,7 @@ export class MaterializedColumnSlotManager {
             })
         }
 
-        // LazyLoader uses null vs [] to distinguish "team not loaded yet" vs "team has zero slots".
+        // null = "team not loaded yet"; [] = "team has zero slots". LazyLoader needs both.
         const result: Record<string, MaterializedColumnSlot[] | null> = {}
         for (const id of teamIds) {
             result[id] = slotsByTeam[id] ?? null

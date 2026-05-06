@@ -32,9 +32,6 @@ export const scene: SceneExport = {
 
 type SlotColumn = LemonTableColumn<MaterializedColumnSlot, keyof MaterializedColumnSlot | undefined>
 
-// Per the dmat RFC, the dmat pool is string-only — HogQL applies the per-property-type
-// wrapper (toFloat / toBool / toDateTime) at read time the same way it does for normal
-// `mat_*` columns.
 function dmatColumnName(slotIndex: number): string {
     return `dmat_string_${slotIndex}`
 }

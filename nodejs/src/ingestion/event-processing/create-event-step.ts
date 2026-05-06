@@ -25,15 +25,12 @@ export interface CreateEventStepResult<O extends string> {
 
 export function createCreateEventStep<O extends string, T extends CreateEventStepInput>(
     output: O,
-    materializedColumnSlotManager: MaterializedColumnSlotManager
+    materializedColumnSlotManager: Pick<MaterializedColumnSlotManager, 'getSlots'>
 ): ProcessingStep<T, CreateEventStepResult<O>> {
     return async function createEventStep(input) {
         const { person, preparedEvent, processPerson, historicalMigration, headers, message } = input
 
         const capturedAt = headers.now ?? null
-        // Cache hit on the warm path — the prefetch step has already populated this team's
-        // entry for the current batch. On a cold cache the loader does a single Postgres
-        // round-trip and other in-flight events for the same team await the same promise.
         const slots = await materializedColumnSlotManager.getSlots(preparedEvent.teamId)
 
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt, slots)
