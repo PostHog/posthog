@@ -844,6 +844,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """Return the subset of person_uuids that already exist in the CH static cohort table."""
         if not person_uuids:
             return set()
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
             f"SELECT person_id FROM {table} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id IN %(person_uuids)s GROUP BY person_id",
