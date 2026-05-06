@@ -4,6 +4,8 @@ import { ReactNode } from 'react'
 import { IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+
 import { recommendationsTabLogic } from './recommendationsTabLogic'
 
 export interface RecommendationCardProps {
@@ -24,11 +26,13 @@ export function RecommendationCard({
     children,
 }: RecommendationCardProps): JSX.Element {
     const { dismissRecommendation, restoreRecommendation, refreshRecommendation } = useActions(recommendationsTabLogic)
-    const { refreshingIds } = useValues(recommendationsTabLogic)
+    const { refreshingIds, computingIds } = useValues(recommendationsTabLogic)
     const isRefreshing = refreshingIds.has(recommendationId)
+    const isComputing = computingIds.has(recommendationId)
 
     return (
-        <div className="border rounded-lg bg-surface-primary p-4">
+        <div className="relative overflow-hidden border rounded-lg bg-surface-primary p-4" aria-busy={isComputing}>
+            <LemonTableLoader loading={isComputing} placement="top" />
             <div className="flex items-center justify-between mb-1">
                 <h3 className="font-semibold text-sm m-0">{title}</h3>
                 <div className="flex items-center gap-2">
@@ -52,7 +56,7 @@ export function RecommendationCard({
                         size="xsmall"
                         type="tertiary"
                         icon={<IconRefresh />}
-                        loading={isRefreshing}
+                        loading={isRefreshing || isComputing}
                         onClick={() => refreshRecommendation(recommendationId)}
                         tooltip="Refresh this recommendation"
                     />

@@ -20,6 +20,20 @@ export function LongRunningIssuesRecommendationCard({
     const { suppressIssue, activateIssue } = useActions(recommendationsTabLogic)
 
     const issues = recommendation.meta.issues ?? []
+    const isFirstLoad = recommendation.computed_at === null
+
+    if (isFirstLoad) {
+        return (
+            <RecommendationCard
+                recommendationId={recommendation.id}
+                title="Long-running issues"
+                description="Your oldest active issues that are still firing this week — worth a second look."
+                dismissed={dismissed}
+            >
+                <div className="text-sm text-secondary">Computing…</div>
+            </RecommendationCard>
+        )
+    }
 
     if (issues.length === 0) {
         return (
