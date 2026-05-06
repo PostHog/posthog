@@ -452,7 +452,7 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-schema-fresh
+                  ./bin/hogli db:restore-test-db
 
             - name: Register Temporal search attributes
               run: |
@@ -1322,7 +1322,7 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-schema-fresh
+                  ./bin/hogli db:restore-test-db
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
