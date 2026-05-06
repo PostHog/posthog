@@ -99,12 +99,19 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
         # never reach the LLM either. Consuming after the fact rather than at
         # find-time means a transient Temporal outage doesn't burn quota for
         # work that never happened.
+        #
+        # `maximum_attempts=1` because INCRBY is non-idempotent: if Redis applies
+        # the increment and the activity then fails to report success back to
+        # Temporal (worker crash, network blip, heartbeat timeout), retries would
+        # silently inflate the team's used count and falsely trip the backstop
+        # for the rest of the calendar month. Losing a single increment is
+        # recoverable — the next sweep tick refills naturally.
         if started > 0:
             await workflow.execute_activity(
                 consume_summary_quota_activity,
                 args=[ConsumeSummaryQuotaInput(team_id=inputs.team_id, n=started)],
                 start_to_close_timeout=timedelta(seconds=15),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                retry_policy=RetryPolicy(maximum_attempts=1),
             )
 
         return {
