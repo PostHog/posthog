@@ -171,7 +171,9 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool_call_message = artifact_messages.messages[1]
         self.assertIsInstance(tool_call_message, AssistantToolCallMessage)
         assert isinstance(tool_call_message, AssistantToolCallMessage)
-        payload = tool_call_message.ui_payload["execute_sql"]
+        ui_payload = tool_call_message.ui_payload
+        assert ui_payload is not None
+        payload = ui_payload["execute_sql"]
         self.assertEqual(payload["query"], "SELECT count() FROM events WHERE {filters}")
         self.assertEqual(payload["filters"]["dateRange"]["date_from"], "-90d")
 
@@ -192,7 +194,9 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool_call_message = artifact_messages.messages[1]
         self.assertIsInstance(tool_call_message, AssistantToolCallMessage)
         assert isinstance(tool_call_message, AssistantToolCallMessage)
-        payload = tool_call_message.ui_payload["execute_sql"]
+        ui_payload = tool_call_message.ui_payload
+        assert ui_payload is not None
+        payload = ui_payload["execute_sql"]
         self.assertEqual(payload["query"], "SELECT count() FROM events WHERE {filters}")
         self.assertEqual(payload["filters"], {})
 

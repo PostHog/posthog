@@ -165,6 +165,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
+        tool_payload: str | dict[str, object]
         if isinstance(artifact_query, DataVisualizationNode):
             tool_payload = artifact_query.model_dump(mode="json", exclude_none=True)
         elif isinstance(query_model, HogQLQuery):
