@@ -71,6 +71,7 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                     if (!values.currentOrganizationId) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`api/organizations/${values.currentOrganizationId}/legal_documents`)
                     return (response.results ?? []) as LegalDocument[]
                 },
@@ -103,6 +104,7 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                 // single DPA variant, so we never send it on the wire.
                 const { dpa_mode: _dpaMode, ...payload } = formValues
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const legalDocument = await api.create<LegalDocument>(
                         `api/organizations/${values.currentOrganizationId}/legal_documents`,
                         payload
