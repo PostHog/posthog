@@ -29,8 +29,8 @@ describe('buildConfidenceIntervalSeries', () => {
         expect(ci.meta).toEqual({ domain: 'visits' })
         expect(ci.fill?.lowerData).toEqual([9, 11, 13, 15, 17, 19, 21])
         expect(ci.fill?.opacity).toBeGreaterThan(0)
-        expect(ci.visibility?.fromTooltip).toBe(true)
-        expect(ci.visibility?.fromValueLabels).toBe(true)
+        expect(ci.visibility?.tooltip).toBe(false)
+        expect(ci.visibility?.valueLabel).toBe(false)
     })
 
     it('forwards the excluded flag so an excluded source hides the band', () => {
@@ -55,8 +55,8 @@ describe('buildMovingAverageSeries', () => {
         expect(ma.color).toBe(SOURCE.color)
         expect(ma.yAxisId).toBe(SOURCE.yAxisId)
         expect(ma.stroke?.pattern).not.toBeUndefined()
-        expect(ma.visibility?.fromStack).toBe(true)
-        expect(ma.visibility?.fromTooltip).toBe(true)
+        expect(ma.overlay).toBe(true)
+        expect(ma.visibility?.tooltip).toBe(false)
     })
 
     it('uses an explicit label when provided', () => {
@@ -72,7 +72,7 @@ describe('buildTrendLineSeries', () => {
         expect(tl.label).toBe('Visits')
         expect(tl.color).toMatch(/^rgba\(/)
         expect(tl.stroke?.pattern).toEqual([1, 3])
-        expect(tl.visibility?.fromStack).toBe(true)
+        expect(tl.overlay).toBe(true)
     })
 
     it.each([
