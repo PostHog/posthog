@@ -11,6 +11,7 @@ import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from
 
 import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
+import { INSTALL_DEDUP_KEYS } from '../../types'
 import { availableOnboardingProducts } from '../../utils'
 import { useAdblockDetection } from '../hooks/useAdblockDetection'
 import { useInstallationComplete } from '../hooks/useInstallationComplete'
@@ -77,14 +78,18 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
-    const { currentStepProductKey } = useValues(onboardingLogic)
+    const { currentStepProductKey, currentFlowStep } = useValues(onboardingLogic)
     const productName = currentStepProductKey
         ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
-    // Use the registry's stored casing as-is ("Product Analytics", "LLM Analytics",
-    // "Web Analytics") — proper-noun product names are Title Case here, not the
-    // sentence-case convention used for generic UI strings.
-    const installTitle = productName ? `Install ${productName}` : 'Install your SDK'
+    // The posthog-js install step is shared across many products via dedup, so it
+    // gets a generic "Install SDK" title rather than tying it to whichever product
+    // happens to be the dedup survivor (which would mislead users picking PA + WA +
+    // SR into thinking the step only installs Product Analytics, etc.).
+    // Product-specific install steps (LLM Analytics, Workflows, Logs) keep their
+    // product-titled label since they really are product-specific.
+    const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
+    const installTitle = isSdkInstallStep ? 'Install SDK' : productName ? `Install ${productName}` : 'Install your SDK'
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam

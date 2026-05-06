@@ -7,8 +7,11 @@ import { Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
+import { OnboardingStepKey } from '~/types'
+
 import { stepKeyToTitle } from './onboardingFlowUtils'
 import { onboardingLogic } from './onboardingLogic'
+import { INSTALL_DEDUP_KEYS } from './types'
 import { availableOnboardingProducts } from './utils'
 
 export function OnboardingBreadcrumbs(): JSX.Element | null {
@@ -33,6 +36,13 @@ export function OnboardingBreadcrumbs(): JSX.Element | null {
     const labelForStep = (step: (typeof flow)[number]): string => {
         if (step.label) {
             return step.label
+        }
+        // The posthog-js install step is shared across products via dedup, so it gets
+        // a generic "Install SDK" label rather than being titled after whichever
+        // product happens to be the dedup survivor (which would be misleading when
+        // it actually installs the SDK for several products at once).
+        if (step.stepKey === OnboardingStepKey.INSTALL && step.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS) {
+            return 'Install SDK'
         }
         const base = stepKeyToTitle(step.stepKey) ?? step.stepKey
         if (stepKeyCounts[step.stepKey] > 1) {
