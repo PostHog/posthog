@@ -28,6 +28,6 @@ rules:
           - pattern-regex: '\bapi\.(get|post|put|patch|delete|create|update)<[^>]*>\s*\('
       paths:
           include:
-              - 'products/*/frontend/'
+              - '/products/*/frontend/'
           exclude:
               - '**/generated/**'
