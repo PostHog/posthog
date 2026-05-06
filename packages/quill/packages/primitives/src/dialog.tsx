@@ -7,6 +7,7 @@ import * as React from 'react'
 import { Button } from './button'
 import './dialog.css'
 import { cn } from './lib/utils'
+import { ScrollArea } from './scroll-area'
 
 /** Note: if you're nesting dialogs, in order for you to click the overlay to close it, you must pass 'mounted: true' to the nested dialog*/
 function Dialog({ ...props }: DialogPrimitive.Root.Props): React.ReactElement {
@@ -98,12 +99,46 @@ function DialogFooter({
     )
 }
 
-function DialogBody({ className, render, ...props }: useRender.ComponentProps<'div'>): React.ReactElement {
+function DialogBody({
+    className,
+    render,
+    children,
+    ...props
+}: useRender.ComponentProps<'div'>): React.ReactElement {
+    /*
+     * Default render = `<ScrollArea>` so consumers get scroll shadows
+     * (and edge-overflow data attrs) for free. The scroll-area-aware
+     * branches in `dialog.css` (`[data-component='scroll-area']`) take
+     * care of moving padding into the viewport so content doesn't ride
+     * against the scrollbar.
+     *
+     * Consumers can override with `<DialogBody render={<div />}>` for
+     * a plain non-scrolling body, or `<DialogBody render={<ScrollArea
+     * scrollShadows={false} />}>` to tweak the scroll-area config.
+     */
+    if (render === undefined) {
+        // `useRender.ComponentProps<'div'>` widens `ref` to `LegacyRef`
+        // which clashes with ScrollArea's stricter `RefObject` typing.
+        // Cast through `unknown` — runtime-wise the spread is fine
+        // (ScrollArea forwards standard div props to its Root), the
+        // mismatch is only on the legacy string-ref slot we don't use.
+        const scrollAreaProps = props as unknown as React.ComponentProps<typeof ScrollArea>
+        return (
+            <ScrollArea
+                data-slot="dialog-body"
+                className={cn('quill-dialog__body', className)}
+                {...scrollAreaProps}
+            >
+                {children}
+            </ScrollArea>
+        )
+    }
     return useRender({
         defaultTagName: 'div',
         props: mergeProps<'div'>(
             {
                 className: cn('quill-dialog__body', className),
+                children,
             } as Omit<React.ComponentProps<'div'>, 'ref'>,
             props
         ),

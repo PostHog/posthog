@@ -27,7 +27,17 @@ export type MenuFilterState =
     | { kind: 'menu' }
     | { kind: 'combobox'; drillTo: DrillCategory }
     | { kind: 'dwh-pick' }
-    | { kind: 'dwh-config'; table: TaxonomicDefinitionTypes; group: TaxonomicFilterGroup }
+    | {
+          kind: 'dwh-config'
+          table: TaxonomicDefinitionTypes
+          group: TaxonomicFilterGroup
+          /** Where the dialog was opened from — restored when X / Esc /
+           *  overlay / Cancel fire so back navigation lands on the right
+           *  surface ('menu' = jumped here from the trigger because a
+           *  selection already existed; 'dwh-pick' = drilled down via the
+           *  table picker). */
+          origin: 'menu' | 'dwh-pick'
+      }
     | { kind: 'hogql-edit' }
 
 /** Common header info every popover sub-page shares. */

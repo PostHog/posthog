@@ -598,7 +598,12 @@ export function ActionFilterRow({
                                             // `TaxonomicFilterGroup` isn't
                                             // needed here.
                                             selected={
-                                                filter.id != null && filter.type
+                                                // DWH filters often have `filter.id == null`
+                                                // (the table name lives on `filter.name`),
+                                                // so gate on whichever of id/name is present
+                                                // — otherwise the trigger label falls back to
+                                                // the default and ignores the active selection.
+                                                filter.type && (filter.id != null || filter.name)
                                                     ? ({
                                                           // DWH filters need the saved column
                                                           // mapping (`id_field` /
@@ -639,7 +644,7 @@ export function ActionFilterRow({
                                                               getName: (t: any) => t?.name,
                                                               getValue: (t: any) => t?.name,
                                                           },
-                                                          name: String(name ?? filter.id),
+                                                          name: String(name ?? filter.name ?? filter.id),
                                                           friendlyLabel: name ? String(name) : undefined,
                                                       } as unknown as MenuFilterEntry)
                                                     : null

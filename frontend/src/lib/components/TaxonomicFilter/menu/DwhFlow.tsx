@@ -278,21 +278,25 @@ export function MenuFilterDwhConfig({
                 // already open underneath; tells base-ui to stack focus
                 // traps + handle overlay clicks correctly.
                 nested
-                // `quill-dialog--narrow` is defined in
-                // `frontend/src/styles/quill-bridge.scss` — it pins the
-                // dialog at ~640px max-width with stylesheet specificity
-                // higher than Quill's default rule. We do this via class
-                // (instead of inline `style`) because base-ui's
-                // `useRender` shallow-merges the consumer's `style` with
-                // the popup's own (e.g. `--dialog-popup-nested-dialogs`),
-                // and in practice the override gets dropped on the merge.
-                className="quill-dialog--narrow gap-0 p-0 "
+                // `quill-dialog--wide` is defined in
+                // `frontend/src/styles/quill-bridge.scss` — it widens
+                // the dialog to ~72rem so the LemonTable preview gets
+                // horizontal breathing room. Vertical behaviour
+                // (viewport-bounded `max-height`, three-row grid, body
+                // scroll) is now baked into Quill itself.
+                className="quill-dialog--wide gap-0 p-0"
             >
                 <DialogHeader className="px-4 py-3 border-b">
                     <DialogTitle>Configure data warehouse table</DialogTitle>
                 </DialogHeader>
-                <DialogBody className="overflow-auto">
-                    <div className="flex flex-col gap-4 py-4 min-w-0">
+                {/* `DialogBody` defaults to a `ScrollArea` (per Quill)
+                    so we get scroll shadows and edge-overflow data
+                    attrs for free. The viewport already gets
+                    `padding-block: 1rem` from Quill's body styling, so
+                    the inner stack just needs row gap + min-width
+                    bound for the LemonTable. */}
+                <DialogBody>
+                    <div className="flex flex-col gap-4 min-w-0">
                         <FieldDescription className="!mt-0">
                             Table: <Badge variant="info">{tableName}</Badge>
                         </FieldDescription>

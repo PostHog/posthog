@@ -139,8 +139,8 @@ export function TaxonomicFilterMenu({
     const openCombobox = useCallback((drillTo: DrillCategory) => setState({ kind: 'combobox', drillTo }), [])
     const openDwhPick = useCallback(() => setState({ kind: 'dwh-pick' }), [])
     const openDwhConfig = useCallback(
-        (table: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup) =>
-            setState({ kind: 'dwh-config', table, group }),
+        (table: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup, origin: 'menu' | 'dwh-pick') =>
+            setState({ kind: 'dwh-config', table, group, origin }),
         []
     )
     const openHogql = useCallback(() => setState({ kind: 'hogql-edit' }), [])
@@ -160,7 +160,10 @@ export function TaxonomicFilterMenu({
             return { kind: 'hogql-edit' }
         }
         if (selected.group.type === TaxonomicFilterGroupType.DataWarehouse) {
-            return { kind: 'dwh-config', table: selected.item, group: selected.group }
+            // origin='menu' so X / Esc / Cancel return to the dropdown
+            // menu rather than dropping the user into the (unscrolled)
+            // dwh-pick list they never visited.
+            return { kind: 'dwh-config', table: selected.item, group: selected.group, origin: 'menu' }
         }
         // Land on the regular combobox with chips visible — the matching
         // chip auto-selects via `selectedEntry` inside the combobox so the
@@ -377,7 +380,7 @@ export function TaxonomicFilterMenu({
                             selectedEntry={
                                 selected?.group.type === TaxonomicFilterGroupType.DataWarehouse ? selected : null
                             }
-                            onCommit={(entry) => openDwhConfig(entry.item, entry.group)}
+                            onCommit={(entry) => openDwhConfig(entry.item, entry.group, 'dwh-pick')}
                             onBack={openMenu}
                         />
                     )}
@@ -407,7 +410,11 @@ export function TaxonomicFilterMenu({
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                     insightProps={insightProps}
                     onCommit={handleCommit}
-                    onBack={openDwhPick}
+                    // Restore the origin surface — menu (when the dialog
+                    // was opened straight from the trigger because a DWH
+                    // selection already existed) or the table picker
+                    // (when the user drilled down through dwh-pick).
+                    onBack={state.origin === 'menu' ? openMenu : openDwhPick}
                 />
             )}
             <DropdownMenuContent align="start" className="min-w-[240px]">
