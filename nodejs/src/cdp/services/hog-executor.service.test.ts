@@ -939,7 +939,14 @@ describe('Hog Executor', () => {
                 { inputs: {} }
             )
 
-        it('queues a session-create fetch with only agent / environment_id / vault_ids', async () => {
+        const expectedHeaders = {
+            'x-api-key': 'sk-ant-test',
+            'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'managed-agents-2026-04-01',
+            'Content-Type': 'application/json',
+        }
+
+        it('queues a session-create fetch with idempotency key, max_tries=1, and only agent / environment_id / vault_ids', async () => {
             mockExecHogForAsyncFunction('claudeCreateSession', [
                 {
                     api_key: 'sk-ant-test',
@@ -949,24 +956,43 @@ describe('Hog Executor', () => {
                 },
             ])
 
-            const result = await executor.execute(createInvocation())
+            const invocation = createInvocation()
+            const result = await executor.execute(invocation)
 
             expect(result.invocation.queueParameters).toEqual({
                 type: 'fetch',
                 url: 'https://api.anthropic.com/v1/sessions',
                 method: 'POST',
                 headers: {
-                    'x-api-key': 'sk-ant-test',
-                    'anthropic-version': '2023-06-01',
-                    'anthropic-beta': 'managed-agents-2026-04-01',
-                    'Content-Type': 'application/json',
+                    ...expectedHeaders,
+                    'Idempotency-Key': `${invocation.id}:claudeCreateSession`,
                 },
                 body: JSON.stringify({
                     agent: 'agt_1',
                     environment_id: 'env_prod',
                     vault_ids: ['vault_1'],
                 }),
+                max_tries: 1,
             })
+        })
+
+        it('honors ANTHROPIC_API_BASE_URL env override', async () => {
+            const original = process.env.ANTHROPIC_API_BASE_URL
+            process.env.ANTHROPIC_API_BASE_URL = 'https://staging.anthropic.example'
+            try {
+                mockExecHogForAsyncFunction('claudeCreateSession', [
+                    { api_key: 'sk-ant-test', agent: 'agt_1', environment_id: 'env_prod' },
+                ])
+                const result = await executor.execute(createInvocation())
+                const params = result.invocation.queueParameters as { url: string }
+                expect(params.url).toBe('https://staging.anthropic.example/v1/sessions')
+            } finally {
+                if (original === undefined) {
+                    delete process.env.ANTHROPIC_API_BASE_URL
+                } else {
+                    process.env.ANTHROPIC_API_BASE_URL = original
+                }
+            }
         })
 
         it('omits vault_ids when not provided', async () => {
@@ -984,6 +1010,22 @@ describe('Hog Executor', () => {
             expect(parsed).not.toHaveProperty('vault_ids')
         })
 
+        it('filters non-string and empty entries out of vault_ids', async () => {
+            mockExecHogForAsyncFunction('claudeCreateSession', [
+                {
+                    api_key: 'sk-ant-test',
+                    agent: 'agt_1',
+                    environment_id: 'env_prod',
+                    vault_ids: ['vault_1', '', null, 42, 'vault_2'],
+                },
+            ])
+
+            const result = await executor.execute(createInvocation())
+            const params = result.invocation.queueParameters as { body: string }
+            const parsed = parseJSON(params.body) as { vault_ids: string[] }
+            expect(parsed.vault_ids).toEqual(['vault_1', 'vault_2'])
+        })
+
         it('claudeCreateSession errors when api_key is missing', async () => {
             mockExecHogForAsyncFunction('claudeCreateSession', [{ agent: 'agt_1', environment_id: 'env_prod' }])
 
@@ -998,26 +1040,26 @@ describe('Hog Executor', () => {
             expect(result.error).toContain("missing 'agent'")
         })
 
-        it('claudeSendUserMessage queues a /events fetch with a user.message text block', async () => {
+        it('claudeSendUserMessage queues a /events fetch with idempotency key, max_tries=1, and a user.message text block', async () => {
             mockExecHogForAsyncFunction('claudeSendUserMessage', [
                 { api_key: 'sk-ant-test', session_id: 'sess_abc', text: 'hello' },
             ])
 
-            const result = await executor.execute(createInvocation())
+            const invocation = createInvocation()
+            const result = await executor.execute(invocation)
 
             expect(result.invocation.queueParameters).toEqual({
                 type: 'fetch',
                 url: 'https://api.anthropic.com/v1/sessions/sess_abc/events',
                 method: 'POST',
                 headers: {
-                    'x-api-key': 'sk-ant-test',
-                    'anthropic-version': '2023-06-01',
-                    'anthropic-beta': 'managed-agents-2026-04-01',
-                    'Content-Type': 'application/json',
+                    ...expectedHeaders,
+                    'Idempotency-Key': `${invocation.id}:claudeSendUserMessage:sess_abc`,
                 },
                 body: JSON.stringify({
                     events: [{ type: 'user.message', content: [{ type: 'text', text: 'hello' }] }],
                 }),
+                max_tries: 1,
             })
         })
 
@@ -1026,6 +1068,92 @@ describe('Hog Executor', () => {
 
             const result = await executor.execute(createInvocation())
             expect(result.error).toContain("missing 'session_id'")
+        })
+
+        it('claudeSendUserMessage rejects malformed session_id', async () => {
+            mockExecHogForAsyncFunction('claudeSendUserMessage', [
+                { api_key: 'sk-ant-test', session_id: '../etc/passwd', text: 'hello' },
+            ])
+
+            const result = await executor.execute(createInvocation())
+            expect(result.error).toContain("malformed 'session_id'")
+        })
+
+        it('claudeSendUserMessage rejects empty text', async () => {
+            mockExecHogForAsyncFunction('claudeSendUserMessage', [
+                { api_key: 'sk-ant-test', session_id: 'sess_abc', text: '' },
+            ])
+
+            const result = await executor.execute(createInvocation())
+            expect(result.error).toContain("missing 'text'")
+        })
+
+        it('claudeSendUserMessage rejects oversized text', async () => {
+            mockExecHogForAsyncFunction('claudeSendUserMessage', [
+                { api_key: 'sk-ant-test', session_id: 'sess_abc', text: 'x'.repeat(1_000_001) },
+            ])
+
+            const result = await executor.execute(createInvocation())
+            expect(result.error).toContain('exceeds 1000000 bytes')
+        })
+
+        it('claudeCancelSession queues a /cancel fetch', async () => {
+            mockExecHogForAsyncFunction('claudeCancelSession', [{ api_key: 'sk-ant-test', session_id: 'sess_abc' }])
+
+            const invocation = createInvocation()
+            const result = await executor.execute(invocation)
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: 'https://api.anthropic.com/v1/sessions/sess_abc/cancel',
+                method: 'POST',
+                headers: {
+                    ...expectedHeaders,
+                    'Idempotency-Key': `${invocation.id}:claudeCancelSession:sess_abc`,
+                },
+                body: JSON.stringify({}),
+                max_tries: 1,
+            })
+        })
+
+        it('mock logs redact api_key from arguments', () => {
+            const { getAsyncFunctionHandler } = require('../async-function-registry')
+            const handler = getAsyncFunctionHandler('claudeCreateSession')
+            const logs: any[] = []
+            handler.mock([{ api_key: 'sk-ant-supersecret', agent: 'agt_1', environment_id: 'env_prod' }], logs)
+            const dump = JSON.stringify(logs)
+            expect(dump).not.toContain('sk-ant-supersecret')
+            expect(dump).toContain('[redacted]')
+        })
+
+        it('mock honors __mock_status / __mock_body overrides for failure-branch testing', () => {
+            const { getAsyncFunctionHandler } = require('../async-function-registry')
+            const handler = getAsyncFunctionHandler('claudeSendUserMessage')
+            const logs: any[] = []
+            const result = handler.mock(
+                [
+                    {
+                        api_key: 'sk-ant-test',
+                        session_id: 'sess_abc',
+                        text: 'hi',
+                        __mock_status: 503,
+                        __mock_body: { type: 'overloaded_error' },
+                    },
+                ],
+                logs
+            )
+            expect(result).toEqual({ status: 503, body: { type: 'overloaded_error' } })
+        })
+
+        it('ANTHROPIC_BETA_HEADER stays in lockstep with the Python source of truth', () => {
+            const fs = require('fs')
+            const path = require('path')
+            const { ANTHROPIC_BETA_HEADER } = require('../async-functions/claude')
+            const integrationPyPath = path.join(__dirname, '../../../../../posthog/models/integration.py')
+            const integrationPy = fs.readFileSync(integrationPyPath, 'utf8')
+            const match = integrationPy.match(/ANTHROPIC_MANAGED_AGENTS_BETA_HEADER\s*=\s*"([^"]+)"/)
+            expect(match).not.toBeNull()
+            expect(match![1]).toBe(ANTHROPIC_BETA_HEADER)
         })
     })
 

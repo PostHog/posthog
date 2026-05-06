@@ -18,10 +18,10 @@ if (empty(inputs.agent)) {
   throw Error('Agent is required')
 }
 if (empty(inputs.environment)) {
-  throw Error('Environment is required')
+  throw Error('Agent environment is required')
 }
 if (empty(inputs.message)) {
-  throw Error('Message is required')
+  throw Error('Initial message is required')
 }
 
 let session := claudeCreateSession({
@@ -32,7 +32,11 @@ let session := claudeCreateSession({
 })
 
 if (session.status < 200 or session.status >= 300) {
-  throw Error(f'Failed to create Claude session: {session.status} {session.body}')
+  let bodyStr := f'{session.body}'
+  if (length(bodyStr) > 500) {
+    bodyStr := concat(substring(bodyStr, 1, 500), '...')
+  }
+  throw Error(f'Failed to create Claude session: {session.status} {bodyStr}')
 }
 
 let firstMessage := claudeSendUserMessage({
@@ -42,7 +46,18 @@ let firstMessage := claudeSendUserMessage({
 })
 
 if (firstMessage.status < 200 or firstMessage.status >= 300) {
-  throw Error(f'Created Claude session {session.body.id} but failed to send initial message: {firstMessage.status} {firstMessage.body}')
+  // Session was created but the initial message failed to send. Best-effort cancel
+  // the orphaned session so the customer is not billed for an idle agent. We don't
+  // block the throw on cancel success — the original failure is what matters.
+  let cancel := claudeCancelSession({
+    'api_key': inputs.anthropic_workspace.api_key,
+    'session_id': session.body.id
+  })
+  let bodyStr := f'{firstMessage.body}'
+  if (length(bodyStr) > 500) {
+    bodyStr := concat(substring(bodyStr, 1, 500), '...')
+  }
+  throw Error(f'Created Claude session {session.body.id} but failed to send initial message: {firstMessage.status} {bodyStr} (cancel attempt: {cancel.status})')
 }
 
 return {
@@ -58,7 +73,6 @@ return {
             type: 'integration',
             integration: 'anthropic',
             label: 'Anthropic workspace',
-            requiredScopes: 'placeholder',
             secret: false,
             hidden: false,
             required: true,
@@ -79,7 +93,7 @@ return {
             type: 'integration_field',
             integration_key: 'anthropic_workspace',
             integration_field: 'anthropic_managed_agent_environment',
-            label: 'Environment',
+            label: 'Agent environment',
             description: 'Execution environment for the agent.',
             secret: false,
             hidden: false,
@@ -90,8 +104,8 @@ return {
             type: 'integration_field',
             integration_key: 'anthropic_workspace',
             integration_field: 'anthropic_managed_agent_vault',
-            label: 'Vault',
-            description: 'Vault containing secrets the agent can read. Optional.',
+            label: 'Secrets vault',
+            description: 'Vault containing secrets the agent can read.',
             secret: false,
             hidden: false,
             required: false,
@@ -101,7 +115,8 @@ return {
             type: 'string',
             label: 'Initial message',
             description:
-                'First message sent to the agent. Liquid templates with event/person properties are supported.',
+                'First message sent to the agent. Hog template expressions like `{event.properties.message}` are supported.',
+            templating: 'hog',
             secret: false,
             hidden: false,
             required: true,

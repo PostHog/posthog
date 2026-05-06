@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
@@ -9,7 +9,6 @@ import { AnthropicSetupModalLogicProps, anthropicSetupModalLogic } from './anthr
 
 export const AnthropicSetupModal = (props: AnthropicSetupModalLogicProps): JSX.Element => {
     const { isAnthropicIntegrationSubmitting } = useValues(anthropicSetupModalLogic(props))
-    const { submitAnthropicIntegration } = useActions(anthropicSetupModalLogic(props))
 
     return (
         <LemonModal
@@ -18,7 +17,7 @@ export const AnthropicSetupModal = (props: AnthropicSetupModalLogicProps): JSX.E
             onClose={props.onComplete}
             description="Connect an Anthropic API key to use Claude managed agents in PostHog workflows."
         >
-            <Form logic={anthropicSetupModalLogic} props={props} formKey="anthropicIntegration">
+            <Form logic={anthropicSetupModalLogic} props={props} formKey="anthropicIntegration" enableFormOnSubmit>
                 <div className="gap-4 flex flex-col">
                     <LemonField
                         name="apiKey"
@@ -30,17 +29,12 @@ export const AnthropicSetupModal = (props: AnthropicSetupModalLogicProps): JSX.E
                     <LemonField
                         name="workspaceLabel"
                         label="Display name"
-                        help="Optional name to tell multiple Anthropic accounts apart."
+                        help="Optional label to distinguish multiple Anthropic workspaces."
                     >
                         <LemonInput type="text" placeholder="Production" />
                     </LemonField>
                     <div className="flex justify-end">
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            loading={isAnthropicIntegrationSubmitting}
-                            onClick={submitAnthropicIntegration}
-                        >
+                        <LemonButton type="primary" htmlType="submit" loading={isAnthropicIntegrationSubmitting}>
                             Connect
                         </LemonButton>
                     </div>
