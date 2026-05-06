@@ -36,6 +36,14 @@ export class EventSchemaEnforcementManager {
         })
     }
 
+    public async start(): Promise<void> {
+        // No startup work — the lazy loader hydrates on first access.
+    }
+
+    public async stop(): Promise<void> {
+        // No shutdown work — the lazy loader's caches are GC'd with the instance.
+    }
+
     /**
      * Get enforced event schemas for a team as a Map keyed by event_name for O(1) lookups.
      * Returns an empty Map if no schemas are configured for enforcement.
