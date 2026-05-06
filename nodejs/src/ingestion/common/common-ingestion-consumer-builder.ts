@@ -8,6 +8,20 @@ import {
     IngestionPipelineLifecycle,
 } from './common-ingestion-consumer'
 
+/**
+ * The lifecycle contract honored by the builder for every registered service.
+ *
+ * Both methods are optional: services without lifecycle (e.g., a `TeamManager`
+ * that's pure in-memory cache) simply omit them. The builder calls `start()`
+ * in registration order and `stop()` in reverse on the consumer's own lifecycle.
+ *
+ * Note: `withService` doesn't constrain its `T` parameter to this interface —
+ * TypeScript's "weak type" check rejects objects that share no properties with
+ * an all-optional interface, which would block legitimate lifecycle-less
+ * services. The builder's runtime composition coerces every entry through
+ * this shape anyway, so the contract is enforced at the call sites of
+ * `service.start?.()` / `service.stop?.()`, not at registration.
+ */
 export interface ConsumerManagedService {
     start?(): Promise<void>
     stop?(): Promise<void>
@@ -21,7 +35,7 @@ export interface PipelineFactoryContext<S, O extends string> {
 
 export type PipelineFactory<S, O extends string> = (ctx: PipelineFactoryContext<S, O>) => IngestionBatchingPipeline
 
-type ServiceMap = Record<string, ConsumerManagedService | undefined>
+type ServiceMap = Record<string, unknown>
 
 // `keyof EmptyServiceMap` is `never`, which makes the duplicate-name check in `withService`
 // behave correctly when no services have been registered yet. Using `Record<string, never>`
@@ -46,7 +60,7 @@ export class ConsumerNeedsOutputsBuilder<S extends ServiceMap = EmptyServiceMap>
         private readonly services: S
     ) {}
 
-    withService<Name extends string, T extends ConsumerManagedService | undefined>(
+    withService<Name extends string, T>(
         name: Name & (Name extends keyof S ? never : Name),
         service: T
     ): ConsumerNeedsOutputsBuilder<S & Record<Name, T>> {
