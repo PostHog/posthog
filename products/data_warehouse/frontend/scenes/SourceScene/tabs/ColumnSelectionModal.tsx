@@ -67,7 +67,10 @@ function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSele
             setSelected(null)
         }
         setFilter('')
-    }, [schema?.id, schema?.synced_columns])
+        // Use a stable serialized key — the array reference changes on every poll even when
+        // the contents are identical, which would reset user edits mid-interaction.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [schema?.id, schema?.synced_columns?.join('\0') ?? null])
 
     const isAlwaysRetained = (name: string): boolean => primaryKeys.has(name) || name === incrementalField
 
