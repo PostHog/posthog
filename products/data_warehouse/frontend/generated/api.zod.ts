@@ -855,6 +855,10 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     .describe(
                         'How CDC-backed tables should be exposed.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
                     ),
+                synced_columns: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe('Columns to sync. Null means sync all columns.'),
             })
         )
         .optional()
