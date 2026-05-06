@@ -381,6 +381,7 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            TEMPORAL_TASK_QUEUES: "general-purpose-task-queue,batch-exports-task-queue"
         depends_on:
             - db
             - redis7

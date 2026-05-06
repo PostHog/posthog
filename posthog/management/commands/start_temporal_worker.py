@@ -390,6 +390,11 @@ class Command(BaseCommand):
             help="Task queue to service",
         )
         parser.add_argument(
+            "--task-queues",
+            default=settings.TEMPORAL_TASK_QUEUES,
+            help="Comma-separated task queues to service",
+        )
+        parser.add_argument(
             "--server-root-ca-cert",
             default=None,
             help="Optional root server CA cert",
@@ -468,7 +473,7 @@ class Command(BaseCommand):
         temporal_host = options["temporal_host"]
         temporal_port = options["temporal_port"]
         namespace = options["namespace"]
-        task_queue = options["task_queue"]
+        task_queues = self._parse_task_queues(options["task_queues"], options["task_queue"])
         server_root_ca_cert = options.get("server_root_ca_cert", None)
         client_cert = options.get("client_cert", None)
         client_key = options.get("client_key", None)
@@ -482,11 +487,12 @@ class Command(BaseCommand):
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
         disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
 
-        try:
-            workflows = list(WORKFLOWS_DICT[task_queue])
-            activities = list(ACTIVITIES_DICT[task_queue])
-        except KeyError:
-            raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
+        for task_queue in task_queues:
+            try:
+                WORKFLOWS_DICT[task_queue]
+                ACTIVITIES_DICT[task_queue]
+            except KeyError:
+                raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
@@ -509,15 +515,16 @@ class Command(BaseCommand):
             initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore
 
         async def shutdown_all(
-            worker: ManagedWorker, health_srv: HealthCheckServer | None, sig: signal.Signals
+            workers: list[ManagedWorker], health_srv: HealthCheckServer | None, sig: signal.Signals
         ) -> None:
-            """Shutdown worker and health server."""
+            """Shutdown workers and health server."""
             nonlocal shutdown_task
 
             logger.info("Signal %s received", sig)
 
-            if worker.is_shutdown():
-                logger.info("Temporal worker already shut down")
+            running_workers = [worker for worker in workers if not worker.is_shutdown()]
+            if not running_workers:
+                logger.info("Temporal workers already shut down")
                 return
 
             logger.info("Initiating shutdown")
@@ -526,11 +533,11 @@ class Command(BaseCommand):
             if health_srv:
                 await health_srv.stop()
 
-            # Then shutdown the worker
-            await worker.shutdown()
+            # Then shutdown the workers
+            await asyncio.gather(*(worker.shutdown() for worker in running_workers))
 
         def shutdown_on_signal(
-            worker: ManagedWorker,
+            workers: list[ManagedWorker],
             health_srv: HealthCheckServer | None,
             sig: signal.Signals,
             loop: asyncio.AbstractEventLoop,
@@ -539,12 +546,16 @@ class Command(BaseCommand):
             nonlocal shutdown_task
 
             if shutdown_task is None:
-                shutdown_task = loop.create_task(shutdown_all(worker, health_srv, sig))
+                shutdown_task = loop.create_task(shutdown_all(workers, health_srv, sig))
+
+        async def run_workers(workers: list[ManagedWorker]) -> None:
+            await asyncio.gather(*(worker.run() for worker in workers))
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
             configure_logger(loop=loop)
 
+            task_queue = task_queues[0] if len(task_queues) == 1 else ",".join(task_queues)
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,
@@ -561,33 +572,38 @@ class Command(BaseCommand):
             )
             logger.info("Starting Temporal Worker")
 
-            worker = runner.run(
-                create_worker(
-                    temporal_host,
-                    temporal_port,
-                    metrics_port=metrics_port,
-                    namespace=namespace,
-                    task_queue=task_queue,
-                    server_root_ca_cert=server_root_ca_cert,
-                    client_cert=client_cert,
-                    client_key=client_key,
-                    workflows=workflows,
-                    activities=activities,
-                    graceful_shutdown_timeout=(
-                        dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
-                        if graceful_shutdown_timeout_seconds is not None
-                        else None
-                    ),
-                    max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                    max_concurrent_activities=max_concurrent_activities,
-                    metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
-                    use_pydantic_converter=use_pydantic_converter,
-                    target_memory_usage=target_memory_usage,
-                    target_cpu_usage=target_cpu_usage,
-                    enable_combined_metrics_server=not disable_combined_metrics_server,
-                    enable_open_telemetry_plugin=enable_otel,
+            workers: list[ManagedWorker] = []
+            for queue in task_queues:
+                worker = runner.run(
+                    create_worker(
+                        temporal_host,
+                        temporal_port,
+                        metrics_port=metrics_port,
+                        namespace=namespace,
+                        task_queue=queue,
+                        server_root_ca_cert=server_root_ca_cert,
+                        client_cert=client_cert,
+                        client_key=client_key,
+                        workflows=list(WORKFLOWS_DICT[queue]),
+                        activities=list(ACTIVITIES_DICT[queue]),
+                        graceful_shutdown_timeout=(
+                            dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
+                            if graceful_shutdown_timeout_seconds is not None
+                            else None
+                        ),
+                        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                        max_concurrent_activities=max_concurrent_activities,
+                        metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(queue, None),
+                        use_pydantic_converter=use_pydantic_converter,
+                        target_memory_usage=target_memory_usage,
+                        target_cpu_usage=target_cpu_usage,
+                        enable_combined_metrics_server=not disable_combined_metrics_server,
+                        enable_open_telemetry_plugin=enable_otel,
+                    )
                 )
-            )
+                if workers and worker.metrics_server is not None:
+                    worker.metrics_server = None
+                workers.append(worker)
 
             # Create and start health check server
             if health_port and health_max_idle_seconds:
@@ -605,10 +621,15 @@ class Command(BaseCommand):
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,
-                    functools.partial(shutdown_on_signal, worker=worker, health_srv=health_server, sig=sig, loop=loop),
+                    functools.partial(
+                        shutdown_on_signal, workers=workers, health_srv=health_server, sig=sig, loop=loop
+                    ),
                 )
 
-            runner.run(worker.run())
+            if len(workers) == 1:
+                runner.run(workers[0].run())
+            else:
+                runner.run(run_workers(workers))
 
             if shutdown_task:
                 logger.info("Waiting on shutdown_task")
@@ -634,3 +655,9 @@ class Command(BaseCommand):
                 timer = threading.Timer(60 * 5, hard_exit)
                 timer.daemon = True
                 timer.start()
+
+    def _parse_task_queues(self, task_queues: str, task_queue: str) -> list[str]:
+        if not task_queues.strip():
+            return [task_queue]
+
+        return [queue.strip() for queue in task_queues.split(",") if queue.strip()] or [task_queue]

@@ -83,6 +83,7 @@ def _set_temporal_task_queue(task_queue: str) -> str:
 
 default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
 TEMPORAL_TASK_QUEUE: str = _set_temporal_task_queue(default_task_queue)
+TEMPORAL_TASK_QUEUES: str = os.getenv("TEMPORAL_TASK_QUEUES", "")
 DATA_WAREHOUSE_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-task-queue")
 DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-cdp-producer-task-queue")
 MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
