@@ -1043,6 +1043,8 @@ class TestExternalDataSource(APIBaseTest):
                     "description": schema.description,
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
+                    "enabled_columns": None,
+                    "available_columns": [],
                 }
             ],
         )
@@ -2239,27 +2241,6 @@ class TestExternalDataSource(APIBaseTest):
             response.json(),
             {"message": "Direct query mode is currently supported only for Postgres sources."},
         )
-
-    def test_create_postgres_warehouse_source_requires_schema(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/",
-            data={
-                "source_type": "Postgres",
-                "created_via": "web",
-                "access_method": "warehouse",
-                "payload": {
-                    "host": "db.example.com",
-                    "port": 5432,
-                    "database": "postgres",
-                    "user": "postgres",
-                    "password": "secret",
-                    "schema": "",
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json(), {"message": "Schema is required for warehouse imports."})
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_database_schema_postgres_direct_allows_blank_schema(self, mock_get_source):

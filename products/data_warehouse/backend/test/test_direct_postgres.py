@@ -20,14 +20,16 @@ class TestGetDirectPostgresLocation:
         assert get_direct_postgres_location(schema_name=schema_name, default_schema=default_schema) == expected
 
 
-class TestFilterColumnsBySyncedColumns:
+class TestFilterColumnsByEnabledColumns:
     columns = [("id", "integer", False), ("email", "text", True), ("name", "text", True), ("secret", "text", True)]
 
     def test_none_returns_all(self) -> None:
         assert filter_columns_by_enabled_columns(self.columns, None, ["id"]) == self.columns
 
-    def test_empty_returns_all(self) -> None:
-        assert filter_columns_by_enabled_columns(self.columns, [], ["id"]) == self.columns
+    def test_empty_keeps_only_pks(self) -> None:
+        result = filter_columns_by_enabled_columns(self.columns, [], ["id"])
+        names = [name for name, _type, _nullable in result]
+        assert names == ["id"]
 
     def test_subset_excludes_unselected(self) -> None:
         result = filter_columns_by_enabled_columns(self.columns, ["email"], ["id"])
@@ -40,14 +42,14 @@ class TestFilterColumnsBySyncedColumns:
         names = [name for name, _type, _nullable in result]
         assert "name" in names
 
-    def test_unknown_synced_column_silently_dropped(self) -> None:
+    def test_unknown_enabled_column_silently_dropped(self) -> None:
         # Validation lives at the API boundary; helper just intersects with available columns.
         result = filter_columns_by_enabled_columns(self.columns, ["email", "ghost"], ["id"])
         names = [name for name, _type, _nullable in result]
         assert names == ["id", "email"]
 
 
-class TestFilterDwhColumnsBySyncedColumns:
+class TestFilterDwhColumnsByEnabledColumns:
     dwh_columns = {
         "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"},
         "email": {"hogql": "StringDatabaseField", "clickhouse": "String"},
