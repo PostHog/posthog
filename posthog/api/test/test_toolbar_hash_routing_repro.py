@@ -3,71 +3,57 @@ Repro: hash-routed SPAs (e.g. /#/login) get a 404 after toolbar OAuth because
 the backend redirects to {base}#{original_fragment}&{toolbar_param}, and the
 SPA router sees /login&__posthog_toolbar=... as one path segment.
 
-Run: hogli test posthog/api/test/test_toolbar_hash_routing_repro.py -v
+Run: pytest posthog/api/test/test_toolbar_hash_routing_repro.py -v
 """
 
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
 from django.test.utils import override_settings
 
+from parameterized import parameterized
+
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.api.test.test_toolbar_oauth_primitives import ToolbarOAuthAuthorizeMixin
 
 
 @override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
-class TestToolbarHashRoutingRepro(APIBaseTest):
+class TestToolbarHashRoutingRepro(ToolbarOAuthAuthorizeMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.app_urls = ["https://app.example.com"]
         self.team.save()
 
-    def _authorize_and_get_state(self, redirect_url: str) -> str:
-        response = self.client.get(
-            "/toolbar_oauth/authorize/",
-            {"redirect": redirect_url, "code_challenge": "test_challenge_value"},
-        )
-        assert response.status_code == 302, response.content
-        auth_url = response["Location"]
-        return parse_qs(urlparse(auth_url).query)["state"][0]
-
-    def test_hash_route_uses_question_mark_separator(self):
-        """
-        For a SPA at https://app.example.com/#/login the toolbar OAuth callback
-        must produce `/login?__posthog_toolbar=...` so hash routers split on
-        `?` into route=/login + hash-query. With `&` the entire post-`#`
-        substring is treated as one path and the SPA 404s.
-        """
-        state = self._authorize_and_get_state(redirect_url="https://app.example.com/#/login")
+    @parameterized.expand(
+        [
+            (
+                "hash_route_uses_question_mark_separator",
+                "https://app.example.com/#/login",
+                "/login?__posthog_toolbar=",
+            ),
+            (
+                "plain_fragment_still_uses_ampersand",
+                "https://app.example.com/page#section1",
+                "section1&__posthog_toolbar=",
+            ),
+            (
+                "hash_route_with_existing_query_uses_ampersand",
+                "https://app.example.com/#/login?foo=bar",
+                "/login?foo=bar&__posthog_toolbar=",
+            ),
+        ]
+    )
+    def test_hash_routing_separator(self, _name, redirect_url, expected_fragment_prefix):
+        state = self._authorize_and_get_state(redirect_url=redirect_url)
         response = self.client.get(f"/toolbar_oauth/callback?code=AUTH_CODE_X&state={state}")
 
         assert response.status_code == 302
-        redirect_url = response["Location"]
-        parsed = urlparse(redirect_url)
-        assert parsed.fragment.startswith("/login?__posthog_toolbar="), (
-            f"expected `/login?__posthog_toolbar=...` for SPA hash route, got fragment={parsed.fragment!r}"
-        )
-
-    def test_plain_fragment_still_uses_ampersand(self):
-        """Non-route fragments like #section1 continue to use & as separator."""
-        state = self._authorize_and_get_state(redirect_url="https://app.example.com/page#section1")
-        response = self.client.get(f"/toolbar_oauth/callback?code=AUTH_CODE_X&state={state}")
         parsed = urlparse(response["Location"])
-        assert parsed.fragment.startswith("section1&__posthog_toolbar="), (
-            f"expected `section1&__posthog_toolbar=...` for plain fragment, got fragment={parsed.fragment!r}"
+        assert parsed.fragment.startswith(expected_fragment_prefix), (
+            f"expected fragment to start with {expected_fragment_prefix!r}, got {parsed.fragment!r}"
         )
-
-    def test_hash_route_with_existing_query_uses_ampersand(self):
-        """
-        If the SPA hash route already has a `?` (e.g. #/login?foo=bar), keep using
-        `&` to extend the existing hash query rather than emitting a second `?`,
-        which most hash routers mishandle.
-        """
-        state = self._authorize_and_get_state(redirect_url="https://app.example.com/#/login?foo=bar")
-        response = self.client.get(f"/toolbar_oauth/callback?code=AUTH_CODE_X&state={state}")
-        parsed = urlparse(response["Location"])
-        assert parsed.fragment.startswith("/login?foo=bar&__posthog_toolbar="), (
-            f"expected `/login?foo=bar&__posthog_toolbar=...`, got fragment={parsed.fragment!r}"
+        assert parsed.fragment.count("?") == expected_fragment_prefix.count("?"), (
+            f"fragment must have exactly {expected_fragment_prefix.count('?')} `?`, got {parsed.fragment!r}"
         )
-        assert parsed.fragment.count("?") == 1, f"fragment must have exactly one `?`, got {parsed.fragment!r}"

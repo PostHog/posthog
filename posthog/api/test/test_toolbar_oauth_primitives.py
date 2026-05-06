@@ -303,23 +303,25 @@ class TestTokenEndpointStatusRemapping(APIBaseTest):
         assert cm.exception.status_code == expected_status
 
 
-@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
-class TestToolbarOAuthCallbackExchange(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-
+class ToolbarOAuthAuthorizeMixin:
     def _authorize_and_get_state(self, redirect_url: str = "https://example.com/page") -> str:
         response = self.client.get(
             "/toolbar_oauth/authorize/",
             {"redirect": redirect_url, "code_challenge": "test_challenge_value"},
         )
-        assert response.status_code == 302
+        assert response.status_code == 302, response.content
 
         auth_url = response["Location"]
         qs = parse_qs(urlparse(auth_url).query)
         return qs["state"][0]
+
+
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": generate_rsa_key()})
+class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
 
     def test_callback_redirects_with_code_in_redirect_flow(self):
         state = self._authorize_and_get_state()
