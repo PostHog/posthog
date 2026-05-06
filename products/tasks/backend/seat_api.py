@@ -27,9 +27,11 @@ from ee.settings import BILLING_SERVICE_URL
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
 
 
-def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int, float]:
-    # Tuple comparison: active (True > False) first, then tier, then
-    # earliest created_at wins ties (oldest seat is the stable pick).
+def _seat_priority(seat: dict[str, Any], from_requesting_org: bool = False) -> tuple[bool, int, bool, float]:
+    # Tuple comparison: active first, then tier. Pro seats are usable from any org
+    # so we don't bias on requesting org for them. For free seats we prefer the
+    # requesting org so the user lands on their current org's plan. Earliest
+    # created_at wins remaining ties.
     active = seat.get("status") == "active"
     plan_key = seat.get("plan_key") or ""
     created_at = seat.get("created_at") or ""
@@ -38,10 +40,10 @@ def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int, float]:
     except (ValueError, TypeError):
         ts = float("inf")
     if any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES):
-        return (active, 2, -ts)
+        return (active, 2, False, -ts)
     if plan_key:
-        return (active, 1, -ts)
-    return (active, 0, -ts)
+        return (active, 1, from_requesting_org, -ts)
+    return (active, 0, False, -ts)
 
 
 logger = structlog.get_logger(__name__)
@@ -303,7 +305,11 @@ class SeatViewSet(viewsets.ViewSet):
         if not results:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        best_org, best = max(results, key=lambda r: _seat_priority(r[1]))
+        requesting_org_id = user.organization.id if user.organization else None
+        best_org, best = max(
+            results,
+            key=lambda r: _seat_priority(r[1], r[0].id == requesting_org_id),
+        )
         best["organization_id"] = str(best_org.id)
         best["organization_name"] = best_org.name
         return Response(best)
