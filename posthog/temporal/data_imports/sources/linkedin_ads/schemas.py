@@ -123,12 +123,9 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.Creatives: {
         "resource_name": "creatives",
-        # CreativeV11 differs from the legacy Creative schema — no `type`
-        # (creative type is implied by the polymorphic `content` union, which we
-        # don't project to keep the response cheap) and no `changeAuditStamps`
-        # envelope. Timestamps come as bare longs (`createdAt`, `lastModifiedAt`)
-        # which the flattener normalizes into `created_time` / `last_modified_time`
-        # virtual columns. `name` exists and is human-readable for most creatives.
+        # CreativeV11 has no `type` (use the polymorphic `content` union instead) and
+        # no `changeAuditStamps` — timestamps are bare longs that the flattener
+        # normalizes into created_time / last_modified_time virtual columns.
         "field_names": [
             "id",
             "account",
@@ -205,9 +202,8 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.CreativeStats: {
         "resource_name": "creative_stats",
-        # Same metric set as CampaignStats / CampaignGroupStats — LinkedIn's analytics
-        # endpoint returns a uniform schema regardless of pivot. The `creative_id`
-        # virtual column is derived from `pivotValues` (URN of the creative).
+        # Same metric set as the other Stats resources — LinkedIn's analytics
+        # endpoint returns a uniform schema regardless of pivot.
         "field_names": [
             "impressions",
             "clicks",

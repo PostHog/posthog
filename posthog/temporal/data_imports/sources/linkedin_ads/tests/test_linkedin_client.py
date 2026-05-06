@@ -141,9 +141,7 @@ class TestLinkedinAdsClient:
 
     @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_analytics_chunks_long_date_range_weekly(self, mock_restli_client):
-        """Date ranges longer than a week are sliced into weekly chunks (LinkedIn caps
-        analytics responses at 15k records, so we have to slice rather than paginate).
-        Each chunk produces its own finder call, yielding one tuple per chunk."""
+        """Date ranges > 7 days are sliced into weekly chunks (LinkedIn caps responses at 15k)."""
         mock_response = mock.MagicMock()
         mock_response.status_code = 200
         mock_response.elements = [{"impressions": 100}]
@@ -172,8 +170,7 @@ class TestLinkedinAdsClient:
 
     @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_analytics_logs_warning_when_chunk_hits_response_cap(self, mock_restli_client, caplog):
-        """When a chunk response is exactly the 15k cap we log a warning so we can
-        revisit chunk size — the chunk is still yielded (partial data > no data)."""
+        """A chunk hitting the 15k cap logs a warning but still yields its partial data."""
         from posthog.temporal.data_imports.sources.linkedin_ads.client import ANALYTICS_RESPONSE_CAP
 
         mock_response = mock.MagicMock()

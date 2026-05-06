@@ -20,17 +20,11 @@ logger = logging.getLogger(__name__)
 
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 MAX_PAGE_SIZE = 1000
-# Smaller page size for the creatives endpoint — see `get_creatives` for the rationale.
-CREATIVES_PAGE_SIZE = 100
+CREATIVES_PAGE_SIZE = 100  # creatives backend has been seen returning transient 500s on heavier requests
 API_VERSION = "202508"
-# LinkedIn's adAnalytics endpoint silently truncates responses at 15,000 records
-# when using `q=analytics` (offset pagination beyond that returns errors). Larger
-# queries must be sliced into smaller date ranges and concatenated.
+# `q=analytics` truncates at 15k rows and offset pagination can't go past the cap —
+# we slice the date range instead. Weekly chunks balance call volume vs headroom.
 ANALYTICS_RESPONSE_CAP = 15000
-# Default chunk for historical analytics fetches. 7 days is a balance between API
-# call volume (~52/year) and headroom under the cap: 7 days × ~2,100 creatives ≈
-# 15k, so weekly chunks stay safe for most accounts. We log a warning when a chunk
-# returns >= ANALYTICS_RESPONSE_CAP rows to surface accounts that need finer slicing.
 ANALYTICS_CHUNK_DAYS = 7
 
 
@@ -79,20 +73,8 @@ class LinkedinAdsClient:
     def get_creatives(
         self, account_id: str, starting_page_token: Optional[str] = None
     ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
-        """Get creatives (the LinkedIn equivalent of "ad") with pagination.
-
-        LinkedIn's `creatives` endpoint requires the `q=criteria` finder rather than
-        the default `q=search` used by campaigns / campaign_groups (the criteria
-        finder doesn't accept `searchCriteria` — that returns
-        QUERY_PARAM_NOT_ALLOWED — and works fine without any criteria when the
-        account is already in the URL path). The Marketing API scopes creatives by
-        account via the URL path, like the other paginated resources.
-
-        Page size is intentionally smaller than other endpoints (100 vs 1000) — the
-        `partnerApiAdAccountsCreativesExternalV20250801` backend has been observed
-        to return transient 500s on heavier requests, so smaller pages reduce
-        single-call cost and let the retry logic recover quicker.
-        """
+        """Get creatives with pagination. Uses `q=criteria` (the only finder this
+        endpoint accepts) and a reduced page size to dodge transient backend 500s."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
         creatives_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Creatives]
         yield from self._make_paginated_request(
@@ -110,25 +92,9 @@ class LinkedinAdsClient:
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
     ) -> Generator[tuple[list[dict[str, Any]], None], None, None]:
-        """Fetch analytics, sliced into weekly chunks to stay under LinkedIn's 15k-row
-        response cap.
-
-        LinkedIn's `q=analytics` finder silently truncates responses to
-        ANALYTICS_RESPONSE_CAP records. Offset pagination (`start` / `count`) doesn't
-        rescue you past the cap — the API just rejects offsets beyond it. The only
-        viable workaround is to slice the date range and concatenate. We default to
-        weekly chunks (see ANALYTICS_CHUNK_DAYS); if a chunk still hits the cap (very
-        high-creative accounts), we log a warning so we can revisit chunk size.
-
-        Yields `(elements, None)` tuples to match the pagination protocol used by
-        the paginated entity finders (campaigns, campaign_groups, creatives) — the
-        chunking IS the pagination, there's no cursor to persist. The second element
-        stays None so callers can iterate uniformly via the resumable framework.
-
-        Falls back to a single un-chunked call when no date range is supplied (the
-        analytics endpoint requires one in practice, but we preserve the legacy code
-        path for safety).
-        """
+        """Fetch analytics, sliced into weekly chunks to stay under the 15k-row
+        response cap. Yields `(elements, None)` tuples to match the pagination
+        protocol of the entity finders — the chunking IS the pagination."""
         resource_by_pivot = {
             LinkedinAdsPivot.CAMPAIGN: LinkedinAdsResource.CampaignStats,
             LinkedinAdsPivot.CAMPAIGN_GROUP: LinkedinAdsResource.CampaignGroupStats,
@@ -169,9 +135,8 @@ class LinkedinAdsClient:
                 extra_params=_build_params(chunk_start.isoformat(), chunk_end.isoformat()),
             )
             if len(elements) >= ANALYTICS_RESPONSE_CAP:
-                # Chunk hit the cap → some rows in this window were dropped. Surface
-                # this so we can shrink ANALYTICS_CHUNK_DAYS or move to adaptive
-                # bisection. We don't crash because partial data is still useful.
+                # Cap hit means rows in this window were silently dropped — surface it
+                # so we can shrink ANALYTICS_CHUNK_DAYS for this account.
                 logger.warning(
                     "linkedin_ads.analytics_chunk_capped",
                     extra={
@@ -271,19 +236,8 @@ class LinkedinAdsClient:
         page_size: int = MAX_PAGE_SIZE,
         extra_params: Optional[dict[str, Any]] = None,
     ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
-        """Make paginated requests yielding each page with its nextPageToken.
-
-        Yields (elements, next_page_token) where next_page_token is the token to request
-        the page AFTER the one just yielded (None for the final page). Callers can persist
-        this token to resume a run at the next page without re-fetching yielded data.
-
-        `finder` defaults to "search" (the Restli convention used by campaigns and
-        campaign_groups); creatives use "criteria" since `q=search` isn't supported
-        on that endpoint. `extra_params` lets callers inject finder-specific params
-        (e.g. `searchCriteria` for the criteria finder); they're merged on top of the
-        per-iteration params (so `pageToken` always overrides for resume correctness).
-        `page_size` can be reduced when a backend handles smaller pages more reliably.
-        """
+        """Yield each page as `(elements, next_page_token)` (None on the last page).
+        Callers persist `next_page_token` to resume without re-fetching."""
         page_token = starting_page_token
 
         while True:

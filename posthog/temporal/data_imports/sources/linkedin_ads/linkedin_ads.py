@@ -267,10 +267,8 @@ def _flatten_linkedin_record(
             flattened["last_modified_time"] = last_modified_time
 
         elif field_name in ("createdAt", "lastModifiedAt"):
-            # CreativeV11 ships timestamps as bare longs (epoch ms) instead of nested
-            # `changeAuditStamps` envelopes. Surface them as the same virtual
-            # `created_time` / `last_modified_time` columns so partition keys + the
-            # rest of the pipeline don't have to special-case creatives.
+            # CreativeV11 uses bare epoch-ms longs instead of changeAuditStamps;
+            # normalize to the same virtual columns campaigns produce.
             timestamp_ms = record.get(field_name)
             virtual_name = "created_time" if field_name == "createdAt" else "last_modified_time"
             if isinstance(timestamp_ms, int):
@@ -311,11 +309,8 @@ def _flatten_linkedin_record(
         if value is not None:
             if field_name in FLOAT_FIELDS:
                 value = float(value)
-            # Creatives return their `id` as a fully-qualified URN
-            # (urn:li:sponsoredCreative:<n>) while campaigns / campaign_groups return a
-            # bare integer. Extract the integer when we see URN format so the value can
-            # be JOINed against `creative_id` in creative_stats (which is also an int
-            # extracted from pivotValues — see the URN_COLUMNS handler above).
+            # Creatives return `id` as a URN; extract the int so it lines up with
+            # the `creative_id` virtual column in creative_stats.
             elif field_name == "id" and isinstance(value, str) and value.startswith("urn:li:"):
                 urn_result = _extract_type_and_id_from_urn(value)
                 if urn_result is not None:
