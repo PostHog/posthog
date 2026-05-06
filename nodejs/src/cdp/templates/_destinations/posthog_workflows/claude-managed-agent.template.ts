@@ -2,11 +2,11 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'hidden',
+    status: 'beta',
     type: 'destination',
     id: 'template-claude-managed-agent',
-    name: 'Run Claude managed agent',
-    description: 'Start a Claude managed agent session and store the session id in a workflow variable.',
+    name: 'Claude managed agent',
+    description: 'Start a Claude managed agent session and send the initial user message to kick it off.',
     icon_url: '/static/services/anthropic.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -28,12 +28,21 @@ let session := claudeCreateSession({
   'api_key': inputs.anthropic_workspace.api_key,
   'agent': inputs.agent,
   'environment_id': inputs.environment,
-  'vault_ids': inputs.vault_id ? [inputs.vault_id] : [],
-  'message': inputs.message
+  'vault_ids': inputs.vault_id ? [inputs.vault_id] : []
 })
 
 if (session.status < 200 or session.status >= 300) {
   throw Error(f'Failed to create Claude session: {session.status} {session.body}')
+}
+
+let firstMessage := claudeSendUserMessage({
+  'api_key': inputs.anthropic_workspace.api_key,
+  'session_id': session.body.id,
+  'text': inputs.message
+})
+
+if (firstMessage.status < 200 or firstMessage.status >= 300) {
+  throw Error(f'Created Claude session {session.body.id} but failed to send initial message: {firstMessage.status} {firstMessage.body}')
 }
 
 return {

@@ -1,2 +1,1 @@
-import './anthropic'
 import './conversations'

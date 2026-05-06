@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { AnthropicSetupModalLogicProps, anthropicSetupModalLogic } from './anthr
 
 export const AnthropicSetupModal = (props: AnthropicSetupModalLogicProps): JSX.Element => {
     const { isAnthropicIntegrationSubmitting } = useValues(anthropicSetupModalLogic(props))
+    const { submitAnthropicIntegration } = useActions(anthropicSetupModalLogic(props))
 
     return (
         <LemonModal
@@ -34,7 +35,12 @@ export const AnthropicSetupModal = (props: AnthropicSetupModalLogicProps): JSX.E
                         <LemonInput type="text" placeholder="Production" />
                     </LemonField>
                     <div className="flex justify-end">
-                        <LemonButton type="primary" htmlType="submit" loading={isAnthropicIntegrationSubmitting}>
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            loading={isAnthropicIntegrationSubmitting}
+                            onClick={submitAnthropicIntegration}
+                        >
                             Connect
                         </LemonButton>
                     </div>

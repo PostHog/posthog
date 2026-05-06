@@ -939,14 +939,13 @@ describe('Hog Executor', () => {
                 { inputs: {} }
             )
 
-        it('queues fetch with the managed-agents beta header and required body fields', async () => {
+        it('queues a session-create fetch with only agent / environment_id / vault_ids', async () => {
             mockExecHogForAsyncFunction('claudeCreateSession', [
                 {
                     api_key: 'sk-ant-test',
                     agent: 'agt_1',
                     environment_id: 'env_prod',
                     vault_ids: ['vault_1'],
-                    message: 'hello',
                 },
             ])
 
@@ -965,7 +964,6 @@ describe('Hog Executor', () => {
                 body: JSON.stringify({
                     agent: 'agt_1',
                     environment_id: 'env_prod',
-                    initial_message: 'hello',
                     vault_ids: ['vault_1'],
                 }),
             })
@@ -977,7 +975,6 @@ describe('Hog Executor', () => {
                     api_key: 'sk-ant-test',
                     agent: 'agt_1',
                     environment_id: 'env_prod',
-                    message: 'hello',
                 },
             ])
 
@@ -987,22 +984,48 @@ describe('Hog Executor', () => {
             expect(parsed).not.toHaveProperty('vault_ids')
         })
 
-        it('errors when api_key is missing', async () => {
-            mockExecHogForAsyncFunction('claudeCreateSession', [
-                { agent: 'agt_1', environment_id: 'env_prod', message: 'hello' },
-            ])
+        it('claudeCreateSession errors when api_key is missing', async () => {
+            mockExecHogForAsyncFunction('claudeCreateSession', [{ agent: 'agt_1', environment_id: 'env_prod' }])
 
             const result = await executor.execute(createInvocation())
             expect(result.error).toContain("missing 'api_key'")
         })
 
-        it('errors when agent is missing', async () => {
-            mockExecHogForAsyncFunction('claudeCreateSession', [
-                { api_key: 'sk-ant-test', environment_id: 'env_prod', message: 'hello' },
-            ])
+        it('claudeCreateSession errors when agent is missing', async () => {
+            mockExecHogForAsyncFunction('claudeCreateSession', [{ api_key: 'sk-ant-test', environment_id: 'env_prod' }])
 
             const result = await executor.execute(createInvocation())
             expect(result.error).toContain("missing 'agent'")
+        })
+
+        it('claudeSendUserMessage queues a /events fetch with a user.message text block', async () => {
+            mockExecHogForAsyncFunction('claudeSendUserMessage', [
+                { api_key: 'sk-ant-test', session_id: 'sess_abc', text: 'hello' },
+            ])
+
+            const result = await executor.execute(createInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: 'https://api.anthropic.com/v1/sessions/sess_abc/events',
+                method: 'POST',
+                headers: {
+                    'x-api-key': 'sk-ant-test',
+                    'anthropic-version': '2023-06-01',
+                    'anthropic-beta': 'managed-agents-2026-04-01',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    events: [{ type: 'user.message', content: [{ type: 'text', text: 'hello' }] }],
+                }),
+            })
+        })
+
+        it('claudeSendUserMessage errors when session_id is missing', async () => {
+            mockExecHogForAsyncFunction('claudeSendUserMessage', [{ api_key: 'sk-ant-test', text: 'hello' }])
+
+            const result = await executor.execute(createInvocation())
+            expect(result.error).toContain("missing 'session_id'")
         })
     })
 
