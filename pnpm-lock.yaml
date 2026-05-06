@@ -3203,18 +3203,6 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
-  products/session_replay:
-    dependencies:
-      '@types/react':
-        specifier: 18.3.27
-        version: 18.3.27
-      kea:
-        specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
-
   products/session_summaries:
     dependencies:
       '@posthog/icons':
