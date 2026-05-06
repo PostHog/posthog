@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from products.notebooks.backend.models import Notebook
 
@@ -28,8 +29,8 @@ class TestSaveNotebookToDb(BaseTest):
         super().setUp()
         self.conversation = Conversation.objects.create(user=self.user, team=self.team)
 
-    def _create_visualization_artifact(self, query: dict, short_id: str = "abcd") -> AgentArtifact:
-        artifact = AgentArtifact.objects.create(
+    def _create_visualization_artifact(self, query: dict, short_id: str) -> AgentArtifact:
+        return AgentArtifact.objects.create(
             team=self.team,
             conversation=self.conversation,
             type=AgentArtifact.Type.VISUALIZATION,
@@ -37,9 +38,8 @@ class TestSaveNotebookToDb(BaseTest):
             name="Chart",
             data={"content_type": "visualization", "query": query, "name": "Chart"},
         )
-        return artifact
 
-    def _create_notebook_parent(self, short_id: str = "nbk1") -> AgentArtifact:
+    def _create_notebook_parent(self, short_id: str) -> AgentArtifact:
         return AgentArtifact.objects.create(
             team=self.team,
             conversation=self.conversation,
@@ -49,7 +49,7 @@ class TestSaveNotebookToDb(BaseTest):
             data={"content_type": "notebook", "blocks": [], "title": "Notebook"},
         )
 
-    def _save_and_get_notebook(self, viz_short_id: str, parent_short_id: str = "nbk1") -> Notebook:
+    def _save_and_get_notebook(self, viz_short_id: str, parent_short_id: str) -> Notebook:
         parent = self._create_notebook_parent(parent_short_id)
         blocks: list[StoredBlock] = [VisualizationRefBlock(artifact_id=viz_short_id, title="Chart")]
         async_to_sync(save_notebook_to_db)(
@@ -61,65 +61,61 @@ class TestSaveNotebookToDb(BaseTest):
         )
         return Notebook.objects.get(team=self.team, short_id=parent.short_id)
 
-    def test_data_visualization_node_is_not_double_wrapped(self):
-        # Regression: a stored DataVisualizationNode artifact must not be
-        # rewrapped in InsightVizNode, which produces a structurally invalid
-        # InsightVizNode -> DataVisualizationNode shape that crashes /insights/new.
-        self._create_visualization_artifact(
-            query={
-                "kind": "DataVisualizationNode",
-                "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
-                "display": "ActionsBar",
-            },
-            short_id="dvn1",
-        )
+    @parameterized.expand(
+        [
+            (
+                "data_visualization_node_passthrough",
+                "vdvn",
+                "ndvn",
+                {
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                    "display": "ActionsBar",
+                },
+                "DataVisualizationNode",
+                "HogQLQuery",
+            ),
+            (
+                "hogql_query_wrapped_in_dvn",
+                "vhql",
+                "nhql",
+                {"kind": "HogQLQuery", "query": "SELECT 1"},
+                "DataVisualizationNode",
+                "HogQLQuery",
+            ),
+            (
+                "assistant_hogql_query_wrapped_in_dvn",
+                "vahq",
+                "nahq",
+                {"kind": "AssistantHogQLQuery", "query": "SELECT 1"},
+                "DataVisualizationNode",
+                "AssistantHogQLQuery",
+            ),
+            (
+                "insight_query_wrapped_in_insight_viz_node",
+                "vtrd",
+                "ntrd",
+                {"kind": "TrendsQuery", "series": []},
+                "InsightVizNode",
+                "TrendsQuery",
+            ),
+        ]
+    )
+    def test_save_notebook_to_db_wraps_query_correctly(
+        self,
+        _case_name: str,
+        viz_short_id: str,
+        parent_short_id: str,
+        artifact_query: dict,
+        expected_kind: str,
+        expected_source_kind: str,
+    ):
+        self._create_visualization_artifact(query=artifact_query, short_id=viz_short_id)
 
-        notebook = self._save_and_get_notebook("dvn1")
-
-        ph_queries = _find_ph_query_nodes(notebook.content)
-        self.assertEqual(len(ph_queries), 1)
-        stored_query = ph_queries[0]["attrs"]["query"]
-        self.assertEqual(stored_query["kind"], "DataVisualizationNode")
-        self.assertEqual(stored_query["source"]["kind"], "HogQLQuery")
-
-    def test_hogql_query_is_wrapped_in_data_visualization_node(self):
-        self._create_visualization_artifact(
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            short_id="hql1",
-        )
-
-        notebook = self._save_and_get_notebook("hql1")
-
-        ph_queries = _find_ph_query_nodes(notebook.content)
-        self.assertEqual(len(ph_queries), 1)
-        stored_query = ph_queries[0]["attrs"]["query"]
-        self.assertEqual(stored_query["kind"], "DataVisualizationNode")
-        self.assertEqual(stored_query["source"]["kind"], "HogQLQuery")
-
-    def test_assistant_hogql_query_is_wrapped_in_data_visualization_node(self):
-        self._create_visualization_artifact(
-            query={"kind": "AssistantHogQLQuery", "query": "SELECT 1"},
-            short_id="ahq1",
-        )
-
-        notebook = self._save_and_get_notebook("ahq1")
-
-        ph_queries = _find_ph_query_nodes(notebook.content)
-        self.assertEqual(len(ph_queries), 1)
-        stored_query = ph_queries[0]["attrs"]["query"]
-        self.assertEqual(stored_query["kind"], "DataVisualizationNode")
-        self.assertEqual(stored_query["source"]["kind"], "AssistantHogQLQuery")
-
-    def test_insight_query_node_is_wrapped_in_insight_viz_node(self):
-        self._create_visualization_artifact(
-            query={"kind": "TrendsQuery", "series": []},
-            short_id="trd1",
-        )
-
-        notebook = self._save_and_get_notebook("trd1")
+        notebook = self._save_and_get_notebook(viz_short_id, parent_short_id)
 
         ph_queries = _find_ph_query_nodes(notebook.content)
         self.assertEqual(len(ph_queries), 1)
         stored_query = ph_queries[0]["attrs"]["query"]
-        self.assertEqual(stored_query["kind"], "InsightVizNode")
-        self.assertEqual(stored_query["source"]["kind"], "TrendsQuery")
+        self.assertEqual(stored_query["kind"], expected_kind)
+        self.assertEqual(stored_query["source"]["kind"], expected_source_kind)
