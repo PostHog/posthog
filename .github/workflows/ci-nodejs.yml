@@ -240,7 +240,7 @@ jobs:
 
             - name: Install sqlx-cli
               working-directory: rust
-              run: cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
+              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
