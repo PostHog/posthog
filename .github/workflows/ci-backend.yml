@@ -1728,7 +1728,8 @@ jobs:
         steps:
             - uses: actions/checkout@v6
               with:
-                  fetch-depth: 0
+                  fetch-depth: 1000
+                  filter: blob:none
 
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
@@ -1756,7 +1757,7 @@ jobs:
                   # base.sha is captured at webhook time and goes stale if the branch
                   # later merges a newer master, which makes `base.sha...HEAD` balloon
                   # to include every merged-in master change.
-                  git fetch --no-tags origin "$BASE_REF"
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
                   uv run tools/snob_backend_test_selection_shadow.py \
                       --base-ref "origin/$BASE_REF" \
