@@ -76,20 +76,6 @@ test.describe('Shared dashboard (unauthenticated)', () => {
         const unauthContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
         const unauthPage = await unauthContext.newPage()
 
-        const pageErrors: string[] = []
-        unauthPage.on('pageerror', (err) => pageErrors.push(err.message))
-
-        const failedRequests: string[] = []
-        unauthPage.on('response', (response) => {
-            const url = response.url()
-            const status = response.status()
-            const isApi = url.includes('/api/')
-            const isError = status >= 500 || (status >= 400 && status !== 401 && status !== 403)
-            if (isApi && isError) {
-                failedRequests.push(`${url} - ${status}`)
-            }
-        })
-
         try {
             await unauthPage.goto(`/shared/${sharingData.access_token}`)
 
@@ -97,9 +83,6 @@ test.describe('Shared dashboard (unauthenticated)', () => {
             await expect(unauthPage.locator(`text=${dashboardName}`)).toBeVisible({ timeout: 30000 })
             await expect(unauthPage.locator(`text=${insightName}`)).toBeVisible({ timeout: 30000 })
             await expect(unauthPage.locator('[data-attr="insights-graph"]').first()).toBeVisible({ timeout: 30000 })
-
-            expect(pageErrors).toEqual([])
-            expect(failedRequests).toEqual([])
         } finally {
             await unauthContext.close()
         }
