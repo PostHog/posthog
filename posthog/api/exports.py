@@ -412,25 +412,32 @@ class ExportedAssetViewSet(
             if export_format_filter and export_format_filter in ExportedAsset.get_supported_format_values():
                 queryset = queryset.filter(export_format=export_format_filter)
 
-            return queryset
-
         return queryset
 
     def safely_get_object(self, queryset):
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
 
+        export_context = instance.export_context or {}
+        session_recording_id = export_context.get("session_recording_id")
+
         resource = instance.dashboard or instance.insight
-        if not resource and instance.export_context:
-            session_recording_id = instance.export_context.get("session_recording_id")
-            if session_recording_id:
-                from posthog.session_recordings.models.session_recording import SessionRecording
+        if not resource and session_recording_id:
+            from posthog.session_recordings.models.session_recording import SessionRecording
 
-                resource = SessionRecording.objects.filter(
-                    team_id=instance.team_id, session_id=session_recording_id
-                ).first()
+            resource = SessionRecording.objects.filter(
+                team_id=instance.team_id, session_id=session_recording_id
+            ).first()
 
-        if resource and not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
-            raise NotFound()
+        if resource is not None:
+            if not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+                raise NotFound()
+        elif session_recording_id:
+            # No SessionRecording row — cannot run object-level RBAC; still enforce the team's
+            # session_recording resource default so detail/content are not fail-open.
+            if not self.user_access_control.check_access_level_for_resource(
+                "session_recording", required_level="viewer"
+            ):
+                raise NotFound()
 
         return instance
 

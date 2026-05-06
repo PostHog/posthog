@@ -707,7 +707,13 @@ class TestExports(APIBaseTest):
         response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_teammate_can_access_system_session_video_export_content(self) -> None:
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_teammate_can_access_system_session_video_export(self, _name, url_template) -> None:
         from posthog.session_recordings.models.session_recording import SessionRecording
 
         owner = self.user
@@ -724,11 +730,18 @@ class TestExports(APIBaseTest):
         )
 
         self.client.force_login(teammate)
-        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}/content/")
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content, b"videobytes")
+        if "/content" in url_template:
+            self.assertEqual(response.content, b"videobytes")
 
-    def test_teammate_blocked_from_system_video_export_when_no_session_access(self) -> None:
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_teammate_blocked_from_system_video_export_when_no_session_access(self, _name, url_template) -> None:
         """Session recording RBAC still gates system (signals pipeline) video exports."""
         from posthog.session_recordings.models.session_recording import SessionRecording
 
@@ -756,7 +769,50 @@ class TestExports(APIBaseTest):
         )
 
         self.client.force_login(teammate)
-        response = self.client.get(f"/api/projects/{self.team.id}/exports/{export.id}/content/")
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_session_video_export_when_session_recording_row_missing_and_resource_denied(
+        self, _name, url_template
+    ) -> None:
+        """
+        Without a SessionRecording row, object-level RBAC cannot run; resource-level session_recording
+        access must still apply so exports are not fail-open for all project members.
+        """
+        from posthog.models.organization import OrganizationMembership
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "ghost-session-blocked@posthog.com", "password")
+        membership = OrganizationMembership.objects.get(user=teammate, organization=self.organization)
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "no-session-recording-row"},
+            created_by=owner,
+            is_system=True,
+            content=b"videobytes",
+        )
+
+        self.organization.available_product_features = [{"key": "advanced_permissions", "name": "Advanced permissions"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            resource_id=None,
+            team=self.team,
+            access_level="none",
+            organization_member=membership,
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_exports_with_session_recording_only_shows_own_matching_exports(self) -> None:
