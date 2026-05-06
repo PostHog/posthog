@@ -89,7 +89,8 @@ class Command(BaseCommand):
             logger.warning("Not running migration-specific checks. See .github/workflows/ci-backend.yml for usage.")
             return
 
-        migrations = [m.strip() for m in sys.stdin.readlines() if m.strip()]
+        migration_path_re = re.compile(r"^[a-z]+/clickhouse/migrations/[0-9]+_[a-zA-Z_0-9]+\.py$")
+        migrations = [m.strip() for m in sys.stdin.readlines() if m.strip() and migration_path_re.match(m.strip())]
 
         if len(migrations) > 1:
             logger.error("Multiple migrations in PR. Please limit to one migration per PR.")

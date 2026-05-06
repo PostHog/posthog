@@ -27,7 +27,7 @@ class DesktopRecording(UUIDModel):
     sdk_upload_id = models.UUIDField(unique=True, db_index=True)
     recall_recording_id = models.UUIDField(null=True, blank=True, db_index=True)
 
-    platform = models.CharField(max_length=20, choices=Platform.choices)
+    platform = models.CharField(max_length=20, choices=Platform)
     meeting_title = models.CharField(max_length=255, null=True, blank=True)
     meeting_url = models.URLField(null=True, blank=True)
     duration_seconds = models.IntegerField(null=True, blank=True)
@@ -36,7 +36,7 @@ class DesktopRecording(UUIDModel):
     video_url = models.URLField(null=True, blank=True)
     video_size_bytes = models.BigIntegerField(null=True, blank=True)
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RECORDING)
+    status = models.CharField(max_length=20, choices=Status, default=Status.RECORDING)
     notes = models.TextField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 

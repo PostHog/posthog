@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { getCookie } from 'lib/api'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -23,7 +24,29 @@ export function VercelLinkError(): JSX.Element {
         code && state
             ? `/login/vercel?mode=sso&code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`
             : null
-    const logoutUrl = nextUrl ? `/logout?next=${encodeURIComponent(nextUrl)}` : '/logout'
+    const submitLogout = (): void => {
+        const form = document.createElement('form')
+        form.method = 'POST'
+        form.action = '/logout'
+        form.style.display = 'none'
+
+        const csrfInput = document.createElement('input')
+        csrfInput.type = 'hidden'
+        csrfInput.name = 'csrfmiddlewaretoken'
+        csrfInput.value = getCookie('posthog_csrftoken') || ''
+        form.appendChild(csrfInput)
+
+        if (nextUrl) {
+            const nextInput = document.createElement('input')
+            nextInput.type = 'hidden'
+            nextInput.name = 'next'
+            nextInput.value = nextUrl
+            form.appendChild(nextInput)
+        }
+
+        document.body.appendChild(form)
+        form.submit()
+    }
 
     return (
         <BridgePage view="vercel-link-error">
@@ -39,14 +62,7 @@ export function VercelLinkError(): JSX.Element {
                 <p>To complete Vercel SSO, please log out and sign in with the correct account.</p>
             </div>
             <div className="flex flex-col gap-2">
-                <LemonButton
-                    fullWidth
-                    type="primary"
-                    center
-                    onClick={() => {
-                        window.location.href = logoutUrl
-                    }}
-                >
+                <LemonButton fullWidth type="primary" center onClick={submitLogout}>
                     {expectedEmail ? `Log out and continue with ${expectedEmail}` : 'Log out and continue'}
                 </LemonButton>
                 <LemonButton fullWidth type="secondary" center to="/">

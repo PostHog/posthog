@@ -39,7 +39,10 @@ class RememberCommand(SlashCommand):
                 ]
             )
 
-        await self._append_to_memory(memory_content)
+        try:
+            await self._append_to_memory(memory_content)
+        except ValueError as e:
+            return PartialAssistantState(messages=[AssistantMessage(content=str(e), id=str(uuid4()))])
 
         return PartialAssistantState(
             messages=[AssistantMessage(content="I'll remember that for you.", id=str(uuid4()))]

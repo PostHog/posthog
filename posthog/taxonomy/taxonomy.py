@@ -15,6 +15,7 @@ class CoreFilterDefinition(TypedDict):
     ignored_in_assistant: NotRequired[bool]
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
+    primary_property: NotRequired[str]
 
 
 """
@@ -103,6 +104,7 @@ SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
     "$host",
     "$pathname",
     "$referrer",
+    "$search_engine",
     *SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS,
 }
 
@@ -117,11 +119,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$pageview": {
             "label": "Pageview",
             "description": "When a user loads (or reloads) a page.",
+            "primary_property": "$pathname",
         },
         "$pageleave": {
             "label": "Pageleave",
             "description": "When a user leaves a page.",
             "ignored_in_assistant": True,  # Pageleave confuses the LLM, it just can't use this event in a sensible way
+            "primary_property": "$pathname",
         },
         "$autocapture": {
             "label": "Autocapture",
@@ -142,6 +146,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$screen": {
             "label": "Screen",
             "description": "When a user loads a screen in a mobile app.",
+            "primary_property": "$screen_name",
         },
         "$set": {
             "label": "Set person properties",
@@ -160,6 +165,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             ),
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
+            "primary_property": "$feature_flag",
         },
         "$feature_view": {
             "label": "Feature view",
@@ -169,6 +175,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$feature_interaction": {
             "label": "Feature interaction",
             "description": "When a user interacts with a feature.",
+            "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
+        },
+        "$element_viewed": {
+            "label": "Element viewed",
+            "description": "When an element wrapped in `<PostHogCaptureOnViewed>` becomes visible in the viewport.",
             "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
         },
         "$feature_enrollment_update": {
@@ -224,6 +235,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_evaluation": {
             "label": "AI evaluation (LLM)",
             "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
+        },
+        "$ai_tag": {
+            "label": "AI tag (LLM)",
+            "description": "A tag classification of an AI event. Contains the assigned tags, reasoning, and tagger metadata.",
         },
         "$ai_metric": {
             "label": "AI metric (LLM)",
@@ -379,6 +394,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$sdk_debug_replay_full_snapshots": {
             "label": "Replay full snapshots debug info",
             "description": "Debug information about full snapshots in the replay session.",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_rrweb_error": {
+            "label": "Replay rrweb error",
+            "description": "An error reported by the rrweb session recording library while capturing the replay.",
             "used_for_debug": True,
         },
         "$sdk_debug_recording_script_not_loaded": {
@@ -698,6 +718,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Session entry wbraid",
             "ignored_in_assistant": True,
         },
+        "$session_entry_ph_keyword": {
+            "description": "PostHog keyword tracking parameter. Captured at the start of the session and remains constant for the duration of the session.",
+            "label": "Session entry ph_keyword",
+            "ignored_in_assistant": True,
+        },
         "$session_recording_recorder_version_server_side": {
             "label": "Session recording recorder version server-side",
             "description": "The version of the session recording recorder that is enabled server-side.",
@@ -771,6 +796,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Exception fingerprint",
             "description": "A fingerprint used to group issues, can be set clientside.",
         },
+        "$exception_fingerprint_record": {
+            "label": "Exception fingerprint record",
+            "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
+        },
         "$exception_proposed_fingerprint": {
             "label": "Exception proposed fingerprint",
             "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
@@ -842,6 +871,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Event type",
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
             "examples": ["click", "submit", "change"],
+        },
+        "$external_click_url": {
+            "label": "External click URL",
+            "description": "The URL of an external link that was clicked during autocapture. External meaning the URL points to a different host than the page the user was on.",
+            "examples": ["https://example.com/some-article"],
         },
         "$insert_id": {
             "label": "Insert ID",
@@ -1264,6 +1298,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.",
             "examples": ["2023-05-20T15:31:00Z"],
         },
+        "$event_time_override_provided": {
+            "label": "Event time was overridden",
+            "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
+            "system": True,
+            "used_for_debug": True,
+        },
+        "$event_time_override_system_time": {
+            "label": "Event time override system time",
+            "description": "The system time that the SDK fell back to when overriding the event timestamp.",
+            "system": True,
+            "used_for_debug": True,
+        },
         "$browser": {
             "label": "Browser",
             "description": "Name of the browser the user has used.",
@@ -1286,6 +1332,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "en",
                 "ja",
             ],
+        },
+        "$conversations_ticket_id": {
+            "label": "Conversations ticket ID",
+            "description": "The ticket ID from the conversations widget associated with this event.",
+        },
+        "$conversations_widget_session_id": {
+            "label": "Conversations widget session ID",
+            "description": "The session ID from the conversations widget.",
         },
         "$current_url": {
             "label": "Current URL",
@@ -1380,6 +1434,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "IP address for this user when the event was sent.",
             "examples": ["203.0.113.0"],
         },
+        "$ip_address": {
+            "label": "IP address",
+            "description": "The IP address of the client that sent this event. Used by server-side SDKs.",
+            "examples": ["203.0.113.0"],
+        },
         "$host": {
             "label": "Host",
             "description": "The hostname of the Current URL.",
@@ -1439,6 +1498,33 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Feature flag version",
             "description": "The version of the feature flag that was called.",
             "examples": ["3"],
+        },
+        "$feature_flag_id": {
+            "label": "Feature flag ID",
+            "description": "The numeric identifier of the feature flag that was called.",
+            "examples": ["1234"],
+        },
+        "$feature_flag_bootstrapped_response": {
+            "label": "Feature flag bootstrapped response",
+            "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+        },
+        "$feature_flag_bootstrapped_payload": {
+            "label": "Feature flag bootstrapped payload",
+            "description": "The payload value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+        },
+        "$feature_flag_original_response": {
+            "label": "Feature flag original response",
+            "description": "The original feature flag response from PostHog, before any local override was applied.",
+        },
+        "$feature_flag_error": {
+            "label": "Feature flag error",
+            "description": "The error encountered while evaluating the feature flag, if any.",
+            "system": True,
+        },
+        "$override_feature_flags": {
+            "label": "Override feature flags",
+            "description": "Locally overridden feature flag values, typically set via the toolbar or SDK override APIs.",
+            "system": True,
         },
         "$survey_response": {
             "label": "Survey response",
@@ -1678,6 +1764,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "posthog-js initial person information. used in the $set_once flow",
             "system": True,
         },
+        "$initial_host": {
+            "label": "Initial host",
+            "description": "Hostname of the URL the user first visited.",
+            "examples": ["example.com", "localhost:8000"],
+        },
+        "$initial_search_engine": {
+            "label": "Initial search engine",
+            "description": "Search engine the user came from on their first visit, if any.",
+            "examples": ["Google", "DuckDuckGo"],
+        },
         "revenue": {
             "label": "Revenue",
             "description": "The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.",
@@ -1782,6 +1878,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Surveys activated",
             "description": "The surveys that were activated for this event.",
         },
+        "$process_person": {
+            "label": "Person processing flag",
+            "description": "Controls whether person data should be processed for this event.",
+            "system": True,
+        },
         "$process_person_profile": {
             "label": "Person profile processing flag",
             "description": "The setting from an SDK to control whether an event has person processing enabled",
@@ -1844,6 +1945,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$dead_click_selection_changed_timeout": {
             "label": "Dead click selection changed timeout",
             "description": "whether the dead click autocapture passed the threshold for waiting for a text selection change event",
+            "system": True,
+        },
+        "$dead_click_visibility_changed_delay_ms": {
+            "label": "Dead click visibility changed delay in milliseconds",
+            "description": "the delay between a click and the next visibility change event",
+            "system": True,
+        },
+        "$dead_click_visibility_changed_timeout": {
+            "label": "Dead click visibility changed timeout",
+            "description": "whether the dead click autocapture passed the threshold for waiting for a visibility change event",
             "system": True,
         },
         # AI
@@ -2064,6 +2175,46 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The runtime used to execute the evaluation (e.g., llm_judge for LLM-based, hog for code-based).",
             "examples": ["llm_judge", "hog"],
         },
+        "$ai_tagger_id": {
+            "label": "AI Tagger ID (LLM)",
+            "description": "The unique identifier of the tagger configuration used to classify the AI event.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_tagger_name": {
+            "label": "AI Tagger Name (LLM)",
+            "description": "The name of the tagger configuration used.",
+            "examples": ["Product feature tagger", "Intent classifier"],
+        },
+        "$ai_tags": {
+            "label": "AI Tags (LLM)",
+            "description": "The list of tags assigned to the AI event by the tagger.",
+            "examples": ["billing", "feature-flags", "onboarding"],
+        },
+        "$ai_tag_count": {
+            "label": "AI Tag Count (LLM)",
+            "description": "The number of tags assigned to the AI event.",
+            "examples": [1, 3],
+        },
+        "$ai_tag_reasoning": {
+            "label": "AI Tag Reasoning (LLM)",
+            "description": "The LLM's explanation for why it assigned the selected tags.",
+            "examples": ["The generation discussed billing and feature flag configuration"],
+        },
+        "$ai_tagger_start_time": {
+            "label": "AI Tagger Start Time (LLM)",
+            "description": "The timestamp when the tagger started executing.",
+            "examples": ["2025-01-15T10:30:00Z"],
+        },
+        "$ai_tagger_key_type": {
+            "label": "AI Tagger Key Type (LLM)",
+            "description": "The type of API key used for the tagger (byok = user's own key, posthog = PostHog default).",
+            "examples": ["byok", "posthog"],
+        },
+        "$ai_tagger_key_id": {
+            "label": "AI Tagger Key ID (LLM)",
+            "description": "The ID of the LLM provider key used for the tagger.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",
             "description": "The unique identifier of the event being evaluated.",
@@ -2138,6 +2289,140 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Trace Name (LLM)",
             "description": "The name given to this AI trace. Deprecated in favor of $ai_span_name.",
             "examples": ["summarize_text", "chat_completion"],
+        },
+        "$ai_agent_name": {
+            "label": "AI agent name (LLM)",
+            "description": "The name of the AI agent that produced this event.",
+            "examples": ["research_agent", "support_bot"],
+        },
+        "$ai_billable": {
+            "label": "AI billable (LLM)",
+            "description": "Whether this generation counts towards billable usage.",
+            "system": True,
+        },
+        "$ai_eval_source": {
+            "label": "AI eval source (LLM)",
+            "description": "The source that triggered this evaluation.",
+            "examples": ["signals-grouping", "sandboxed-agent"],
+        },
+        "$ai_evaluation_type": {
+            "label": "AI evaluation type (LLM)",
+            "description": "The type of evaluation that was run.",
+            "examples": ["llm_judge", "hog"],
+        },
+        "$ai_expected": {
+            "label": "AI expected output (LLM)",
+            "description": "The expected output for comparison in this evaluation.",
+        },
+        "$ai_experiment_id": {
+            "label": "AI experiment ID (LLM)",
+            "description": "The unique identifier of the experiment this event belongs to.",
+        },
+        "$ai_experiment_item_id": {
+            "label": "AI experiment item ID (LLM)",
+            "description": "The unique identifier of the individual item being evaluated in an experiment.",
+        },
+        "$ai_experiment_item_name": {
+            "label": "AI experiment item name (LLM)",
+            "description": "The name of the individual item being evaluated in an experiment.",
+        },
+        "$ai_experiment_name": {
+            "label": "AI experiment name (LLM)",
+            "description": "The name of the experiment this event belongs to.",
+        },
+        "$ai_framework": {
+            "label": "AI framework (LLM)",
+            "description": "The AI framework used to produce this event.",
+            "examples": ["langchain", "llamaindex", "openai"],
+        },
+        "$ai_lib": {
+            "label": "AI library (LLM)",
+            "description": "The name of the SDK or library that sent this AI event.",
+            "examples": ["posthog-python"],
+            "system": True,
+        },
+        "$ai_lib_version": {
+            "label": "AI library version (LLM)",
+            "description": "The version of the SDK or library that sent this AI event.",
+            "system": True,
+        },
+        "$ai_max_tokens": {
+            "label": "AI max tokens (LLM)",
+            "description": "The maximum number of tokens the model was allowed to generate.",
+            "examples": [1024, 4096],
+            "type": "Numeric",
+        },
+        "$ai_metric_version": {
+            "label": "AI metric version (LLM)",
+            "description": "The version of the metric used for evaluation.",
+        },
+        "$ai_output": {
+            "label": "AI output (LLM)",
+            "description": "The output text from a generation or the text being evaluated.",
+        },
+        "$ai_project_name": {
+            "label": "AI project name (LLM)",
+            "description": "The project name associated with this AI event.",
+        },
+        "$ai_result_type": {
+            "label": "AI result type (LLM)",
+            "description": "The type of result for this evaluation metric.",
+            "examples": ["binary", "numeric", "categorical"],
+        },
+        "$ai_score": {
+            "label": "AI score (LLM)",
+            "description": "The numeric score assigned by this evaluation metric.",
+            "type": "Numeric",
+        },
+        "$ai_score_max": {
+            "label": "AI score max (LLM)",
+            "description": "The maximum possible score for this evaluation metric.",
+            "type": "Numeric",
+        },
+        "$ai_score_min": {
+            "label": "AI score min (LLM)",
+            "description": "The minimum possible score for this evaluation metric.",
+            "type": "Numeric",
+        },
+        "$ai_span_type": {
+            "label": "AI span type (LLM)",
+            "description": "The type of this span in the AI trace tree.",
+            "examples": ["agent", "tool", "chain", "retriever"],
+        },
+        "$ai_status": {
+            "label": "AI status (LLM)",
+            "description": "The status of this evaluation.",
+            "examples": ["ok", "error"],
+        },
+        "$ai_stop_reason": {
+            "label": "AI stop reason (LLM)",
+            "description": "The reason the LLM stopped generating tokens.",
+            "examples": ["end_turn", "max_tokens", "stop_sequence"],
+        },
+        "$ai_tokens_source": {
+            "label": "AI tokens source (LLM)",
+            "description": "The source of the token count data for this generation.",
+            "examples": ["api_response", "estimated"],
+            "system": True,
+        },
+        "$ai_total_input_tokens": {
+            "label": "AI total input tokens (LLM)",
+            "description": "The aggregate number of input tokens across all generations in this trace.",
+            "type": "Numeric",
+        },
+        "$ai_total_output_tokens": {
+            "label": "AI total output tokens (LLM)",
+            "description": "The aggregate number of output tokens across all generations in this trace.",
+            "type": "Numeric",
+        },
+        "$ai_total_tokens": {
+            "label": "AI total tokens (LLM)",
+            "description": "The total number of tokens used (input + output) in this generation.",
+            "type": "Numeric",
+        },
+        "$ai_user_prompt": {
+            "label": "AI user prompt (LLM)",
+            "description": "The user prompt text sent to the LLM.",
         },
         "$csp_document_url": {
             "label": "Document URL",
@@ -2239,6 +2524,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_bot_operator": {
+            "label": "Bot operator",
+            "description": "Company or organization operating the bot.",
+            "examples": ["Google", "OpenAI", "Anthropic", "Microsoft"],
+            "type": "String",
+            "virtual": True,
+        },
     },
     "numerical_event_properties": {},
     "person_properties": {
@@ -2316,6 +2608,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "End pathname",
             "description": "The last pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
+            "type": "String",
+        },
+        "$entry_hostname": {
+            "label": "Entry hostname",
+            "description": "The hostname of the first URL visited in this session.",
+            "examples": ["example.com"],
+            "type": "String",
+        },
+        "$end_hostname": {
+            "label": "End hostname",
+            "description": "The hostname of the last URL visited in this session.",
+            "examples": ["example.com"],
             "type": "String",
         },
         "$exit_current_url": {

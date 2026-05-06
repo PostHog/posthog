@@ -191,7 +191,7 @@ const ExportsContent = (): JSX.Element => {
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-2 py-1 flex flex-col gap-2    ">
+            <div className="flex-1 overflow-y-auto px-2 py-1 flex flex-col gap-2">
                 <ExportPanelHeader />
 
                 <ScreenShotEditor screenshotKey="exports" />

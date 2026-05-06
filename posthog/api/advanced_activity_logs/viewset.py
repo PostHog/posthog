@@ -15,6 +15,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
 from posthog.models.activity_logging.activity_log import (
@@ -23,6 +24,7 @@ from posthog.models.activity_logging.activity_log import (
     apply_activity_visibility_restrictions,
 )
 from posthog.models.exported_asset import ExportedAsset
+from posthog.permissions import PremiumFeaturePermission
 from posthog.tasks import exporter
 
 from .field_discovery import AdvancedActivityLogFieldDiscovery
@@ -95,6 +97,9 @@ class ActivityLogPagination(BasePagination):
         else:
             return self.cursor_pagination.get_paginated_response(data)
 
+    def get_paginated_response_schema(self, schema):
+        return self.page_number_pagination.get_paginated_response_schema(schema)
+
 
 class ActivityLogScopeField(serializers.ChoiceField):
     def __init__(self, **kwargs):
@@ -141,6 +146,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
     filter_rewrite_rules = {"project_id": "team_id"}
+    permission_classes = [PremiumFeaturePermission]
+    premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
 
     @extend_schema(parameters=[ActivityLogQueryParamsSerializer])
     def list(self, request, *args, **kwargs):
@@ -205,12 +212,25 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     users = serializers.ListField(child=serializers.UUIDField(), required=False, default=[])
     scopes = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     activities = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    clients = serializers.ListField(child=serializers.CharField(), required=False, default=[])
     search_text = serializers.CharField(required=False, allow_blank=True)
     detail_filters = JSONStringFilterField(required=False)
     hogql_filter = serializers.CharField(required=False, allow_blank=True)
     was_impersonated = OptionalBooleanField(required=False)
     is_system = OptionalBooleanField(required=False)
     item_ids = serializers.ListField(child=serializers.CharField(), required=False, default=[])
+    page = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        default=100,
+        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+    )
 
 
 class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
@@ -234,6 +254,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "scope",
             "item_id",
             "detail",
+            "client",
             "created_at",
         ]
 
@@ -245,6 +266,10 @@ class StaticFiltersSerializer(serializers.Serializer):
     users = serializers.ListField(child=serializers.DictField(), help_text="Users who have logged activity.")
     scopes = serializers.ListField(child=serializers.DictField(), help_text="Available activity scopes.")
     activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
+    clients = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="API clients that have generated activity (from x-posthog-client header).",
+    )
 
 
 class AvailableFiltersResponseSerializer(serializers.Serializer):
@@ -261,6 +286,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "activity_log"
     scope_object_read_actions = ["list", "retrieve", "available_filters"]
     queryset = ActivityLog.objects.all()
+    permission_classes = [PremiumFeaturePermission]
+    premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
 
     def _should_skip_parents_filter(self) -> bool:
         """

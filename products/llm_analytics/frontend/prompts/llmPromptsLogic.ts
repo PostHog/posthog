@@ -23,6 +23,7 @@ export interface PromptFilters {
     page: number
     search: string
     order_by: string
+    created_by_id?: number
 }
 
 function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
@@ -30,6 +31,7 @@ function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
+        created_by_id: values.created_by_id ? Number(values.created_by_id) : undefined,
     }
 }
 
@@ -82,6 +84,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                         order_by: filters.order_by,
                         offset: Math.max(0, (filters.page - 1) * PROMPTS_PER_PAGE),
                         limit: PROMPTS_PER_PAGE,
+                        created_by_id: filters.created_by_id,
                     }
 
                     if (

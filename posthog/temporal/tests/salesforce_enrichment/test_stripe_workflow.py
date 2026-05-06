@@ -343,7 +343,7 @@ class TestWorkflowRun(SimpleTestCase):
         mock_workflow.continue_as_new = MagicMock()
 
         wf = SalesforceStripeEnrichmentWorkflow()
-        inputs = StripeEnrichmentInputs(page_size=500)
+        inputs = StripeEnrichmentInputs(page_size=500, max_rows=100)
         result = await wf.run(inputs)
 
         assert mock_workflow.execute_activity.await_count == 3
@@ -408,7 +408,7 @@ class TestWorkflowRun(SimpleTestCase):
         mock_workflow.continue_as_new = MagicMock()
 
         wf = SalesforceStripeEnrichmentWorkflow()
-        inputs = StripeEnrichmentInputs(page_size=500, force_full_refresh=True)
+        inputs = StripeEnrichmentInputs(page_size=500, force_full_refresh=True, max_rows=10)
         result = await wf.run(inputs)
 
         # Force-full-refresh skips the *read* of the prior watermark, but
@@ -449,7 +449,7 @@ class TestWorkflowRun(SimpleTestCase):
             cursor_org_id="org-499",
         )
         wf = SalesforceStripeEnrichmentWorkflow()
-        inputs = StripeEnrichmentInputs(page_size=500, state=state)
+        inputs = StripeEnrichmentInputs(page_size=500, state=state, max_rows=510)
         result = await wf.run(inputs)
 
         # The continuation must pass the stored cursor to the activity and
@@ -460,7 +460,6 @@ class TestWorkflowRun(SimpleTestCase):
         assert page_inputs.cursor_last_changed_at == "2026-04-12T00:00:00+00:00"
         assert page_inputs.cursor_org_id == "org-499"
 
-        # Page size 10 < inputs.page_size 500 — this is the final iteration.
         assert result["total_rows_fetched"] == 510
         assert result["committed_watermark_ts"] == "2026-04-13T00:00:00+00:00"
         assert result["committed_watermark_org_id"] == "org-509"
@@ -485,7 +484,7 @@ class TestWorkflowRun(SimpleTestCase):
         mock_workflow.continue_as_new = MagicMock()
 
         wf = SalesforceStripeEnrichmentWorkflow()
-        inputs = StripeEnrichmentInputs(page_size=500)
+        inputs = StripeEnrichmentInputs(page_size=500, max_rows=10)
         result = await wf.run(inputs)
 
         assert result["error_count"] == 15
@@ -513,7 +512,7 @@ class TestWorkflowRun(SimpleTestCase):
         mock_workflow.continue_as_new = MagicMock()
 
         wf = SalesforceStripeEnrichmentWorkflow()
-        inputs = StripeEnrichmentInputs(page_size=500)
+        inputs = StripeEnrichmentInputs(page_size=500, max_rows=3)
         result = await wf.run(inputs)
 
         # commit_stripe_watermark_activity must NOT run — only the watermark
@@ -556,7 +555,7 @@ class TestWorkflowRun(SimpleTestCase):
             cursor_org_id="org-prev",
         )
         wf = SalesforceStripeEnrichmentWorkflow()
-        inputs = StripeEnrichmentInputs(page_size=500, state=state)
+        inputs = StripeEnrichmentInputs(page_size=500, state=state, max_rows=1002)
         result = await wf.run(inputs)
 
         # Two awaits: the page activity, then commit_stripe_watermark_activity.

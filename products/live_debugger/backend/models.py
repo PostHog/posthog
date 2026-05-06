@@ -66,13 +66,17 @@ class LiveDebuggerBreakpoint(UUIDModel):
             models.Index(fields=["team_id", "repository"], name="live_debug_team_repo_idx"),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         repo_str = f"{self.repository}/" if self.repository else ""
         return f"Breakpoint at {repo_str}{self.filename}:{self.line_number} for team {self.team.pk}"
 
     @classmethod
     def get_breakpoint_hits(
-        cls, team: "Team", breakpoint_ids: Optional[list] = None, limit: int = 100, offset: int = 0
+        cls,
+        team: "Team",
+        breakpoint_ids: Optional[list] = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[BreakpointHit]:
         """
         Query ClickHouse for breakpoint hit events using HogQL.

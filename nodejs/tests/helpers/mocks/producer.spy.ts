@@ -28,7 +28,7 @@ export type DecodedKafkaMessage = {
 const tryDecompress = (value: string | Buffer): string => {
     try {
         return uncompressSync(value).toString()
-    } catch (error) {
+    } catch {
         return value.toString()
     }
 }

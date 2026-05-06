@@ -2,7 +2,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { ActivityScope, ProductManifest } from '~/types'
+
+import type { SchemaConfigurationSection, SchemaSceneTab } from './frontend/scenes/SchemaScene/SchemaScene'
+import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
 export const manifest: ProductManifest = {
     name: 'Data ops',
@@ -11,7 +14,6 @@ export const manifest: ProductManifest = {
             name: 'Data ops',
             import: () => import('./DataWarehouseScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/data-warehouse',
             activityScope: 'DataWarehouse',
             description:
                 'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
@@ -21,7 +23,6 @@ export const manifest: ProductManifest = {
             name: 'Models',
             import: () => import('../../frontend/src/scenes/models/ModelsScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/data-warehouse',
             description: 'Create and manage views and materialized views for transforming and organizing your data.',
             iconType: 'sql_editor',
         },
@@ -29,26 +30,104 @@ export const manifest: ProductManifest = {
             name: 'Model detail',
             import: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/data-warehouse',
         },
         SQLEditor: {
             projectBased: true,
             name: 'SQL editor',
-            defaultDocsPath: '/docs/cdp/sources',
             layout: 'app-raw-no-header',
             hideProjectNotice: true,
             description: 'Write and execute SQL queries against your data warehouse',
+        },
+        Sources: {
+            import: () => import('./frontend/scenes/SourcesScene/SourcesScene'),
+            projectBased: true,
+            name: 'Sources',
+            description:
+                'Import data into PostHog from external sources including webhooks, application connectors, and self-managed databases.',
+            activityScope: ActivityScope.HOG_FUNCTION,
+            iconType: 'data_pipeline',
+        },
+        DataWarehouseSource: {
+            import: () => import('./frontend/scenes/SourceScene/SourceScene'),
+            projectBased: true,
+            name: 'Data warehouse source',
+        },
+        DataWarehouseSourceNew: {
+            import: () => import('./frontend/scenes/NewSourceScene/NewSourceScene'),
+            projectBased: true,
+            name: 'New data warehouse source',
+        },
+        DataWarehouseSourceSchema: {
+            import: () => import('./frontend/scenes/SchemaScene/SchemaScene'),
+            projectBased: true,
+            name: 'Data warehouse schema',
         },
     },
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
         '/models': ['Models', 'models'],
         '/models/:id': ['NodeDetail', 'nodeDetail'],
+        '/data-management/sources': ['Sources', 'sources'],
+        '/data-management/sources/:sourceId/schemas/:schemaId': [
+            'DataWarehouseSourceSchema',
+            'dataWarehouseSourceSchema',
+        ],
+        '/data-management/sources/:sourceId/schemas/:schemaId/:tab': [
+            'DataWarehouseSourceSchema',
+            'dataWarehouseSourceSchema',
+        ],
+        '/data-management/sources/:sourceId/schemas/:schemaId/configuration/:section': [
+            'DataWarehouseSourceSchema',
+            'dataWarehouseSourceSchema',
+        ],
+        '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
+        '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
+    },
+    redirects: {
+        '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+        '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     },
     urls: {
         dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
         models: (): string => '/models',
         nodeDetail: (id: string): string => `/models/${id}`,
+        sources: (): string => '/data-management/sources',
+        dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
+            `/data-management/sources/${id}/${tab ?? 'schemas'}`,
+        dataWarehouseSourceSchema: (
+            sourceId: string,
+            schemaId: string,
+            tab?: SchemaSceneTab,
+            section?: SchemaConfigurationSection
+        ): string => {
+            const base = `/data-management/sources/${sourceId}/schemas/${schemaId}`
+            if (tab === 'configuration' && section) {
+                return `${base}/configuration/${section}`
+            }
+            return tab ? `${base}/${tab}` : base
+        },
+        dataWarehouseSourceNew: (
+            kind?: string,
+            returnUrl?: string,
+            returnLabel?: string,
+            accessMethod?: 'warehouse' | 'direct'
+        ): string => {
+            const params = new URLSearchParams()
+            if (kind) {
+                params.set('kind', kind)
+            }
+            if (returnUrl) {
+                params.set('returnUrl', returnUrl)
+            }
+            if (returnLabel) {
+                params.set('returnLabel', returnLabel)
+            }
+            if (accessMethod) {
+                params.set('access_method', accessMethod)
+            }
+            const queryString = params.toString()
+            return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
+        },
     },
     treeItemsProducts: [
         {

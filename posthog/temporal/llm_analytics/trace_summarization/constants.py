@@ -43,7 +43,11 @@ MAX_TRACE_EVENTS_LIMIT = 50
 # workers for minutes.
 MAX_TRACE_PROPERTIES_SIZE = 2_000_000
 
-# AI event types used in trace queries (sampling and fetching)
+# AI event types used in trace queries (sampling and fetching).
+# Mirrors `AI_EVENT_NAMES` in posthog/hogql_queries/ai/ai_table_resolver.py
+# and the Node.js list in nodejs/src/ingestion/ai/process-ai-event.ts —
+# kept as a tuple here so HogQL placeholders can build a deterministic
+# `event IN (...)` clause from a single source.
 AI_EVENT_TYPES = (
     "$ai_span",
     "$ai_generation",
@@ -53,10 +57,6 @@ AI_EVENT_TYPES = (
     "$ai_feedback",
     "$ai_trace",
 )
-
-# Expand the time window by this amount each side when fetching traces,
-# so traces that started just before/after the window are still found.
-TRACE_CAPTURE_RANGE = timedelta(minutes=10)
 
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs

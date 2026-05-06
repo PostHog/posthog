@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -20,6 +20,7 @@ from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.relations import ManyRelatedField
 
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
@@ -89,6 +90,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         for key in r.scan_iter("*"):
             r.delete(key)
         return super().setUp()
+
+    @staticmethod
+    def _insight_query_value(insight: Any) -> Any:
+        query = cast(dict[str, Any], insight.query)
+        return query["source"]["properties"]["values"][0]["values"][0]["value"]
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -962,7 +968,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         fields = serializer.get_fields()
 
         # The queryset should be empty (fail safe to prevent IDOR)
-        analytics_field = fields["analytics_dashboards"]
+        analytics_field = cast(ManyRelatedField, fields["analytics_dashboards"])
         self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -1415,9 +1421,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2079,7 +2085,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2088,7 +2094,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
 
@@ -2163,9 +2169,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2227,7 +2233,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(total_volume_insight),
             "a-new-feature-flag-key",
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2236,7 +2242,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2263,7 +2269,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2272,7 +2278,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
             total_volume_insight.name = "This is a changed description"
@@ -2316,7 +2322,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(total_volume_insight),
             "a-feature-flag-that-is-updated",
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2325,7 +2331,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2352,7 +2358,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2361,12 +2367,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"] = (
-                "something_unexpected"
-            )
+            total_volume_query = cast(dict[str, Any], total_volume_insight.query)
+            total_volume_query["source"]["properties"]["values"][0]["values"][0]["value"] = "something_unexpected"
             total_volume_insight.save()
 
             # Update the feature flag key
@@ -2406,7 +2411,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(total_volume_insight),
             "something_unexpected",
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2415,7 +2420,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2442,7 +2447,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                total_volume_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(total_volume_insight),
                 "a-feature-flag-that-is-updated",
             )
             unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2451,11 +2456,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "Shows the number of unique user calls made on feature flag per variant with key: a-feature-flag-that-is-updated",
             )
             self.assertEqual(
-                unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+                self._insight_query_value(unique_users_insight),
                 "a-feature-flag-that-is-updated",
             )
             # clear the values from total_volume_insight.query["source"]["properties"]["values"]
-            total_volume_insight.query["source"]["properties"]["values"] = []
+            total_volume_query = cast(dict[str, Any], total_volume_insight.query)
+            total_volume_query["source"]["properties"]["values"] = []
             total_volume_insight.save()
 
             # Update the feature flag key
@@ -2495,7 +2501,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of total calls made on feature flag with key: a-feature-flag-that-is-updated",
         )
         self.assertEqual(
-            total_volume_insight.query["source"]["properties"]["values"],
+            cast(dict[str, Any], total_volume_insight.query)["source"]["properties"]["values"],
             [],
         )
         unique_users_insight = insights.get(name="Feature Flag calls made by unique users per variant")
@@ -2504,7 +2510,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique user calls made on feature flag per variant with key: a-new-feature-flag-key",
         )
         self.assertEqual(
-            unique_users_insight.query["source"]["properties"]["values"][0]["values"][0]["value"],
+            self._insight_query_value(unique_users_insight),
             "a-new-feature-flag-key",
         )
 
@@ -2566,9 +2572,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2687,9 +2693,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -3056,6 +3062,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag.refresh_from_db()
         assert flag.deleted is False
         assert flag.key == "held-flag-2"
+
+    def test_rename_flag_to_key_held_by_soft_deleted_flag(self):
+        # Create a flag, soft-delete it, then create another flag and rename it
+        # to the key held by the soft-deleted flag.
+        first = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag")
+        other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag-v2")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{first.id}/",
+            {"deleted": True},
+        )
+        assert response.status_code == 200
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{other.id}/",
+            {"key": "56397-delete-flag"},
+        )
+        assert response.status_code == 200, response.content
+        other.refresh_from_db()
+        assert other.key == "56397-delete-flag"
+        # The soft-deleted flag should have been hard-deleted to free up the key.
+        assert not FeatureFlag.objects_including_soft_deleted.filter(
+            team=self.team, key="56397-delete-flag", deleted=True
+        ).exists()
 
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
@@ -3901,7 +3931,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(12, 17)):
+        with self.assertNumQueries(FuzzyInt(12, 18)):
             # 1-10: Auth, team, project, membership, and access control queries
             # 11. SELECT surveys (for survey exclusion)
             # 12. SELECT all feature flags (with evaluation tags via ArrayAgg)
@@ -5525,6 +5555,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "attr": "filters",
             },
         )
+
+    def test_create_without_filters_persists_groups_invariant(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "No filters flag", "key": "no-filters-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.filters, {"groups": []})
 
     def test_validation_groups_with_empty_properties_allowed(self):
         """Test that creating a flag with groups having empty properties but valid rollout is allowed"""
@@ -8430,7 +8470,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(18):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -8488,7 +8528,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(23):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -8578,7 +8618,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(14):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(15):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -8707,7 +8747,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(31):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(32):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -8849,6 +8889,75 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertLessEqual({"affected": 5, "total": 5}.items(), response_json.items())
+
+    def test_user_blast_radius_with_distinct_id_filter(self):
+        # Regression: distinct_id is not stored in person.properties — it lives in the
+        # person_distinct_id2 table and must be joined via pdi. Filtering by distinct_id
+        # in a release condition should match the persons that own that distinct_id.
+        for i in range(5):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "distinct_id",
+                            "type": "person",
+                            "value": ["person1", "person3"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertLessEqual({"affected": 2, "total": 5}.items(), response_json.items())
+
+    def test_user_blast_radius_with_distinct_id_filter_multiple_distinct_ids_per_person(self):
+        # A single person can own multiple distinct_ids; filtering by any one should still
+        # count that person exactly once.
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["alias-a", "alias-b"],
+            properties={"group": "0"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["other"],
+            properties={"group": "1"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "distinct_id",
+                            "type": "person",
+                            "value": ["alias-a", "alias-b"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertLessEqual({"affected": 1, "total": 2}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):
@@ -12273,3 +12382,135 @@ class TestFeatureFlagLimits(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
+
+
+class TestFeatureFlagVersions(APIBaseTest):
+    def _create_flag_via_api(self, key="test-flag", **kwargs):
+        data = {
+            "name": "Test Flag",
+            "key": key,
+            "filters": {"groups": [{"rollout_percentage": 100}]},
+            **kwargs,
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            data,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def _update_flag_via_api(self, flag_id, **kwargs):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            kwargs,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    def test_get_version_1_after_update(self):
+        flag = self._create_flag_via_api(name="V1 Name")
+        flag_id = flag["id"]
+
+        self._update_flag_via_api(flag_id, name="V2 Name", version=flag["version"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["version"] == 1
+        assert data["name"] == "V1 Name"
+        assert data["is_historical"] is True
+        assert data["id"] == flag_id
+
+    def test_get_current_version(self):
+        flag = self._create_flag_via_api(name="V1 Name")
+        flag_id = flag["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["version"] == 1
+        assert data["is_historical"] is False
+
+    def test_version_not_found_returns_404(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/999/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_version_zero_returns_404(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/0/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_reconstruct_filters_change(self):
+        v1_filters = {"groups": [{"rollout_percentage": 50}]}
+        v2_filters = {
+            "groups": [
+                {
+                    "rollout_percentage": 100,
+                    "properties": [{"key": "email", "value": "test@example.com", "type": "person"}],
+                }
+            ]
+        }
+
+        flag = self._create_flag_via_api(filters=v1_filters)
+        flag_id = flag["id"]
+
+        self._update_flag_via_api(flag_id, filters=v2_filters, version=flag["version"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        assert data["filters"]["groups"][0]["rollout_percentage"] == 50
+
+    def test_multiple_versions(self):
+        flag = self._create_flag_via_api(name="V1")
+        flag_id = flag["id"]
+
+        updated = self._update_flag_via_api(flag_id, name="V2", version=flag["version"])
+        self._update_flag_via_api(flag_id, name="V3", version=updated["version"])
+
+        v1 = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/").json()
+        v2 = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/2/").json()
+        v3 = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/3/").json()
+
+        assert v1["name"] == "V1"
+        assert v1["is_historical"] is True
+        assert v2["name"] == "V2"
+        assert v2["is_historical"] is True
+        assert v3["name"] == "V3"
+        assert v3["is_historical"] is False
+
+    def test_incomplete_history_returns_422(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        FeatureFlag.objects.filter(id=flag_id).update(version=5)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/2/")
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert "incomplete" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
+            ("remote_configuration", {"is_remote_configuration": True}),
+            ("encrypted_payloads", {"has_encrypted_payloads": True}),
+        ]
+    )
+    def test_unsupported_flag_returns_400(self, _name, update_kwargs):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        FeatureFlag.objects.filter(id=flag_id).update(**update_kwargs)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not available" in response.json()["detail"].lower()

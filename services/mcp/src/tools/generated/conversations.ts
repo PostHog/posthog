@@ -23,7 +23,7 @@ const conversationsTicketsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTicketList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/conversations/tickets/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/`,
             query: {
                 assignee: params.assignee,
                 channel_detail: params.channel_detail,
@@ -75,7 +75,7 @@ const conversationsTicketsRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Ticket>({
             method: 'GET',
-            path: `/api/projects/${projectId}/conversations/tickets/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = pickResponseFields(result, [
             'id',
@@ -135,7 +135,7 @@ const conversationsTicketsUpdate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.Ticket>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/conversations/tickets/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return await withPostHogUrl(context, result, `/conversations/tickets/${result.id}`)

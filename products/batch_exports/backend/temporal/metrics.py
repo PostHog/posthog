@@ -127,6 +127,8 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
         histogram_attributes: Attributes = {
             "interval": interval,
         }
+        if activity_info.workflow_type is not None:
+            histogram_attributes["workflow_type"] = activity_info.workflow_type
 
         meter = get_metric_meter(histogram_attributes)
 

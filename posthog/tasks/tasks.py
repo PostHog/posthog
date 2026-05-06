@@ -26,6 +26,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
@@ -61,7 +62,58 @@ def delete_expired_exported_assets() -> None:
     ExportedAsset.delete_expired_assets()
 
 
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+@skip_team_scope_audit
+def delete_expired_delegation_invites() -> None:
+    """Delete delegation invites that have passed their expiry.
+
+    The `pre_delete` receiver on OrganizationInvite handles un-suppressing onboarding
+    for the delegator, so this runs the existing cancellation path without bespoke
+    state-clearing logic here. Without this periodic sweep, natural expiry leaves
+    delegators stranded on the "waiting for teammate" screen indefinitely.
+
+    The sweep is bounded to a single batch per run; if more invites remain, the next
+    scheduled run picks them up. Materializing ids first (rather than iterating a
+    QuerySet while deleting from the same table) avoids server-side cursor invalidation
+    on Postgres.
+    """
+    from posthog.constants import INVITE_DAYS_VALIDITY
+    from posthog.models import OrganizationInvite
+
+    BATCH_SIZE = 500
+
+    cutoff = timezone.now() - datetime.timedelta(days=INVITE_DAYS_VALIDITY)
+    expired_ids = list(
+        OrganizationInvite.objects.filter(is_setup_delegation=True, created_at__lt=cutoff)
+        .order_by("created_at")
+        .values_list("id", flat=True)[:BATCH_SIZE]
+    )
+    swept = 0
+    errors = 0
+    # Per-row instance .delete() preserves ModelActivityMixin's "deleted" activity-log
+    # signal, which bulk QuerySet .delete() bypasses. Wrap each delete so one concurrent
+    # acceptance race (use() deleting the row first) can't break the entire sweep.
+    for invite_id in expired_ids:
+        invite = OrganizationInvite.objects.filter(pk=invite_id).first()
+        if invite is None:
+            continue
+        try:
+            invite.delete()
+            swept += 1
+        except Exception as exc:  # noqa: BLE001 - one invite must not block the sweep
+            errors += 1
+            capture_exception(exc)
+    logger.info(
+        "delete_expired_delegation_invites.sweep_done",
+        candidates=len(expired_ids),
+        swept=swept,
+        errors=errors,
+        batch_size=BATCH_SIZE,
+    )
+
+
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def clear_expired_sessions() -> None:
     from django.contrib.sessions.models import Session
 
@@ -245,6 +297,7 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
@@ -482,6 +535,108 @@ def redis_celery_queue_depth() -> None:
         return
 
 
+_TASKS_RUN_OPEN_STATUSES = ("not_started", "queued", "in_progress")
+_TASKS_RUN_AGE_STATUSES = ("queued", "in_progress")
+_TASKS_RUN_TERMINAL_STATUSES = ("completed", "failed", "cancelled")
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+@skip_team_scope_audit
+def capture_task_run_state_metrics() -> None:
+    """Emit gauges describing the current state of the Tasks product's TaskRun table"""
+    from django.db.models import Count, Min
+
+    from products.tasks.backend.models import TaskRun
+
+    try:
+        with pushed_metrics_registry("tasks_run_state") as registry:
+            # NOTE: the label is named `run_environment` (not `environment`) to avoid collision with the
+            # deployment-environment label applied by the pushgateway scrape target, which would otherwise
+            # clobber the TaskRun.Environment value on ingest.
+            runs_in_status_gauge = Gauge(
+                "posthog_tasks_runs_in_status",
+                "Number of open TaskRun rows by status, origin_product, and run_environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "run_environment"],
+            )
+            oldest_age_gauge = Gauge(
+                "posthog_tasks_oldest_open_run_age_seconds",
+                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "run_environment"],
+            )
+            runs_created_1h_gauge = Gauge(
+                "posthog_tasks_runs_created_1h",
+                "Number of TaskRun rows created in the last hour, by origin_product and run_environment.",
+                registry=registry,
+                labelnames=["origin_product", "run_environment"],
+            )
+            runs_terminal_1h_gauge = Gauge(
+                "posthog_tasks_runs_terminal_1h",
+                "Number of TaskRun rows that reached a terminal status in the last hour, by status, origin_product, and run_environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "run_environment"],
+            )
+
+            counts = (
+                TaskRun.objects.filter(status__in=_TASKS_RUN_OPEN_STATUSES)
+                .values("status", "environment", "task__origin_product")
+                .annotate(count=Count("id"))
+            )
+            for row in counts:
+                runs_in_status_gauge.labels(
+                    status=row["status"],
+                    origin_product=row["task__origin_product"] or "unknown",
+                    run_environment=row["environment"],
+                ).set(row["count"])
+
+            oldest = (
+                TaskRun.objects.filter(status__in=_TASKS_RUN_AGE_STATUSES)
+                .values("status", "environment", "task__origin_product")
+                .annotate(oldest_created_at=Min("created_at"))
+            )
+            now = timezone.now()
+            for row in oldest:
+                age_seconds = (now - row["oldest_created_at"]).total_seconds()
+                oldest_age_gauge.labels(
+                    status=row["status"],
+                    origin_product=row["task__origin_product"] or "unknown",
+                    run_environment=row["environment"],
+                ).set(age_seconds)
+
+            created_1h = (
+                TaskRun.objects.filter(created_at__gte=now - datetime.timedelta(hours=1))
+                .values("environment", "task__origin_product")
+                .annotate(count=Count("id"))
+            )
+            for row in created_1h:
+                runs_created_1h_gauge.labels(
+                    origin_product=row["task__origin_product"] or "unknown",
+                    run_environment=row["environment"],
+                ).set(row["count"])
+
+            # Terminal runs: approximated by updated_at since completed_at can be null for FAILED/CANCELLED
+            # paths that didn't take the happy-path write.
+            terminal_1h = (
+                TaskRun.objects.filter(
+                    status__in=_TASKS_RUN_TERMINAL_STATUSES,
+                    updated_at__gte=now - datetime.timedelta(hours=1),
+                )
+                .values("status", "environment", "task__origin_product")
+                .annotate(count=Count("id"))
+            )
+            for row in terminal_1h:
+                runs_terminal_1h_gauge.labels(
+                    status=row["status"],
+                    origin_product=row["task__origin_product"] or "unknown",
+                    run_environment=row["environment"],
+                ).set(row["count"])
+
+    except Exception as err:
+        logger.exception("capture_task_run_state_metrics", exception=err)
+        capture_exception(err)
+
+
 @shared_task(ignore_result=True)
 def update_event_partitions() -> None:
     with connection.cursor() as cursor:
@@ -491,6 +646,7 @@ def update_event_partitions() -> None:
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def clean_stale_partials() -> None:
     """Clean stale (meaning older than 7 days) partial social auth sessions."""
     from social_django.models import Partial
@@ -1000,6 +1156,7 @@ def delete_project_data_and_notify_task(
     retry_backoff=60,
     retry_backoff_max=300,
 )
+@skip_team_scope_audit
 def delete_organization_data_and_notify_task(
     team_ids: list[int],
     organization_id: str,
@@ -1074,6 +1231,7 @@ def delete_organization_data_and_notify_task(
     retry_backoff_max=120,
     max_retries=3,
 )
+@skip_team_scope_audit
 def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     """
     Sync last_called_at timestamps from ClickHouse $feature_flag_called events to PostgreSQL.
@@ -1371,6 +1529,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
 
 
 @shared_task(ignore_result=True, time_limit=7200)
+@skip_team_scope_audit
 def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14) -> None:
     """
     Refresh fields cache for large organizations.
@@ -1479,6 +1638,7 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def sync_user_product_lists_for_new_team(team_id: int) -> None:
     """
     Sync UserProductList for all users who have access to a new team.

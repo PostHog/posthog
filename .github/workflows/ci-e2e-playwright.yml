@@ -6,6 +6,9 @@
 name: E2E CI Playwright
 on:
     pull_request:
+        # `labeled` lets developers opt in via the `run-playwright` label.
+        # Unrelated label changes are filtered out in the `changes` job.
+        types: [opened, synchronize, reopened, labeled]
     workflow_dispatch:
     push:
         branches:
@@ -13,7 +16,6 @@ on:
 
 permissions:
     contents: read
-    pull-requests: write
 
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -57,63 +59,94 @@ env:
     AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Cancel in-progress runs on PRs when new commits are pushed
-    # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Only run on PRs from the same repo (not forks) or on master push
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        # Run on master push, manual dispatch, and on internal-repo PRs. Skip the
+        # entire workflow when the only thing that changed is some other label (avoids
+        # noisy runs on every label add/remove unrelated to Playwright).
+        if: |
+            github.event_name == 'push' ||
+            github.event_name == 'workflow_dispatch' ||
+            (
+              github.event.pull_request.head.repo.full_name == github.repository &&
+              (github.event.action != 'labeled' || github.event.label.name == 'run-playwright')
+            )
         name: Determine need to run E2E checks
-        # Set job outputs to values from filter step
         outputs:
-            shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
+            shouldRun: ${{ steps.decide.outputs.shouldRun }}
+            shouldSuggest: ${{ steps.changes.outputs.shouldSuggest }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
-            mode: ${{ steps.detect.outputs.mode }}
+            schema_cache_key: ${{ steps.schema-key.outputs.key }}
         steps:
-            # For pull requests it's not necessary to check out the code
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
-              id: changes
-              if: github.event_name != 'push' # Run all tests on master push
+            # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
+            # (PR branch tip) is reachable for the merge-base step below without the
+            # cost of fetching blobs.
+            - uses: actions/checkout@v6
               with:
+                  fetch-depth: 1000
+                  filter: blob:none
+                  clean: false
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: changes
+              # Skip the path filter when the `run-playwright` label is set or on master push —
+              # both already imply we want to run.
+              if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'run-playwright')
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
-                      shouldRun:
-                        # Avoid running E2E tests for irrelevant changes
-                        # NOTE: we are at risk of missing a dependency here. We could make
-                        # the dependencies more clear if we separated the backend/frontend
-                        # code completely
+                      mustRun:
+                        # Real triggers — only this workflow runs Playwright tests, so changes
+                        # to the tests, page models, utils, snapshots, or this workflow itself
+                        # need to validate before merge.
+                        - playwright/**
+                        - .github/workflows/ci-e2e-playwright.yml
+                      shouldSuggest:
+                        # Wider net — code that *could* affect E2E behavior. We don't auto-run
+                        # Playwright on these (most failures are flakes, real bugs are caught
+                        # elsewhere or fix-forward from master). Instead the `suggest-label` job
+                        # nudges the author to add the `run-playwright` label if they want a
+                        # full sweep before merging.
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
                         - frontend/**/*
-                        - requirements.txt
-                        - requirements-dev.txt
                         - package.json
                         - pnpm-lock.yaml
-                        # Make sure we run if someone is explicitly changes the workflow
-                        - .github/workflows/ci-e2e-playwright.yml
-                        - .github/actions/build-n-cache-image/action.yml
+                        - uv.lock
                         - .github/clickhouse-versions.json
-                        # We use docker compose for tests, make sure we rerun on
-                        # changes to docker-compose.dev.yml e.g. dependency
-                        # version changes
                         - docker-compose.dev.yml
                         - Dockerfile
-                        - playwright/**
 
-            - uses: actions/checkout@v6
-              if: github.event_name == 'push' || steps.changes.outputs.shouldRun == 'true'
-              with:
-                  sparse-checkout: .github/clickhouse-versions.json
-                  sparse-checkout-cone-mode: false
+            - name: Decide whether to run Playwright
+              id: decide
+              env:
+                  IS_PUSH: ${{ github.event_name == 'push' }}
+                  IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+                  HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-playwright') }}
+                  MUST_RUN: ${{ steps.changes.outputs.mustRun }}
+              run: |
+                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$HAS_LABEL" == "true" || "$MUST_RUN" == "true" ]]; then
+                      echo "shouldRun=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "shouldRun=false" >> "$GITHUB_OUTPUT"
+                  fi
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
-              if: github.event_name == 'push' || steps.changes.outputs.shouldRun == 'true'
+              if: steps.decide.outputs.shouldRun == 'true'
               run: |
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
@@ -122,48 +155,108 @@ jobs:
                   fi
                   echo "oldest_supported=$oldest_supported" >> $GITHUB_OUTPUT
 
-            - name: Detect snapshot mode
-              id: detect
+            - name: Fetch base branch for merge-base computation
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
               env:
-                  HAS_UPDATE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'update-snapshots') }}
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              # Scoped, blob-less, no-tags — matches ci-backend / ci-dagster.
+              # Without an explicit refspec, `git fetch --deepen` would fall back to
+              # remote.origin.fetch and pull every branch.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache key from merge-base
+              id: schema-key
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
-                    echo "mode=check" >> $GITHUB_OUTPUT
-                    echo "Fork detected - running in CHECK mode (no commits allowed)"
-                  elif [ "$HAS_UPDATE_LABEL" == "true" ]; then
-                    echo "mode=update" >> $GITHUB_OUTPUT
-                    echo "::notice::🔄 Running in UPDATE mode - 'update-snapshots' label detected"
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -n "$MERGE_BASE" ]; then
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   else
-                    AUTHOR="${{ github.actor }}"
-                    echo "Workflow triggered by: $AUTHOR"
-
-                    # Trusted bots that are allowed to run in update mode
-                    # Add bot usernames here to allow snapshot auto-updates on their PRs
-                    TRUSTED_BOTS=("mendral-app[bot]")
-
-                    IS_TRUSTED=false
-                    for bot in "${TRUSTED_BOTS[@]}"; do
-                      if [[ "$AUTHOR" == "$bot" ]]; then
-                        IS_TRUSTED=true
-                        break
-                      fi
-                    done
-
-                    if [[ "$IS_TRUSTED" == "true" ]]; then
-                      echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
-                    else
-                      echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::🔍 Running in CHECK mode - add 'update-snapshots' label to enable snapshot updates"
-                    fi
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                   fi
+
+    # Nudge the author to add the `run-playwright` label when their PR touches code
+    # that *could* affect E2E behavior but doesn't trigger a real run on its own.
+    # Also handles cleanup: if the PR later qualifies for a real run (label added,
+    # narrow paths matched), remove the suggestion comment so it doesn't linger.
+    suggest-label:
+        name: Suggest run-playwright label
+        needs: [changes]
+        if: |
+            github.event_name == 'pull_request' && (
+              needs.changes.outputs.shouldSuggest == 'true' ||
+              needs.changes.outputs.shouldRun == 'true'
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            pull-requests: write
+        steps:
+            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  SHOULD_RUN: ${{ needs.changes.outputs.shouldRun }}
+                  SHOULD_SUGGEST: ${{ needs.changes.outputs.shouldSuggest }}
+                  HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-playwright') }}
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const marker = '<!-- playwright-suggest-label -->';
+                      const shouldRun = process.env.SHOULD_RUN === 'true';
+                      const shouldSuggest = process.env.SHOULD_SUGGEST === 'true';
+                      const hasLabel = process.env.HAS_LABEL === 'true';
+                      const wantSuggestion = !shouldRun && shouldSuggest && !hasLabel;
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+
+                      if (wantSuggestion) {
+                          const body = [
+                              marker,
+                              "🎭 **Playwright didn't run on this PR** — your changes touch code that *could* affect E2E behavior, but Playwright is opt-in via label now to keep CI cost down.",
+                              "",
+                              "Add the **`run-playwright`** label if you want an E2E sweep before merging — CI will pick it up automatically.",
+                              "",
+                              "_Most PRs don't need this. Real regressions still get caught on master and fix-forward._",
+                          ].join('\n');
+                          if (existing) {
+                              await github.rest.issues.updateComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: existing.id,
+                                  body,
+                              });
+                          } else {
+                              await github.rest.issues.createComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  issue_number: context.issue.number,
+                                  body,
+                              });
+                          }
+                      } else if (existing) {
+                          await github.rest.issues.deleteComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                          });
+                      }
 
     playwright:
         name: Playwright E2E tests
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
-        runs-on: depot-ubuntu-latest-16
+        # 8-core depot: 18% avg / 30% peak memory observed on 16-core runs (#46853 noted
+        # the workload "is not resource constrained" even after sharding was removed).
+        # Talk to #team-devex before changing.
+        runs-on: depot-ubuntu-latest-8
         timeout-minutes: 45
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
@@ -247,7 +340,7 @@ jobs:
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -342,14 +435,35 @@ jobs:
                   # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
                   cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
             - name: Create test database
+              shell: bash
               run: |
                   createdb posthog_e2e_test || echo "Database already exists"
-                  # Drop and recreate clickhouse test database
-                  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
-                  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+
+                  run_clickhouse_query() {
+                      local query="$1"
+
+                      for attempt in {1..10}; do
+                          if printf '%s' "$query" | curl --silent --show-error --fail 'http://localhost:8123/' --data-binary @-; then
+                              echo
+                              return 0
+                          fi
+
+                          echo "ClickHouse query failed on attempt ${attempt}/10, retrying in 3s..."
+                          sleep 3
+                      done
+
+                      echo "ClickHouse query failed after 10 attempts: $query" >&2
+                      return 1
+                  }
+
+                  # Drop and recreate clickhouse test database. The HTTP endpoint can briefly
+                  # reset connections while the container is still settling after startup.
+                  run_clickhouse_query 'SELECT 1'
+                  run_clickhouse_query 'DROP DATABASE IF EXISTS posthog_test SYNC'
+                  run_clickhouse_query 'CREATE DATABASE posthog_test'
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -358,10 +472,37 @@ jobs:
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
+            - name: Restore schema cache from master
+              # Cache key is the merge-base SHA — produced by ci-backend on master push.
+              # Cache miss falls through to a full migrate below.
+              if: github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              id: schema-cache
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.changes.outputs.schema_cache_key }}
+
+            - name: Prime posthog_e2e_test from cached schema
+              # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
+              # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db, restores the
+              # schema, and runs ensure_migration_defaults to seed RunPython data that's
+              # missing from a schema-only dump. The migrate step below still runs and
+              # layers any PR-added migrations on top — the cache just skips the bulk of
+              # the historical migration work.
+              if: steps.schema-cache.outputs.cache-hit == 'true'
+              env:
+                  TARGET_DB: posthog_e2e_test
+              run: |
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-schema-fresh
+
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
                   # Postgres migrations must run first — ClickHouse migration 0026
-                  # depends on the posthog_instancesetting table in Postgres
+                  # depends on the posthog_instancesetting table in Postgres.
+                  # On cache hit this is near no-op; on cache miss it's a full migrate.
+                  # Either way, any PR-added migrations get applied here.
                   python manage.py migrate --noinput
 
                   # Run Rust migrations for persons e2e test database
@@ -428,51 +569,17 @@ jobs:
                   COMPOSE_PROFILES: capture,ingestion
               run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces
 
+            - name: Clean snapshot directory
+              run: find playwright/__snapshots__ -name '*.png' -delete 2>/dev/null || true
+
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
               # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
               # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
+              # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
-                  set +e  # Allow snapshot update retry
-                  # Attempt 1: Always verify (fast path when snapshots match)
-                  # Attempt 2: Update snapshots if previous failure was screenshot-related (UPDATE mode only)
-                  # Note: Playwright's built-in retry (3x per test) handles test flakiness
-                  echo "Attempt 1: Running Playwright tests"
-                  set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 2>&1 | tee /tmp/playwright-output-attempt-1.log
-                  EXIT_CODE=$?
-                  set +o pipefail
-
-                  if [ $EXIT_CODE -ne 0 ]; then
-                    # Check if we should retry with snapshot update
-                    # Look for either "Screenshot comparison failed" or "snapshot doesn't exist" error messages
-                    # Use case-insensitive match to catch variations like "Snapshot does not exist"
-                    if [ "${{ needs.changes.outputs.mode }}" == "update" ] && grep -qEi "(Screenshot comparison failed|snapshot does(n't| not) exist)" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
-                      echo "Screenshot-related failure detected - retrying with --update-snapshots"
-
-                      # Preserve attempt 1 artifacts
-                      echo "Preserving attempt 1 artifacts..."
-                      mkdir -p playwright/test-results-attempt-1 playwright/playwright-report-attempt-1
-                      cp -r playwright/test-results/* playwright/test-results-attempt-1/ 2>/dev/null || true
-                      cp -r playwright/playwright-report/* playwright/playwright-report-attempt-1/ 2>/dev/null || true
-
-                      # Attempt 2: Update snapshots
-                      echo "Attempt 2: Running Playwright tests with --update-snapshots"
-                      set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
-                      EXIT_CODE=$?
-                      set +o pipefail
-
-                      if [ $EXIT_CODE -ne 0 ]; then
-                        echo "Playwright tests failed after 2 attempts"
-                        exit 1
-                      fi
-                    else
-                      echo "Non-screenshot failure - not retrying (Playwright already retried failed tests 3x)"
-                      exit 1
-                    fi
-                  fi
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 --update-snapshots
 
             - name: Verify changed Playwright tests are stable
               if: success() && github.event_name == 'pull_request'
@@ -485,13 +592,12 @@ jobs:
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
             - name: Install VR CLI
-              if: always() && github.event.pull_request.head.repo.full_name == github.repository
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Create VR run
               id: vr-create
-              if: always() && github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
+              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -509,7 +615,6 @@ jobs:
 
             - name: Upload snapshots to Visual Review
               if: always() && steps.vr-create.outputs.run_id != ''
-              continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_RUN_ID: ${{ steps.vr-create.outputs.run_id }}
@@ -519,47 +624,6 @@ jobs:
                     --dir playwright/__snapshots__/ \
                     --baseline playwright/snapshots.yml \
                     --token "$VR_TOKEN"
-
-            # Create git patch for aggregation (handles A/M/D including binary files)
-            # Only run in UPDATE mode - CHECK mode doesn't update snapshots
-            # Run even if tests failed, as long as snapshots may have been updated
-            - name: Create screenshot patch
-              id: create-patch
-              if: needs.changes.outputs.mode == 'update' && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-              run: |
-                  # Verify we're in a git repository before running git commands
-                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
-                    echo "Not in a git repository, skipping patch creation"
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  # Check if there are any changes (modified or untracked) in the snapshots directory
-                  # Use git status --porcelain to detect both modifications and new untracked files
-                  if [ -z "$(git status --porcelain playwright/__snapshots__/)" ]; then
-                    echo "No screenshot changes"
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                  else
-                    echo "Screenshot changes detected:"
-                    git status --short playwright/__snapshots__/
-
-                    # Stage untracked files so git diff can include them in the patch
-                    git add -N playwright/__snapshots__/
-                    # Create binary-safe patch file
-                    mkdir -p /tmp/patches
-                    git diff --binary --full-index playwright/__snapshots__/ > /tmp/patches/playwright-patch.patch
-                    echo "Created patch file"
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Upload screenshot patch
-              if: steps.create-patch.outputs.has-changes == 'true' && (success() || failure())
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: playwright-patch
-                  path: /tmp/patches/playwright-patch.patch
-                  retention-days: 1
-                  if-no-files-found: ignore
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs
@@ -633,6 +697,7 @@ jobs:
 
             - name: Upsert report URL comment on PR
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
@@ -710,12 +775,8 @@ jobs:
                       }
 
                       const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
-                      const snapshotMode = '${{ needs.changes.outputs.mode }}';
-                      const snapshotHint = (snapshotMode === 'check' && failed.length > 0)
-                          ? '\n\n**If your changes intentionally update screenshots:** add the `update-snapshots` label, then push an empty commit or merge master to trigger a new run. Screenshots will be auto-committed.\n**If you didn\'t change any UI:** this is likely a flaky screenshot — wait for a fix to land on master.'
-                          : '';
                       const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
-                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${snapshotHint}${footer}`;
+                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
 
                       if (existing) {
                           await github.rest.issues.updateComment({
@@ -737,150 +798,95 @@ jobs:
         name: Capture run time
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        needs: [changes, playwright]
+        needs: [changes, playwright, playwright_tests]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.shouldRun == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
+            - name: Get telemetry app token
+              id: telemetry-app-token
+              if: github.run_attempt == '1'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              if: github.run_attempt == '1'
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
+                  status-job: 'Playwright tests pass'
+                  runner: 'depot'
+            - name: Capture running time to DevEx PostHog
+              if: github.run_attempt == '1'
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-running-time'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Playwright tests pass'
                   runner: 'depot'
 
-    # Aggregate all screenshot artifacts and commit once
-    handle-screenshots:
-        name: Handle screenshot changes
+    vr-complete:
+        name: Complete Visual Review run
         runs-on: ubuntu-latest
-        timeout-minutes: 5
-        needs: [playwright, changes]
-        if: always() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-        permissions:
-            contents: write
-            pull-requests: write
+        timeout-minutes: 15
+        needs: [playwright]
+        if: needs.playwright.outputs.vr_run_id != '' && needs.playwright.result == 'success'
         steps:
-            # Use GitHub app token so Actions run after commiting updated snapshots
-            - name: Get app token
-              id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
-              with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
             - uses: actions/checkout@v6
               with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  sparse-checkout: |
+                      .nvmrc
+                      products/visual_review/cli
+                      products/visual_review/frontend/generated/api.schemas.ts
+                      playwright/snapshots.yml
+                  sparse-checkout-cone-mode: false
 
-            - name: Download screenshot patches
-              id: download-patches
-              continue-on-error: true
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  pattern: playwright-patch
-                  path: /tmp/screenshot-patches/
-                  merge-multiple: true
+                  node-version-file: .nvmrc
 
-            - name: Check for screenshot changes
-              id: check-screenshots
-              run: |
-                  # Check if patches were downloaded and have content
-                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/screenshot-patches/ ]; then
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                    echo "No screenshot patches found"
-                    exit 0
-                  fi
-
-                  # Check if any patch files have content (>0 bytes)
-                  PATCHES=$(find /tmp/screenshot-patches -name "*.patch" -type f -size +0c)
-                  if [ -z "$PATCHES" ]; then
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                    echo "Patch files empty - no screenshot changes"
-                  else
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                    echo "Screenshot changes detected in patches"
-                  fi
-
-            # Uses --index so changes are staged for the downstream commit action
-            - name: Apply screenshot patches
-              if: steps.check-screenshots.outputs.has-changes == 'true'
-              run: |
-                  for patch in $(find /tmp/screenshot-patches -name "*.patch" -type f -size +0c | sort); do
-                    echo "Applying $patch"
-                    git apply --index "$patch"
-                  done
-
-            # Visual Review: complete the run (test job already uploaded snapshots)
             - name: Install VR CLI
-              if: needs.playwright.outputs.vr_run_id != ''
               run: cd products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
-              if: needs.playwright.outputs.vr_run_id != ''
-              continue-on-error: true
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  VR_AUTO_APPROVE: ${{ needs.changes.outputs.mode == 'update' && '--auto-approve' || '' }}
               run: |
                   vr run complete \
                     --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
                     --baseline playwright/snapshots.yml \
-                    $VR_AUTO_APPROVE \
                     --token "$VR_TOKEN"
 
-            - name: Check baseline changes
-              id: check-baseline
-              run: |
-                  if git diff --quiet playwright/snapshots.yml; then
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
-                  else
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                    git add playwright/snapshots.yml
-                  fi
-
-            # UPDATE mode: commit PNGs + baseline together in a single commit
-            - name: Commit screenshot changes
-              if: (steps.check-screenshots.outputs.has-changes == 'true' || steps.check-baseline.outputs.has-changes == 'true') && needs.changes.outputs.mode == 'update'
-              uses: ./.github/actions/commit-snapshots
-              with:
-                  workflow-type: playwright
-                  patch-path: /tmp/screenshot-patches/
-                  snapshot-path: playwright/
-                  commit-message: 'test(e2e): update screenshots'
-                  pr-number: ${{ github.event.pull_request.number }}
-                  repository: ${{ github.repository }}
-                  commit-sha: ${{ github.event.pull_request.head.sha }}
-                  branch-name: ${{ github.event.pull_request.head.ref }}
-                  github-token: ${{ steps.app-token.outputs.token || github.token }}
-
-    # Job to collate the status of the matrix jobs for requiring passing status
-    # Must depend on handle-screenshots to prevent auto-merge before commits complete
+    # Collate test + VR completion status for the required check
     playwright_tests:
-        needs: [playwright, handle-screenshots]
+        needs: [playwright, vr-complete]
         name: Playwright tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: always()
         steps:
-            - name: Check matrix outcome
+            - name: Check outcome
               run: |
-                  # Check playwright matrix result
                   if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
-                    echo "One or more jobs in the Playwright test matrix failed."
+                    echo "Playwright tests failed."
                     exit 1
                   fi
 
-                  # Check handle-screenshots result (OK if skipped, but fail if it failed)
-                  if [[ "${{ needs.handle-screenshots.result }}" == "failure" ]]; then
-                    echo "Screenshot commit job failed."
+                  if [[ "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ]]; then
+                    echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi
-
-                  echo "All jobs passed or were skipped successfully."

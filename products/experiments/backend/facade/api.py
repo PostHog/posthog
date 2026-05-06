@@ -54,7 +54,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
             {
                 "key": variant.key,
                 "name": variant.name,
-                "rollout_percentage": variant.rollout_percentage,
+                "rollout_percentage": variant.split_percent,
             }
             for variant in flag_filters.variants
         ]

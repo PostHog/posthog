@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/events"
+	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/redis/rueidis"
 )
 
@@ -133,17 +134,20 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 			eventTypes = strings.Split(eventType, ",")
 		}
 
+		propertyFilters := parsePropertyFilters(c.QueryParams()["property"])
+
 		subscription := events.Subscription{
-			SubID:         atomic.AddUint64(&subID, 1),
-			TeamId:        teamID,
-			Token:         token,
-			DistinctId:    distinctId,
-			Geo:           geoOnly,
-			Columns:       columns,
-			EventTypes:    eventTypes,
-			EventChan:     make(chan interface{}, 100),
-			ShouldClose:   &atomic.Bool{},
-			DroppedEvents: &atomic.Uint64{},
+			SubID:           atomic.AddUint64(&subID, 1),
+			TeamId:          teamID,
+			Token:           token,
+			DistinctId:      distinctId,
+			Geo:             geoOnly,
+			Columns:         columns,
+			EventTypes:      eventTypes,
+			PropertyFilters: propertyFilters,
+			EventChan:       make(chan interface{}, 100),
+			ShouldClose:     &atomic.Bool{},
+			DroppedEvents:   &atomic.Uint64{},
 		}
 
 		subChan <- subscription
@@ -185,6 +189,24 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 	}
 }
 
+func parsePropertyFilters(raw []string) map[string][]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(raw))
+	for _, entry := range raw {
+		k, v, ok := strings.Cut(entry, "=")
+		if !ok || k == "" {
+			continue
+		}
+		out[k] = append(out[k], v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		claims, err := auth.ParseAuthClaims(c.Request().Header)
@@ -196,6 +218,9 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 			return c.NoContent(http.StatusNoContent)
 		}
 
+		metrics.NotificationSubs.Inc()
+		defer metrics.NotificationSubs.Dec()
+
 		ctx := c.Request().Context()
 		channel := fmt.Sprintf("notifications:%s", claims.OrganizationID)
 
@@ -206,9 +231,11 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 		// Receive respects ctx cancellation — goroutine exits when handler returns.
 		go func() {
 			errCh <- redisClient.Receive(ctx, redisClient.B().Ssubscribe().Channel(channel).Build(), func(msg rueidis.PubSubMessage) {
+				metrics.NotificationMessagesReceivedTotal.Inc()
 				select {
 				case msgCh <- msg.Message:
 				default:
+					metrics.NotificationMessagesDroppedTotal.WithLabelValues("buffer_full").Inc()
 					log.Printf("Notification dropped for user %d: channel buffer full", claims.UserID)
 				}
 			})
@@ -235,8 +262,9 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 				}
 				return nil
 			case msg := <-msgCh:
-				cleaned, ok := filterNotificationForUser(msg, claims.UserID)
+				cleaned, ok, reason := filterNotificationForUser(msg, claims.UserID)
 				if !ok {
+					metrics.NotificationMessagesDroppedTotal.WithLabelValues(reason).Inc()
 					continue
 				}
 				event := Event{Data: []byte(cleaned)}
@@ -244,6 +272,7 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 					return err
 				}
 				w.Flush()
+				metrics.NotificationMessagesDeliveredTotal.Inc()
 			case <-heartbeat.C:
 				event := Event{Comment: []byte("heartbeat")}
 				if err := event.WriteTo(w); err != nil {
@@ -255,38 +284,35 @@ func NotificationsHandler(redisClient rueidis.Client) func(c echo.Context) error
 	}
 }
 
-func filterNotificationForUser(payload string, userID int) (string, bool) {
+// filterNotificationForUser decides whether a message should be delivered to
+// the SSE client for userID. When the message is dropped, the reason is
+// returned so callers can emit a labeled metric.
+func filterNotificationForUser(payload string, userID int) (cleaned string, deliver bool, dropReason string) {
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(payload), &data); err != nil {
-		return "", false
+		return "", false, "malformed_payload"
 	}
 
 	resolvedIDs, ok := data["resolved_user_ids"]
 	if !ok {
-		return "", false
+		return "", false, "malformed_payload"
 	}
 
 	ids, ok := resolvedIDs.([]interface{})
 	if !ok {
-		return "", false
+		return "", false, "malformed_payload"
 	}
 
-	found := false
 	for _, id := range ids {
 		if num, ok := id.(float64); ok && int(num) == userID {
-			found = true
-			break
+			delete(data, "resolved_user_ids")
+			out, err := json.Marshal(data)
+			if err != nil {
+				return "", false, "marshal_error"
+			}
+			return string(out), true, ""
 		}
 	}
 
-	if !found {
-		return "", false
-	}
-
-	delete(data, "resolved_user_ids")
-	cleaned, err := json.Marshal(data)
-	if err != nil {
-		return "", false
-	}
-	return string(cleaned), true
+	return "", false, "wrong_user"
 }

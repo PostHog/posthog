@@ -1822,6 +1822,141 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_order_by_with_fill(self):
+            self.assertEqual(
+                clear_locations(parse_order_expr("timestamp WITH FILL", backend=backend)),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="ASC",
+                    with_fill=ast.WithFillExpr(),
+                ),
+            )
+            self.assertEqual(
+                clear_locations(parse_order_expr("timestamp WITH FILL FROM 1 TO 10 STEP 2", backend=backend)),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="ASC",
+                    with_fill=ast.WithFillExpr(
+                        from_value=ast.Constant(value=1),
+                        to_value=ast.Constant(value=10),
+                        step_value=ast.Constant(value=2),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                clear_locations(parse_order_expr("timestamp DESC WITH FILL FROM 0 TO 100", backend=backend)),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="DESC",
+                    with_fill=ast.WithFillExpr(
+                        from_value=ast.Constant(value=0),
+                        to_value=ast.Constant(value=100),
+                    ),
+                ),
+            )
+            self.assertEqual(
+                clear_locations(parse_order_expr("timestamp WITH FILL STEP 1", backend=backend)),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    order="ASC",
+                    with_fill=ast.WithFillExpr(
+                        step_value=ast.Constant(value=1),
+                    ),
+                ),
+            )
+
+        def test_select_order_by_with_fill(self):
+            self.assertEqual(
+                self._select("select 1 from events ORDER BY timestamp WITH FILL FROM 0 TO 10 STEP 1"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    order_by=[
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=["timestamp"]),
+                            order="ASC",
+                            with_fill=ast.WithFillExpr(
+                                from_value=ast.Constant(value=0),
+                                to_value=ast.Constant(value=10),
+                                step_value=ast.Constant(value=1),
+                            ),
+                        ),
+                    ],
+                ),
+            )
+
+        def test_select_order_by_with_fill_and_interpolate(self):
+            self.assertEqual(
+                self._select("select x, y from events ORDER BY x WITH FILL FROM 0 TO 10 STEP 1 INTERPOLATE (y AS 0)"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"]), ast.Field(chain=["y"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    order_by=[
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=["x"]),
+                            order="ASC",
+                            with_fill=ast.WithFillExpr(
+                                from_value=ast.Constant(value=0),
+                                to_value=ast.Constant(value=10),
+                                step_value=ast.Constant(value=1),
+                            ),
+                        ),
+                    ],
+                    interpolate=[
+                        ast.InterpolateExpr(
+                            expr=ast.Field(chain=["y"]),
+                            value=ast.Constant(value=0),
+                        ),
+                    ],
+                ),
+            )
+
+        def test_select_order_by_with_fill_and_naked_interpolate(self):
+            self.assertEqual(
+                self._select("select x, y from events ORDER BY x WITH FILL FROM 0 TO 10 STEP 1 INTERPOLATE"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"]), ast.Field(chain=["y"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    order_by=[
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=["x"]),
+                            order="ASC",
+                            with_fill=ast.WithFillExpr(
+                                from_value=ast.Constant(value=0),
+                                to_value=ast.Constant(value=10),
+                                step_value=ast.Constant(value=1),
+                            ),
+                        ),
+                    ],
+                    interpolate=[],
+                ),
+            )
+
+        def test_select_order_by_with_fill_and_interpolate_no_as(self):
+            self.assertEqual(
+                self._select("select x, y from events ORDER BY x WITH FILL FROM 0 TO 10 STEP 1 INTERPOLATE (y)"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["x"]), ast.Field(chain=["y"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    order_by=[
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=["x"]),
+                            order="ASC",
+                            with_fill=ast.WithFillExpr(
+                                from_value=ast.Constant(value=0),
+                                to_value=ast.Constant(value=10),
+                                step_value=ast.Constant(value=1),
+                            ),
+                        ),
+                    ],
+                    interpolate=[
+                        ast.InterpolateExpr(
+                            expr=ast.Field(chain=["y"]),
+                        ),
+                    ],
+                ),
+            )
+
         def test_select_order_by(self):
             self.assertEqual(
                 self._select("select 1 from events ORDER BY 1 ASC, event, timestamp DESC"),

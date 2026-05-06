@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
 
-import { JSInstallSnippet } from './js-web'
+import { ReactInstallSnippet } from './js-web'
 
 function RemixExternalImportSnippet(): JSX.Element {
     return (
@@ -30,7 +30,7 @@ export default defineConfig({
     tsconfigPaths(),
   ],
   ssr: {
-    noExternal: ["posthog-js", "posthog-js/react"],
+    noExternal: ["posthog-js", "@posthog/react"],
   },
 });`}
         </CodeSnippet>
@@ -45,7 +45,7 @@ function RemixPHProviderSnippet(): JSX.Element {
         <CodeSnippet language={Language.JavaScript}>
             {`import { useEffect, useState } from "react";
 import posthog from "posthog-js";
-import { PostHogProvider } from "posthog-js/react";
+import { PostHogProvider } from "@posthog/react";
 
 export function PHProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
@@ -110,11 +110,11 @@ export default function App() {
 export function SDKInstallRemixJSInstructions(): JSX.Element {
     return (
         <>
-            <h3>Install posthog-js using your package manager</h3>
-            <JSInstallSnippet />
+            <h3>Install posthog-js and @posthog/react using your package manager</h3>
+            <ReactInstallSnippet />
             <h3>Add PostHog to your app</h3>
             <p>
-                Start by setting <code>posthog-js</code> and <code>posthog-js/react</code> as external packages in your{' '}
+                Start by setting <code>posthog-js</code> and <code>@posthog/react</code> as external packages in your{' '}
                 <code>vite.config.ts</code> file.
             </p>
             <RemixExternalImportSnippet />

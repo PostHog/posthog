@@ -22,6 +22,16 @@ interface MemLensScanner {
     dispose: () => void
 }
 
+export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
+    if (currentCount === 0) {
+        return false
+    }
+    if (previousCount === null) {
+        return true
+    }
+    return currentCount !== previousCount
+}
+
 export function mapToTopN(map: Map<string, number>, limit: number): Record<string, number> {
     const entries = Array.from(map.entries())
     entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -65,7 +75,15 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 trackEventListenerLeaks: false,
             })
 
+            let previousDetachedCount: number | null = null
+
             scan.subscribe((result) => {
+                if (!shouldCaptureDetachedElements(result.totalDetachedElements, previousDetachedCount)) {
+                    previousDetachedCount = result.totalDetachedElements
+                    return
+                }
+                previousDetachedCount = result.totalDetachedElements
+
                 posthog.capture('detached_elements', {
                     total_elements: result.totalElements,
                     detached_elements: result.totalDetachedElements,
@@ -80,6 +98,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 if (document.hidden) {
                     scan.stop()
                 } else {
+                    previousDetachedCount = null
                     scan.start()
                 }
             }

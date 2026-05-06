@@ -2,7 +2,7 @@
 Slack inbound handler for the support/conversations product.
 
 Handles three triggers that create or update tickets from Slack:
-1. Dedicated channel: messages in a configured support channel
+1. Dedicated channels: messages in any configured support channel
 2. Bot mention: @mention the bot to create a ticket
 3. Emoji reaction: react with a configurable emoji to create a ticket from a message
 
@@ -516,9 +516,23 @@ def create_or_update_slack_ticket(
     return ticket
 
 
+def _configured_support_channels(settings: dict) -> set[str]:
+    """Return the set of Slack channel IDs configured for auto-ticket creation.
+
+    Merges the new ``slack_channel_ids`` list with the legacy scalar
+    ``slack_channel_id`` so that teams that haven't re-saved settings after
+    the multi-channel migration still work.
+    """
+    ids = set(settings.get("slack_channel_ids") or [])
+    legacy = settings.get("slack_channel_id")
+    if legacy:
+        ids.add(legacy)
+    return ids
+
+
 def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     """
-    Handle a Slack 'message' event for the dedicated support channel.
+    Handle a Slack 'message' event for configured support channels.
 
     Top-level messages create new tickets.
     Thread replies add messages to existing tickets.
@@ -541,15 +555,15 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         return
 
     settings_dict = team.conversations_settings or {}
-    configured_channel = settings_dict.get("slack_channel_id")
+    configured_channels = _configured_support_channels(settings_dict)
     thread_ts = event.get("thread_ts")
     message_ts = event.get("ts")
 
     if thread_ts:
-        # Thread replies should sync even outside the dedicated channel when a ticket
-        # already exists for that thread (e.g. ticket created via @mention flow).
+        # Thread replies should sync even outside a configured channel when a
+        # ticket already exists for that thread (e.g. ticket created via @mention).
         if not Ticket.objects.filter(team=team, slack_channel_id=channel, slack_thread_ts=thread_ts).exists():
-            if not configured_channel or configured_channel != channel:
+            if channel not in configured_channels:
                 return
 
         # Thread reply -> add message to existing ticket
@@ -566,7 +580,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         )
         return
 
-    if not configured_channel or configured_channel != channel:
+    if channel not in configured_channels:
         return
 
     # Top-level message -> create new ticket, use message ts as thread_ts

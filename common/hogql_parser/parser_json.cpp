@@ -750,7 +750,12 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["group_by_mode"] = "rollup";
       }
     }
-    json["order_by"] = visitAsJSONOrNull(ctx->orderByClause());
+    if (const auto order_by_ctx = ctx->orderByClause()) {
+      json["order_by"] = visitAsJSON(order_by_ctx->orderExprList());
+      if (const auto interpolate_ctx = order_by_ctx->interpolateClause()) {
+        json["interpolate"] = visitJSONArrayOfObjects(interpolate_ctx->interpolateExpr());
+      }
+    }
 
     // Handle window clause
     if (const auto window_clause_ctx = ctx->windowClause()) {
@@ -900,7 +905,11 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(QualifyClause) { return visit(ctx->columnExpr()); }
 
-  VISIT(OrderByClause) { return visit(ctx->orderExprList()); }
+  VISIT(OrderByClause) {
+    // Note: In the select statement, order_by and interpolate are extracted directly.
+    // This visitor is used by withinGroupClause.
+    return visit(ctx->orderExprList());
+  }
 
   VISIT(LimitByClause) {
     // LimitExpr returns either single JSON or a JSON array [limit, offset]
@@ -1264,6 +1273,37 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["expr"] = visitAsJSON(ctx->columnExpr());
     json["order"] = order;
+    if (const auto with_fill_ctx = ctx->withFillClause()) {
+      json["with_fill"] = visitAsJSON(with_fill_ctx);
+    }
+    return json;
+  }
+
+  VISIT(WithFillClause) {
+    Json json = Json::object();
+    json["node"] = "WithFillExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    const auto column_exprs = ctx->columnExpr();
+    size_t idx = 0;
+    if (ctx->FROM()) {
+      json["from_value"] = visitAsJSON(column_exprs[idx++]);
+    }
+    if (ctx->TO()) {
+      json["to_value"] = visitAsJSON(column_exprs[idx++]);
+    }
+    if (ctx->STEP()) {
+      json["step_value"] = visitAsJSON(column_exprs[idx++]);
+    }
+    return json;
+  }
+
+  VISIT(InterpolateExpr) {
+    Json json = Json::object();
+    json["node"] = "InterpolateExpr";
+    if (!is_internal) addPositionInfo(json, ctx);
+    const auto column_exprs = ctx->columnExpr();
+    json["expr"] = visitAsJSON(column_exprs[0]);
+    json["value"] = visitAsJSON(column_exprs[1]);
     return json;
   }
 
@@ -1341,7 +1381,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(WinOrderByClause) { return visit(ctx->orderExprList()); }
 
-  VISIT(WithinGroupClause) { return visit(ctx->orderByClause()); }
+  VISIT(WithinGroupClause) { return visit(ctx->orderByClause()->orderExprList()); }
 
   VISIT(WinFrameClause) { return visit(ctx->winFrameExtend()); }
 

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
 
 import { Button } from './button'
 import {
@@ -102,6 +103,39 @@ export const GroupsAndSeparators: Story = {
             </Select>
         </div>
     ),
+} satisfies Story
+
+export const MultipleSelection: Story = {
+    render: () => {
+        const [value, setValue] = useState<string[]>(['apple', 'blueberry', 'grapes', 'pineapple', 'watermelon'])
+        return (
+            <div className="max-w-64 mt-32">
+                <Select
+                    multiple
+                    value={value}
+                    onValueChange={setValue}
+                    items={fruits}
+                >
+                    <SelectTrigger className="w-full max-w-64" render={<Button variant="outline" />}>
+                        <SelectValue placeholder="Select fruits..." />
+                    </SelectTrigger>
+                    <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                            <SelectGroupLabel>Fruits</SelectGroupLabel>
+                            {fruits.map((item) => (
+                                <SelectItem key={item.value} value={item.value}>
+                                    {item.label}
+                                </SelectItem>
+                            ))}
+                        </SelectGroup>
+                    </SelectContent>
+                </Select>
+                <p className="mt-4 text-xs text-muted-foreground">
+                    Selected: {value.length > 0 ? value.join(', ') : 'none'}
+                </p>
+            </div>
+        )
+    },
 } satisfies Story
 
 export const Disabled: Story = {

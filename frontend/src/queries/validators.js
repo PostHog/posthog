@@ -5967,15 +5967,16 @@ const schema71 = {
 }
 const schema75 = {
     enum: [
-        'cohort',
         'person',
         'event',
         'event_metadata',
         'group',
         'session',
         'hogql',
-        'data_warehouse_person_property',
+        'cohort',
         'revenue_analytics',
+        'data_warehouse',
+        'data_warehouse_person_property',
     ],
     type: 'string',
 }
@@ -6239,15 +6240,16 @@ function validate81(data, { instancePath = '', parentData, parentDataProperty, r
                                         }
                                         if (
                                             !(
-                                                data4 === 'cohort' ||
                                                 data4 === 'person' ||
                                                 data4 === 'event' ||
                                                 data4 === 'event_metadata' ||
                                                 data4 === 'group' ||
                                                 data4 === 'session' ||
                                                 data4 === 'hogql' ||
-                                                data4 === 'data_warehouse_person_property' ||
-                                                data4 === 'revenue_analytics'
+                                                data4 === 'cohort' ||
+                                                data4 === 'revenue_analytics' ||
+                                                data4 === 'data_warehouse' ||
+                                                data4 === 'data_warehouse_person_property'
                                             )
                                         ) {
                                             const err7 = {

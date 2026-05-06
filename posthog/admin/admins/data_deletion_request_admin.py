@@ -11,9 +11,31 @@ from django.utils.html import format_html
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType, jsonhas_expr
+from posthog.models.data_deletion_request import (
+    DataDeletionRequest,
+    ExecutionMode,
+    RequestStatus,
+    RequestType,
+    compile_hogql_predicate,
+    event_match_params,
+    event_match_sql_fragment,
+    jsonhas_expr,
+)
 
-CRITERIA_FIELDS = {"request_type", "events", "properties", "start_time", "end_time"}
+CRITERIA_FIELDS = {
+    "request_type",
+    "events",
+    "delete_all_events",
+    "properties",
+    "start_time",
+    "end_time",
+    "hogql_predicate",
+    "person_uuids",
+    "person_distinct_ids",
+    "person_drop_profiles",
+    "person_drop_events",
+    "person_drop_recordings",
+}
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
 
@@ -126,12 +148,29 @@ class ArrayTextareaField(forms.CharField):
 
 class DataDeletionRequestForm(forms.ModelForm):
     events = ArrayTextareaField(
-        required=True,
-        help_text="One event name per line. You can also paste a JSON array.",
+        required=False,
+        help_text="One event name per line. You can also paste a JSON array. "
+        "Leave empty only when 'delete all events' is set.",
     )
     properties = ArrayTextareaField(
         required=False,
         help_text="One property name per line. You can also paste a JSON array. Required for property removal requests.",
+    )
+    hogql_predicate = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 4, "style": "font-family: monospace; width: 100%;"}),
+        help_text="Optional HogQL boolean expression (validated against the events table). "
+        "Combined with the other filters via AND. Example: properties.$browser = 'Chrome'.",
+    )
+    person_uuids = ArrayTextareaField(
+        required=False,
+        help_text="One person UUID per line. You can also paste a JSON array. "
+        "Combined with person_distinct_ids; total ≤ 1000.",
+    )
+    person_distinct_ids = ArrayTextareaField(
+        required=False,
+        help_text="One person distinct ID per line. You can also paste a JSON array. "
+        "Combined with person_uuids; total ≤ 1000.",
     )
 
     class Meta:
@@ -139,40 +178,79 @@ class DataDeletionRequestForm(forms.ModelForm):
         fields = "__all__"
 
 
+def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
+    """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
+    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    if not hogql_sql:
+        return fragment, params
+    combined = f"{fragment} AND ({hogql_sql})".strip() if fragment else f"AND ({hogql_sql})"
+    params.update(hogql_values)
+    return combined, params
+
+
 def _build_event_filter(obj) -> tuple[str, dict]:
     """Build the WHERE clause and params for matching events."""
-    return "", {
-        "team_id": obj.team_id,
-        "start_time": obj.start_time,
-        "end_time": obj.end_time,
-        "events": obj.events,
-    }
+    return _append_hogql_predicate(event_match_sql_fragment(obj), event_match_params(obj), obj)
 
 
 def _build_property_filter(obj) -> tuple[str, dict]:
     """Build the WHERE clause addition and params for matching properties."""
-    params: dict = {
-        "team_id": obj.team_id,
-        "start_time": obj.start_time,
-        "end_time": obj.end_time,
-        "events": obj.events,
-    }
+    event_clause = event_match_sql_fragment(obj)
+    params: dict = event_match_params(obj)
     properties = obj.properties
     if len(properties) == 1:
-        filter_clause = f"AND {jsonhas_expr(properties[0], 'fp_0')}"
+        property_clause = f"AND {jsonhas_expr(properties[0], 'fp_0')}"
     else:
         exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
-        filter_clause = f"AND ({' OR '.join(exprs)})"
+        property_clause = f"AND ({' OR '.join(exprs)})"
 
     for i, prop in enumerate(properties):
         for j, part in enumerate(prop.split(".")):
             params[f"fp_{i}_{j}"] = part
 
-    return filter_clause, params
+    filter_clause = f"{event_clause} {property_clause}".strip()
+    return _append_hogql_predicate(filter_clause, params, obj)
+
+
+def _event_count_query_template(extra_filter: str) -> str:
+    # Counts run against the distributed ``events`` table so operators get a
+    # cluster-wide number; the actual deletions still target ``sharded_events``.
+    # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
+    return f"""
+            SELECT
+                count() AS events,
+                count(DISTINCT _part) AS parts,
+                min(timestamp) AS min_ts,
+                max(timestamp) AS max_ts
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= %(start_time)s
+              AND timestamp < %(end_time)s
+              {extra_filter}
+            """
+
+
+def build_deletion_count_query(obj: DataDeletionRequest) -> tuple[str, dict]:
+    """Return the (SQL template, params) used to count rows matching this request.
+
+    Mirrors ``_fetch_stats`` so admin users can copy the query and run it
+    independently — ``substitute_params_for_display`` is the companion renderer.
+    """
+    if obj.request_type == RequestType.PROPERTY_REMOVAL:
+        extra_filter, params = _build_property_filter(obj)
+    else:
+        extra_filter, params = _build_event_filter(obj)
+    return _event_count_query_template(extra_filter), params
 
 
 def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
-    """Run event count + parts size queries against ClickHouse."""
+    """Run event count + parts size queries against ClickHouse.
+
+    The same predicate is spliced into both queries: the row count against the
+    Distributed ``events`` proxy, and the parts inspection against the local
+    ``sharded_events``. The HogQL predicate emits unqualified column references,
+    so it works in both contexts.
+    """
     from posthog.clickhouse.client import sync_execute
 
     with tags_context(
@@ -182,21 +260,8 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
         workload=Workload.OFFLINE,
         query_type="delete_event_count",
     ):
-        # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
         event_result = sync_execute(
-            f"""
-            SELECT
-                count() AS events,
-                count(DISTINCT _part) AS parts,
-                min(timestamp) AS min_ts,
-                max(timestamp) AS max_ts
-            FROM sharded_events
-            WHERE team_id = %(team_id)s
-              AND timestamp >= %(start_time)s
-              AND timestamp < %(end_time)s
-              AND event IN %(events)s
-              {extra_filter}
-            """,
+            _event_count_query_template(extra_filter),
             params,
             team_id=team_id,
             readonly=True,
@@ -215,7 +280,7 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
 
         cluster = django_settings.CLICKHOUSE_CLUSTER
 
-        # nosemgrep: clickhouse-fstring-param-audit (extra_filter from internal helpers; cluster from Django settings)
+        # nosemgrep: clickhouse-fstring-param-audit (filter built from internal helpers; cluster from Django settings)
         parts_result = sync_execute(
             f"""
             SELECT
@@ -229,7 +294,6 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
                 WHERE team_id = %(team_id)s
                   AND timestamp >= %(start_time)s
                   AND timestamp < %(end_time)s
-                  AND event IN %(events)s
                   {extra_filter}
             ) AS matched ON p.name = matched.name
             WHERE p.table = 'sharded_events'
@@ -254,8 +318,8 @@ def _fetch_stats(team_id: int, extra_filter: str, params: dict) -> dict:
 
 def fetch_event_deletion_stats(obj: DataDeletionRequest):
     """Count events and affected parts for an event removal request."""
-    _, params = _build_event_filter(obj)
-    return _fetch_stats(obj.team_id, "", params)
+    extra_filter, params = _build_event_filter(obj)
+    return _fetch_stats(obj.team_id, extra_filter, params)
 
 
 def fetch_property_deletion_stats(obj: DataDeletionRequest):
@@ -285,6 +349,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "end_time",
         "created_by",
         "approved",
+        "attempt_count",
+        "last_executed_at",
         "created_at",
     )
     list_filter = ("request_type", "status", "requires_approval", "approved")
@@ -306,6 +372,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "approved",
         "approved_by",
         "approved_at",
+        "execution_mode",
+        "attempt_count",
+        "first_executed_at",
+        "last_executed_at",
+        "rendered_count_query",
     )
     ordering = ("-created_at",)
     change_form_template = "admin/posthog/datadeletionrequest/change_form.html"
@@ -321,10 +392,26 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "start_time",
                     "end_time",
                     "events",
+                    "delete_all_events",
                     "properties",
+                    "hogql_predicate",
                     "notes",
                     "requires_approval",
                 ),
+            },
+        ),
+        (
+            "Person targets",
+            {
+                "fields": (
+                    "person_uuids",
+                    "person_distinct_ids",
+                    "person_drop_profiles",
+                    "person_drop_events",
+                    "person_drop_recordings",
+                ),
+                "classes": ("data-deletion-person-fields",),
+                "description": "Only used for person_removal requests.",
             },
         ),
         (
@@ -338,6 +425,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "min_timestamp",
                     "max_timestamp",
                     "stats_calculated_at",
+                    "rendered_count_query",
                 ),
                 "description": "Populated by executing a ClickHouse query. Not editable.",
             },
@@ -354,14 +442,36 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "approved",
                     "approved_by",
                     "approved_at",
+                    "execution_mode",
+                    "attempt_count",
+                    "first_executed_at",
+                    "last_executed_at",
                 ),
             },
         ),
     )
 
+    @admin.display(description="Count query (ready to paste)")
+    def rendered_count_query(self, obj: DataDeletionRequest) -> str:
+        """Show the fully-substituted ClickHouse COUNT query operators can copy/paste."""
+        from posthog.clickhouse.client.escape import substitute_params_for_display
+
+        if obj.pk is None or not obj.team_id or not obj.start_time or not obj.end_time:
+            return "—"
+        try:
+            template, params = build_deletion_count_query(obj)
+            rendered = substitute_params_for_display(template, params)
+        except Exception as exc:
+            return format_html("<em>Could not render query: {}</em>", str(exc))
+        return format_html(
+            '<pre style="white-space: pre-wrap; background: #f5f5f5; padding: 8px;">{}</pre>',
+            rendered,
+        )
+
     def save_model(self, request, obj, form, change):
         if not change:
             obj.created_by = request.user
+            obj.created_by_staff = request.user.is_staff
         elif form.changed_data and CRITERIA_FIELDS & set(form.changed_data):
             obj.criteria_updated_by = request.user
             obj.criteria_updated_at = timezone.now()
@@ -378,6 +488,29 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if obj.request_type == RequestType.EVENT_REMOVAL and obj.properties:
             obj.properties = []
             messages.info(request, "Properties cleared — event removal requests do not use properties.")
+        if obj.request_type == RequestType.PERSON_REMOVAL and (
+            obj.events or obj.delete_all_events or obj.hogql_predicate
+        ):
+            obj.events = []
+            obj.delete_all_events = False
+            obj.hogql_predicate = ""
+            messages.info(
+                request,
+                "Event filters cleared — person removal requests do not use events/hogql_predicate.",
+            )
+        if obj.request_type != RequestType.PERSON_REMOVAL and (
+            obj.person_uuids
+            or obj.person_distinct_ids
+            or obj.person_drop_profiles
+            or obj.person_drop_events
+            or obj.person_drop_recordings
+        ):
+            obj.person_uuids = []
+            obj.person_distinct_ids = []
+            obj.person_drop_profiles = None
+            obj.person_drop_events = None
+            obj.person_drop_recordings = None
+            messages.info(request, "Person targets cleared — only person_removal requests use them.")
         super().save_model(request, obj, form, change)
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
@@ -386,6 +519,15 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if obj:
             if obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties:
                 messages.warning(request, "This is a property removal request but no properties are specified.")
+            if obj.request_type == RequestType.PERSON_REMOVAL:
+                if not (obj.person_uuids or obj.person_distinct_ids):
+                    messages.warning(request, "This is a person removal request but no person targets are specified.")
+                elif not (obj.person_drop_profiles or obj.person_drop_events or obj.person_drop_recordings):
+                    messages.warning(
+                        request,
+                        "This person removal request has no drop flag set "
+                        "(profiles/events/recordings) — nothing will be deleted.",
+                    )
             extra_context["is_draft"] = obj.status == RequestStatus.DRAFT
             extra_context["submit_url"] = reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk])
             extra_context["can_approve"] = (
@@ -396,6 +538,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             extra_context["revert_to_draft_url"] = reverse(
                 "admin:posthog_datadeletionrequest_revert_to_draft", args=[obj.pk]
             )
+            extra_context["can_retry"] = (
+                obj.status == RequestStatus.FAILED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+            )
+            extra_context["retry_url"] = reverse("admin:posthog_datadeletionrequest_retry", args=[obj.pk])
         return super().change_view(request, object_id, form_url, extra_context)
 
     def get_urls(self):
@@ -421,6 +567,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.revert_to_draft_view),
                 name="posthog_datadeletionrequest_revert_to_draft",
             ),
+            path(
+                "<path:object_id>/retry/",
+                self.admin_site.admin_view(self.retry_view),
+                name="posthog_datadeletionrequest_retry",
+            ),
         ]
         return custom_urls + urls
 
@@ -434,11 +585,29 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         missing_properties = obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties
-        can_submit = not missing_properties
+        missing_person_selectors = obj.request_type == RequestType.PERSON_REMOVAL and not (
+            obj.person_uuids or obj.person_distinct_ids
+        )
+        missing_person_drop_flag = obj.request_type == RequestType.PERSON_REMOVAL and not (
+            obj.person_drop_profiles or obj.person_drop_events or obj.person_drop_recordings
+        )
+        can_submit = not (missing_properties or missing_person_selectors or missing_person_drop_flag)
 
         if request.method == "POST":
-            if not can_submit:
+            if missing_properties:
                 messages.error(request, "Cannot submit: property removal request requires at least one property.")
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+            if missing_person_selectors:
+                messages.error(
+                    request,
+                    "Cannot submit: person removal request requires at least one person UUID or distinct ID.",
+                )
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+            if missing_person_drop_flag:
+                messages.error(
+                    request,
+                    "Cannot submit: person removal request requires at least one drop flag (profiles/events/recordings).",
+                )
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
             updated = DataDeletionRequest.objects.filter(
                 pk=obj.pk,
@@ -459,6 +628,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             **self.admin_site.each_context(request),
             "obj": obj,
             "missing_properties": missing_properties,
+            "missing_person_selectors": missing_person_selectors,
+            "missing_person_drop_flag": missing_person_drop_flag,
+            "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
             "can_submit": can_submit,
             "fetch_stats_url": reverse("admin:posthog_datadeletionrequest_fetch_stats", args=[obj.pk]),
             "opts": self.model._meta,
@@ -472,6 +644,15 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
 
         if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+        if obj.request_type == RequestType.PERSON_REMOVAL:
+            # No ClickHouse query yet for person_removal — just count selectors.
+            obj.count = len(obj.person_uuids) + len(obj.person_distinct_ids)
+            obj.stats_calculated_at = timezone.now()
+            obj.save(update_fields=["count", "stats_calculated_at", "updated_at"])
+            self.log_change(request, obj, "Counted person_removal selectors.")
+            messages.success(request, f"Selector count: {obj.count} person target(s).")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
 
         try:
@@ -511,28 +692,56 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can approve deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        if request.method != "POST":
+        supports_deferred = obj.request_type == RequestType.EVENT_REMOVAL
+
+        if request.method == "POST":
+            execution_mode = request.POST.get("execution_mode", ExecutionMode.IMMEDIATE)
+            if obj.request_type == RequestType.PERSON_REMOVAL:
+                # person_removal is always IMMEDIATE — ignore any submitted value.
+                execution_mode = ExecutionMode.IMMEDIATE
+            if execution_mode not in ExecutionMode.values:
+                messages.error(request, f"Invalid execution mode: {execution_mode!r}.")
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk]))
+            if execution_mode == ExecutionMode.DEFERRED and not supports_deferred:
+                messages.error(request, "Deferred execution is only supported for event removal requests.")
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk]))
+
+            updated = DataDeletionRequest.objects.filter(
+                pk=obj.pk,
+                status=RequestStatus.PENDING,
+            ).update(
+                status=RequestStatus.APPROVED,
+                approved=True,
+                approved_by=request.user,
+                approved_at=timezone.now(),
+                execution_mode=execution_mode,
+                updated_at=timezone.now(),
+            )
+
+            if not updated:
+                messages.error(request, "Only pending requests can be approved.")
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+            obj.refresh_from_db()
+            self.log_change(request, obj, f"Approved deletion request (execution_mode={execution_mode}).")
+            messages.success(request, f"Deletion request approved ({obj.get_execution_mode_display()}).")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        updated = DataDeletionRequest.objects.filter(
-            pk=obj.pk,
-            status=RequestStatus.PENDING,
-        ).update(
-            status=RequestStatus.APPROVED,
-            approved=True,
-            approved_by=request.user,
-            approved_at=timezone.now(),
-            updated_at=timezone.now(),
-        )
-
-        if not updated:
+        if obj.status != RequestStatus.PENDING:
             messages.error(request, "Only pending requests can be approved.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        obj.refresh_from_db()
-        self.log_change(request, obj, "Approved deletion request.")
-        messages.success(request, "Deletion request approved.")
-        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+        context = {
+            **self.admin_site.each_context(request),
+            "obj": obj,
+            "supports_deferred": supports_deferred,
+            "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
+            "execution_mode_choices": ExecutionMode.choices,
+            "default_execution_mode": ExecutionMode.IMMEDIATE,
+            "opts": self.model._meta,
+            "title": f"Approve deletion request {obj.pk}",
+        }
+        return TemplateResponse(request, "admin/posthog/datadeletionrequest/approve.html", context)
 
     def revert_to_draft_view(self, request, object_id):
         obj = self.get_object(request, object_id)
@@ -560,4 +769,37 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         obj.refresh_from_db()
         self.log_change(request, obj, "Reverted to draft: cleared approval.")
         messages.success(request, "Request moved back to draft.")
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+    def retry_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
+            messages.error(request, "Only ClickHouse Team members can retry deletion requests.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        # Re-promote FAILED → APPROVED so the pickup sensor relaunches the job.
+        # approved_by / approved_at are preserved — the retry re-executes the same approval.
+        # attempt_count and last_executed_at are bumped by the load_* op when execution actually starts.
+        updated = DataDeletionRequest.objects.filter(
+            pk=obj.pk,
+            status=RequestStatus.FAILED,
+        ).update(status=RequestStatus.APPROVED, updated_at=timezone.now())
+
+        if not updated:
+            messages.error(request, "Only failed requests can be retried.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        obj.refresh_from_db()
+        next_attempt = obj.attempt_count + 1
+        self.log_change(request, obj, f"Retry triggered (attempt #{next_attempt}): status FAILED → APPROVED.")
+        messages.success(
+            request,
+            "Request requeued. The pickup sensor will launch a new run on its next tick.",
+        )
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))

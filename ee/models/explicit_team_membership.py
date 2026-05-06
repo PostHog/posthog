@@ -24,7 +24,7 @@ class ExplicitTeamMembership(UUIDTModel):
         related_name="explicit_team_memberships",
         related_query_name="explicit_team_membership",
     )
-    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -42,6 +42,6 @@ class ExplicitTeamMembership(UUIDTModel):
     @property
     def effective_level(self) -> "OrganizationMembership.Level":
         """If organization level is higher than project level, then that takes precedence over explicit project level."""
-        return max(self.level, self.parent_membership.level)
+        return OrganizationMembership.Level(max(self.level, self.parent_membership.level))
 
     __repr__ = sane_repr("team", "parent_membership", "level")

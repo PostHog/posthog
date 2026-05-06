@@ -136,7 +136,24 @@ class MyView(APIView):
 )
 ```
 
-## 7. Unannotated SerializerMethodField
+## 7. Wrong 204 No Content response annotation
+
+```python
+# Before — OpenApiTypes.NONE produces {"schema": null}, which is invalid OpenAPI
+# and breaks Orval validation
+@extend_schema(responses={204: OpenApiTypes.NONE})
+def delete(self, request, **kwargs):
+    ...
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+# After — None means "no response body", which is correct for 204
+@extend_schema(responses={204: None})
+def delete(self, request, **kwargs):
+    ...
+    return Response(status=status.HTTP_204_NO_CONTENT)
+```
+
+## 8. Unannotated SerializerMethodField
 
 ```python
 # Before — return type is unknown in OpenAPI
@@ -159,7 +176,7 @@ class TeamSerializer(serializers.ModelSerializer):
         return obj.members.count()
 ```
 
-## 8. Custom @action without schema annotation
+## 9. Custom @action without schema annotation
 
 ```python
 # Before — MCP tool gets zero parameters
@@ -183,7 +200,7 @@ def evaluate(self, request, **kwargs):
     ...
 ```
 
-## 9. CharField where ChoiceField is appropriate
+## 10. CharField where ChoiceField is appropriate
 
 ```python
 # Before — any string accepted, agents guess at values
@@ -196,7 +213,7 @@ status = serializers.ChoiceField(
 )
 ```
 
-## 10. Same serializer for read and write with computed fields
+## 11. Same serializer for read and write with computed fields
 
 ```python
 # Before — computed fields cause validation errors on write

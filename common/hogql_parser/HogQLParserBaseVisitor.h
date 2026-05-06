@@ -175,6 +175,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitInterpolateClause(HogQLParser::InterpolateClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitProjectionOrderByClause(HogQLParser::ProjectionOrderByClauseContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -264,6 +268,14 @@ public:
   }
 
   virtual std::any visitOrderExpr(HogQLParser::OrderExprContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitWithFillClause(HogQLParser::WithFillClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitInterpolateExpr(HogQLParser::InterpolateExprContext *ctx) override {
     return visitChildren(ctx);
   }
 

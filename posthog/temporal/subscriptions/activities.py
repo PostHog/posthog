@@ -1,22 +1,48 @@
+import json
+import uuid
+import typing
 import datetime as dt
+from datetime import datetime
+
+from django.utils import timezone as tz
 
 import temporalio.activity
 from slack_sdk.errors import SlackApiError
 from structlog import get_logger
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.subscription import Subscription
+from posthog.models.insight import Insight
+from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.sync import database_sync_to_async
+from posthog.temporal.subscriptions.insight_snapshot import (
+    build_initial_content_snapshot,
+    build_insight_delivery_snapshot,
+)
 from posthog.temporal.subscriptions.types import (
+    CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
+    DeliverSubscriptionResult,
     FetchDueSubscriptionsActivityInputs,
+    RecipientResult,
+    SubscriptionAbortInfo,
     SubscriptionInfo,
+    UpdateDeliveryRecordInputs,
 )
 
-from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TYPES, _capture_delivery_failed_event
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
+from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
+from ee.tasks.subscriptions.auto_disable import (
+    SLACK_DISCONNECTED_DISABLE_REASON,
+    UNSUPPORTED_TARGET_DISABLE_REASON,
+    DisableReason,
+    disable_invalid_subscription,
+    get_subscription_disable_reason,
+)
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
     get_slack_integration_for_team,
@@ -24,6 +50,93 @@ from ee.tasks.subscriptions.slack_subscriptions import (
 )
 
 LOGGER = get_logger(__name__)
+
+# Used only as the recipient_results error message — `no_assets` doesn't auto-disable
+# (it indicates a transient resolve failure that retries can recover from).
+NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
+
+
+async def _resolve_target_delivery_id(inputs: CreateExportAssetsInputs) -> uuid.UUID | None:
+    """Find the SubscriptionDelivery row that create_export_assets should write to.
+
+    Priority order:
+    1. `inputs.delivery_id` set by the steady-state workflow — use it directly.
+    2. Look up by the current activity's workflow_id (handles pre-rollout
+       workflow retries that replay the old input shape without delivery_id).
+    3. None — standalone callers (tests, management commands) proceed without
+       persisting the snapshot.
+    """
+    if inputs.delivery_id is not None:
+        return inputs.delivery_id
+
+    try:
+        workflow_id = temporalio.activity.info().workflow_id
+    except RuntimeError:
+        # Not running inside a Temporal activity (e.g. unit test calling directly)
+        return None
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _lookup() -> tuple[uuid.UUID | None, int]:
+        qs = SubscriptionDelivery.objects.filter(
+            temporal_workflow_id=workflow_id,
+            subscription_id=inputs.subscription_id,
+            finished_at__isnull=True,
+        ).order_by("-created_at")
+        total = qs.count()
+        row = qs.values_list("id", flat=True).first()
+        return row, total
+
+    row, total = await _lookup()
+    if total > 1:
+        # Multiple unfinished delivery rows for the same workflow_id is a
+        # surprise invariant violation — surface it rather than silently picking
+        # the newest. Could indicate a failed prior run or a workflow_id reuse.
+        await LOGGER.awarning(
+            "create_export_assets.workflow_id_lookup_ambiguous",
+            subscription_id=inputs.subscription_id,
+            workflow_id=workflow_id,
+            match_count=total,
+            picked=str(row) if row else None,
+        )
+    if row is None:
+        # Inside an activity context and the fallback lookup found nothing —
+        # this path should never fire in steady state (create_delivery_record
+        # always runs first). Canary for a regression back to the old
+        # shuttle-through-Temporal flow.
+        await LOGGER.awarning(
+            "create_export_assets.delivery_row_not_found",
+            subscription_id=inputs.subscription_id,
+            workflow_id=workflow_id,
+        )
+    return row
+
+
+async def _persist_content_snapshot(
+    *,
+    delivery_id: uuid.UUID,
+    total_insight_count: int,
+    insight_snapshots: list[dict[str, typing.Any]],
+) -> int:
+    """Merge insight snapshots onto SubscriptionDelivery.content_snapshot.
+
+    Returns the serialized size of the insight_snapshots payload so callers can
+    log it — the whole point of owning this write is staying under size cliffs,
+    so measuring proximity to the next one is worth the cycles.
+    """
+    snapshot_bytes = len(json.dumps(insight_snapshots, default=str).encode("utf-8"))
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _merge() -> None:
+        delivery = SubscriptionDelivery.objects.get(pk=delivery_id)
+        delivery.content_snapshot = {
+            **(delivery.content_snapshot or {}),
+            "total_insight_count": total_insight_count,
+            "insights": insight_snapshots,
+        }
+        delivery.save(update_fields=["content_snapshot", "last_updated_at"])
+
+    await _merge()
+    return snapshot_bytes
 
 
 @temporalio.activity.defn
@@ -40,17 +153,53 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 distinct_id=str(sub["created_by__distinct_id"])
                 if sub["created_by__distinct_id"]
                 else str(sub["team_id"]),
+                next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
             )
-            for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
+            for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
             .exclude(dashboard__deleted=True)
             .exclude(insight__deleted=True)
-            .values("id", "team_id", "created_by__distinct_id")
+            .values("id", "team_id", "created_by__distinct_id", "next_delivery_date")
         ]
 
     subscriptions = await get_subscriptions()
     await LOGGER.ainfo("Fetched due subscriptions", count=len(subscriptions))
 
     return subscriptions
+
+
+@temporalio.activity.defn
+async def validate_subscription_for_delivery(subscription_id: int) -> SubscriptionAbortInfo | None:
+    """Returns abort info when delivery should not proceed; None to continue."""
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("created_by", "integration").get,
+        thread_sensitive=False,
+    )(pk=subscription_id)
+
+    # Idempotency: a Temporal redispatch (e.g. worker crash mid-acknowledge) after a
+    # prior auto-disable committed must not re-fire side effects.
+    if not subscription.enabled:
+        await LOGGER.ainfo("validate_subscription.already_disabled_skipping", subscription_id=subscription_id)
+        return SubscriptionAbortInfo()
+
+    reason = get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
+    if reason is None:
+        return None
+
+    LOGGER.warning(
+        "validate_subscription.invalid_auto_disabling",
+        subscription_id=subscription_id,
+        target_type=subscription.target_type,
+        reason=reason.key,
+    )
+    _capture_delivery_failed_event(subscription, Exception(reason.description))
+    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
+    return SubscriptionAbortInfo(
+        failed_recipient=RecipientResult(
+            recipient=subscription.target_value,
+            status="failed",
+            error={"message": reason.description, "type": reason.key},
+        )
+    )
 
 
 @temporalio.activity.defn
@@ -101,7 +250,9 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
                 (x.layouts or {}).get("sm", {}).get("x", 100),
             )
         )
-        insights = [tile.insight for tile in tiles if tile.insight]
+        tile_insight_pairs: list[tuple[DashboardTile | None, Insight]] = [
+            (tile, tile.insight) for tile in tiles if tile.insight
+        ]
 
         selected_ids = await database_sync_to_async(
             lambda: (
@@ -112,11 +263,14 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             thread_sensitive=False,
         )()
         if selected_ids:
-            insights = [i for i in insights if i.id in selected_ids]
+            tile_insight_pairs = [(t, i) for t, i in tile_insight_pairs if i.id in selected_ids]
     elif subscription.insight:
-        insights = [subscription.insight]
+        tile_insight_pairs = [(None, subscription.insight)]
     else:
         raise Exception("There are no insights to be sent for this Subscription")
+
+    total_insight_count = len(tile_insight_pairs)
+    export_pairs = tile_insight_pairs[: inputs.max_asset_count]
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
     assets = [
@@ -127,31 +281,100 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             dashboard=dashboard,
             expires_after=expiry,
         )
-        for insight in insights[: inputs.max_asset_count]
+        for _tile, insight in export_pairs
     ]
     await database_sync_to_async(ExportedAsset.objects.bulk_create, thread_sensitive=False)(assets)
+
+    @database_sync_to_async(thread_sensitive=False)
+    def build_insight_snapshots() -> list[dict[str, typing.Any]]:
+        return [
+            build_insight_delivery_snapshot(
+                insight=insight,
+                team=team,
+                dashboard=dashboard,
+                tile=tile,
+                user=subscription.created_by,
+            )
+            for tile, insight in export_pairs
+        ]
+
+    insight_snapshots = await build_insight_snapshots()
+
+    # Persist insight snapshots directly on SubscriptionDelivery.content_snapshot
+    # instead of returning them across the Temporal activity boundary — per-insight
+    # query_results can reach multi-MB and will trip Temporal's ~2 MiB payload cap.
+    #
+    # Resolve the target row. In the steady state the workflow passes delivery_id
+    # directly. For pre-rollout workflow retries replaying the old input shape
+    # (no delivery_id) and standalone callers, fall back to locating the row via
+    # the activity's workflow_id so we don't silently drop the snapshot.
+    target_delivery_id = await _resolve_target_delivery_id(inputs)
+    if target_delivery_id is not None:
+        snapshot_bytes = await _persist_content_snapshot(
+            delivery_id=target_delivery_id,
+            total_insight_count=total_insight_count,
+            insight_snapshots=insight_snapshots,
+        )
+        await LOGGER.ainfo(
+            "create_export_assets.content_snapshot_persisted",
+            subscription_id=inputs.subscription_id,
+            delivery_id=str(target_delivery_id),
+            insight_count=len(insight_snapshots),
+            snapshot_bytes=snapshot_bytes,
+        )
 
     await LOGGER.ainfo(
         "create_export_assets.assets_created",
         subscription_id=inputs.subscription_id,
         asset_count=len(assets),
-        total_insights=len(insights),
+        total_insights=total_insight_count,
     )
     return CreateExportAssetsResult(
         exported_asset_ids=[a.id for a in assets],
-        total_insight_count=len(insights),
+        total_insight_count=total_insight_count,
         team_id=team.id,
         distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
         target_type=subscription.target_type,
     )
 
 
+async def _auto_disable_and_return(
+    subscription: Subscription,
+    reason: DisableReason,
+    recipient_results: list[RecipientResult],
+) -> DeliverSubscriptionResult:
+    """Permanent-failure exit path: record per-recipient failure, capture analytics,
+    and auto-disable the subscription."""
+    recipient_results.append(
+        RecipientResult(
+            recipient=subscription.target_value,
+            status="failed",
+            error={"message": reason.description, "type": reason.key},
+        )
+    )
+    # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
+    # so a plain Exception conveys the same info without implying retry semantics.
+    _capture_delivery_failed_event(subscription, Exception(reason.description))
+    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
+    return DeliverSubscriptionResult(recipient_results=recipient_results)
+
+
 @temporalio.activity.defn
-async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
+async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
+    recipient_results: list[RecipientResult] = []
+
     subscription = await database_sync_to_async(
         Subscription.objects.select_related("created_by", "insight", "dashboard", "team", "integration").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
+
+    # Activity-retry idempotency: if a previous attempt already auto-disabled this
+    # subscription (UPDATE committed) and Temporal redispatched the activity (e.g.
+    # worker crash mid-acknowledge), don't re-fire the disable side effects — UUID4
+    # campaign keys mean MessagingRecord wouldn't dedup the duplicate email.
+    if not subscription.enabled:
+        LOGGER.info("deliver_subscription.skipped_disabled", subscription_id=inputs.subscription_id)
+        return DeliverSubscriptionResult(recipient_results=[])
 
     await LOGGER.ainfo(
         "deliver_subscription.starting",
@@ -161,13 +384,16 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
         is_new=inputs.is_new_subscription_target,
     )
 
-    if subscription.target_type not in SUPPORTED_TARGET_TYPES:
+    if (
+        get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
+        == UNSUPPORTED_TARGET_DISABLE_REASON
+    ):
         LOGGER.warning(
             "deliver_subscription.unsupported_target",
             subscription_id=inputs.subscription_id,
             target_type=subscription.target_type,
         )
-        return
+        return await _auto_disable_and_return(subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results)
 
     assets_by_id = await database_sync_to_async(
         lambda: {
@@ -182,9 +408,25 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
     assets = [assets_by_id[aid] for aid in inputs.exported_asset_ids if aid in assets_by_id]
 
     if not assets:
+        # Empty here means non-empty exported_asset_ids didn't resolve from DB — a
+        # transient condition (TTL sweep, prior export crash, S3 race). Genuine
+        # deletion is filtered upstream in create_export_assets and the workflow
+        # short-circuits to SKIPPED before this activity runs. Don't auto-disable;
+        # the failure is observable via the `subscription_delivery_failed` analytics
+        # event and the next scheduled delivery retries.
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
-        capture_exception(Exception("No assets are in this subscription"), {"subscription_id": inputs.subscription_id})
-        return
+        recipient_results.append(
+            RecipientResult(
+                recipient=subscription.target_value,
+                status="failed",
+                error={"message": NO_ASSETS_REASON, "type": "no_assets"},
+            )
+        )
+        # Plain Exception — `_capture_delivery_failed_event` only reads `str(e)` and
+        # `type(e).__name__`, and the activity returns cleanly so retry semantics on
+        # ApplicationError would be misleading (matches `_auto_disable_and_return`).
+        _capture_delivery_failed_event(subscription, Exception(NO_ASSETS_REASON))
+        return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     if subscription.target_type == "email":
         emails = subscription.target_value.split(",")
@@ -208,8 +450,10 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                     invite_message=inputs.invite_message or "" if inputs.is_new_subscription_target else None,
                     total_asset_count=inputs.total_insight_count,
                     send_async=False,
+                    change_summary=inputs.change_summary,
                 )
                 success_count += 1
+                recipient_results.append(RecipientResult(recipient=email, status="success"))
             except Exception as e:
                 _capture_delivery_failed_event(subscription, e)
                 LOGGER.error(
@@ -222,6 +466,13 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                 )
                 capture_exception(e)
                 last_error = e
+                recipient_results.append(
+                    RecipientResult(
+                        recipient=email,
+                        status="failed",
+                        error={"message": str(e), "type": type(e).__name__},
+                    )
+                )
 
         await LOGGER.ainfo(
             "deliver_subscription.email_complete",
@@ -258,7 +509,10 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                     "deliver_subscription.no_slack_integration",
                     subscription_id=inputs.subscription_id,
                 )
-                return
+                # Slack integration disconnected — auto-disable, mirrors the alert pattern.
+                return await _auto_disable_and_return(
+                    subscription, SLACK_DISCONNECTED_DISABLE_REASON, recipient_results
+                )
 
             LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)
             delivery_result = await send_slack_message_with_integration_async(
@@ -267,6 +521,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                 assets,
                 total_asset_count=inputs.total_insight_count,
                 is_new_subscription=inputs.is_new_subscription_target,
+                change_summary=inputs.change_summary,
             )
 
             if delivery_result.is_complete_success:
@@ -274,6 +529,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                     "deliver_subscription.slack_sent",
                     subscription_id=inputs.subscription_id,
                 )
+                recipient_results.append(RecipientResult(recipient=subscription.target_value, status="success"))
             elif delivery_result.is_partial_failure:
                 await LOGGER.awarning(
                     "deliver_subscription.slack_partial_failure",
@@ -281,7 +537,19 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                     failed_thread_count=len(delivery_result.failed_thread_message_indices),
                     total_thread_count=delivery_result.total_thread_messages,
                 )
+                recipient_results.append(
+                    RecipientResult(
+                        recipient=subscription.target_value,
+                        status="partial",
+                        error={
+                            "message": f"{len(delivery_result.failed_thread_message_indices)} thread message(s) failed",
+                            "type": "partial_thread_failure",
+                        },
+                    )
+                )
 
+        except ApplicationError:
+            raise
         except Exception as e:
             is_user_config_error = isinstance(e, SlackApiError) and e.response.get("error") in SLACK_USER_CONFIG_ERRORS
             _capture_delivery_failed_event(subscription, e)
@@ -293,6 +561,13 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
                 exc_info=True,
             )
             capture_exception(e)
+            recipient_results.append(
+                RecipientResult(
+                    recipient=subscription.target_value,
+                    status="failed",
+                    error={"message": str(e), "type": type(e).__name__},
+                )
+            )
             if not is_user_config_error:
                 raise  # Transient Slack errors — let Temporal retry
 
@@ -301,11 +576,97 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> None:
         subscription_id=inputs.subscription_id,
         target_type=subscription.target_type,
     )
+    return DeliverSubscriptionResult(recipient_results=recipient_results)
+
+
+@temporalio.activity.defn
+async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUID:
+    scheduled_at = datetime.fromisoformat(inputs.scheduled_at) if inputs.scheduled_at else None
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _create() -> uuid.UUID:
+        subscription = Subscription.objects.select_related("insight", "dashboard").get(pk=inputs.subscription_id)
+        if subscription.team_id != inputs.team_id:
+            raise ValueError(
+                f"Subscription team_id ({subscription.team_id}) does not match inputs.team_id ({inputs.team_id})"
+            )
+
+        content_snapshot = build_initial_content_snapshot(subscription)
+
+        delivery, _created = SubscriptionDelivery.objects.get_or_create(
+            idempotency_key=inputs.idempotency_key,
+            defaults={
+                "subscription": subscription,
+                "team_id": inputs.team_id,
+                "temporal_workflow_id": inputs.temporal_workflow_id,
+                "trigger_type": inputs.trigger_type,
+                "scheduled_at": scheduled_at,
+                "target_type": subscription.target_type,
+                "target_value": subscription.target_value,
+                "content_snapshot": content_snapshot,
+                "status": SubscriptionDelivery.Status.STARTING,
+            },
+        )
+        return delivery.id
+
+    delivery_id = await _create()
+    await LOGGER.ainfo(
+        "create_delivery_record.created",
+        subscription_id=inputs.subscription_id,
+        delivery_id=delivery_id,
+    )
+    return delivery_id
+
+
+@temporalio.activity.defn
+async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
+    @database_sync_to_async(thread_sensitive=False)
+    def _update() -> None:
+        delivery = SubscriptionDelivery.objects.get(pk=inputs.delivery_id)
+        update_fields: list[str] = ["status", "last_updated_at"]
+        delivery.status = inputs.status
+
+        if inputs.exported_asset_ids is not None:
+            delivery.exported_asset_ids = inputs.exported_asset_ids
+            update_fields.append("exported_asset_ids")
+        if inputs.content_snapshot is not None:
+            # Rolling-deploy compat: an in-flight pre-rollout workflow may still
+            # issue this call with a populated content_snapshot (from the old
+            # Phase 2.5 early-write). Merge so its insights aren't lost while the
+            # old workflow finishes draining. New workflows do not populate this
+            # field — the snapshot is written from inside create_export_assets.
+            delivery.content_snapshot = {**(delivery.content_snapshot or {}), **inputs.content_snapshot}
+            update_fields.append("content_snapshot")
+        if inputs.recipient_results is not None:
+            delivery.recipient_results = inputs.recipient_results
+            update_fields.append("recipient_results")
+        if inputs.change_summary is not None:
+            delivery.change_summary = inputs.change_summary
+            update_fields.append("change_summary")
+        delivery.error = inputs.error
+        update_fields.append("error")
+        if inputs.finished:
+            delivery.finished_at = tz.now()
+            update_fields.append("finished_at")
+
+        delivery.save(update_fields=update_fields)
+
+    await _update()
+    await LOGGER.ainfo(
+        "update_delivery_record.updated",
+        delivery_id=inputs.delivery_id,
+        status=inputs.status,
+    )
 
 
 @temporalio.activity.defn
 async def advance_next_delivery_date(subscription_id: int) -> None:
     subscription = await database_sync_to_async(Subscription.objects.get, thread_sensitive=False)(pk=subscription_id)
+    # Disabled subs (e.g. auto-disabled this run / paused by user) don't get a
+    # future delivery date — avoids showing a misleading "next delivery" in the UI.
+    if not subscription.enabled:
+        await LOGGER.ainfo("advance_next_delivery_date.skipped_disabled", subscription_id=subscription_id)
+        return
     subscription.set_next_delivery_date(subscription.next_delivery_date)
     await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
     await LOGGER.ainfo(

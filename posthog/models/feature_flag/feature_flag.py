@@ -33,6 +33,10 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+def default_filters() -> dict:
+    return {"groups": []}
+
+
 class FeatureFlagManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)
@@ -45,7 +49,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         blank=True
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
-    filters = models.JSONField(default=dict)
+    filters = models.JSONField(default=default_filters)
     # DEPRECATED: rollout percentage now lives in filters["groups"][N]["rollout_percentage"]
     rollout_percentage = deprecate_field(models.IntegerField(null=True, blank=True))
 

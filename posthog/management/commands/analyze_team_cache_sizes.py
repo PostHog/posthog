@@ -78,11 +78,12 @@ class Command(BaseHyperCacheCommand):
                 # Track field usage and sizes
                 for field, value in metadata.items():
                     if value is not None:
-                        field_usage[field] = field_usage.get(field, 0) + 1
-                        if field not in field_sizes:
-                            field_sizes[field] = []
+                        field_key = str(field)
+                        field_usage[field_key] = field_usage.get(field_key, 0) + 1
+                        if field_key not in field_sizes:
+                            field_sizes[field_key] = []
                         field_size = len(json.dumps(value, separators=(",", ":")))
-                        field_sizes[field].append(field_size)
+                        field_sizes[field_key].append(field_size)
 
         if not sizes:
             self.stdout.write(self.style.ERROR("No valid team data found"))

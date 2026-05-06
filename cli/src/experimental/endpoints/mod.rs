@@ -97,17 +97,44 @@ pub struct EndpointVariable {
 /// When enabled, PostHog will pre-compute and cache the query results
 /// according to the specified schedule.
 ///
-/// Valid schedule values:
-/// - Minutes: "5min", "15min", "30min"
-/// - Hours: "1hour", "2hour", "4hour", "6hour", "12hour", "24hour"
-/// - Days: "7day", "30day"
+/// Valid schedule values: "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day"
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MaterializationConfig {
     #[serde(default)]
     pub enabled: bool,
-    /// Sync frequency. Valid values: 5min, 15min, 30min, 1hour, 2hour, 4hour, 6hour, 12hour, 24hour, 7day, 30day
+    /// Schedule string. Valid values: 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedule: Option<String>,
+}
+
+/// Convert a local YAML schedule string to data_freshness_seconds.
+/// Returns None if the schedule string is unrecognized.
+pub fn schedule_to_data_freshness_seconds(schedule: &str) -> Option<i64> {
+    match schedule {
+        "15min" => Some(900),
+        "30min" => Some(1800),
+        "1hour" => Some(3600),
+        "6hour" => Some(21600),
+        "12hour" => Some(43200),
+        "24hour" => Some(86400),
+        "7day" => Some(604800),
+        _ => None,
+    }
+}
+
+/// Convert a data_freshness_seconds value to its canonical schedule string.
+/// Returns None if the value is not a recognized bucket.
+pub fn data_freshness_seconds_to_schedule(seconds: i64) -> Option<&'static str> {
+    match seconds {
+        900 => Some("15min"),
+        1800 => Some("30min"),
+        3600 => Some("1hour"),
+        21600 => Some("6hour"),
+        43200 => Some("12hour"),
+        86400 => Some("24hour"),
+        604800 => Some("7day"),
+        _ => None,
+    }
 }
 
 /// API response for an endpoint from PostHog
@@ -122,7 +149,7 @@ pub struct EndpointResponse {
     pub parameters: HashMap<String, Value>,
     pub is_active: bool,
     #[serde(default)]
-    pub cache_age_seconds: Option<i64>,
+    pub data_freshness_seconds: Option<i64>,
     pub endpoint_path: String,
     #[serde(default)]
     pub url: Option<String>,
@@ -149,8 +176,6 @@ pub struct MaterializationStatus {
     pub last_materialized_at: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
-    #[serde(default)]
-    pub sync_frequency: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
 }
@@ -379,10 +404,12 @@ impl EndpointYaml {
         if let Some(mat) = &self.materialization {
             request.insert("is_materialized".to_string(), Value::Bool(mat.enabled));
             if let Some(schedule) = &mat.schedule {
-                request.insert(
-                    "sync_frequency".to_string(),
-                    Value::String(schedule.clone()),
-                );
+                if let Some(seconds) = schedule_to_data_freshness_seconds(schedule) {
+                    request.insert(
+                        "data_freshness_seconds".to_string(),
+                        Value::Number(seconds.into()),
+                    );
+                }
             }
         }
 
@@ -453,10 +480,9 @@ impl EndpointYaml {
 
         let materialization = if response.is_materialized {
             let schedule = response
-                .materialization
-                .as_ref()
-                .and_then(|m| m.sync_frequency.as_ref())
-                .cloned();
+                .data_freshness_seconds
+                .and_then(data_freshness_seconds_to_schedule)
+                .map(|s| s.to_string());
             Some(MaterializationConfig {
                 enabled: true,
                 schedule,
@@ -490,6 +516,18 @@ impl EndpointYaml {
                 "Either 'query' or 'query_definition' is required for endpoint '{}'",
                 self.name
             );
+        }
+
+        if let Some(mat) = &self.materialization {
+            if let Some(schedule) = &mat.schedule {
+                if schedule_to_data_freshness_seconds(schedule).is_none() {
+                    anyhow::bail!(
+                        "Invalid materialization.schedule '{}' for endpoint '{}'. Must be one of: 15min, 30min, 1hour, 6hour, 12hour, 24hour, 7day",
+                        schedule,
+                        self.name
+                    );
+                }
+            }
         }
 
         Ok(())
@@ -612,9 +650,9 @@ pub fn get_local_schedule(local: &EndpointYaml) -> String {
 /// Get the schedule from remote endpoint (empty string if none)
 pub fn get_remote_schedule(remote: &EndpointResponse) -> String {
     remote
-        .materialization
-        .as_ref()
-        .and_then(|m| m.sync_frequency.clone())
+        .data_freshness_seconds
+        .and_then(data_freshness_seconds_to_schedule)
+        .map(|s| s.to_string())
         .unwrap_or_default()
 }
 
@@ -1063,7 +1101,7 @@ materialization:
         };
         let request = endpoint.to_api_request(None);
         assert_eq!(request["is_materialized"], true);
-        assert_eq!(request["sync_frequency"], "1hour");
+        assert_eq!(request["data_freshness_seconds"], 3600);
     }
 
     // =========================================================================
@@ -1109,6 +1147,39 @@ materialization:
         assert!(endpoint.validate().is_ok());
     }
 
+    #[test]
+    fn test_validate_rejects_off_bucket_schedule() {
+        let endpoint = EndpointYaml {
+            name: "test".to_string(),
+            description: None,
+            query: Some("SELECT 1".to_string()),
+            query_definition: None,
+            variables: None,
+            materialization: Some(MaterializationConfig {
+                enabled: true,
+                schedule: Some("2hour".to_string()),
+            }),
+        };
+        let err = endpoint.validate().unwrap_err();
+        assert!(err.to_string().contains("Invalid materialization.schedule"));
+    }
+
+    #[test]
+    fn test_validate_accepts_valid_bucket_schedule() {
+        let endpoint = EndpointYaml {
+            name: "test".to_string(),
+            description: None,
+            query: Some("SELECT 1".to_string()),
+            query_definition: None,
+            variables: None,
+            materialization: Some(MaterializationConfig {
+                enabled: true,
+                schedule: Some("6hour".to_string()),
+            }),
+        };
+        assert!(endpoint.validate().is_ok());
+    }
+
     // =========================================================================
     // Change detection tests
     // =========================================================================
@@ -1136,7 +1207,7 @@ materialization:
             }),
             parameters: HashMap::new(),
             is_active: true,
-            cache_age_seconds: None,
+            data_freshness_seconds: None,
             endpoint_path: "test".to_string(),
             url: None,
             ui_url: None,

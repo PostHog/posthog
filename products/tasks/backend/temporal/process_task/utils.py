@@ -11,11 +11,15 @@ from django.core.cache import cache
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
+from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
+from products.tasks.backend.constants import InitialPermissionMode
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.tasks.backend.models import Task
 
 
@@ -29,19 +33,143 @@ class RunSource(StrEnum):
     SIGNAL_REPORT = "signal_report"
 
 
+class RuntimeAdapter(StrEnum):
+    CLAUDE = "claude"
+    CODEX = "codex"
+
+
+class LLMProvider(StrEnum):
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"
+
+
+class ReasoningEffort(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
+
+
+PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    ReasoningEffort.LOW,
+    ReasoningEffort.MEDIUM,
+    ReasoningEffort.HIGH,
+    ReasoningEffort.XHIGH,
+    ReasoningEffort.MAX,
+)
+
+
+RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
+    RuntimeAdapter.CLAUDE: LLMProvider.ANTHROPIC,
+    RuntimeAdapter.CODEX: LLMProvider.OPENAI,
+}
+
+
+CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
+    "claude-opus-4-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+    ),
+    "claude-opus-4-6": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    ),
+    "claude-opus-4-7": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    ),
+    "claude-sonnet-4-6": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+    ),
+}
+
+CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    ReasoningEffort.LOW,
+    ReasoningEffort.MEDIUM,
+    ReasoningEffort.HIGH,
+)
+
+
+def get_provider_for_runtime_adapter(
+    runtime_adapter: RuntimeAdapter | str | None,
+) -> LLMProvider | None:
+    if runtime_adapter is None:
+        return None
+
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    try:
+        return RUNTIME_PROVIDER_BY_ADAPTER[RuntimeAdapter(adapter_value)]
+    except ValueError:
+        return None
+
+
+def get_supported_reasoning_efforts(
+    runtime_adapter: RuntimeAdapter | str | None,
+    model: str | None,
+) -> tuple[ReasoningEffort, ...]:
+    if runtime_adapter is None or model is None:
+        return ()
+
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    if adapter_value == RuntimeAdapter.CLAUDE.value:
+        return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
+    if adapter_value == RuntimeAdapter.CODEX.value:
+        return CODEX_REASONING_EFFORTS
+
+    return ()
+
+
+def get_reasoning_effort_error(
+    runtime_adapter: RuntimeAdapter | str | None,
+    model: str | None,
+    reasoning_effort: ReasoningEffort | str | None,
+) -> str | None:
+    if runtime_adapter is None or model is None or reasoning_effort is None:
+        return None
+
+    effort_value = reasoning_effort.value if isinstance(reasoning_effort, ReasoningEffort) else reasoning_effort
+    supported_efforts = get_supported_reasoning_efforts(runtime_adapter, model)
+    if any(supported_effort.value == effort_value for supported_effort in supported_efforts):
+        return None
+
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    supported_values = ", ".join(effort.value for effort in supported_efforts) or "none"
+    return (
+        f"Reasoning effort '{effort_value}' is not supported for runtime_adapter "
+        f"'{adapter_value}' and model '{model}'. Supported values: {supported_values}."
+    )
+
+
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     pr_base_branch: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
+    runtime_adapter: RuntimeAdapter | None = None
+    provider: LLMProvider | None = None
+    model: str | None = None
+    reasoning_effort: ReasoningEffort | None = None
     resume_from_run_id: str | None = None
+    handoff_resumed: bool = False
     snapshot_external_id: str | None = None
     sandbox_id: str | None = None
     sandbox_url: str | None = None
     sandbox_connect_token: str | None = None
     sandbox_environment_id: str | None = None
     pending_user_message: str | None = None
+    pending_user_artifact_ids: list[str] | None = None
     pending_user_message_ts: str | None = None
+    initial_permission_mode: InitialPermissionMode | None = None
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
@@ -52,6 +180,30 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
 
 
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
+
+# Minimum interval between MCP token refreshes pushed to a live sandbox. The
+# OAuth tokens themselves are valid for 6h; we only need to rotate periodically
+# so a long-running sandbox doesn't accumulate stale credentials.
+MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
+
+
+def _mcp_token_issued_cache_key(run_id: str) -> str:
+    return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
+
+
+def mark_mcp_token_issued(run_id: str) -> None:
+    """Record that a fresh MCP token was issued to the sandbox for this run.
+
+    The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
+    `should_refresh_mcp_token` returns True again past that window.
+    """
+    cache.set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def should_refresh_mcp_token(run_id: str) -> bool:
+    """Return True if no MCP token has been issued for this run within the
+    last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
+    return cache.get(_mcp_token_issued_cache_key(run_id)) is None
 
 
 @dataclass(frozen=True)
@@ -112,11 +264,25 @@ def get_user_mcp_server_configs(
     return configs
 
 
+def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
+    """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
+
+    Slack-launched runs send `"slack"`; everything else (the PostHog Code UI,
+    API callers, missing origin) is treated as PostHog Code. The MCP server
+    gates UI-apps payloads on the literal `"posthog-code"` — keep in sync with
+    `POSTHOG_CODE_CONSUMER` in `services/mcp/src/lib/client-detection.ts`.
+    """
+    if interaction_origin == "slack":
+        return "slack"
+    return "posthog-code"
+
+
 def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,
     *,
     scopes: PosthogMcpScopes = "read_only",
+    interaction_origin: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
@@ -134,6 +300,7 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-project-id", "value": str(project_id)},
         {"name": "x-posthog-mcp-version", "value": "2"},
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
+        {"name": "x-posthog-mcp-consumer", "value": _resolve_mcp_consumer(interaction_origin)},
     ]
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
 
@@ -165,6 +332,133 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
+def _normalize_repository(repository: str | None) -> str | None:
+    if not repository:
+        return None
+    repository = repository.strip().lower()
+    parts = repository.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        return None
+    return repository
+
+
+def _repository_matches_cached_list(repositories: list[dict[str, Any]], repository: str) -> bool:
+    return any(str(repo.get("full_name", "")).lower() == repository for repo in repositories)
+
+
+def _user_integration_has_repository(
+    integration: UserIntegration,
+    repository: str | None,
+    *,
+    allow_refresh: bool,
+) -> bool:
+    if repository is None:
+        return True
+
+    github = UserGitHubIntegration(integration)
+    cached_repositories = integration.repository_cache
+    if isinstance(cached_repositories, list) and _repository_matches_cached_list(cached_repositories, repository):
+        return True
+
+    if not allow_refresh:
+        return integration.repository_cache_updated_at is None
+
+    repositories = github.list_all_cached_repositories()
+    return _repository_matches_cached_list(repositories, repository)
+
+
+def get_user_github_integration(
+    user: User | None,
+    *,
+    github_user_integration_id: str | None = None,
+    repository: str | None = None,
+    allow_refresh: bool = False,
+) -> UserGitHubIntegration | None:
+    """Return a user's GitHub integration wrapper, optionally scoped to a repo."""
+    if user is None:
+        return None
+
+    normalized_repository = _normalize_repository(repository)
+    integrations = UserIntegration.objects.filter(user=user, kind="github").order_by("created_at")
+    if github_user_integration_id:
+        integrations = integrations.filter(id=github_user_integration_id)
+
+    for integration in integrations:
+        if _user_integration_has_repository(
+            integration,
+            normalized_repository,
+            allow_refresh=allow_refresh,
+        ):
+            return UserGitHubIntegration(integration)
+
+    return None
+
+
+def resolve_user_github_integration_for_task(
+    task: Task,
+    *,
+    repository: str | None = None,
+    allow_refresh: bool = False,
+) -> UserGitHubIntegration | None:
+    """Resolve the UserIntegration that should author a task's GitHub writes."""
+    if task.created_by is None:
+        return None
+
+    normalized_repository = _normalize_repository(repository or task.repository)
+    selected_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
+    user_github_integration = get_user_github_integration(
+        task.created_by,
+        github_user_integration_id=selected_id,
+        repository=normalized_repository,
+        allow_refresh=allow_refresh,
+    )
+    if user_github_integration is not None:
+        return user_github_integration
+
+    team_integration = task.github_integration
+    team_installation_id = (
+        str(team_integration.integration_id) if team_integration and team_integration.integration_id else None
+    )
+    if team_installation_id:
+        integration = (
+            UserIntegration.objects.filter(
+                user=task.created_by,
+                kind="github",
+                integration_id=team_installation_id,
+            )
+            .order_by("created_at")
+            .first()
+        )
+        if integration is not None and _user_integration_has_repository(
+            integration,
+            normalized_repository,
+            allow_refresh=allow_refresh,
+        ):
+            return UserGitHubIntegration(integration)
+
+    return get_user_github_integration(
+        task.created_by,
+        repository=normalized_repository,
+        allow_refresh=allow_refresh,
+    )
+
+
+def user_github_integration_is_usable(user_github_integration: UserGitHubIntegration | None) -> bool:
+    if user_github_integration is None:
+        return False
+    return (
+        not user_github_integration.user_refresh_token_expired()
+        and bool(user_github_integration.user_refresh_token)
+        and bool(user_github_integration.user_access_token)
+    )
+
+
+# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
+# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
+# The server-side identity flow should be preferred going forward.
+GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
+
+
 def _github_user_token_cache_key(run_id: str) -> str:
     return f"task-run-github-user-token:{run_id}"
 
@@ -179,17 +473,74 @@ def get_cached_github_user_token(run_id: str) -> str | None:
 
 
 def get_sandbox_github_token(
-    github_integration_id: int | None, *, run_id: str, state: dict[str, Any] | None = None
+    github_integration_id: int | None,
+    *,
+    run_id: str,
+    state: dict[str, Any] | None = None,
+    created_by: User | None = None,
+    task: Task | None = None,
+    github_user_integration_id: str | None = None,
+    repository: str | None = None,
 ) -> str | None:
-    run_state = parse_run_state(state)
-    if run_state.pr_authorship_mode == PrAuthorshipMode.USER:
-        github_user_token = get_cached_github_user_token(run_id)
-        if not github_user_token:
-            raise ValueError(
-                f"Missing GitHub user token for user-authored run {run_id} "
-                f"(token may have expired after {GITHUB_USER_TOKEN_CACHE_TTL_SECONDS // 3600}h TTL)"
+    """Resolve the GitHub token used inside a task sandbox.
+
+    Resolution order for ``USER`` authorship:
+
+    1. Caller-supplied token cached at run-create time (backward compat for the
+       PostHog Code CLI — wins when present so self-managed tokens still work).
+    2. Server-side ``UserIntegration`` for the task creator, refreshing on demand.
+    3. Team ``Integration`` token for legacy runs that predate persisted user identity.
+
+    ``BOT`` authorship falls through to the team's ``Integration`` installation token.
+    """
+    pr_authorship_mode: PrAuthorshipMode | None
+    if task is not None:
+        created_by = task.created_by
+        repository = repository or task.repository
+        github_user_integration_id = github_user_integration_id or (
+            str(task.github_user_integration_id) if task.github_user_integration_id else None
+        )
+        pr_authorship_mode = get_pr_authorship_mode(task, state)
+    else:
+        run_state = parse_run_state(state)
+        pr_authorship_mode = run_state.pr_authorship_mode
+
+    if pr_authorship_mode == PrAuthorshipMode.USER:
+        cached = get_cached_github_user_token(run_id)
+        if cached:
+            return cached
+        if task is not None:
+            user_github_integration = resolve_user_github_integration_for_task(
+                task,
+                repository=repository,
+                allow_refresh=True,
             )
-        return github_user_token
+        else:
+            user_github_integration = get_user_github_integration(
+                created_by,
+                github_user_integration_id=github_user_integration_id,
+                repository=repository,
+                allow_refresh=True,
+            )
+        if user_github_integration is None:
+            if github_integration_id is None:
+                raise ReauthorizationRequired(
+                    f"User-authored run {run_id} requires a linked GitHub account with repo access."
+                )
+        elif github_integration_id is None:
+            token = user_github_integration.get_usable_user_access_token()
+            if token is None:
+                raise ReauthorizationRequired(
+                    f"User-authored run {run_id} requires a linked GitHub account with repo access."
+                )
+            return token
+        else:
+            try:
+                token = user_github_integration.get_usable_user_access_token()
+            except ReauthorizationRequired:
+                token = None
+            if token is not None:
+                return token
 
     if github_integration_id is None:
         return None
@@ -198,6 +549,9 @@ def get_sandbox_github_token(
 
 
 def format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
+    if not domains:
+        return "no custom domains"
+
     preview = ", ".join(domains[:limit])
     remaining = len(domains) - limit
     if remaining > 0:
@@ -255,11 +609,18 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
     from products.tasks.backend.models import Task as TaskModel
 
     run_state = parse_run_state(state)
+    if run_state.run_source == RunSource.SIGNAL_REPORT:
+        return PrAuthorshipMode.BOT
     if run_state.pr_authorship_mode is not None:
         return run_state.pr_authorship_mode
 
+    if task.origin_product == TaskModel.OriginProduct.SIGNAL_REPORT:
+        return PrAuthorshipMode.BOT
+
     return (
-        PrAuthorshipMode.USER if task.origin_product == TaskModel.OriginProduct.USER_CREATED else PrAuthorshipMode.BOT
+        PrAuthorshipMode.USER
+        if task.origin_product in (TaskModel.OriginProduct.USER_CREATED, TaskModel.OriginProduct.SLACK)
+        else PrAuthorshipMode.BOT
     )
 
 

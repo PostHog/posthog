@@ -158,6 +158,114 @@
   LIMIT 50000
   '''
 # ---
+# name: TestDownstreamTransformSnapshots.test_transform_downstream_aggregation_propagation
+  '''
+  WITH
+      base AS (SELECT
+              event,
+              distinct_id,
+              event AS event_name
+          FROM
+              events),
+      agg AS (SELECT
+              distinct_id,
+              count() AS cnt,
+              base.event_name AS event_name
+          FROM
+              base
+          GROUP BY
+              distinct_id,
+              event_name)
+  SELECT
+      distinct_id,
+      cnt,
+      event_name
+  FROM
+      agg
+  LIMIT 50000
+  '''
+# ---
+# name: TestDownstreamTransformSnapshots.test_transform_downstream_cross_join_propagation
+  '''
+  WITH
+      base AS (SELECT
+              event,
+              distinct_id,
+              event AS event_name
+          FROM
+              events),
+      left_side AS (SELECT
+              distinct_id AS did_l,
+              base.event_name AS event_name
+          FROM
+              base),
+      right_side AS (SELECT
+              distinct_id AS did_r,
+              base.event_name AS event_name
+          FROM
+              base),
+      combined AS (SELECT
+              l.did_l,
+              r.did_r,
+              l.event_name AS event_name
+          FROM
+              left_side AS l
+              CROSS JOIN right_side AS r
+          WHERE
+              equals(l.event_name, r.event_name))
+  SELECT
+      did_l,
+      did_r,
+      event_name
+  FROM
+      combined
+  LIMIT 50000
+  '''
+# ---
+# name: TestDownstreamTransformSnapshots.test_transform_downstream_distinct_propagation
+  '''
+  WITH
+      base AS (SELECT
+              event,
+              distinct_id,
+              event AS event_name
+          FROM
+              events),
+      u AS (SELECT
+              DISTINCT distinct_id,
+              base.event_name AS event_name
+          FROM
+              base)
+  SELECT
+      distinct_id,
+      event_name
+  FROM
+      u
+  LIMIT 50000
+  '''
+# ---
+# name: TestDownstreamTransformSnapshots.test_transform_downstream_projection_propagation
+  '''
+  WITH
+      base AS (SELECT
+              event,
+              distinct_id,
+              event AS event_name
+          FROM
+              events),
+      proj AS (SELECT
+              distinct_id,
+              base.event_name AS event_name
+          FROM
+              base)
+  SELECT
+      distinct_id,
+      event_name
+  FROM
+      proj
+  LIMIT 50000
+  '''
+# ---
 # name: TestTransformQuerySnapshots.test_all_where_conditions_are_variables
   '''
   SELECT

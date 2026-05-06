@@ -62,14 +62,14 @@ class TestSiteApp(BaseTest):
 
         unauthenticated_client = Client(enforce_csrf_checks=True)
         unauthenticated_client.logout()
-        request_headers = {"HTTP_ACCESS_CONTROL_REQUEST_METHOD": "GET", "HTTP_ORIGIN": "*", "USER_AGENT": "Agent 008"}
         response = unauthenticated_client.get(
             f"/site_app/{plugin_config.id}/tokentoken/somehash/",
             data={},
             follow=False,
             secure=False,
-            headers={},
-            **request_headers,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="GET",
+            HTTP_ORIGIN="*",
+            USER_AGENT="Agent 008",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -1,11 +1,6 @@
-import logging
-
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class OptOutSyncConfig(models.Model):
@@ -47,6 +42,3 @@ class OptOutSyncConfig(models.Model):
     class Meta:
         app_label = "messaging"
         db_table = "posthog_messaging_optout_sync_config"
-
-
-register_team_extension_signal(OptOutSyncConfig, logger=logger)

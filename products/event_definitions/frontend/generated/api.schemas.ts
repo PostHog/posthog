@@ -103,6 +103,12 @@ export interface EnterpriseEventDefinitionApi {
     /** @nullable */
     hidden?: boolean | null
     enforcement_mode?: EnforcementModeEnumApi
+    /**
+     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+     * @maxLength 400
+     * @nullable
+     */
+    primary_property?: string | null
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
@@ -148,6 +154,12 @@ export interface PatchedEnterpriseEventDefinitionApi {
     /** @nullable */
     hidden?: boolean | null
     enforcement_mode?: EnforcementModeEnumApi
+    /**
+     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+     * @maxLength 400
+     * @nullable
+     */
+    primary_property?: string | null
     readonly is_action?: boolean
     readonly action_id?: number
     readonly is_calculating?: boolean
@@ -158,12 +170,86 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly media_preview_urls?: readonly string[]
 }
 
-export type EventDefinitionApiProperties = { [key: string]: unknown }
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
 
-export interface EventDefinitionApi {
-    elements: unknown[]
-    event: string
-    properties: EventDefinitionApiProperties
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface EventDefinitionRecordApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    last_seen_at?: string | null
+    readonly last_updated_at: string
+    tags?: unknown[]
+    enforcement_mode?: EnforcementModeEnumApi
+    /**
+     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+     * @maxLength 400
+     * @nullable
+     */
+    primary_property?: string | null
+    readonly is_action: boolean
+    readonly action_id: number
+    readonly is_calculating: boolean
+    readonly last_calculated_at: string
+    readonly created_by: UserBasicApi
+    post_to_slack?: boolean
+}
+
+/**
+ * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
+ */
+export type PrimaryPropertiesResponseApiPrimaryProperties = { [key: string]: string }
+
+export interface PrimaryPropertiesResponseApi {
+    /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
+    primary_properties: PrimaryPropertiesResponseApiPrimaryProperties
 }
 
 export type EventDefinitionsListParams = {
@@ -182,4 +268,11 @@ export type EventDefinitionsByNameRetrieveParams = {
      * The exact event name to look up
      */
     name: string
+}
+
+export type EventDefinitionsPrimaryPropertiesRetrieveParams = {
+    /**
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured primary property.
+     */
+    names?: string[]
 }

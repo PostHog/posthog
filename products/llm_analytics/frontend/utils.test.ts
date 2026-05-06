@@ -2,15 +2,20 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
 import {
+    costContextFromProperties,
+    costContextFromTrace,
     formatLLMEventTitle,
     getSessionID,
     getSessionStartTimestamp,
+    hasCostBreakdown,
+    isEmptyJSONStructure,
     isLangChainMessage,
     looksLikeXml,
     normalizeMessage,
     normalizeMessages,
     parseOpenAIToolCalls,
     parsePartialJSON,
+    parseToolArgumentsForDisplay,
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
@@ -1808,6 +1813,168 @@ describe('LLM Analytics utils', () => {
             const trace = baseTrace(childEvents)
 
             expect(getSessionID(trace)).toBeNull()
+        })
+    })
+
+    describe('costContextFromProperties', () => {
+        it('returns undefined when $ai_total_cost_usd is absent', () => {
+            expect(costContextFromProperties({})).toBeUndefined()
+        })
+
+        it('returns undefined when $ai_total_cost_usd is not a number', () => {
+            expect(costContextFromProperties({ $ai_total_cost_usd: 'invalid' })).toBeUndefined()
+        })
+
+        it('maps all cost properties', () => {
+            const props = {
+                $ai_input_cost_usd: 0.01,
+                $ai_output_cost_usd: 0.02,
+                $ai_request_cost_usd: 0.003,
+                $ai_web_search_cost_usd: 0.015,
+                $ai_total_cost_usd: 0.048,
+            }
+            expect(costContextFromProperties(props)).toEqual({
+                inputCost: 0.01,
+                outputCost: 0.02,
+                requestCost: 0.003,
+                webSearchCost: 0.015,
+                totalCost: 0.048,
+            })
+        })
+
+        it('leaves optional cost fields as undefined when absent', () => {
+            const props = { $ai_total_cost_usd: 0.05 }
+            const ctx = costContextFromProperties(props)
+            expect(ctx).not.toBeUndefined()
+            expect(ctx && ctx.totalCost).toBe(0.05)
+            expect(ctx && ctx.inputCost).toBeUndefined()
+            expect(ctx && ctx.outputCost).toBeUndefined()
+            expect(ctx && ctx.requestCost).toBeUndefined()
+            expect(ctx && ctx.webSearchCost).toBeUndefined()
+        })
+    })
+
+    describe('costContextFromTrace', () => {
+        it('returns undefined when totalCost is undefined', () => {
+            expect(costContextFromTrace({})).toBeUndefined()
+        })
+
+        it('maps all trace cost fields', () => {
+            const trace = {
+                inputCost: 0.01,
+                outputCost: 0.02,
+                requestCost: 0.003,
+                webSearchCost: 0.015,
+                totalCost: 0.048,
+            }
+            expect(costContextFromTrace(trace)).toEqual({
+                inputCost: 0.01,
+                outputCost: 0.02,
+                requestCost: 0.003,
+                webSearchCost: 0.015,
+                totalCost: 0.048,
+            })
+        })
+
+        it('handles trace with only totalCost', () => {
+            const trace = { totalCost: 0.05 }
+            const ctx = costContextFromTrace(trace)
+            expect(ctx).not.toBeUndefined()
+            expect(ctx && ctx.totalCost).toBe(0.05)
+            expect(ctx && ctx.inputCost).toBeUndefined()
+        })
+    })
+
+    describe('hasCostBreakdown', () => {
+        it('returns false when only totalCost is set', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05 })).toBe(false)
+        })
+
+        it('returns true when inputCost is present', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, inputCost: 0.01 })).toBe(true)
+        })
+
+        it('returns true when outputCost is present', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, outputCost: 0.02 })).toBe(true)
+        })
+
+        it('returns true when requestCost is positive', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, requestCost: 0.003 })).toBe(true)
+        })
+
+        it('returns false when requestCost is zero', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, requestCost: 0 })).toBe(false)
+        })
+
+        it('returns true when webSearchCost is positive', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, webSearchCost: 0.01 })).toBe(true)
+        })
+
+        it('returns false when webSearchCost is zero', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, webSearchCost: 0 })).toBe(false)
+        })
+
+        it('returns true when inputCost is zero (zero is still a valid breakdown)', () => {
+            expect(hasCostBreakdown({ totalCost: 0, inputCost: 0 })).toBe(true)
+        })
+    })
+
+    describe('isEmptyJSONStructure', () => {
+        it.each<[string, unknown, boolean]>([
+            ['empty object', {}, true],
+            ['empty array', [], true],
+            ['non-empty object', { a: 1 }, false],
+            ['non-empty array', [1], false],
+            ['string', 'hi', false],
+            ['number', 0, false],
+            ['null', null, false],
+            ['undefined', undefined, false],
+        ])('returns %s -> %s', (_label, value, expected) => {
+            expect(isEmptyJSONStructure(value)).toBe(expected)
+        })
+    })
+
+    describe('parseToolArgumentsForDisplay', () => {
+        it('returns empty for null, undefined, and empty string', () => {
+            expect(parseToolArgumentsForDisplay(null)).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay(undefined)).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay('')).toEqual({ kind: 'empty' })
+        })
+
+        it('returns empty for empty object and empty array (object form)', () => {
+            expect(parseToolArgumentsForDisplay({})).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay([])).toEqual({ kind: 'empty' })
+        })
+
+        it('returns empty for stringified empty object/array', () => {
+            expect(parseToolArgumentsForDisplay('{}')).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay('[]')).toEqual({ kind: 'empty' })
+        })
+
+        it('returns parsed object for an object input', () => {
+            expect(parseToolArgumentsForDisplay({ location: 'SF' })).toEqual({
+                kind: 'parsed',
+                value: { location: 'SF' },
+            })
+        })
+
+        it('returns parsed object for stringified JSON object', () => {
+            expect(parseToolArgumentsForDisplay('{"location": "Berlin"}')).toEqual({
+                kind: 'parsed',
+                value: { location: 'Berlin' },
+            })
+        })
+
+        it('returns raw string when JSON is unparseable', () => {
+            expect(parseToolArgumentsForDisplay('{not valid json')).toEqual({
+                kind: 'raw',
+                value: '{not valid json',
+            })
+        })
+
+        it('returns raw string when stringified value parses to a non-object scalar', () => {
+            // partial-json may parse `"hello"` to the string "hello" — that's not a structured arg payload, fall back.
+            expect(parseToolArgumentsForDisplay('"hello"')).toEqual({ kind: 'raw', value: '"hello"' })
         })
     })
 })

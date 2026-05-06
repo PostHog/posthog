@@ -30,8 +30,8 @@ class TestRetentionResultsFormatter(BaseTest):
             RetentionResultsFormatter(
                 AssistantRetentionQuery(
                     retentionFilter=AssistantRetentionFilter(
-                        targetEntity=AssistantRetentionEventsNode(name="event"),
-                        returningEntity=AssistantRetentionEventsNode(name="event"),
+                        targetEntity=AssistantRetentionEventsNode(id="event"),
+                        returningEntity=AssistantRetentionEventsNode(id="event"),
                     )
                 ),
                 results,
@@ -69,8 +69,8 @@ class TestRetentionResultsFormatter(BaseTest):
             RetentionResultsFormatter(
                 AssistantRetentionQuery(
                     retentionFilter=AssistantRetentionFilter(
-                        targetEntity=AssistantRetentionEventsNode(name="event"),
-                        returningEntity=AssistantRetentionEventsNode(name="event"),
+                        targetEntity=AssistantRetentionEventsNode(id="event"),
+                        returningEntity=AssistantRetentionEventsNode(id="event"),
                     )
                 ),
                 results,

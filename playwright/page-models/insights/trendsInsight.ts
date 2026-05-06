@@ -69,8 +69,17 @@ export class TrendsInsight extends ChartInsightBase {
     }
 
     async addBreakdown(property: string): Promise<void> {
+        await this.expandBreakdownPanel()
         await this.breakdownButton.click()
         await this.taxonomicFilter.selectItem(property)
+    }
+
+    private async expandBreakdownPanel(): Promise<void> {
+        const toggle = this.page.getByTestId('editor-filter-group-collapse-breakdown')
+        await toggle.waitFor({ state: 'visible' })
+        if ((await toggle.getAttribute('title')) === 'Show more') {
+            await toggle.click()
+        }
     }
 
     async setFormula(formula: string): Promise<void> {
@@ -167,6 +176,7 @@ export class TrendsInsight extends ChartInsightBase {
 
     async removeBreakdown(index: number = 0): Promise<void> {
         await this.page.keyboard.press('Escape')
+        await this.expandBreakdownPanel()
         const tag = this.page.getByTestId('breakdown-tag').nth(index)
         await tag.getByTestId('breakdown-tag-close').click()
         await expect(tag).not.toBeVisible()

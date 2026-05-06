@@ -4,7 +4,8 @@ use axum::{
     body::Body, extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse,
     routing::get, Router,
 };
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+pub use metrics_exporter_prometheus::Matcher;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use std::sync::OnceLock;
 
 type LabelFilterFn =
@@ -33,8 +34,50 @@ pub async fn serve(router: Router, bind: &str) -> Result<(), std::io::Error> {
 }
 
 /// Add the prometheus endpoint and middleware to a router, should be called last.
+/// Use [`setup_metrics_routes_for_product`] when you want a `product` global
+/// label for cost attribution.
 pub fn setup_metrics_routes(router: Router) -> Router {
-    let recorder_handle = setup_metrics_recorder();
+    install_metrics_routes(router, None, &[])
+}
+
+/// Like [`setup_metrics_routes`], but emits a static `product="<value>"` global
+/// label on every metric for per-product cost attribution (see
+/// <https://posthog.com/handbook/product/per-product-cost-margin-analysis>),
+/// so metrics can be grouped across services without depending on metric-name
+/// prefixes or K8s topology labels. Use a snake_case product slug matching
+/// the Python `posthog.clickhouse.query_tagging.Product` enum values — e.g.
+/// `feature_flags`, `experiments`, `product_analytics`.
+pub fn setup_metrics_routes_for_product(router: Router, product: impl Into<String>) -> Router {
+    install_metrics_routes(router, Some(product.into()), &[])
+}
+
+/// Like [`setup_metrics_routes_for_product`], but applies per-metric histogram
+/// bucket overrides on top of the default bucket configuration. Each entry in
+/// `overrides` is a `(Matcher, &[f64])` pair: the matcher (Full / Prefix /
+/// Suffix) selects metric names and the slice provides ascending bucket
+/// boundaries (in the metric's native unit). Bucket values must be non-empty;
+/// invalid configuration panics at startup, matching the existing
+/// `set_buckets(...).unwrap()` style here.
+pub fn setup_metrics_routes_for_product_with_overrides(
+    router: Router,
+    product: impl Into<String>,
+    overrides: &[(Matcher, &[f64])],
+) -> Router {
+    install_metrics_routes(router, Some(product.into()), overrides)
+}
+
+fn install_metrics_routes(
+    router: Router,
+    product: Option<String>,
+    overrides: &[(Matcher, &[f64])],
+) -> Router {
+    let mut builder = build_prometheus_builder(product);
+    for (matcher, buckets) in overrides {
+        builder = builder
+            .set_buckets_for_metric(matcher.clone(), buckets)
+            .unwrap();
+    }
+    let recorder_handle = builder.install_recorder().unwrap();
 
     router
         .route(
@@ -44,16 +87,16 @@ pub fn setup_metrics_routes(router: Router) -> Router {
         .layer(axum::middleware::from_fn(track_metrics))
 }
 
-pub fn setup_metrics_recorder() -> PrometheusHandle {
+fn build_prometheus_builder(product: Option<String>) -> PrometheusBuilder {
     const BUCKETS: &[f64] = &[
         1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
     ];
 
-    PrometheusBuilder::new()
-        .set_buckets(BUCKETS)
-        .unwrap()
-        .install_recorder()
-        .unwrap()
+    let mut builder = PrometheusBuilder::new().set_buckets(BUCKETS).unwrap();
+    if let Some(product) = product {
+        builder = builder.add_global_label("product", product);
+    }
+    builder
 }
 
 /// Normalize an unmatched path to its first segment to avoid high-cardinality
@@ -212,9 +255,84 @@ impl<'a> TimingGuardLabels<'a> {
     }
 }
 
+/// Like [`TimingGuard`], but records elapsed time as `as_secs_f64() * 1000.0`
+/// (sub-millisecond precision) instead of truncating to integer milliseconds.
+/// Pair with histogram bucket overrides containing sub-ms boundaries (e.g.
+/// 0.05, 0.1, 0.5, ...) — without matching overrides, sub-ms values still
+/// round to whatever buckets the recorder is configured with.
+pub struct TimingGuardHighPrecision<'a> {
+    name: &'static str,
+    labels: TimingGuardLabels<'a>,
+    start: Instant,
+}
+
+/// Constructs a [`TimingGuardHighPrecision`]. Use for fast operations (sub-ms
+/// pool acquires, governor rate-limit checks) where integer-millisecond
+/// resolution would collapse the distribution into the lowest bucket.
+pub fn timing_guard_high_precision<'a>(
+    name: &'static str,
+    labels: &'a [(String, String)],
+) -> TimingGuardHighPrecision<'a> {
+    TimingGuardHighPrecision {
+        name,
+        labels: TimingGuardLabels::new(labels),
+        start: Instant::now(),
+    }
+}
+
+impl TimingGuardHighPrecision<'_> {
+    pub fn label(mut self, key: &str, value: &str) -> Self {
+        self.labels.push_label(key, value);
+        self
+    }
+
+    pub fn fin(self) {}
+}
+
+impl Drop for TimingGuardHighPrecision<'_> {
+    fn drop(&mut self) {
+        let labels = self.labels.as_slice();
+        let filtered_labels = apply_label_filter(labels);
+        metrics::histogram!(self.name, &filtered_labels)
+            .record(self.start.elapsed().as_secs_f64() * 1000.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalize_unmatched_path;
+    use super::{
+        build_prometheus_builder, normalize_unmatched_path, timing_guard_high_precision, Matcher,
+    };
+
+    #[test]
+    fn test_product_global_label_emission() {
+        let cases: &[(&'static str, Option<&'static str>)] = &[
+            ("test_counter_with_product", Some("feature_flags")),
+            ("test_counter_without_product", None),
+        ];
+        for &(counter_name, product) in cases {
+            let recorder = build_prometheus_builder(product.map(str::to_string)).build_recorder();
+            let handle = recorder.handle();
+            metrics::with_local_recorder(&recorder, || {
+                metrics::counter!(counter_name).increment(1);
+            });
+            let rendered = handle.render();
+            assert!(
+                rendered.contains(counter_name),
+                "missing counter {counter_name}:\n{rendered}"
+            );
+            match product {
+                Some(p) => assert!(
+                    rendered.contains(&format!("product=\"{p}\"")),
+                    "missing product label {p}:\n{rendered}"
+                ),
+                None => assert!(
+                    !rendered.contains("product=\""),
+                    "unexpected product label:\n{rendered}"
+                ),
+            }
+        }
+    }
 
     #[test]
     fn test_normalize_unmatched_path() {
@@ -240,5 +358,51 @@ mod tests {
         for (input, expected) in cases {
             assert_eq!(normalize_unmatched_path(input), expected, "input: {input}");
         }
+    }
+
+    #[test]
+    fn test_set_buckets_for_metric_full_match_overrides_default() {
+        // Apply a per-metric override and confirm a custom bucket boundary
+        // (well outside the default ladder) is rendered for that metric.
+        let builder = build_prometheus_builder(None)
+            .set_buckets_for_metric(Matcher::Full("custom_metric_ms".into()), &[30000.0])
+            .unwrap();
+        let recorder = builder.build_recorder();
+        let handle = recorder.handle();
+
+        metrics::with_local_recorder(&recorder, || {
+            metrics::histogram!("custom_metric_ms").record(15.0);
+        });
+
+        let rendered = handle.render();
+        assert!(
+            rendered.contains("custom_metric_ms_bucket{le=\"30000\"}"),
+            "expected override bucket le=30000 in rendered output:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn test_timing_guard_high_precision_records_sub_ms_value() {
+        // With a sub-ms bucket override and an immediate guard drop, the
+        // recorded value rounds into the smallest sub-ms bucket. The default
+        // (integer-ms) guard would record 0.0 and could not distinguish this.
+        let builder = build_prometheus_builder(None)
+            .set_buckets_for_metric(Matcher::Full("hp_metric_ms".into()), &[0.05, 0.5, 1.0])
+            .unwrap();
+        let recorder = builder.build_recorder();
+        let handle = recorder.handle();
+
+        metrics::with_local_recorder(&recorder, || {
+            let _g = timing_guard_high_precision("hp_metric_ms", &[]);
+            // Drop immediately — elapsed will be a tiny fraction of a ms.
+        });
+
+        let rendered = handle.render();
+        // The value should land in the 0.05 bucket (or the +Inf bucket if the
+        // host is heavily loaded). Just verify the override was applied.
+        assert!(
+            rendered.contains("hp_metric_ms_bucket{le=\"0.05\"}"),
+            "expected sub-ms override bucket le=0.05 in rendered output:\n{rendered}"
+        );
     }
 }

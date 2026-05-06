@@ -11,6 +11,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantStickinessQuery,
     AssistantTrendsQuery,
+    ChartDisplayType,
     DataTableNode,
     DataVisualizationNode,
     FunnelsQuery,
@@ -46,6 +47,17 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
+def is_boxplot_query(query: BaseModel) -> bool:
+    trends_filter = getattr(query, "trendsFilter", None)
+    return trends_filter is not None and getattr(trends_filter, "display", None) == ChartDisplayType.BOX_PLOT
+
+
+def get_boxplot_results(response: dict[str, Any]) -> list[Any]:
+    # TODO: remove boxplot_data fallback once cached responses have rotated (added 2026-04-17)
+    results = response.get("results", [])
+    return results if results else response.get("boxplot_data", [])
+
+
 def format_query_results_for_llm(
     query: BaseModel,
     response: dict[str, Any],
@@ -68,9 +80,8 @@ def format_query_results_for_llm(
         query = query.source
 
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
-        boxplot_data = response.get("boxplot_data")
-        if boxplot_data is not None:
-            return BoxPlotResultsFormatter(boxplot_data).format()
+        if is_boxplot_query(query):
+            return BoxPlotResultsFormatter(get_boxplot_results(response)).format()
         return TrendsResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         return FunnelResultsFormatter(query, response["results"], team, utc_now).format()

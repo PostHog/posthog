@@ -25,12 +25,10 @@ actions_that_require_current_team = [
 def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
 
-    from posthog.models.cohort import Cohort, CohortPeople
+    from posthog.models.cohort import Cohort
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
-    from posthog.models.group.group import Group
-    from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.insight_caching_state import InsightCachingState
-    from posthog.models.person import Person, PersonDistinctId, PersonlessDistinctId
+    from posthog.models.person import PersonlessDistinctId
 
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
@@ -42,20 +40,150 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(Node.objects.filter(team_id__in=team_ids))
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(PersonDistinctId.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
     # Get cohort_ids from the default database first to avoid cross-database join
     # CohortPeople is in persons_db, Cohort is in default db
     cohort_ids = list(Cohort.objects.filter(team_id__in=team_ids).values_list("id", flat=True))
-    _raw_delete(CohortPeople.objects.filter(cohort_id__in=cohort_ids))
+    if cohort_ids:
+        _delete_cohort_members_for_teams(team_ids, cohort_ids)
 
-    _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
-    _raw_delete(Group.objects.filter(team_id__in=team_ids))
-    _raw_delete(GroupTypeMapping.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(Person.objects.filter(team_id__in=team_ids))
+    _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
+    _delete_groups_for_teams(team_ids)
+    _delete_group_type_mappings_for_teams(team_ids)
+
+    # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
+    # Falls back to ORM batch deletion when personhog is not available.
+    _delete_persons_for_teams(team_ids)
+
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
+
+
+def _delete_persons_for_teams(team_ids: list[int]) -> None:
+    """Delete Person + PersonDistinctId rows for teams via personhog RPC.
+
+    Falls back to ORM batch deletion when personhog is not available.
+    The RPC handles PersonDistinctId deletion automatically.
+    Uses _personhog_routed per team for consistent gate/metrics/fallback.
+    """
+    from functools import partial
+
+    from posthog.models.person.util import _personhog_routed
+
+    for team_id in team_ids:
+        _personhog_routed(
+            "delete_persons_for_team",
+            partial(_delete_persons_for_team_via_personhog, team_id),
+            partial(_delete_persons_for_team_via_orm, team_id),
+            team_id=team_id,
+        )
+
+
+def _delete_persons_for_team_via_personhog(team_id: int) -> None:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    while True:
+        resp = client.delete_persons_batch_for_team(DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=10000))
+        if resp.deleted_count == 0:
+            break
+
+
+def _delete_persons_for_team_via_orm(team_id: int) -> None:
+    from posthog.models.person import Person, PersonDistinctId
+
+    _raw_delete_batch(PersonDistinctId.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
+    _raw_delete_batch(Person.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
+
+
+def _delete_groups_for_teams(team_ids: list[int]) -> None:
+    from posthog.models.group.group import Group
+    from posthog.models.person.util import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteGroupsBatchForTeamRequest
+
+    client = get_personhog_client()
+    for team_id in team_ids:
+        if client is not None:
+            try:
+                while True:
+                    resp = client.delete_groups_batch_for_team(
+                        DeleteGroupsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+                    )
+                    if resp.deleted_count == 0:
+                        break
+                PERSONHOG_ROUTING_TOTAL.labels(
+                    operation="delete_groups_for_team", source="personhog", client_name=get_client_name()
+                ).inc()
+                continue
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="delete_groups_for_team",
+                    source="personhog",
+                    error_type="grpc_error",
+                    client_name=get_client_name(),
+                ).inc()
+                logger.warning("personhog_delete_groups_for_team_failure", team_id=team_id, exc_info=True)
+
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="delete_groups_for_team", source="django_orm", client_name=get_client_name()
+        ).inc()
+        _raw_delete(Group.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
+
+
+def _delete_group_type_mappings_for_teams(team_ids: list[int]) -> None:
+    from posthog.models.group_type_mapping import GroupTypeMapping
+    from posthog.models.person.util import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteGroupTypeMappingsBatchForTeamRequest
+
+    client = get_personhog_client()
+    for team_id in team_ids:
+        if client is not None:
+            try:
+                while True:
+                    resp = client.delete_group_type_mappings_batch_for_team(
+                        DeleteGroupTypeMappingsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+                    )
+                    if resp.deleted_count == 0:
+                        break
+                PERSONHOG_ROUTING_TOTAL.labels(
+                    operation="delete_group_type_mappings_for_team", source="personhog", client_name=get_client_name()
+                ).inc()
+                continue
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="delete_group_type_mappings_for_team",
+                    source="personhog",
+                    error_type="grpc_error",
+                    client_name=get_client_name(),
+                ).inc()
+                logger.warning("personhog_delete_group_type_mappings_for_team_failure", team_id=team_id, exc_info=True)
+
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="delete_group_type_mappings_for_team", source="django_orm", client_name=get_client_name()
+        ).inc()
+        _raw_delete(GroupTypeMapping.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
+
+
+def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int]) -> None:
+    """Delete CohortPeople rows for teams via personhog RPC.
+
+    Falls back to ORM _raw_delete when personhog is not available.
+    Routes per-team for consistent gate/metrics/fallback behavior.
+    """
+    from posthog.models.cohort import Cohort
+    from posthog.models.cohort.util import delete_cohort_members_bulk
+
+    for team_id in team_ids:
+        team_cohort_ids = list(Cohort.objects.filter(team_id=team_id, id__in=cohort_ids).values_list("id", flat=True))
+        if team_cohort_ids:
+            delete_cohort_members_bulk(team_id, team_cohort_ids)
 
 
 def _raw_delete(queryset: Any):

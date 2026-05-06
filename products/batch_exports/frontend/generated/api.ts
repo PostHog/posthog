@@ -11,15 +11,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BatchExportApi,
     BatchExportBackfillApi,
+    BatchExportRequestApi,
     BatchExportRunApi,
     BatchExportsBackfillsListParams,
-    BatchExportsList2Params,
     BatchExportsListParams,
+    BatchExportsLogsRetrieveParams,
     BatchExportsRunsListParams,
+    BatchExportsRunsLogsRetrieveParams,
     PaginatedBatchExportBackfillListApi,
     PaginatedBatchExportListApi,
     PaginatedBatchExportRunListApi,
-    PatchedBatchExportApi,
+    PatchedBatchExportRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -39,216 +41,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getBatchExportsListUrl = (organizationId: string, params?: BatchExportsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/organizations/${organizationId}/batch_exports/?${stringifiedParams}`
-        : `/api/organizations/${organizationId}/batch_exports/`
-}
-
-export const batchExportsList = async (
-    organizationId: string,
-    params?: BatchExportsListParams,
-    options?: RequestInit
-): Promise<PaginatedBatchExportListApi> => {
-    return apiMutator<PaginatedBatchExportListApi>(getBatchExportsListUrl(organizationId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBatchExportsCreateUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/`
-}
-
-export const batchExportsCreate = async (
-    organizationId: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<BatchExportApi> => {
-    return apiMutator<BatchExportApi>(getBatchExportsCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
-    })
-}
-
-export const getBatchExportsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/`
-}
-
-export const batchExportsRetrieve = async (
-    organizationId: string,
-    id: string,
-    options?: RequestInit
-): Promise<BatchExportApi> => {
-    return apiMutator<BatchExportApi>(getBatchExportsRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBatchExportsUpdateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/`
-}
-
-export const batchExportsUpdate = async (
-    organizationId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<BatchExportApi> => {
-    return apiMutator<BatchExportApi>(getBatchExportsUpdateUrl(organizationId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
-    })
-}
-
-export const getBatchExportsPartialUpdateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/`
-}
-
-export const batchExportsPartialUpdate = async (
-    organizationId: string,
-    id: string,
-    patchedBatchExportApi: NonReadonly<PatchedBatchExportApi>,
-    options?: RequestInit
-): Promise<BatchExportApi> => {
-    return apiMutator<BatchExportApi>(getBatchExportsPartialUpdateUrl(organizationId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBatchExportApi),
-    })
-}
-
-export const getBatchExportsDestroyUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/`
-}
-
-export const batchExportsDestroy = async (organizationId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBatchExportsDestroyUrl(organizationId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getBatchExportsLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/logs/`
-}
-
-export const batchExportsLogsRetrieve = async (
-    organizationId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsLogsRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Pause a BatchExport.
- */
-export const getBatchExportsPauseCreateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/pause/`
-}
-
-export const batchExportsPauseCreate = async (
-    organizationId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsPauseCreateUrl(organizationId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
-    })
-}
-
-export const getBatchExportsRunTestStepCreateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/run_test_step/`
-}
-
-export const batchExportsRunTestStepCreate = async (
-    organizationId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsRunTestStepCreateUrl(organizationId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
-    })
-}
-
-/**
- * Unpause a BatchExport.
- */
-export const getBatchExportsUnpauseCreateUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/${id}/unpause/`
-}
-
-export const batchExportsUnpauseCreate = async (
-    organizationId: string,
-    id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsUnpauseCreateUrl(organizationId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
-    })
-}
-
-export const getBatchExportsRunTestStepNewCreateUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/run_test_step_new/`
-}
-
-export const batchExportsRunTestStepNewCreate = async (
-    organizationId: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBatchExportsRunTestStepNewCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
-    })
-}
-
-export const getBatchExportsTestRetrieveUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/batch_exports/test/`
-}
-
-export const batchExportsTestRetrieve = async (organizationId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBatchExportsTestRetrieveUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getBatchExportsList2Url = (projectId: string, params?: BatchExportsList2Params) => {
+export const getBatchExportsListUrl = (projectId: string, params?: BatchExportsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -264,31 +57,31 @@ export const getBatchExportsList2Url = (projectId: string, params?: BatchExports
         : `/api/projects/${projectId}/batch_exports/`
 }
 
-export const batchExportsList2 = async (
+export const batchExportsList = async (
     projectId: string,
-    params?: BatchExportsList2Params,
+    params?: BatchExportsListParams,
     options?: RequestInit
 ): Promise<PaginatedBatchExportListApi> => {
-    return apiMutator<PaginatedBatchExportListApi>(getBatchExportsList2Url(projectId, params), {
+    return apiMutator<PaginatedBatchExportListApi>(getBatchExportsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getBatchExportsCreate2Url = (projectId: string) => {
+export const getBatchExportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/batch_exports/`
 }
 
-export const batchExportsCreate2 = async (
+export const batchExportsCreate = async (
     projectId: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
+    batchExportRequestApi: BatchExportRequestApi,
     options?: RequestInit
 ): Promise<BatchExportApi> => {
-    return apiMutator<BatchExportApi>(getBatchExportsCreate2Url(projectId), {
+    return apiMutator<BatchExportApi>(getBatchExportsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
+        body: JSON.stringify(batchExportRequestApi),
     })
 }
 
@@ -466,17 +259,35 @@ export const batchExportsRunsCancelCreate = async (
     })
 }
 
-export const getBatchExportsRunsLogsRetrieveUrl = (projectId: string, batchExportId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
+export const getBatchExportsRunsLogsRetrieveUrl = (
+    projectId: string,
+    batchExportId: string,
+    id: string,
+    params?: BatchExportsRunsLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/batch_exports/${batchExportId}/runs/${id}/logs/`
 }
 
 export const batchExportsRunsLogsRetrieve = async (
     projectId: string,
     batchExportId: string,
     id: string,
+    params?: BatchExportsRunsLogsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getBatchExportsRunsLogsRetrieveUrl(projectId, batchExportId, id), {
+    return apiMutator<void>(getBatchExportsRunsLogsRetrieveUrl(projectId, batchExportId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -507,78 +318,95 @@ export const batchExportsRunsRetryCreate = async (
     })
 }
 
-export const getBatchExportsRetrieve2Url = (projectId: string, id: string) => {
+export const getBatchExportsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
-export const batchExportsRetrieve2 = async (
+export const batchExportsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
 ): Promise<BatchExportApi> => {
-    return apiMutator<BatchExportApi>(getBatchExportsRetrieve2Url(projectId, id), {
+    return apiMutator<BatchExportApi>(getBatchExportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getBatchExportsUpdate2Url = (projectId: string, id: string) => {
+export const getBatchExportsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
-export const batchExportsUpdate2 = async (
+export const batchExportsUpdate = async (
     projectId: string,
     id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
+    batchExportRequestApi: BatchExportRequestApi,
     options?: RequestInit
 ): Promise<BatchExportApi> => {
-    return apiMutator<BatchExportApi>(getBatchExportsUpdate2Url(projectId, id), {
+    return apiMutator<BatchExportApi>(getBatchExportsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
+        body: JSON.stringify(batchExportRequestApi),
     })
 }
 
-export const getBatchExportsPartialUpdate2Url = (projectId: string, id: string) => {
+export const getBatchExportsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
-export const batchExportsPartialUpdate2 = async (
+export const batchExportsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedBatchExportApi: NonReadonly<PatchedBatchExportApi>,
+    patchedBatchExportRequestApi: PatchedBatchExportRequestApi,
     options?: RequestInit
 ): Promise<BatchExportApi> => {
-    return apiMutator<BatchExportApi>(getBatchExportsPartialUpdate2Url(projectId, id), {
+    return apiMutator<BatchExportApi>(getBatchExportsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBatchExportApi),
+        body: JSON.stringify(patchedBatchExportRequestApi),
     })
 }
 
-export const getBatchExportsDestroy2Url = (projectId: string, id: string) => {
+export const getBatchExportsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/`
 }
 
-export const batchExportsDestroy2 = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBatchExportsDestroy2Url(projectId, id), {
+export const batchExportsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getBatchExportsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getBatchExportsLogsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/batch_exports/${id}/logs/`
-}
-
-export const batchExportsLogsRetrieve2 = async (
+export const getBatchExportsLogsRetrieveUrl = (
     projectId: string,
     id: string,
+    params?: BatchExportsLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/batch_exports/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/batch_exports/${id}/logs/`
+}
+
+export const batchExportsLogsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: BatchExportsLogsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getBatchExportsLogsRetrieve2Url(projectId, id), {
+    return apiMutator<void>(getBatchExportsLogsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -587,17 +415,17 @@ export const batchExportsLogsRetrieve2 = async (
 /**
  * Pause a BatchExport.
  */
-export const getBatchExportsPauseCreate2Url = (projectId: string, id: string) => {
+export const getBatchExportsPauseCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/pause/`
 }
 
-export const batchExportsPauseCreate2 = async (
+export const batchExportsPauseCreate = async (
     projectId: string,
     id: string,
     batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getBatchExportsPauseCreate2Url(projectId, id), {
+    return apiMutator<void>(getBatchExportsPauseCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -605,17 +433,17 @@ export const batchExportsPauseCreate2 = async (
     })
 }
 
-export const getBatchExportsRunTestStepCreate2Url = (projectId: string, id: string) => {
+export const getBatchExportsRunTestStepCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/run_test_step/`
 }
 
-export const batchExportsRunTestStepCreate2 = async (
+export const batchExportsRunTestStepCreate = async (
     projectId: string,
     id: string,
     batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getBatchExportsRunTestStepCreate2Url(projectId, id), {
+    return apiMutator<void>(getBatchExportsRunTestStepCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -626,17 +454,17 @@ export const batchExportsRunTestStepCreate2 = async (
 /**
  * Unpause a BatchExport.
  */
-export const getBatchExportsUnpauseCreate2Url = (projectId: string, id: string) => {
+export const getBatchExportsUnpauseCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/batch_exports/${id}/unpause/`
 }
 
-export const batchExportsUnpauseCreate2 = async (
+export const batchExportsUnpauseCreate = async (
     projectId: string,
     id: string,
     batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getBatchExportsUnpauseCreate2Url(projectId, id), {
+    return apiMutator<void>(getBatchExportsUnpauseCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -644,16 +472,16 @@ export const batchExportsUnpauseCreate2 = async (
     })
 }
 
-export const getBatchExportsRunTestStepNewCreate2Url = (projectId: string) => {
+export const getBatchExportsRunTestStepNewCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/batch_exports/run_test_step_new/`
 }
 
-export const batchExportsRunTestStepNewCreate2 = async (
+export const batchExportsRunTestStepNewCreate = async (
     projectId: string,
     batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getBatchExportsRunTestStepNewCreate2Url(projectId), {
+    return apiMutator<void>(getBatchExportsRunTestStepNewCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -661,12 +489,12 @@ export const batchExportsRunTestStepNewCreate2 = async (
     })
 }
 
-export const getBatchExportsTestRetrieve2Url = (projectId: string) => {
+export const getBatchExportsTestRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/batch_exports/test/`
 }
 
-export const batchExportsTestRetrieve2 = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBatchExportsTestRetrieve2Url(projectId), {
+export const batchExportsTestRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getBatchExportsTestRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
@@ -18,10 +18,8 @@ import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 import {
     hasMultipleVariantsActive,
     hasZeroRollout,
-    indexToVariantKeyFeatureFlagPayloads,
     featureFlagLogic as sceneFeatureFlagLogic,
     validateFeatureFlagKey,
-    variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -97,7 +95,14 @@ import {
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
 } from './legacy/calculations/legacyExperimentCalculations'
-import { addExposureToMetric, compose, getInsight, getQuery } from './metricQueryUtils'
+import {
+    addExposureToMetric,
+    compose,
+    getExperimentExecutionMode,
+    getExperimentRefreshMode,
+    getInsight,
+    getQuery,
+} from './metricQueryUtils'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { modalsLogic } from './modalsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
@@ -174,6 +179,39 @@ export interface ExperimentLogicProps {
 
 export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
 
+export type CurrentRefreshState = 'in_progress' | 'completed' | 'partial' | 'errored'
+export type FinishedRefreshState = Exclude<CurrentRefreshState, 'in_progress'>
+
+export interface CurrentRefreshSnapshot {
+    refresh_id: string
+    triggered_by: ExperimentTriggeredBy
+    started_at: number
+    state: CurrentRefreshState
+}
+
+export function previousRefreshAnalytics(snapshot: CurrentRefreshSnapshot | null): {
+    previous_refresh_id: string | null
+    previous_refresh_age_ms: number | null
+    previous_refresh_state: CurrentRefreshState | null
+    previous_refresh_triggered_by: string | null
+} {
+    if (!snapshot) {
+        return {
+            previous_refresh_id: null,
+            previous_refresh_age_ms: null,
+            previous_refresh_state: null,
+            previous_refresh_triggered_by: null,
+        }
+    }
+    return {
+        previous_refresh_id: snapshot.refresh_id,
+        previous_refresh_age_ms: Date.now() - snapshot.started_at,
+        previous_refresh_state: snapshot.state,
+        // Normalize to the same kebab-case convention `triggered_by` uses (e.g. `auto_refresh` → `auto-refresh`).
+        previous_refresh_triggered_by: snapshot.triggered_by.replace(/_/g, '-'),
+    }
+}
+
 function generateRefreshId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID()
@@ -196,6 +234,7 @@ interface MetricLoadingConfig {
     isRetry: boolean
     metricIndexOffset: number
     orderedUuids?: string[] | null
+    featureFlags: FeatureFlagsSet
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -239,20 +278,61 @@ function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: bool
     }
 }
 
+// Coerces the parsed error detail into a flat string suitable for telemetry:
+// prefers DRF's `{"detail": "..."}` shape over a raw JSON blob so values group
+// readably in property breakdowns.
+export function extractErrorDetailString(errorDetail: unknown): string | null {
+    if (errorDetail == null) {
+        return null
+    }
+    if (typeof errorDetail === 'string') {
+        return errorDetail
+    }
+    if (typeof errorDetail === 'object' && typeof (errorDetail as { detail?: unknown }).detail === 'string') {
+        return (errorDetail as { detail: string }).detail
+    }
+    try {
+        return JSON.stringify(errorDetail)
+    } catch {
+        return null
+    }
+}
+
 function isTimeoutError(errorDetail: unknown, errorMessage: string | null, statusCode: number | null): boolean {
-    if (statusCode === 504) {
+    if (statusCode === 504 || statusCode === 408) {
         return true
     }
 
     return errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE || errorMessage === QUERY_TIMEOUT_ERROR_MESSAGE
 }
 
-function classifyError(
+const NETWORK_ERROR_MESSAGE_PATTERN = /(NetworkError|Failed to fetch|Load failed|Failed to execute 'fetch')/i
+
+function isNetworkError(errorCode: string | null, errorMessage: string | null, statusCode: number | null): boolean {
+    if (errorCode === 'network_error' || statusCode === 0) {
+        return true
+    }
+    // Only treat as network error when no HTTP response was received
+    return statusCode === null && !!errorMessage && NETWORK_ERROR_MESSAGE_PATTERN.test(errorMessage)
+}
+
+export type ExperimentMetricErrorType =
+    | 'timeout'
+    | 'out_of_memory'
+    | 'server_error'
+    | 'network_error'
+    | 'not_found'
+    | 'authentication'
+    | 'authorization'
+    | 'validation_error'
+    | 'unknown'
+
+export function classifyError(
     errorDetail: unknown,
     errorMessage: string | null,
     errorCode: string | null,
     statusCode: number | null
-): 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown' {
+): ExperimentMetricErrorType {
     if (isTimeoutError(errorDetail, errorMessage, statusCode)) {
         return 'timeout'
     }
@@ -262,8 +342,20 @@ function classifyError(
     if (statusCode !== null && statusCode >= 500) {
         return 'server_error'
     }
-    if (statusCode === 0 || errorCode === 'network_error' || errorMessage?.includes('NetworkError')) {
+    if (isNetworkError(errorCode, errorMessage, statusCode)) {
         return 'network_error'
+    }
+    if (statusCode === 404) {
+        return 'not_found'
+    }
+    if (statusCode === 401 || errorCode === 'not_authenticated') {
+        return 'authentication'
+    }
+    if (statusCode === 403 || errorCode === 'permission_denied') {
+        return 'authorization'
+    }
+    if (statusCode === 400) {
+        return 'validation_error'
     }
     return 'unknown'
 }
@@ -325,6 +417,7 @@ const loadMetrics = async ({
     isRetry,
     metricIndexOffset,
     orderedUuids,
+    featureFlags,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
@@ -372,7 +465,7 @@ const loadMetrics = async ({
                 response = await performQuery(
                     setLatestVersionsOnQuery(queryWithExperimentId),
                     undefined,
-                    refresh ? 'force_async' : 'async'
+                    getExperimentRefreshMode(featureFlags, !!refresh)
                 )
 
                 const durationMs = Math.round(performance.now() - startTime)
@@ -424,6 +517,7 @@ const loadMetrics = async ({
                         is_retry: isRetry,
                         refresh_id: refreshId,
                         metric_kind: metricKind,
+                        execution_mode: getExperimentExecutionMode(featureFlags),
                     }
                 )
             } catch (error: any) {
@@ -452,21 +546,6 @@ const loadMetrics = async ({
 
                 erroredCount++
 
-                // Keep backwards-compatible events firing
-                if (errorType === 'timeout') {
-                    eventUsageLogic.actions.reportExperimentMetricTimeout(experimentId, metric, teamId, queryId)
-                } else if (errorType === 'out_of_memory') {
-                    eventUsageLogic.actions.reportExperimentMetricOutOfMemory(
-                        experimentId,
-                        metric,
-                        teamId,
-                        queryId,
-                        errorCode,
-                        errorMessage
-                    )
-                }
-
-                // Unified error event for all error types
                 eventUsageLogic.actions.reportExperimentMetricError(experimentId, metric, teamId, queryId, {
                     duration_ms: durationMs,
                     metric_index: metricIndex,
@@ -477,6 +556,7 @@ const loadMetrics = async ({
                     error_type: errorType,
                     error_code: errorCode,
                     error_message: errorMessage,
+                    error_detail: extractErrorDetailString(errorDetail),
                     status_code: statusCode,
                 })
 
@@ -603,7 +683,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentHoldoutAssigned',
                 'reportExperimentSharedMetricAssigned',
                 'reportExperimentDashboardCreated',
-                'reportExperimentMetricTimeout',
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
@@ -616,7 +695,7 @@ export const experimentLogic = kea<experimentLogicType>([
             teamLogic,
             ['addProductIntent'],
             featureFlagsLogic,
-            ['updateFlag'],
+            ['updateFlagFromPartial'],
             modalsLogic,
             [
                 'openPrimaryMetricModal',
@@ -648,6 +727,14 @@ export const experimentLogic = kea<experimentLogicType>([
             forceRefresh,
             triggeredBy: triggeredBy ?? 'manual',
         }),
+        markRefreshStarted: (refreshId: string, triggeredBy: ExperimentTriggeredBy) => ({
+            refreshId,
+            triggeredBy,
+        }),
+        markRefreshFinished: (refreshId: string, finalState: FinishedRefreshState) => ({
+            refreshId,
+            finalState,
+        }),
         updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
@@ -660,6 +747,7 @@ export const experimentLogic = kea<experimentLogicType>([
         pauseExperiment: true,
         resumeExperiment: true,
         archiveExperiment: true,
+        unarchiveExperiment: true,
         resetRunningExperiment: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
@@ -791,7 +879,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 | null
             )[]
         ) => ({ results }),
-        updateDistribution: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        updateDistribution: (variants: MultivariateFlagVariant[], rolloutPercentage?: number) => ({
+            variants,
+            rolloutPercentage,
+        }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         resetAutoRefreshInterval: true,
         stopAutoRefreshInterval: true,
@@ -807,6 +898,24 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 toggleDebugPanel: (state) => !state,
+            },
+        ],
+        currentRefresh: [
+            null as CurrentRefreshSnapshot | null,
+            {
+                markRefreshStarted: (_, { refreshId, triggeredBy }) => ({
+                    refresh_id: refreshId,
+                    triggered_by: triggeredBy,
+                    started_at: Date.now(),
+                    state: 'in_progress',
+                }),
+                markRefreshFinished: (state, { refreshId, finalState }) => {
+                    // Stale-id guard: a newer refresh may already be in flight; don't clobber it.
+                    if (!state || state.refresh_id !== refreshId) {
+                        return state
+                    }
+                    return { ...state, state: finalState }
+                },
             },
         ],
         experiment: [
@@ -1394,12 +1503,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
-                    // Make experiment eligible for timeseries
-                    const schedulingConfig = {
-                        ...values.experiment?.scheduling_config,
-                        timeseries: true,
-                    }
-
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -1418,7 +1521,6 @@ export const experimentLogic = kea<experimentLogicType>([
                                 : values.experiment?.parameters,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
-                        scheduling_config: schedulingConfig,
                     })
 
                     if (response) {
@@ -1556,8 +1658,21 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
+                lemonToast.info('Experiment archived')
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to archive experiment')
+            }
+        },
+        unarchiveExperiment: async () => {
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unarchive`
+                )
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+                lemonToast.info('Experiment unarchived')
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to unarchive experiment')
             }
         },
         refreshExperimentResults: async ({ forceRefresh, triggeredBy }) => {
@@ -1567,18 +1682,24 @@ export const experimentLogic = kea<experimentLogicType>([
             cache.refreshSummariesById = cache.refreshSummariesById ?? {}
             cache.refreshSummariesById[refreshId] = summaries
 
+            actions.markRefreshStarted(refreshId, triggeredBy)
+
             // Start 10s timer to offer browser notifications
             clearTimeout(cache.notificationOfferTimer)
             cache.notificationOfferTimer = setTimeout(() => {
                 actions.setShowNotificationOffer(true)
             }, 10_000)
 
+            let caughtError = false
             try {
                 await Promise.all([
                     asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
                     asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
                     asyncActions.loadExposures(forceRefresh),
                 ])
+            } catch (error) {
+                caughtError = true
+                throw error
             } finally {
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
                 const refreshSummaries: MetricLoadingSummary[] = cache.refreshSummariesById?.[refreshId] ?? []
@@ -1620,8 +1741,16 @@ export const experimentLogic = kea<experimentLogicType>([
                             : null,
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
+                        execution_mode: getExperimentExecutionMode(values.featureFlags),
                     }
                 )
+
+                const finalState: FinishedRefreshState = caughtError
+                    ? 'errored'
+                    : erroredCount > 0
+                      ? 'partial'
+                      : 'completed'
+                actions.markRefreshFinished(refreshId, finalState)
 
                 // Clear notification offer timer
                 clearTimeout(cache.notificationOfferTimer)
@@ -1703,6 +1832,9 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
+            if (payload?.update_feature_flag_params && experiment.feature_flag) {
+                actions.updateFlagFromPartial(experiment.feature_flag)
+            }
             if (isLaunched(experiment)) {
                 // For launched experiments, refresh results if any of these fields are updated
                 const forceRefresh =
@@ -1783,22 +1915,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error('Failed to update experiment variant images')
             }
         },
-        updateDistribution: async ({ featureFlag }) => {
-            const { created_at, id, ...flag } = featureFlag
-
-            const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
-
-            const savedFlag = await api.update(
-                `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                preparedFlag
-            )
-
-            const updatedFlag = variantKeyToIndexFeatureFlagPayloads(savedFlag)
-            actions.updateFlag(updatedFlag)
-
+        updateDistribution: async ({ variants, rolloutPercentage }) => {
+            const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
+                parameters: {
+                    ...otherParams,
+                    feature_flag_variants: variants,
+                    ...(rolloutPercentage !== undefined ? { rollout_percentage: rolloutPercentage } : {}),
+                },
                 holdout_id: values.experiment.holdout_id,
-                update_feature_flag_params: false,
+                update_feature_flag_params: true,
             })
         },
         addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
@@ -2023,6 +2149,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
@@ -2062,6 +2189,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: false,
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
@@ -2109,6 +2237,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: true,
                 isRetry: true,
                 metricIndexOffset: index,
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
@@ -2157,6 +2286,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 isPrimary: false,
                 isRetry: true,
                 metricIndexOffset: index,
+                featureFlags: values.featureFlags,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacySecondaryMetricsResults(currentLegacyResults)
@@ -2269,6 +2399,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             triggered_by: 'auto-refresh',
                             auto_refresh_enabled: values.autoRefresh.enabled,
                             auto_refresh_interval: values.autoRefresh.interval,
+                            ...previousRefreshAnalytics(values.currentRefresh),
                         })
                         actions.refreshExperimentResults(true, 'auto_refresh')
                     }, values.autoRefresh.interval * 1000)
@@ -2279,8 +2410,8 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     loaders(({ actions, values }) => ({
         experiment: {
-            loadExperiment: async ({ triggeredBy }: { triggeredBy?: ExperimentTriggeredBy } = {}) => {
-                void triggeredBy
+            loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
+                void payload?.triggeredBy
                 if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(
@@ -2368,7 +2499,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
                     })
-                    return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
+                    return await performQuery(query, undefined, getExperimentRefreshMode(values.featureFlags, refresh))
                 },
             },
         ],

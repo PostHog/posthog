@@ -1,10 +1,14 @@
-from typing import cast
+from typing import Any, cast
 
-from django.db.models import F, Model, Prefetch, QuerySet
+from django.contrib.postgres.search import TrigramWordSimilarity
+from django.db.models import F, Model, Prefetch, Q, QuerySet, Value
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from opentelemetry import trace
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -17,10 +21,20 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.event_usage import groups
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, MIN_NAME_TRIGRAM_SIMILARITY, normalize_search_term
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 from posthog.utils import posthoganalytics
+
+tracer = trace.get_tracer(__name__)
+
+# Only index-backed orderings are allowed. `-joined_at` is served by the
+# `(organization, -joined_at)` composite index; other fields would force a
+# full scan + sort and can time out for large organizations.
+ALLOWED_ORDERINGS = frozenset({"joined_at", "-joined_at"})
+DEFAULT_ORDERING = "-joined_at"
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -64,33 +78,52 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "joined_at", "updated_at"]
 
     def get_is_2fa_enabled(self, instance: OrganizationMembership) -> bool:
-        # If we add other forms of 2FA we need to use default_device here instead
-        # But not using that here as it increased the number of queries we did by a lot
-        return len(instance.user.totpdevice_set.all()) > 0
+        # Uses prefetched relations to avoid N+1 queries
+        user = instance.user
+        has_totp = len(user.totpdevice_set.all()) > 0  # type: ignore[attr-defined]
+        has_passkeys_for_2fa = bool(user.passkeys_enabled_for_2fa) and len(user.webauthn_credentials.all()) > 0
+        return has_totp or has_passkeys_for_2fa
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
         return len(instance.user.social_auth.all()) > 0
 
-    def update(self, updated_membership, validated_data, **kwargs):
-        updated_membership = cast(OrganizationMembership, updated_membership)
+    def update(self, instance: OrganizationMembership, validated_data: dict[str, object]) -> OrganizationMembership:
+        updated_membership = instance
         raise_errors_on_nested_writes("update", self, validated_data)
         requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
             organization=updated_membership.organization,
             user=self.context["request"].user,
         )
-        level_changed = False
         for attr, value in validated_data.items():
             if attr == "level":
-                requesting_membership.validate_update(updated_membership, value)
-                level_changed = True
+                requesting_membership.validate_update(
+                    updated_membership, cast(OrganizationMembership.Level | None, value)
+                )
             setattr(updated_membership, attr, value)
         updated_membership.save()
-        if level_changed:
-            self.context["request"].user.update_billing_organization_users(updated_membership.organization)
         return updated_membership
 
 
 @extend_schema(tags=["core", "platform_features"])
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="order",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=sorted(ALLOWED_ORDERINGS),
+                description=f"Sort order. Defaults to `{DEFAULT_ORDERING}`.",
+            ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                description="Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.",
+            ),
+        ],
+    ),
+)
 class OrganizationMemberViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,
@@ -102,8 +135,7 @@ class OrganizationMemberViewSet(
     serializer_class = OrganizationMemberSerializer
     permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
-        OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
-        .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .filter(
             user__is_active=True,
         )
@@ -111,9 +143,13 @@ class OrganizationMemberViewSet(
         .prefetch_related(
             Prefetch(
                 "user__totpdevice_set",
-                queryset=TOTPDevice.objects.filter(name="default"),
+                queryset=TOTPDevice.objects.filter(confirmed=True),
             ),
             Prefetch("user__social_auth", queryset=UserSocialAuth.objects.all()),
+            Prefetch(
+                "user__webauthn_credentials",
+                queryset=WebauthnCredential.objects.filter(verified=True),
+            ),
         )
         .annotate(last_login=F("user__last_login"))
     )
@@ -126,6 +162,46 @@ class OrganizationMemberViewSet(
         filter_kwargs = {self.lookup_field: lookup_value}
         return get_object_or_404(queryset, **filter_kwargs)
 
+    @tracer.start_as_current_span("OrganizationMemberViewSet.list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = data.get("count", len(data.get("results", [])))
+            span = trace.get_current_span()
+            span.set_attribute("organization_member.search.result_count", results_len)
+            span.set_attribute("organization_member.search.empty", results_len == 0)
+        return response
+
+    @staticmethod
+    @tracer.start_as_current_span("OrganizationMemberViewSet._apply_search")
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        search = normalize_search_term(search)
+        span = trace.get_current_span()
+        span.set_attribute("organization_member.search.length", len(search))
+        if not search:
+            return queryset
+
+        zero = Value(0.0)
+        first_name_score = Coalesce(TrigramWordSimilarity(search, "user__first_name"), zero)
+        last_name_score = Coalesce(TrigramWordSimilarity(search, "user__last_name"), zero)
+        email_score = Coalesce(TrigramWordSimilarity(search, "user__email"), zero)
+
+        return (
+            queryset.annotate(
+                _first_name_score=first_name_score,
+                _last_name_score=last_name_score,
+                _email_score=email_score,
+            )
+            .filter(
+                Q(_first_name_score__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_last_name_score__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+                | Q(_email_score__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+            )
+            .annotate(_search_score=F("_first_name_score") + F("_last_name_score") + F("_email_score"))
+            .order_by("-_search_score", "user__first_name")
+        )
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             params = self.request.GET.dict()
@@ -136,11 +212,22 @@ class OrganizationMemberViewSet(
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
 
-            order = self.request.GET.get("order", None)
-            if order:
-                queryset = queryset.order_by(order)
+            search = self.request.GET.get("search", "")
+            if len(search) > MAX_SEARCH_LENGTH:
+                raise serializers.ValidationError(
+                    {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                )
+            # Normalize before deciding so whitespace-only queries fall through to default
+            # ordering rather than reaching `_apply_search` and returning the queryset
+            # without any order applied.
+            if normalize_search_term(search):
+                queryset = self._apply_search(queryset, search)
             else:
-                queryset = queryset.order_by("-joined_at")
+                order = self.request.GET.get("order")
+                if order in ALLOWED_ORDERINGS:
+                    queryset = queryset.order_by(order)
+                else:
+                    queryset = queryset.order_by(DEFAULT_ORDERING)
 
         return queryset
 

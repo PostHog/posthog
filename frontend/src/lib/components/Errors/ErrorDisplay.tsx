@@ -1,5 +1,5 @@
 import { BindLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -9,6 +9,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 
+import { addExceptionStepsMalformedWarning } from './errorDisplayWarnings'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { CollapsibleExceptionList } from './ExceptionList/CollapsibleExceptionList'
 import { ErrorEventId, ErrorEventProperties, ErrorEventType } from './types'
@@ -33,8 +34,10 @@ export interface ErrorDisplayProps {
 }
 
 export function ErrorDisplay({ eventProperties, eventId }: ErrorDisplayProps): JSX.Element {
+    const enrichedEventProperties = useMemo(() => addExceptionStepsMalformedWarning(eventProperties), [eventProperties])
+
     return (
-        <BindLogic logic={errorPropertiesLogic} props={{ properties: eventProperties, id: eventId }}>
+        <BindLogic logic={errorPropertiesLogic} props={{ properties: enrichedEventProperties, id: eventId }}>
             <ErrorDisplayContent />
         </BindLogic>
     )

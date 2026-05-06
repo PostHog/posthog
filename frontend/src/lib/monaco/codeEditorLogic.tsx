@@ -41,6 +41,9 @@ export interface ModelMarker extends editor.IMarkerData {
 export interface CodeEditorLogicProps {
     key: string
     query: string
+    metadataQuery?: string
+    /** Character offset of metadataQuery within the full editor text, for correct marker positioning */
+    metadataQueryOffset?: number
     language: string
     sourceQuery?: AnyDataNode
     metadataFilters?: HogQLFilters
@@ -75,7 +78,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                         return null
                     }
                     await breakpoint(300)
-                    const query = props.query
+                    const query = props.metadataQuery ?? props.query
                     if (query === '') {
                         props.onMetadata?.(null)
                         return null
@@ -123,9 +126,11 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     const markers: ModelMarker[] = []
                     const [query, metadataResponse] = metadata
 
+                    const markerOffset = props.metadataQueryOffset ?? 0
+
                     function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
-                        const start = model!.getPositionAt(error.start ?? 0)
-                        const end = model!.getPositionAt(error.end ?? query.length)
+                        const start = model!.getPositionAt((error.start ?? 0) + markerOffset)
+                        const end = model!.getPositionAt((error.end ?? query.length) + markerOffset)
                         return {
                             start: error.start ?? 0,
                             startLineNumber: start.lineNumber,
@@ -204,6 +209,8 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
 
         if (
             props.query !== oldProps.query ||
+            props.metadataQuery !== oldProps.metadataQuery ||
+            props.metadataQueryOffset !== oldProps.metadataQueryOffset ||
             props.language !== oldProps.language ||
             props.editor !== oldProps.editor ||
             nextConnectionId !== previousConnectionId

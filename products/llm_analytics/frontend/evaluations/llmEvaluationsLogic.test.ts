@@ -18,6 +18,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-01T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
     {
         id: 'key-invalid',
@@ -29,6 +31,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-02T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
     {
         id: 'key-error',
@@ -40,6 +44,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-03T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
 ]
 
@@ -48,6 +54,8 @@ const evaluationWithKey = (id: string, providerKeyId: string | null): Evaluation
     name: `Evaluation ${id}`,
     description: '',
     enabled: true,
+    status: 'active',
+    status_reason: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Prompt' },
     output_type: 'boolean',
@@ -116,6 +124,20 @@ describe('llmEvaluationsLogic', () => {
                 expect.objectContaining({ id: 'key-invalid', state: 'invalid' }),
                 expect.objectContaining({ id: 'key-error', state: 'error' }),
             ])
+        })
+
+        it('optimistic toggle keeps status in sync with enabled', async () => {
+            const errored = evaluationWithKey('eval-errored', 'key-ok')
+            errored.enabled = false
+            errored.status = 'error'
+            errored.status_reason = 'trial_limit_reached'
+            logic.actions.loadEvaluationsSuccess([errored])
+
+            logic.actions.toggleEvaluationEnabledSuccess('eval-errored')
+
+            await expectLogic(logic).toMatchValues({
+                evaluations: [expect.objectContaining({ enabled: true, status: 'active', status_reason: null })],
+            })
         })
 
         it('dispatches toggleEvaluationEnabledFailure when the API rejects the toggle', async () => {

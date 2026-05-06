@@ -15,13 +15,31 @@ import {
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { AnyPropertyFilter } from '~/types'
 
 import { clusteringJobsLogic } from './clusteringJobsLogic'
 import type { ClusteringJob, ClusteringLevel } from './types'
 
-const MAX_JOBS = 5
+// Per-team cap. Must stay in sync with MAX_JOBS_PER_TEAM in
+// products/llm_analytics/backend/api/clustering_job.py — the backend enforces
+// the real limit and returns 400 past it; this only drives the "Add job" disable
+// state. Raised to 10 when evaluation was added as a third level so users can
+// comfortably run per-evaluator clustering alongside trace + generation jobs.
+const MAX_JOBS = 10
+
+/** Short level tag shown in the jobs list — 'Trace', 'Gen', or 'Eval'. */
+function levelBadge(level: ClusteringLevel): string {
+    if (level === 'generation') {
+        return 'Gen'
+    }
+    if (level === 'evaluation') {
+        return 'Eval'
+    }
+    return 'Trace'
+}
 
 function JobEditor({
     job,
@@ -40,6 +58,8 @@ function JobEditor({
         (job.event_filters as AnyPropertyFilter[] | undefined) ?? []
     )
     const [enabled, setEnabled] = useState(job.enabled ?? true)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
 
     return (
         <div className="space-y-4">
@@ -55,6 +75,7 @@ function JobEditor({
                     options={[
                         { value: 'trace', label: 'Traces' },
                         { value: 'generation', label: 'Generations' },
+                        ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
                     ]}
                     size="small"
                 />
@@ -111,6 +132,20 @@ function JobEditor({
 export function ClusteringJobsPanel(): JSX.Element {
     const { isJobsPanelOpen, jobs, jobsLoading, editingJob } = useValues(clusteringJobsLogic)
     const { closeJobsPanel, setEditingJob, createJob, updateJob, deleteJob } = useActions(clusteringJobsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
+
+    // Hide only the auto-seeded "Default - evaluations" row from the admin
+    // list when the FF is off, so teams that aren't on the feature yet don't
+    // see a mystery default row they didn't create. Any custom evaluation
+    // jobs (rename of the default, or created explicitly when the FF was on
+    // and later toggled off) stay visible — otherwise we'd leave hidden-but-
+    // still-scheduled jobs with no UI surface to manage them.
+    const visibleJobs = evaluationsEnabled
+        ? jobs
+        : jobs.filter(
+              (job: ClusteringJob) => !(job.analysis_level === 'evaluation' && job.name === 'Default - evaluations')
+          )
 
     return (
         <LemonModal
@@ -135,7 +170,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                 />
             ) : (
                 <div className="space-y-3">
-                    {jobs.map((job: ClusteringJob) => (
+                    {visibleJobs.map((job: ClusteringJob) => (
                         <div
                             key={job.id}
                             className="flex items-center justify-between border rounded p-3 hover:bg-surface-secondary transition-colors"
@@ -143,10 +178,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                             <div className="flex items-center gap-2 min-w-0">
                                 <span className="font-medium truncate">{job.name}</span>
                                 <LemonBadge.Number count={job.event_filters.length} />
-                                <LemonBadge
-                                    content={job.analysis_level === 'generation' ? 'Gen' : 'Trace'}
-                                    size="small"
-                                />
+                                <LemonBadge content={levelBadge(job.analysis_level)} size="small" />
                                 {!job.enabled && <span className="text-xs text-muted">Disabled</span>}
                             </div>
                             <div className="flex items-center gap-1">
@@ -186,7 +218,7 @@ export function ClusteringJobsPanel(): JSX.Element {
                         </div>
                     ))}
 
-                    {jobs.length === 0 && !jobsLoading && (
+                    {visibleJobs.length === 0 && !jobsLoading && (
                         <div className="text-center text-muted p-4">No clustering jobs configured yet.</div>
                     )}
 

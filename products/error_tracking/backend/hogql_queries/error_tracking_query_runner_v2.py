@@ -315,9 +315,12 @@ class ErrorTrackingQueryV2Builder:
                 return ast.Call(name="toDateTime", args=[ast.Constant(value=str(v))])
             return ast.Constant(value=v)
 
+        def normalize_values(raw_value: object | list[object]) -> list[str | float | bool]:
+            candidates = raw_value if isinstance(raw_value, list) else [raw_value]
+            return [candidate for candidate in candidates if isinstance(candidate, (str, float, bool))]
+
         if operator == PropertyOperator.EXACT:
-            raw = value if isinstance(value, list) else [value]
-            values: list[str | float | bool] = [v for v in raw if v is not None]
+            values = normalize_values(value)
             if not values:
                 return None
             if len(values) == 1:
@@ -329,16 +332,17 @@ class ErrorTrackingQueryV2Builder:
             )
 
         if operator == PropertyOperator.IS_NOT:
-            raw = value if isinstance(value, list) else [value]
-            values: list[str | float | bool] = [v for v in raw if v is not None]
-            if not values:
+            not_values = normalize_values(value)
+            if not not_values:
                 return None
-            if len(values) == 1:
-                return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=make_value(values[0]))
+            if len(not_values) == 1:
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq, left=field, right=make_value(not_values[0])
+                )
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotIn,
                 left=field,
-                right=ast.Tuple(exprs=[make_value(v) for v in values]),
+                right=ast.Tuple(exprs=[make_value(v) for v in not_values]),
             )
 
         if operator == PropertyOperator.ICONTAINS:

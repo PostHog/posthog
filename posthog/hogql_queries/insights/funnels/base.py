@@ -69,9 +69,11 @@ class FunnelBase(ABC):
 
         if isinstance(breakdown, list):
             cohorts = Cohort.objects.filter(
-                team__project_id=team.project_id, pk__in=[b for b in breakdown if b != "all"]
+                team__project_id=team.project_id, pk__in=[b for b in breakdown if b not in ("all", None)]
             )
         else:
+            if breakdown is None:
+                return []
             cohorts = Cohort.objects.filter(team__project_id=team.project_id, pk=breakdown)
 
         return list(cohorts)

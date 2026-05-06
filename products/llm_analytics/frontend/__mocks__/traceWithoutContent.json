@@ -9,6 +9,8 @@
     "outputTokens": 0,
     "inputCost": 0,
     "outputCost": 0,
+    "requestCost": 0,
+    "webSearchCost": 0,
     "totalCost": 0,
     "totalLatency": 0.5,
     "person": {

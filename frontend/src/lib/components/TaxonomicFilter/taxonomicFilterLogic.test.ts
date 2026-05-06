@@ -321,6 +321,24 @@ describe('taxonomicFilterLogic', () => {
             })
         })
 
+        it.each([
+            { description: 'undefined first entry', payload: [undefined as any] },
+            { description: 'null first entry', payload: [null as any] },
+            { description: 'entry missing group', payload: [{ name: 'anything' } as any] },
+        ])('appendTopMatches is a no-op when $description', async ({ payload }) => {
+            await expectLogic(quickLogic, () => {
+                quickLogic.actions.setSearchQuery('$pageview')
+            })
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
+                .delay(1)
+
+            const before = quickLogic.values.topMatchItems
+            expect(before).toHaveLength(1)
+
+            expect(() => quickLogic.actions.appendTopMatches(payload)).not.toThrow()
+            expect(quickLogic.values.topMatchItems).toEqual(before)
+        })
+
         it('promotes top match from groups without getValue', async () => {
             const logicProps: TaxonomicFilterLogicProps = {
                 taxonomicFilterLogicKey: 'testNoGetValue',
@@ -438,6 +456,90 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('WorkflowVariables in SuggestedFilters', () => {
+        // The All/Suggestions tab is always prepended to the workflow scene's filter via
+        // `TaxonomicPropertyFilter`, and is the default landing tab. Surfacing workflow variables
+        // there (and ordering them first) avoids users landing on an empty-feeling tab when their
+        // query matches a defined variable.
+        it('surfaces workflow variables via optionsFromProp and orders them first in redistributed top matches', async () => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testWorkflowVariablesSuggested',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.WorkflowVariables,
+                    TaxonomicFilterGroupType.Events,
+                ],
+                optionsFromProp: {
+                    [TaxonomicFilterGroupType.WorkflowVariables]: [{ name: 'event_name' }, { name: 'unrelated_var' }],
+                },
+            }
+            const workflowLogicTest = taxonomicFilterLogic(logicProps)
+            workflowLogicTest.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+
+            expect(workflowLogicTest.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            // The query "event" matches both the WorkflowVariables option `event_name` and any
+            // events in the mocked event_definitions endpoint. WorkflowVariables must come first.
+            await expectLogic(workflowLogicTest, () => {
+                workflowLogicTest.actions.setSearchQuery('event')
+            })
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
+                .delay(1)
+
+            const redistributed = workflowLogicTest.values.redistributedTopMatchItems
+            const groupOrder = redistributed.map((item) => item.group)
+            const firstWorkflowIndex = groupOrder.indexOf(TaxonomicFilterGroupType.WorkflowVariables)
+            const firstEventsIndex = groupOrder.indexOf(TaxonomicFilterGroupType.Events)
+
+            expect(firstWorkflowIndex).toBeGreaterThanOrEqual(0)
+            expect(redistributed[firstWorkflowIndex]).toEqual(
+                expect.objectContaining({
+                    name: 'event_name',
+                    group: TaxonomicFilterGroupType.WorkflowVariables,
+                })
+            )
+            // Workflow variables come before events in the redistributed order.
+            if (firstEventsIndex !== -1) {
+                expect(firstWorkflowIndex).toBeLessThan(firstEventsIndex)
+            }
+
+            workflowLogicTest.unmount()
+        })
+
+        it('does not surface workflow variables in SuggestedFilters when no variables are defined', async () => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testWorkflowVariablesEmpty',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.WorkflowVariables,
+                    TaxonomicFilterGroupType.Events,
+                ],
+                optionsFromProp: {
+                    [TaxonomicFilterGroupType.WorkflowVariables]: [],
+                },
+            }
+            const workflowLogicTest = taxonomicFilterLogic(logicProps)
+            workflowLogicTest.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+
+            await expectLogic(workflowLogicTest, () => {
+                workflowLogicTest.actions.setSearchQuery('event')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .delay(1)
+
+            const groups = workflowLogicTest.values.redistributedTopMatchItems.map((item) => item.group)
+            expect(groups).not.toContain(TaxonomicFilterGroupType.WorkflowVariables)
+
+            workflowLogicTest.unmount()
+        })
+    })
+
     describe('SuggestedFilters presence', () => {
         it.each([
             {
@@ -552,9 +654,10 @@ describe('taxonomicFilterLogic', () => {
                 ],
             },
             {
-                description: 'SuggestedFilters has empty options when eventNames does not include $autocapture',
+                description:
+                    "SuggestedFilters surfaces the event's taxonomy-default primary property when eventNames=['$pageview']",
                 eventNames: ['$pageview'],
-                expectedOptions: [],
+                expectedOptions: [{ name: '$pathname', group: TaxonomicFilterGroupType.EventProperties }],
             },
             {
                 description: 'SuggestedFilters has empty options when eventNames is empty',
@@ -668,6 +771,79 @@ describe('taxonomicFilterLogic', () => {
                 { id: 'context2', name: 'Test Context 2', value: 'context2', icon: expect.anything() },
                 { id: 'context3', name: 'Another Context', value: 'context3', icon: expect.anything() },
             ])
+        })
+    })
+
+    describe('keywordShortcuts on Events and EventProperties groups', () => {
+        let testLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'keywordShortcutsGroupTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            })
+            testLogic.mount()
+        })
+
+        afterEach(() => {
+            testLogic.unmount()
+        })
+
+        it('Events group returns shortcuts with eventName set to $autocapture', () => {
+            const eventsGroup = testLogic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)
+            expect(eventsGroup?.keywordShortcuts).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            const shortcuts = eventsGroup?.keywordShortcuts?.('click') ?? []
+            expect(shortcuts[0]).toMatchObject({
+                _type: 'quick_filter',
+                name: 'Click (autocapture)',
+                eventName: '$autocapture',
+                filterValue: 'click',
+            })
+        })
+
+        it('EventProperties group returns shortcuts without an eventName', () => {
+            const eventPropertiesGroup = testLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.EventProperties
+            )
+            expect(eventPropertiesGroup?.keywordShortcuts).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            const [shortcut] = eventPropertiesGroup?.keywordShortcuts?.('click') ?? []
+            expect(shortcut).toMatchObject({
+                _type: 'quick_filter',
+                name: 'Click (event type)',
+                filterValue: 'click',
+            })
+            expect(shortcut.eventName).toBeUndefined()
+        })
+
+        it('Events group getName/getValue/getIcon/getPopoverHeader branch on isQuickFilterItem', () => {
+            const eventsGroup = testLogic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)
+            const [shortcut] = eventsGroup?.keywordShortcuts?.('click') ?? []
+            expect(eventsGroup?.getName?.(shortcut)).toBe('Click (autocapture)')
+            expect(eventsGroup?.getValue?.(shortcut)).toEqual(expect.any(String))
+            expect(eventsGroup?.getIcon?.(shortcut)).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            expect(eventsGroup?.getPopoverHeader(shortcut)).toBe('Autocapture shortcut')
+
+            const realEvent = { id: 'uuid-evt', name: '$pageview' }
+            expect(eventsGroup?.getName?.(realEvent)).toBe('$pageview')
+            expect(eventsGroup?.getValue?.(realEvent)).toBe('$pageview')
+        })
+
+        it('EventProperties group popover header says "Event type shortcut" (not "Autocapture shortcut")', () => {
+            const eventPropertiesGroup = testLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.EventProperties
+            )
+            const [shortcut] = eventPropertiesGroup?.keywordShortcuts?.('click') ?? []
+            expect(eventPropertiesGroup?.getPopoverHeader(shortcut)).toBe('Event type shortcut')
+
+            const realProperty = { name: '$current_url' } as any
+            expect(eventPropertiesGroup?.getPopoverHeader(realProperty)).not.toBe('Event type shortcut')
+        })
+
+        it('shortcuts produce unique getValue keys so React selection stays stable', () => {
+            const eventsGroup = testLogic.values.taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.Events)
+            const shortcuts = eventsGroup?.keywordShortcuts?.('click') ?? []
+            const values = shortcuts.map((s) => eventsGroup?.getValue?.(s))
+            expect(new Set(values).size).toBe(values.length)
         })
     })
 })

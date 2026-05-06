@@ -6,7 +6,7 @@ import urllib
 import builtins
 import dataclasses
 from datetime import datetime
-from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
+from typing import Any, Iterator, List, Optional, Union, cast  # noqa: UP035
 
 from django.conf import settings
 from django.core.cache import cache
@@ -19,6 +19,7 @@ from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.renderers import BaseRenderer
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
@@ -173,7 +174,10 @@ class EventViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "query"
-    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
+    renderer_classes = cast(
+        tuple[type[BaseRenderer], ...],
+        (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
+    )
     serializer_class = ClickhouseEventSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     pagination_class = UncountedLimitOffsetPagination
@@ -258,6 +262,7 @@ class EventViewSet(
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
         try:
             is_csv_request = self.request.accepted_renderer.format == "csv"
 
@@ -413,6 +418,10 @@ class EventViewSet(
                 distinct_to_person[distinct_id] = person
         return distinct_to_person
 
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: OpenApiTypes.OBJECT},
+    )
     def retrieve(
         self,
         request: request.Request,
@@ -447,6 +456,10 @@ class EventViewSet(
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
+        # `/events/values` is hit from every taxonomic property-value picker across the app, so
+        # tag by the endpoint name rather than a generic introspection feature — that makes load
+        # from this specific path easy to attribute in query log analysis.
+        tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.EVENTS_VALUES_API)
         team = self.team
 
         key = request.GET.get("key")

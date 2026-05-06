@@ -1,14 +1,16 @@
-import { IconBalance } from '@posthog/icons'
+import { IconBalance, IconInfo } from '@posthog/icons'
 
 import { getSeriesColor } from 'lib/colors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { alphabet, formatPercentage } from 'lib/utils'
 
 import type { MultivariateFlagVariant } from '~/types'
 
-import { isEvenlyDistributed, percentageDistribution } from '../utils'
+import { ensureIsPercent, isEvenlyDistributed, percentageDistribution } from '../utils'
 
 interface TrafficPreviewProps {
     variants: MultivariateFlagVariant[]
@@ -156,6 +158,7 @@ interface VariantDistributionEditorProps {
     variants: MultivariateFlagVariant[]
     onVariantsChange: (variants: MultivariateFlagVariant[]) => void
     rolloutPercentage?: number
+    onRolloutPercentageChange?: (value: number) => void
 }
 
 /**
@@ -169,6 +172,7 @@ export const VariantDistributionEditor = ({
     variants,
     onVariantsChange,
     rolloutPercentage = 100,
+    onRolloutPercentageChange,
 }: VariantDistributionEditorProps): JSX.Element => {
     const { variantRolloutSum, areVariantRolloutsValid } = useVariantDistributionValidation(variants)
 
@@ -239,6 +243,35 @@ export const VariantDistributionEditor = ({
                     )}
                 </div>
             </div>
+
+            {onRolloutPercentageChange && (
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                            <h3 className="font-semibold mb-0">Rollout percentage</h3>
+                            <Tooltip title="Percentage of all users who enter the experiment. Users not included are excluded entirely and not part of the analysis.">
+                                <IconInfo className="text-secondary text-base" />
+                            </Tooltip>
+                        </div>
+                        <LemonInput
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={rolloutPercentage}
+                            onChange={(value) => onRolloutPercentageChange(ensureIsPercent(value))}
+                            suffix={<span>%</span>}
+                            className="w-24"
+                        />
+                    </div>
+                    <LemonSlider
+                        value={rolloutPercentage}
+                        onChange={onRolloutPercentageChange}
+                        min={0}
+                        max={100}
+                        step={1}
+                    />
+                </div>
+            )}
 
             <TrafficPreview
                 variants={variants}

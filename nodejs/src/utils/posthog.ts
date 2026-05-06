@@ -33,7 +33,7 @@ export function initSuperProperties(): void {
             // commit hash used to generate them. `nodejs` runs from a child directory, so we
             // need to look up one level.
             superProperties['release'] = fs.readFileSync('../commit.txt', 'utf8')
-        } catch (error) {
+        } catch {
             // The release isn't required, it's just nice to have.
         }
 

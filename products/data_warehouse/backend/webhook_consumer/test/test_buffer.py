@@ -1,4 +1,5 @@
 import time
+from typing import Any, cast
 
 import pyarrow as pa
 
@@ -13,7 +14,7 @@ def _make_config(**kwargs) -> WebhookConsumerConfig:
         "dlq_topic": "test-dlq",
     }
     defaults.update(kwargs)
-    return WebhookConsumerConfig(**defaults)
+    return WebhookConsumerConfig(**cast(Any, defaults))
 
 
 class TestSchemaBuffer:

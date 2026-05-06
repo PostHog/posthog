@@ -18,6 +18,7 @@ from posthog import settings
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.redis import get_client, redis
 from posthog.utils import initialize_self_capture_api_token
 
@@ -90,6 +91,9 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     async BACKUP threads don't inherit session-level settings.
     """
 
+    host: str = settings.CLICKHOUSE_HOST
+    cluster: str = settings.CLICKHOUSE_CLUSTER
+
     client_settings: dict[str, str] = {
         "max_execution_time": "0",
         "max_memory_usage": "0",
@@ -109,6 +113,8 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
             )
         return get_cluster(
             context.log,
+            host=self.host,
+            cluster=self.cluster,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
@@ -202,7 +208,7 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
             )
 
         asyncio.run(initialize_self_capture_api_token())
-        posthoganalytics.personal_api_key = self.personal_api_key
+        posthoganalytics.personal_api_key = self.personal_api_key  # ty: ignore[invalid-assignment]
 
         return None
 
@@ -230,11 +236,13 @@ class PostgresURLResource(dagster.ConfigurableResource):
 
 @dagster.resource
 def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer, None, None]:
+    """Yield the routing-managed default Kafka producer; flush on teardown.
+
+    Ops that produce to topics routed elsewhere should call
+    `posthog.kafka_client.routing.get_producer(topic=...)` directly instead of
+    using this resource.
     """
-    Kafka producer resource with proper cleanup.
-    Flushes pending messages on teardown.
-    """
-    producer = _KafkaProducer()
+    producer = get_producer()
     try:
         yield producer
     finally:

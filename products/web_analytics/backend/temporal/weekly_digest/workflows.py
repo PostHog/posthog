@@ -84,21 +84,22 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
 
 @workflow.defn(name="wa-weekly-digest-test")
 class WAWeeklyDigestTestWorkflow(PostHogWorkflow):
-    """Send a test digest email for a single team, bypassing feature flags."""
+    """Send a test digest, bypassing notification settings and feature flags. See `SendTestDigestInput`."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SendTestDigestInput:
         """Parse inputs from the management command CLI.
 
-        Usage: manage.py start_temporal_workflow wa-weekly-digest-test '{"team_id": 1, "email": "you@example.com"}'
+        Usage:
+          manage.py start_temporal_workflow wa-weekly-digest-test '{"email": "you@example.com"}'
+          manage.py start_temporal_workflow wa-weekly-digest-test '{"email": "you@example.com", "team_id": 1}'
         """
         import json
 
         data = json.loads(inputs[0])
         return SendTestDigestInput(
-            team_id=data["team_id"],
             email=data["email"],
-            force=data.get("force", False),
+            team_id=data.get("team_id"),
         )
 
     @workflow.run

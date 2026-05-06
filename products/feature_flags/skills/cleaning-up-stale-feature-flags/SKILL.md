@@ -53,26 +53,13 @@ For each stale flag, present:
 - Why it's considered stale (no calls in N days, or fully rolled out for N days)
 - Whether it's tied to experiments
 - When it was created and last modified
-- A recommended action (disable, delete, or keep with explanation)
+- A recommended action (clean up from code and disable, or keep with explanation)
 
-### 3. Take action (with user confirmation)
+### 3. Generate code cleanup instructions
 
-**Never delete or disable flags without explicit user approval.** Always present the list and recommendations first, then ask which flags to act on.
+Generate a cleanup prompt the user can run in their code editor or coding agent. The cleanup instructions must be tailored to each flag's rollout state, because the rollout state determines which code path to keep. This list also serves as the approval checklist — if the user says their code is already cleaned up, they review it and confirm which flags to disable.
 
-**Disable first, delete later:**
-
-The safest approach is a two-phase cleanup:
-
-1. **Disable** the flag (`active: false`) using `posthog:update-feature-flag`. This stops it from being evaluated but keeps the configuration intact. If something breaks, re-enabling is instant.
-2. **Delete** the flag using `posthog:delete-feature-flag` after the user confirms no issues. This is a soft-delete — the flag is marked as deleted but not physically removed.
-
-When disabling or deleting multiple flags, process them one at a time and confirm each action. This makes it easy to stop if something goes wrong.
-
-### 4. Generate code cleanup instructions
-
-After disabling or deleting flags, generate a cleanup prompt the user can run in their code editor or coding agent. The cleanup instructions must be tailored to each flag's rollout state, because the rollout state determines which code path to keep.
-
-Classify each deleted/disabled flag into one of three rollout states based on its definition:
+Classify each flag into one of three rollout states based on its definition:
 
 - **`fully_rolled_out`**: A boolean flag with a release condition at 100% rollout and no property filters, or a multivariate flag where one variant is at 100%. Record which variant was active (for multivariate flags).
 - **`not_rolled_out`**: All release conditions are at 0%, or the flag has no release conditions at all.
@@ -116,7 +103,20 @@ For flag "example-flag":
 
 End the instructions with: "After cleanup, remove any dead code branches and unused imports."
 
-Present the full cleanup prompt in a copyable format so the user can paste it directly into Claude Code, Cursor, Copilot, or any other AI code editor. This is the same approach used in the PostHog UI's bulk delete flow.
+Present the full cleanup prompt in a copyable format so the user can paste it directly into Claude Code, Cursor, Copilot, or any other AI code editor.
+
+### 4. Disable flags after code changes are deployed
+
+**Never disable flags before the code changes are deployed.** Disabling a fully rolled out flag while code still checks it will cause that code path to stop working — a production regression.
+
+**Never disable flags without explicit user approval.** Always present the list and recommendations first, then ask which flags to act on.
+
+Present the user with both options and their tradeoffs:
+
+- **Disable** (`active: false`) via `posthog:update-feature-flag`: The flag stops being evaluated but the configuration is preserved. If something was missed in the code cleanup, re-enabling is instant. Recommended as the default.
+- **Delete** via `posthog:delete-feature-flag`: A soft-delete — the flag is marked as deleted but not physically removed. Keeps the flag list clean, but re-enabling requires recreating the flag. Better for flags the user is confident they'll never need again.
+
+Once the user has chosen and confirms their code changes are deployed, apply the chosen action one flag at a time. Confirm each action so it's easy to stop if something goes wrong.
 
 ## Example interaction
 
@@ -132,28 +132,25 @@ Agent steps:
 
    | Flag | Last called | Reason | Recommendation |
    |------|-------------|--------|----------------|
-   | old-checkout-flow | 45 days ago | No evaluations in 45 days | Disable then delete |
-   | beta-dashboard-v2 | Never | 100% rolled out, created 3 months ago | Disable then delete |
-   | holiday-promo-2024 | 90 days ago | No evaluations in 90 days | Delete (seasonal, won't reuse) |
+   | old-checkout-flow | 45 days ago | No evaluations in 45 days | Clean up and disable |
+   | beta-dashboard-v2 | Never | 100% rolled out, created 3 months ago | Clean up and disable |
+   | holiday-promo-2024 | 90 days ago | No evaluations in 90 days | Clean up and disable |
    | new-pricing-page | 60 days ago | No evaluations in 60 days, tied to experiment #42 | Check experiment first |
    ...
 
-   Want me to disable any of these? I'd recommend starting with old-checkout-flow
-   and beta-dashboard-v2 since they have no dependencies."
+   Want me to generate cleanup instructions for any of these? I'd recommend
+   starting with old-checkout-flow and beta-dashboard-v2 since they have no dependencies."
 
-- User confirms: "Yes, remove those two"
-- Disable each flag first using posthog:update-feature-flag (active: false), then confirm with the user before deleting
-- After user confirms no issues, call posthog:delete-feature-flag for each
+- User confirms: "Yes, do old-checkout-flow and beta-dashboard-v2"
 - Classify rollout states from the flag definitions:
    - old-checkout-flow: fully_rolled_out (boolean, 100% rollout, no conditions)
    - beta-dashboard-v2: fully_rolled_out (boolean, 100% rollout, no conditions)
 - Generate and present cleanup prompt:
 
-   "Both flags are deleted. Here's a cleanup prompt you can paste into your
-   code editor:
+   "Here's a cleanup prompt you can paste into your code editor:
 
    ---
-   Find and remove all references to these deleted feature flags in the codebase.
+   Find and remove all references to these feature flags in the codebase.
    For each flag, search for all usages: isFeatureEnabled, useFeatureFlag,
    getFeatureFlag, posthog.isFeatureEnabled, posthog.getFeatureFlag, etc.
 
@@ -166,13 +163,24 @@ Agent steps:
 
    If there is an else branch, remove the else branch entirely.
    After cleanup, remove any dead code branches and unused imports.
-   ---"
+   ---
+
+   Once you've cleaned up your code and deployed, let me know.
+   Would you like to disable or delete these flags?
+   - Disable (recommended): keeps the config, re-enabling is instant
+   - Delete: removes from the list, but you'd need to recreate if needed"
+
+- User confirms: "Disable them, code is deployed"
+- Disable each flag using posthog:update-feature-flag (active: false)
+- Confirm: "Both flags are now disabled in PostHog."
 ```
 
 ## Important notes
 
-- **Always confirm before acting.** This skill involves disabling and deleting flags, which can affect production behavior.
-- **Disabled flags are not stale.** Don't recommend deleting flags that are intentionally disabled — they may be kept for emergency reactivation.
+- **Code first, then disable.** Disabling a flag while code still references it causes the enabled code path to silently stop working. Always clean up code and deploy before disabling.
+- **Prefer disable over delete.** Disabling is instantly reversible. Deletion is not — re-enabling requires recreating the flag. Always present both options with tradeoffs and let the user choose.
+- **Always confirm before acting.** This skill involves disabling flags, which can affect production behavior. Never disable without explicit user approval.
+- **Disabled flags are not stale.** Don't recommend disabling flags that are already intentionally disabled — they may be kept for emergency reactivation.
 - **Experiment flags need extra care.** If a flag is tied to an active or recently completed experiment, the user likely wants to keep it until they've analyzed results.
 - **Seasonal flags may return.** Flags like "black-friday-sale" might look stale but are intentionally reused. Ask the user before removing these.
 - **Code cleanup is the real win.** Removing the flag from PostHog is the easy part. The value comes from removing the dead code paths.

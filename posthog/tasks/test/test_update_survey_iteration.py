@@ -70,6 +70,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         update_survey_iteration()
         self.recurring_survey.refresh_from_db()
         self.assertEqual(self.recurring_survey.current_iteration, 3)
+        assert self.recurring_survey.internal_targeting_flag is not None
 
         self.assertLessEqual(
             {

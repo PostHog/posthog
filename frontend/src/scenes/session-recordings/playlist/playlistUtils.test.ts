@@ -1,6 +1,12 @@
-import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
+import { stripSessionIds, summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
 
-import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    CohortType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+} from '~/types'
 
 describe('summarizePlaylistFilters()', () => {
     const cohortIdsMapped: Partial<Record<CohortType['id'], CohortType>> = {
@@ -167,5 +173,50 @@ describe('summarizePlaylistFilters()', () => {
         ).toEqual(
             'Pageview & Random action, on Initial browser = Chrome & custom_property ∋ blah & cohorts: New Yorkers'
         )
+    })
+})
+
+describe('stripSessionIds()', () => {
+    const baseFilters: Partial<RecordingUniversalFilters> = {
+        date_from: '-30d',
+        date_to: null,
+        filter_test_accounts: false,
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: 'id',
+                            type: PropertyFilterType.Cohort,
+                            operator: PropertyOperator.In,
+                            value: 247048,
+                        },
+                    ],
+                },
+            ],
+        },
+    }
+
+    it('strips session ids, leaves other filter fields untouched', () => {
+        const result = stripSessionIds({
+            ...baseFilters,
+            session_ids: ['019d68e1-1165-7cf9-b87b-759fe1604d99'],
+        })
+        expect(result).toEqual(baseFilters)
+    })
+
+    it('returns the same reference when session_ids is absent', () => {
+        // no allocation, no mutation — cheap no-op path
+        const input = { ...baseFilters }
+        expect(stripSessionIds(input)).toBe(input)
+    })
+
+    it.each([
+        ['undefined', undefined],
+        ['null', null],
+    ])('passes %s through unchanged', (_name, input) => {
+        expect(stripSessionIds(input as any)).toBe(input)
     })
 })

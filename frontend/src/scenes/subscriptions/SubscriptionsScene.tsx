@@ -19,30 +19,27 @@ import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import type { InsightShortId } from '~/types'
 import { AvailableFeature } from '~/types'
 
-import { SubscriptionsFiltersBar } from './SubscriptionsFiltersBar'
-import { SubscriptionsLoadingSkeleton } from './SubscriptionsLoadingSkeleton'
+import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
+import { SubscriptionsLoadingSkeleton } from './components/SubscriptionsLoadingSkeleton'
+import {
+    SubscriptionsTable,
+    isSubscriptionEnabled,
+    subscriptionEditHref,
+    subscriptionName,
+} from './components/SubscriptionsTable'
 import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneLogic'
-import { SubscriptionsTable, subscriptionName } from './SubscriptionsTable'
-
-function editHref(sub: SubscriptionApi): string | null {
-    if (sub.insight && sub.insight_short_id) {
-        return urls.insightSubcription(sub.insight_short_id as InsightShortId, String(sub.id))
-    }
-    if (sub.dashboard) {
-        return urls.dashboardSubscription(sub.dashboard, String(sub.id))
-    }
-    return null
-}
 
 function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { deleteSubscriptionSuccess, deliverSubscription } = useActions(subscriptionsSceneLogic)
-    const { deliveringSubscriptionId } = useValues(subscriptionsSceneLogic)
-    const href = editHref(sub)
+    const { deleteSubscriptionSuccess, deliverSubscription, setSubscriptionEnabled } =
+        useActions(subscriptionsSceneLogic)
+    const { deliveringSubscriptionId, togglingEnabledId } = useValues(subscriptionsSceneLogic)
+    const href = subscriptionEditHref(sub)
     const isDelivering = deliveringSubscriptionId === sub.id
+    const isToggling = togglingEnabledId === sub.id
+    const enabled = isSubscriptionEnabled(sub)
 
     return (
         <LemonMenu
@@ -56,11 +53,21 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
                       ]
                     : []),
                 {
-                    label: 'Test delivery',
-                    'data-attr': 'subscription-list-item-manual-deliver',
-                    disabledReason: isDelivering ? 'Sending test delivery…' : null,
-                    onClick: () => deliverSubscription(sub.id),
+                    label: enabled ? 'Disable subscription' : 'Enable subscription',
+                    'data-attr': 'subscription-list-item-toggle-enabled',
+                    disabledReason: isToggling ? 'Updating…' : null,
+                    onClick: () => setSubscriptionEnabled(sub.id, !enabled),
                 },
+                ...(enabled
+                    ? [
+                          {
+                              label: 'Test delivery',
+                              'data-attr': 'subscription-list-item-manual-deliver',
+                              disabledReason: isDelivering ? 'Sending test delivery…' : null,
+                              onClick: () => deliverSubscription(sub.id),
+                          },
+                      ]
+                    : []),
                 {
                     label: 'Delete',
                     status: 'danger' as const,
@@ -77,10 +84,10 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
             ]}
         >
             <LemonButton
-                icon={isDelivering ? <Spinner /> : <IconEllipsis />}
+                icon={isDelivering || isToggling ? <Spinner /> : <IconEllipsis />}
                 size="small"
                 aria-label="Subscription actions"
-                disabled={isDelivering}
+                disabled={isDelivering || isToggling}
             />
         </LemonMenu>
     )

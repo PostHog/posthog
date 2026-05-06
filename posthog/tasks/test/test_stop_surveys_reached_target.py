@@ -94,6 +94,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
 
         for survey in surveys:
             survey.refresh_from_db()
+            assert survey.end_date is not None
             assert now() - survey.end_date < timedelta(seconds=1)
             assert not survey.responses_limit
 
@@ -184,6 +185,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         stop_surveys_reached_target()
 
         survey.refresh_from_db()
+        assert survey.end_date is not None
         assert now() - relativedelta(hours=1) - survey.end_date < timedelta(seconds=1)
         assert survey.responses_limit == 1
 

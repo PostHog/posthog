@@ -34,27 +34,29 @@ class Migration(AsyncMigrationDefinition):
 
     sec = SideEffects()
 
-    operations = [
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.POSTGRES,
-            sql="CREATE TABLE test_async_migration ( key VARCHAR, value VARCHAR )",
-            rollback="DROP TABLE test_async_migration",
-        ),
-        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback),
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.POSTGRES,
-            sql="INSERT INTO test_async_migration (key, value) VALUES ('a', 'b')",
-            rollback="TRUNCATE TABLE test_async_migration",
-        ),
-        AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)", rollback=None),
-        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback),
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.POSTGRES,
-            sql="UPDATE test_async_migration SET value='c' WHERE key='a'",
-            rollback="UPDATE test_async_migration SET value='b' WHERE key='a'",
-        ),
-        AsyncMigrationOperation(fn=sec.side_effect, rollback_fn=sec.side_effect_rollback),
-    ]
+    @property
+    def operations(self) -> list[AsyncMigrationOperation]:
+        return [
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.POSTGRES,
+                sql="CREATE TABLE test_async_migration ( key VARCHAR, value VARCHAR )",
+                rollback="DROP TABLE test_async_migration",
+            ),
+            AsyncMigrationOperation(fn=self.sec.side_effect, rollback_fn=self.sec.side_effect_rollback),
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.POSTGRES,
+                sql="INSERT INTO test_async_migration (key, value) VALUES ('a', 'b')",
+                rollback="TRUNCATE TABLE test_async_migration",
+            ),
+            AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT pg_sleep(1)", rollback=None),
+            AsyncMigrationOperation(fn=self.sec.side_effect, rollback_fn=self.sec.side_effect_rollback),
+            AsyncMigrationOperationSQL(
+                database=AnalyticsDBMS.POSTGRES,
+                sql="UPDATE test_async_migration SET value='c' WHERE key='a'",
+                rollback="UPDATE test_async_migration SET value='b' WHERE key='a'",
+            ),
+            AsyncMigrationOperation(fn=self.sec.side_effect, rollback_fn=self.sec.side_effect_rollback),
+        ]
 
     def healthcheck(self):
         if self.fail:

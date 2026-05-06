@@ -178,15 +178,16 @@ export const BreakdownTypeApi = {
 export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
 
 export const MultipleBreakdownTypeApi = {
-    Cohort: 'cohort',
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    Cohort: 'cohort',
     RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
 } as const
 
 export interface BreakdownApi {
@@ -455,6 +456,16 @@ export interface HogQLQueryModifiersApi {
     propertyGroupsMode?: PropertyGroupsModeApi | null
     /** @nullable */
     s3TableUseInvalidColumns?: boolean | null
+    /**
+     * Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.
+     * @nullable
+     */
+    sessionIdPushdown?: boolean | null
+    /**
+     * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
+     * @nullable
+     */
+    sessionPropertyPreAggregation?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     /** @nullable */
@@ -999,10 +1010,7 @@ export interface QueryTimingApi {
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
-    /**
-     * Box plot data when display type is BoxPlot
-     * @nullable
-     */
+    /** @nullable */
     boxplot_data?: BoxPlotDatumApi[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -2627,11 +2635,12 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
 
-export const AggregationPropertyTypeApi = {
+export const AggregationPropertyType1Api = {
     Event: 'event',
     Person: 'person',
+    DataWarehouse: 'data_warehouse',
 } as const
 
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
@@ -2701,6 +2710,11 @@ export const EntityTypeApi = {
 } as const
 
 export interface RetentionEntityApi {
+    /**
+     * Data warehouse field used as the actor identifier
+     * @nullable
+     */
+    aggregation_target_field?: string | null
     /** @nullable */
     custom_name?: string | null
     id?: string | number | null
@@ -2737,6 +2751,16 @@ export interface RetentionEntityApi {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
+    /**
+     * Data warehouse table name
+     * @nullable
+     */
+    table_name?: string | null
+    /**
+     * Data warehouse timestamp field
+     * @nullable
+     */
+    timestamp_field?: string | null
     type?: EntityTypeApi | null
     /** @nullable */
     uuid?: string | null
@@ -2755,12 +2779,17 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
-    /** The type of property to aggregate on (event or person). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyTypeApi | null
+    /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyType1Api | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
     cumulative?: boolean | null
+    /**
+     * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
+     * @nullable
+     */
+    customAggregationTarget?: boolean | null
     dashboardDisplay?: RetentionDashboardDisplayTypeApi | null
     /** controls the display of the retention graph */
     display?: ChartDisplayTypeApi | null
@@ -3091,6 +3120,7 @@ export const StickinessOperatorApi = {
 
 export interface StickinessCriteriaApi {
     operator: StickinessOperatorApi
+    /** @minimum 1 */
     value: number
 }
 
@@ -3139,6 +3169,7 @@ export interface StickinessQueryApi {
     interval?: IntervalTypeApi | null
     /**
      * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     * @minimum 1
      * @nullable
      */
     intervalCount?: number | null
@@ -4567,6 +4598,7 @@ export const IntegrationKindApi = {
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
     Snapchat: 'snapchat',
+    Stripe: 'stripe',
     Intercom: 'intercom',
     Email: 'email',
     Twilio: 'twilio',
@@ -4829,6 +4861,7 @@ export const AIEventTypeApi = {
     AiMetric: '$ai_metric',
     AiFeedback: '$ai_feedback',
     AiEvaluation: '$ai_evaluation',
+    AiTag: '$ai_tag',
     AiTraceSummary: '$ai_trace_summary',
     AiGenerationSummary: '$ai_generation_summary',
     AiTraceClusters: '$ai_trace_clusters',
@@ -4876,6 +4909,8 @@ export interface LLMTraceApi {
     outputTokens?: number | null
     person?: LLMTracePersonApi | null
     /** @nullable */
+    requestCost?: number | null
+    /** @nullable */
     tools?: string[] | null
     /** @nullable */
     totalCost?: number | null
@@ -4883,6 +4918,8 @@ export interface LLMTraceApi {
     totalLatency?: number | null
     /** @nullable */
     traceName?: string | null
+    /** @nullable */
+    webSearchCost?: number | null
 }
 
 export interface Response25Api {
@@ -6036,6 +6073,12 @@ export const ExperimentStatsValidationFailureApi = {
 
 export interface ExperimentStatsBaseValidatedApi {
     /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
+    /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
@@ -6067,6 +6110,12 @@ export interface ExperimentVariantResultFrequentistApi {
      * @nullable
      */
     confidence_interval?: number[] | null
+    /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
     /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
@@ -6100,6 +6149,12 @@ export const ExperimentVariantResultBayesianApiMethod = {
 export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     chance_to_win?: number | null
+    /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
     /**
      * @minItems 2
      * @maxItems 2
@@ -7953,6 +8008,8 @@ export const MarketingAnalyticsDrillDownLevelApi = {
     Channel: 'channel',
     Source: 'source',
     Campaign: 'campaign',
+    AdGroup: 'ad_group',
+    Ad: 'ad',
     Medium: 'medium',
     Content: 'content',
     Term: 'term',
@@ -8329,6 +8386,25 @@ export const OrderDirection2Api = {
     Desc: 'DESC',
 } as const
 
+export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
+    /** @nullable */
+    assigned_role_id?: string | null
+    /** @nullable */
+    assigned_user_id?: number | null
+    fingerprint: string
+    /** ISO 8601 datetime string. */
+    first_seen: string
+    is_deleted: number
+    /** @nullable */
+    issue_description?: string | null
+    issue_id: string
+    /** @nullable */
+    issue_name?: string | null
+    issue_status: string
+    /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+    version: number
+}
+
 export interface ErrorTrackingQueryResponseApi {
     /** @nullable */
     columns?: string[] | null
@@ -8392,6 +8468,11 @@ export interface ErrorTrackingQueryApi {
     orderBy: ErrorTrackingOrderByApi
     /** Sort direction. */
     orderDirection?: OrderDirection2Api | null
+    /**
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
+     * @nullable
+     */
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdateApi[] | null
     /** @nullable */
     personId?: string | null
     response?: ErrorTrackingQueryResponseApi | null
@@ -9177,6 +9258,8 @@ export const ScaleApi = {
 } as const
 
 export interface YAxisSettingsApi {
+    /** @nullable */
+    label?: string | null
     scale?: ScaleApi | null
     /** @nullable */
     showGridLines?: boolean | null
@@ -9195,6 +9278,7 @@ export const DisplayTypeApi = {
     Auto: 'auto',
     Line: 'line',
     Bar: 'bar',
+    Area: 'area',
 } as const
 
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]
@@ -9257,7 +9341,11 @@ export interface ChartSettingsApi {
     /** @nullable */
     showNullsAsZero?: boolean | null
     /** @nullable */
+    showPieTotal?: boolean | null
+    /** @nullable */
     showTotalRow?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
     /** @nullable */
     showXAxisBorder?: boolean | null
     /** @nullable */
@@ -9270,6 +9358,8 @@ export interface ChartSettingsApi {
      */
     stackBars100?: boolean | null
     xAxis?: ChartAxisApi | null
+    /** @nullable */
+    xAxisLabel?: string | null
     /** @nullable */
     yAxis?: ChartAxisApi[] | null
     /**
@@ -9433,14 +9523,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
-
-export const EffectiveRestrictionLevelEnumApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
@@ -9532,7 +9614,7 @@ export interface InsightApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9650,7 +9732,7 @@ export interface PatchedInsightApi {
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
     readonly is_sample?: boolean
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9674,6 +9756,50 @@ export interface PatchedInsightApi {
     readonly alerts?: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at?: string | null
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 export type ColumnConfigurationsListParams = {
@@ -9703,7 +9829,47 @@ export type InsightsListParams = {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean
     format?: InsightsListFormat
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: InsightsListInsight
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string
     /**
      * Number of results to return per page.
      */
@@ -9724,7 +9890,23 @@ Whether to refresh the retrieved insights, how aggressively, and if sync or asyn
 Background calculation can be tracked using the `query_status` response field.
  */
     refresh?: InsightsListRefresh
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string
     short_id?: string
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean
 }
 
 export type InsightsListFormat = (typeof InsightsListFormat)[keyof typeof InsightsListFormat]
@@ -9732,6 +9914,19 @@ export type InsightsListFormat = (typeof InsightsListFormat)[keyof typeof Insigh
 export const InsightsListFormat = {
     Csv: 'csv',
     Json: 'json',
+} as const
+
+export type InsightsListInsight = (typeof InsightsListInsight)[keyof typeof InsightsListInsight]
+
+export const InsightsListInsight = {
+    Funnels: 'FUNNELS',
+    Json: 'JSON',
+    Lifecycle: 'LIFECYCLE',
+    Paths: 'PATHS',
+    Retention: 'RETENTION',
+    Sql: 'SQL',
+    Stickiness: 'STICKINESS',
+    Trends: 'TRENDS',
 } as const
 
 export type InsightsListRefresh = (typeof InsightsListRefresh)[keyof typeof InsightsListRefresh]
@@ -9758,6 +9953,10 @@ export const InsightsCreateFormat = {
 } as const
 
 export type InsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: InsightsRetrieveFormat
     /**
  * 
@@ -9777,6 +9976,10 @@ Whether to refresh the insight, how aggresively, and if sync or async:
 Background calculation can be tracked using the `query_status` response field.
  */
     refresh?: InsightsRetrieveRefresh
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type InsightsRetrieveFormat = (typeof InsightsRetrieveFormat)[keyof typeof InsightsRetrieveFormat]
@@ -9831,14 +10034,14 @@ export const InsightsDestroyFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieve2Params = {
-    format?: InsightsActivityRetrieve2Format
+export type InsightsActivityRetrieveParams = {
+    format?: InsightsActivityRetrieveFormat
 }
 
-export type InsightsActivityRetrieve2Format =
-    (typeof InsightsActivityRetrieve2Format)[keyof typeof InsightsActivityRetrieve2Format]
+export type InsightsActivityRetrieveFormat =
+    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
 
-export const InsightsActivityRetrieve2Format = {
+export const InsightsActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -9879,14 +10082,26 @@ export const InsightsSuggestionsCreateFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieveParams = {
-    format?: InsightsActivityRetrieveFormat
+export type InsightsAllActivityRetrieveParams = {
+    format?: InsightsAllActivityRetrieveFormat
 }
 
-export type InsightsActivityRetrieveFormat =
-    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
+export type InsightsAllActivityRetrieveFormat =
+    (typeof InsightsAllActivityRetrieveFormat)[keyof typeof InsightsAllActivityRetrieveFormat]
 
-export const InsightsActivityRetrieveFormat = {
+export const InsightsAllActivityRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsBulkUpdateTagsCreateParams = {
+    format?: InsightsBulkUpdateTagsCreateFormat
+}
+
+export type InsightsBulkUpdateTagsCreateFormat =
+    (typeof InsightsBulkUpdateTagsCreateFormat)[keyof typeof InsightsBulkUpdateTagsCreateFormat]
+
+export const InsightsBulkUpdateTagsCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

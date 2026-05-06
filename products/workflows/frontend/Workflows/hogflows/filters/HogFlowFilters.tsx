@@ -7,6 +7,7 @@ import { isOperatorSemver } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterType, PropertyOperator } from '~/types'
@@ -51,19 +52,25 @@ export type HogFlowFiltersProps = {
 export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }: HogFlowFiltersProps): JSX.Element {
     const shouldShowInternalEvents = useFeatureFlag('WORKFLOWS_INTERNAL_EVENT_FILTERS')
     const sampleGlobals = useSampleGlobals()
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
     if (shouldShowInternalEvents) {
         actionsTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEvents)
     }
 
+    // WorkflowVariables comes first so its dedicated tab renders first in the category list.
+    // ActionFilter does not pipe `taxonomicFilterOptionsFromProp`, so the All/Suggestions tab
+    // does not aggregate variables here — variable surfacing in All/Suggestions only kicks in
+    // for the property-level filter (HogFlowPropertyFilters below).
     const propertyTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.WorkflowVariables,
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.PersonProperties,
+        ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.HogQLExpression,
-        TaxonomicFilterGroupType.WorkflowVariables,
     ]
     if (shouldShowInternalEvents) {
         propertyTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEventProperties)
@@ -97,6 +104,15 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
 
 export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { workflow } = useValues(workflowLogic)
+    // Surface workflow variables in the All/Suggestions tab so a user searching by variable key
+    // sees a match alongside event/person properties. The dedicated tab still works without this.
+    const taxonomicFilterOptionsFromProp = {
+        [TaxonomicFilterGroupType.WorkflowVariables]: (workflow?.variables ?? []).map((variable) => ({
+            name: variable.key,
+        })),
+    }
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
@@ -109,9 +125,11 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.PersonProperties,
+                ...groupsTaxonomicTypes,
                 TaxonomicFilterGroupType.HogQLExpression,
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
+            taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
             metadataSource={{
                 kind: NodeKind.EventsQuery,
                 select: defaultDataTableColumns(NodeKind.EventsQuery),

@@ -8,14 +8,18 @@
  */
 import { program } from 'commander'
 import { execSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import { VisualReviewClient, type Run } from './client.js'
+import { VisualReviewApiError, VisualReviewClient, type Run } from './client.js'
 import { hashImageWithDimensions } from './hasher.js'
 import { scanDirectory } from './scanner.js'
 import { readBaselineHashes, readSnapshotsFile } from './snapshots.js'
+
+const RETRY_STATUS_CODES = new Set([429, 500, 502, 503, 504])
+const SUBMIT_API_RETRIES = 3
+const SUBMIT_API_RETRY_BASE_DELAY_MS = 1_000
 
 program.name('vr').description('Visual Review CLI for snapshot testing').version('0.0.1')
 
@@ -37,6 +41,9 @@ program
     .option('--cookie <value>', 'Session cookie for authentication')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: SubmitOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             const exitCode = await runSubmit(options)
             process.exit(exitCode)
@@ -81,6 +88,9 @@ run.command('create')
     .option('--cookie <value>', 'Session cookie')
     .option('--purpose <purpose>', 'Run purpose: review or observe', 'review')
     .action(async (options: RunCreateOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             const runId = await runCreate(options)
             // Output just the run ID so CI can capture it
@@ -101,6 +111,9 @@ run.command('upload')
     .option('--token <value>', 'Personal API token')
     .option('--cookie <value>', 'Session cookie')
     .action(async (options: RunUploadOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             await runUpload(options)
         } catch (error) {
@@ -119,6 +132,9 @@ run.command('complete')
     .option('--cookie <value>', 'Session cookie')
     .option('--auto-approve', 'Auto-approve all changes and write signed baseline')
     .action(async (options: RunCompleteOptions) => {
+        if (!baselineExists(options.baseline)) {
+            process.exit(0)
+        }
         try {
             const exitCode = await runComplete(options)
             process.exit(exitCode)
@@ -193,6 +209,15 @@ function log(message: string): void {
     process.stderr.write(message + '\n')
 }
 
+function baselineExists(baselinePath: string): boolean {
+    const p = resolve(baselinePath)
+    if (!existsSync(p)) {
+        log(`Baseline file not found: ${p} — skipping (branch may not have snapshots.yml yet)`)
+        return false
+    }
+    return true
+}
+
 function extractContentHash(signedHash: string): string {
     const parts = signedHash.split('.')
     return parts.length === 4 ? parts[2] : signedHash
@@ -257,6 +282,19 @@ function makeClient(options: { baseline: string; api?: string; team?: string; to
     return { client, ...config }
 }
 
+function collectCIMetadata(): Record<string, string> {
+    const metadata: Record<string, string> = {}
+    const runId = process.env.GITHUB_RUN_ID
+    if (runId) {
+        metadata.github_run_id = runId
+    }
+    const jobId = process.env.JOB_CHECK_RUN_ID
+    if (jobId) {
+        metadata.github_check_run_id = jobId
+    }
+    return metadata
+}
+
 // --- Command implementations ---
 
 // --- Shard command implementations ---
@@ -279,6 +317,7 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
         prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
         snapshots: [],
         purpose: options.purpose,
+        metadata: collectCIMetadata(),
     })
 
     log(`Run created: ${result.run_id}`)
@@ -287,19 +326,19 @@ async function runCreate(options: RunCreateOptions): Promise<string> {
 
 async function runUpload(options: RunUploadOptions): Promise<void> {
     const { client } = makeClient(options)
+    const runId = options.runId
 
     const dirPath = resolve(options.dir)
 
-    // Scan and hash
-    log(`Scanning ${dirPath} for PNGs...`)
+    log(`[run:${runId}] Scanning ${dirPath} for PNGs...`)
     const scanned = scanDirectory(dirPath)
     if (scanned.length === 0) {
-        log('No PNGs found — nothing to upload')
+        log(`[run:${runId}] No PNGs found — nothing to upload`)
         return
     }
 
     const snapshots: Array<{ identifier: string; hash: string; width: number; height: number; data: Buffer }> = []
-    log(`Found ${scanned.length} snapshots, hashing...`)
+    log(`[run:${runId}] Found ${scanned.length} snapshots, hashing...`)
     const HASH_CONCURRENCY = 16
     for (let i = 0; i < scanned.length; i += HASH_CONCURRENCY) {
         const batch = scanned.slice(i, i + HASH_CONCURRENCY)
@@ -313,10 +352,9 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
         snapshots.push(...results)
     }
 
-    log(`Sending ${snapshots.length} snapshots to backend`)
+    log(`[run:${runId}] Sending ${snapshots.length} snapshots to backend`)
 
-    // Send ALL identifiers — backend fetches baseline and classifies
-    const addResult = await client.addSnapshots(options.runId, {
+    const addResult = await client.addSnapshots(runId, {
         snapshots: snapshots.map((s) => ({
             identifier: s.identifier,
             content_hash: s.hash,
@@ -325,9 +363,8 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
         })),
     })
 
-    log(`Registered ${addResult.added} snapshot(s), ${addResult.uploads.length} upload(s) needed`)
+    log(`[run:${runId}] Registered ${addResult.added} snapshot(s), ${addResult.uploads.length} upload(s) needed`)
 
-    // Upload artifacts
     if (addResult.uploads.length > 0) {
         const hashToSnapshot = new Map(snapshots.map((s) => [s.hash, s]))
         const CONCURRENCY = 10
@@ -347,56 +384,55 @@ async function runUpload(options: RunUploadOptions): Promise<void> {
                         uploaded++
                     } catch (error) {
                         failed++
-                        console.error(`  upload failed ${snapshot.identifier}: ${error}`)
+                        log(`[run:${runId}] Upload failed ${snapshot.identifier}: ${error}`)
                     }
                 })
             )
         }
-        log(`Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+        log(`[run:${runId}] Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
         if (failed > 0) {
-            throw new Error(`${failed} artifact upload(s) failed`)
+            throw new Error(`[run:${runId}] ${failed} artifact upload(s) failed`)
         }
     }
 }
 
 async function runComplete(options: RunCompleteOptions): Promise<number> {
-    const { client } = makeClient(options)
+    const { client, api, team } = makeClient(options)
     const baselinePath = resolve(options.baseline)
+    const runId = options.runId
 
-    log(`Completing run ${options.runId}`)
+    log(`[run:${runId}] Completing run`)
 
-    let run = await client.completeRun(options.runId)
+    let run = await client.completeRun(runId)
 
-    log(`Run status after complete: ${run.status}`)
+    log(`[run:${runId}] Status: ${run.status}`)
 
-    // Wait for diff processing
     if (run.status !== 'completed' && run.status !== 'failed') {
-        log('Waiting for diff processing...')
-        run = await waitForCompletion(client, options.runId)
+        log(`[run:${runId}] Waiting for diff processing...`)
+        run = await waitForCompletion(client, runId)
     }
 
     const s = run.summary
     log(
-        `\nRun complete: ${s.total} snapshots — ${s.unchanged} unchanged, ${s.changed} changed, ${s.new} new, ${s.removed} removed`
+        `[run:${runId}] Done: ${s.total} snapshots — ${s.unchanged} unchanged, ${s.changed} changed, ${s.new} new, ${s.removed} removed`
     )
 
-    // Auto-approve if requested
     if (options.autoApprove) {
-        log('Auto-approving all changes...')
-        const approveResult = await client.autoApproveRun(options.runId)
+        log(`[run:${runId}] Auto-approving all changes...`)
+        const approveResult = await client.autoApproveRun(runId)
         writeFileSync(baselinePath, approveResult.baseline_content, 'utf-8')
-        log(`Baseline written to ${baselinePath} (${approveResult.baseline_content.length} bytes)`)
+        log(`[run:${runId}] Baseline written to ${baselinePath}`)
         return 0
     }
 
-    // Exit code: 1 if changes detected, 0 if clean
-    const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
-    if (hasChanges) {
-        log('Visual changes detected — review required')
+    const hasUnresolved = (s.unresolved ?? s.changed + s.new + s.removed) > 0
+    if (hasUnresolved) {
+        const reviewUrl = `${api}/project/${team}/visual_review/runs/${runId}`
+        log(`[run:${runId}] Visual changes detected — review at: ${reviewUrl}`)
         return 1
     }
 
-    log('No visual changes')
+    log(`[run:${runId}] No visual changes`)
     return 0
 }
 
@@ -472,19 +508,49 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function waitForCompletion(client: VisualReviewClient, runId: string): Promise<Run> {
+async function retrySubmitApiCall<T>(label: string, operation: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await operation()
+        } catch (error) {
+            if (
+                !(error instanceof VisualReviewApiError) ||
+                !RETRY_STATUS_CODES.has(error.status) ||
+                attempt >= SUBMIT_API_RETRIES
+            ) {
+                throw error
+            }
+
+            const delayMs =
+                error.status === 429 && error.retryAfter
+                    ? error.retryAfter * 1000
+                    : SUBMIT_API_RETRY_BASE_DELAY_MS * 2 ** attempt
+            log(
+                `${label} returned ${error.status}, retrying in ${delayMs}ms (attempt ${attempt + 1}/${SUBMIT_API_RETRIES})`
+            )
+            await sleep(delayMs)
+        }
+    }
+}
+
+async function waitForCompletion(client: VisualReviewClient, runId: string, retryServerErrors = false): Promise<Run> {
     const maxAttempts = 120
     const intervalMs = 5000
 
     for (let i = 0; i < maxAttempts; i++) {
-        const run = await client.getRun(runId)
+        const run = retryServerErrors
+            ? await retrySubmitApiCall('Get run status', () => client.getRun(runId))
+            : await client.getRun(runId)
         if (run.status === 'completed' || run.status === 'failed') {
             return run
+        }
+        if (i > 0 && i % 6 === 0) {
+            log(`[run:${runId}] Still processing (${(i * intervalMs) / 1000}s elapsed, status=${run.status})`)
         }
         await sleep(intervalMs)
     }
 
-    throw new Error(`Run did not complete within ${(maxAttempts * intervalMs) / 1000}s`)
+    throw new Error(`[run:${runId}] Run did not complete within ${(maxAttempts * intervalMs) / 1000}s`)
 }
 
 async function runSubmit(options: SubmitOptions): Promise<number> {
@@ -534,29 +600,33 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     // 3. Create run with full manifest — backend fetches baseline and classifies
     const branch = options.branch ?? getCurrentBranch()
     const commit = options.commit ?? getCurrentCommit()
-    log(`Creating run: ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`)
-
-    const result = await client.createRun({
-        repoId: repo,
-        runType: options.type,
-        commitSha: commit,
-        branch,
-        prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
-        purpose: options.autoApprove ? 'review' : 'observe',
-        snapshots: snapshots.map((s) => ({
-            identifier: s.identifier,
-            content_hash: s.hash,
-            width: s.width,
-            height: s.height,
-        })),
-    })
-
-    log(`Run created: ${result.run_id}`)
     log(
-        `Backend requested ${result.uploads.length} upload(s), ${snapshots.length - result.uploads.length} already exist`
+        `Creating run: type=${options.type}, ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`
     )
 
-    // 6. Upload missing artifacts (10 concurrent uploads)
+    const result = await retrySubmitApiCall('Create run', () =>
+        client.createRun({
+            repoId: repo,
+            runType: options.type,
+            commitSha: commit,
+            branch,
+            prNumber: options.pr ? parseInt(options.pr, 10) : undefined,
+            purpose: options.autoApprove ? 'review' : 'observe',
+            snapshots: snapshots.map((s) => ({
+                identifier: s.identifier,
+                content_hash: s.hash,
+                width: s.width,
+                height: s.height,
+            })),
+            metadata: collectCIMetadata(),
+        })
+    )
+
+    const runId = result.run_id
+    log(
+        `[run:${runId}] Run created, ${result.uploads.length} upload(s) needed, ${snapshots.length - result.uploads.length} already exist`
+    )
+
     if (result.uploads.length > 0) {
         const hashToSnapshot = new Map(snapshots.map((s) => [s.hash, s]))
         const CONCURRENCY = 10
@@ -573,54 +643,49 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
                 uploaded++
             } catch (error) {
                 failed++
-                console.error(`  upload failed ${snapshot.identifier}: ${error}`)
+                log(`[run:${runId}] Upload failed ${snapshot.identifier}: ${error}`)
             }
         }
 
-        // Process in batches of CONCURRENCY
         for (let i = 0; i < result.uploads.length; i += CONCURRENCY) {
             const batch = result.uploads.slice(i, i + CONCURRENCY)
             await Promise.all(batch.map(uploadOne))
         }
-        log(`Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
+        log(`[run:${runId}] Uploaded ${uploaded} artifact(s)${failed > 0 ? `, ${failed} failed` : ''}`)
         if (failed > 0) {
-            throw new Error(`${failed} artifact upload(s) failed`)
+            throw new Error(`[run:${runId}] ${failed} artifact upload(s) failed`)
         }
     }
 
-    // 6. Complete run
-    let run = await client.completeRun(result.run_id)
-    log(`Run status after complete: ${run.status}`)
+    let run = await retrySubmitApiCall('Complete run', () => client.completeRun(runId))
+    log(`[run:${runId}] Status: ${run.status}`)
 
-    // 7. Wait for diff processing if still running
     if (run.status !== 'completed' && run.status !== 'failed') {
-        log('Waiting for diff processing...')
-        run = await waitForCompletion(client, result.run_id)
+        log(`[run:${runId}] Waiting for diff processing...`)
+        run = await waitForCompletion(client, runId, true)
     }
 
-    // 8. Print summary
     const s = run.summary
     log(
-        `\nRun complete: ${s.total} snapshots — ${s.unchanged} unchanged, ${s.changed} changed, ${s.new} new, ${s.removed} removed`
+        `[run:${runId}] Done: ${s.total} snapshots — ${s.unchanged} unchanged, ${s.changed} changed, ${s.new} new, ${s.removed} removed`
     )
 
-    // 9. Auto-approve if requested
     if (options.autoApprove) {
-        log('Auto-approving all changes...')
-        const approveResult = await client.autoApproveRun(result.run_id)
+        log(`[run:${runId}] Auto-approving all changes...`)
+        const approveResult = await retrySubmitApiCall('Auto-approve run', () => client.autoApproveRun(runId))
         const baselinePath = resolve(options.baseline)
         writeFileSync(baselinePath, approveResult.baseline_content, 'utf-8')
-        log(`Baseline written to ${baselinePath} (${approveResult.baseline_content.length} bytes)`)
+        log(`[run:${runId}] Baseline written to ${baselinePath}`)
         return 0
     }
 
-    // Without --auto-approve, unapproved changes exit 1 (gating)
-    const hasChanges = s.changed > 0 || s.new > 0 || s.removed > 0
-    if (hasChanges) {
-        log('Visual changes detected — review required')
+    const hasUnresolved = (s.unresolved ?? s.changed + s.new + s.removed) > 0
+    if (hasUnresolved) {
+        const reviewUrl = `${api}/project/${team}/visual_review/runs/${runId}`
+        log(`[run:${runId}] Visual changes detected — review at: ${reviewUrl}`)
         return 1
     }
 
-    log('No visual changes')
+    log(`[run:${runId}] No visual changes`)
     return 0
 }

@@ -57,7 +57,9 @@ class TestRoleMembershipAPI(APILicensedTest):
         )
 
         assert res.status_code == status.HTTP_201_CREATED
-        assert res.json()["id"] == str(RoleMembership.objects.first().id)
+        membership = RoleMembership.objects.first()
+        assert membership is not None
+        assert res.json()["id"] == str(membership.id)
         assert res.json()["role_id"] == str(self.eng_role.id)
         assert res.json()["organization_member"]["user"]["id"] == user.id
         assert res.json()["user"]["id"] == user.id
@@ -81,7 +83,9 @@ class TestRoleMembershipAPI(APILicensedTest):
         )
         assert add_user_a_res.status_code == status.HTTP_201_CREATED
         assert RoleMembership.objects.count() == 1
-        assert RoleMembership.objects.first().user == user_a
+        membership = RoleMembership.objects.first()
+        assert membership is not None
+        assert membership.user == user_a
 
     def test_user_can_belong_to_multiple_roles(self):
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)

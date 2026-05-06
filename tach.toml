@@ -14,12 +14,6 @@ source_roots = [
 [[modules]]
 path = "<root>"
 depends_on = [
-    "ee",
-    "posthog",
-    "products.error_tracking",
-    "products.event_definitions",
-    "products.llm_analytics",
-    "products.logs",
 ]
 layer = "modules"
 
@@ -40,7 +34,6 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
-    "<root>",
     "posthog",
     "products.alerts",
     "products.dashboards",
@@ -64,8 +57,8 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
-    "<root>",
     "ee",
+    "products.access_control",
     "products.analytics_platform",
     "products.batch_exports",
     "products.conversations",
@@ -81,6 +74,7 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.growth",
+    "products.legal_documents",
     "products.links",
     "products.live_debugger",
     "products.llm_analytics",
@@ -92,6 +86,7 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.product_tours",
+    "products.query_performance_ai",
     "products.revenue_analytics",
     "products.signals",
     "products.slack_app",
@@ -100,6 +95,7 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.visual_review",
+    "products.warehouse_sources_queue",
     "products.web_analytics",
     "products.workflows",
 ]
@@ -149,6 +145,7 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.data_warehouse",
 ]
 layer = "modules"
 
@@ -200,6 +197,7 @@ depends_on = [
     "posthog",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.signals",
 ]
 layer = "modules"
 
@@ -208,6 +206,8 @@ path = "products.error_tracking"
 depends_on = [
     "ee",
     "posthog",
+    "products.logs",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -224,6 +224,8 @@ depends_on = [
     "ee",
     "posthog",
     "products.event_definitions",
+    "products.product_tours",
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -238,7 +240,6 @@ layer = "modules"
 [[modules]]
 path = "products.growth"
 depends_on = [
-    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -264,6 +265,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.dashboards",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -312,7 +314,6 @@ layer = "modules"
 [[modules]]
 path = "products.metrics"
 depends_on = [
-    "posthog",
 ]
 layer = "modules"
 
@@ -322,6 +323,13 @@ depends_on = [
     "ee",
     "posthog",
     "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.streamlit_apps"
+depends_on = [
+    "posthog",
 ]
 layer = "modules"
 
@@ -336,7 +344,6 @@ layer = "modules"
 [[modules]]
 path = "products.platform_features"
 depends_on = [
-    "posthog",
 ]
 layer = "modules"
 
@@ -360,9 +367,15 @@ layer = "modules"
 [[modules]]
 path = "products.product_tours"
 depends_on = [
-    "ee",
     "posthog",
     "products.surveys",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.query_performance_ai"
+depends_on = [
+    "posthog",
 ]
 layer = "modules"
 
@@ -420,6 +433,7 @@ depends_on = [
     "products.event_definitions",
     "products.llm_analytics",
     "products.mcp_store",
+    "products.posthog_ai",
     "products.signals",
     "products.slack_app",
 ]
@@ -448,6 +462,13 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.warehouse_sources_queue"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.web_analytics"
 depends_on = [
     "ee",
@@ -470,7 +491,18 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
+    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|visual_review)",
+]
+
+# TODO: Experiments-specific temporary interface
+# Remove this block once all ViewSets are migrated to products/experiments/backend/presentation/views.py
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.experiments.*",
+    "backend\\.presentation\\.saved_metrics.*",
+]
+from = [
+    "products.experiments",
 ]
 
 # Legacy leaks — core (posthog/ee) imports these internals directly.
@@ -480,6 +512,7 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
     "backend\\.max_tools.*",
@@ -493,6 +526,7 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.admin.*",
     "backend\\.models.*",
     "backend\\.oauth.*",
 ]
@@ -506,4 +540,29 @@ expose = [
 ]
 from = [
     "products.tracing",
+]
+
+[[modules]]
+path = "products.legal_documents"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.access_control"
+depends_on = [
+    "posthog",
+    "ee",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+    "backend\\.property_access_control.*",
+]
+from = [
+    "products.access_control",
 ]

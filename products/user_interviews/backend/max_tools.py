@@ -38,7 +38,7 @@ class AnalyzeUserInterviewsTool(MaxTool):
         if not interview_summaries:
             return "No interview summaries found to analyze.", None
 
-        interview_summaries = "\n\n".join(interview_summaries)
+        interview_summaries_text = "\n\n".join(interview_summaries)
 
         # Use GPT to analyze the summaries
         analysis_response = OpenAI(base_url=settings.OPENAI_BASE_URL).responses.create(
@@ -58,7 +58,7 @@ Please analyze these user interview summaries from the following angle:
 {analysis_angle}
 
 <interview_summaries>
-{interview_summaries}
+{interview_summaries_text}
 </interview_summaries>
 
 Provide a structured analysis with clear sections and bullet points where appropriate. Keep it very concise though. Avoid fluff, just give the facts to answer the question.

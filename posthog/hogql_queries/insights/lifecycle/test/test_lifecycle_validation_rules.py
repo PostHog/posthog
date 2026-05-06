@@ -40,6 +40,10 @@ class TestLifecycleValidationRules(BaseTest):
             "Custom entity aggregation target is not supported for lifecycle insights without a data warehouse series.",
             str(context.exception),
         )
+        self.assertEqual(
+            context.exception.get_codes(),
+            ["lifecycle_custom_aggregation_target_requires_data_warehouse_series"],
+        )
 
     def test_custom_aggregation_target_allows_data_warehouse_series(self):
         query = LifecycleQuery(

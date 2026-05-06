@@ -1,6 +1,6 @@
 import textwrap
 import dataclasses
-from typing import Optional
+from typing import Any, Optional, cast
 
 from django.db import connection
 
@@ -77,7 +77,7 @@ def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> list[i
 
     for insight in insights:
         try:
-            insight.query = upgrade(insight.query)
+            insight.query = upgrade(cast(dict[Any, Any], insight.query))
             insight.save()
         except Exception as e:
             logger.exception(f"Error migrating insight {insight.id}: {str(e)}")

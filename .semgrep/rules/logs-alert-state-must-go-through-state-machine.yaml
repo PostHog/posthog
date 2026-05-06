@@ -1,0 +1,52 @@
+# Enforces the invariant that ALL writes to LogsAlertConfiguration.state and
+# LogsAlertConfiguration.consecutive_failures go through alert_state_machine.apply_outcome.
+#
+# See products/logs/backend/alert_state_machine.py for the full transition API —
+# there are dedicated helpers for every legal control-plane transition
+# (apply_user_reset, apply_enable, apply_disable, apply_snooze, apply_unsnooze,
+# apply_threshold_change), and the check-driven path goes through evaluate_alert_check.
+# Every outcome flows through apply_outcome, which is the ONLY mutator in the
+# codebase allowed to assign these fields.
+#
+# If you need a new transition, add a helper in alert_state_machine.py rather than
+# bypassing this rule — the point is to keep the legal-transitions table readable
+# in one file.
+rules:
+    - id: logs-alert-state-direct-mutation
+      patterns:
+          - pattern-either:
+                - pattern: $ALERT.state = $VALUE
+                - pattern: $ALERT.consecutive_failures = $VALUE
+      message: |
+          Direct mutation of LogsAlertConfiguration.state / .consecutive_failures
+          bypasses alert_state_machine.py, which is the single source of truth for
+          alert state transitions.
+
+          Route state changes through the state machine instead:
+
+              from products.logs.backend.alert_state_machine import (
+                  apply_outcome, apply_user_reset, apply_disable, ...
+              )
+
+              outcome = apply_user_reset(alert.to_snapshot())
+              update_fields = apply_outcome(alert, outcome)
+              alert.save(update_fields=update_fields)
+
+          If you need a new transition type, add a helper in alert_state_machine.py
+          (e.g. apply_<your_action>) and a ControlPlaneOutcome return — do not
+          mutate these fields directly.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - 'products/logs/backend/**/*.py'
+          exclude:
+              # The state machine itself — apply_outcome is the one legal mutator.
+              - 'products/logs/backend/alert_state_machine.py'
+              # Test files — fixtures and parametrized snapshots set state directly.
+              - 'products/logs/backend/test/**'
+              - 'products/logs/backend/**/test_*.py'

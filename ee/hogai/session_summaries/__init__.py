@@ -7,7 +7,6 @@ class ExceptionToRetry(Exception):
 
 class SummaryValidationError(Exception):
     """
-    Custom exception to differ from ValueError when validating streaming LLM responses.
-    For example, incorrect schema is expected for some state of the stream chunks, so could be ignored till the chunk is complete.
-    However, hallucinated events or objectives should be retried immediately.
+    Custom exception to differ from ValueError when validating LLM responses.
+    Hallucinated events or objectives should be retried immediately.
     """

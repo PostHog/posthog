@@ -15,6 +15,9 @@
         "resolveJsonModule": true,
         "strict": true,
         "noImplicitAny": true,
+        "noImplicitOverride": true,
+        "allowUnreachableCode": false,
+        "allowUnusedLabels": false,
         "useUnknownInCatchVariables": false,
         "paths": {
             "~/tests/*": ["./tests/*"],

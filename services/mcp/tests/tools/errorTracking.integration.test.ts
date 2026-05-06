@@ -18,9 +18,22 @@ type ErrorTrackingIssueListResult = {
     results?: Array<{ id?: string | null }>
 }
 
+type ErrorTrackingFingerprintListResult = {
+    results?: Array<{ fingerprint?: string | null }>
+}
+
+type ErrorTrackingSymbolSetListResult = {
+    count?: number
+    results?: Array<{ id?: string | null; ref?: string | null; has_uploaded_file?: boolean | null }>
+}
+
 describe('Error Tracking', { concurrent: false }, () => {
     let context: Context
+    let currentUserId: number
     const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
+    const createdAssignmentRuleIds: string[] = []
+    const createdGroupingRuleIds: string[] = []
+    const createdSuppressionRuleIds: string[] = []
     const createdResources: CreatedResources = {
         featureFlags: [],
         insights: [],
@@ -35,9 +48,47 @@ describe('Error Tracking', { concurrent: false }, () => {
         const client = createTestClient()
         context = createTestContext(client)
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
+        const user = await context.api.request<{ id: number }>({
+            method: 'GET',
+            path: '/api/users/@me/',
+        })
+        currentUserId = user.id
     })
 
     afterEach(async () => {
+        for (const id of createdAssignmentRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/assignment_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdAssignmentRuleIds.length = 0
+        for (const id of createdGroupingRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/grouping_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdGroupingRuleIds.length = 0
+        for (const id of createdSuppressionRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/suppression_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdSuppressionRuleIds.length = 0
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
@@ -61,6 +112,22 @@ describe('Error Tracking', { concurrent: false }, () => {
     async function getFirstIssueId(): Promise<string | undefined> {
         const [issueId] = await getIssueIds(1)
         return issueId
+    }
+
+    async function getIssueFingerprints(issueId: string): Promise<string[]> {
+        const result = await context.api.request<ErrorTrackingFingerprintListResult>({
+            method: 'GET',
+            path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/fingerprints/`,
+            query: { issue_id: issueId },
+        })
+
+        if (!Array.isArray(result.results)) {
+            return []
+        }
+
+        return result.results
+            .map((fingerprint: { fingerprint?: string | null }) => fingerprint.fingerprint)
+            .filter((fingerprint: string | null | undefined): fingerprint is string => typeof fingerprint === 'string')
     }
 
     describe('query-error-tracking-issues tool', () => {
@@ -134,6 +201,222 @@ describe('Error Tracking', { concurrent: false }, () => {
         })
     })
 
+    describe('assignment-rules list tool', () => {
+        const assignmentRulesListTool = GENERATED_TOOLS['error-tracking-assignment-rules-list']!()
+
+        it('should list assignment rules', async () => {
+            const result = (await assignmentRulesListTool.handler(context, {})) as {
+                count: number
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('assignment-rules create tool', () => {
+        const assignmentRulesCreateTool = GENERATED_TOOLS['error-tracking-assignment-rules-create']!()
+
+        it('should create an assignment rule', async () => {
+            const result = (await assignmentRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_type',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                assignee: { type: 'user', id: currentUserId },
+            })) as { id: string; filters: unknown; assignee: { type: string; id: number | string } | null }
+
+            createdAssignmentRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.assignee).toEqual({ type: 'user', id: currentUserId })
+        })
+    })
+
+    describe('grouping-rules list tool', () => {
+        const groupingRulesListTool = GENERATED_TOOLS['error-tracking-grouping-rules-list']!()
+
+        it('should list grouping rules', async () => {
+            const result = (await groupingRulesListTool.handler(context, {})) as {
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('grouping-rules create tool', () => {
+        const groupingRulesCreateTool = GENERATED_TOOLS['error-tracking-grouping-rules-create']!()
+
+        it('should create a grouping rule', async () => {
+            const result = (await groupingRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_type',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                assignee: { type: 'user', id: currentUserId },
+                description: 'Group TypeErrors from MCP integration test',
+            })) as {
+                id: string
+                filters: unknown
+                assignee: { type: string; id: number | string } | null
+                description?: string | null
+            }
+
+            createdGroupingRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.assignee).toEqual({ type: 'user', id: currentUserId })
+            expect(result.description).toBe('Group TypeErrors from MCP integration test')
+        })
+    })
+
+    describe('suppression-rules list tool', () => {
+        const suppressionRulesListTool = GENERATED_TOOLS['error-tracking-suppression-rules-list']!()
+
+        it('should list suppression rules', async () => {
+            const result = (await suppressionRulesListTool.handler(context, {})) as {
+                count: number
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('suppression-rules create tool', () => {
+        const suppressionRulesCreateTool = GENERATED_TOOLS['error-tracking-suppression-rules-create']!()
+
+        it('should create a suppression rule', async () => {
+            const result = (await suppressionRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_type',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                sampling_rate: 0.25,
+            })) as { id: string; filters: unknown; sampling_rate?: number }
+
+            createdSuppressionRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.sampling_rate).toBe(0.25)
+        })
+    })
+
+    describe('symbol-sets list tool', () => {
+        const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
+
+        it('should list symbol sets', async () => {
+            const result = (await symbolSetsListTool.handler(context, { limit: 5 })) as ErrorTrackingSymbolSetListResult
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('symbol-sets retrieve tool', () => {
+        const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
+        const symbolSetRetrieveTool = GENERATED_TOOLS['error-tracking-symbol-sets-retrieve']!()
+
+        it('should retrieve a symbol set by ID when one exists', async () => {
+            const listResult = (await symbolSetsListTool.handler(context, {
+                limit: 1,
+            })) as ErrorTrackingSymbolSetListResult
+            const symbolSet = listResult.results?.find(
+                (item): item is { id: string; ref?: string | null } => typeof item.id === 'string'
+            )
+            if (!symbolSet) {
+                return
+            }
+
+            if (symbolSet.ref) {
+                const filteredResult = (await symbolSetsListTool.handler(context, {
+                    ref: symbolSet.ref,
+                    limit: 1,
+                })) as ErrorTrackingSymbolSetListResult
+                expect(filteredResult.results?.some((item) => item.id === symbolSet.id)).toBe(true)
+            }
+
+            const result = (await symbolSetRetrieveTool.handler(context, { id: symbolSet.id })) as {
+                id?: string
+                ref?: string
+            }
+
+            expect(result).toBeTruthy()
+            expect(result.id).toBe(symbolSet.id)
+        })
+    })
+
+    describe('symbol-sets download tool', () => {
+        const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
+        const symbolSetDownloadTool = GENERATED_TOOLS['error-tracking-symbol-sets-download-retrieve']!()
+
+        it('should get a download URL by ID when an uploaded symbol set exists', async () => {
+            const listResult = (await symbolSetsListTool.handler(context, {
+                status: 'valid',
+                limit: 1,
+            })) as ErrorTrackingSymbolSetListResult
+            const symbolSet = listResult.results?.find((item): item is { id: string } => typeof item.id === 'string')
+            if (!symbolSet) {
+                return
+            }
+
+            const result = (await symbolSetDownloadTool.handler(context, { id: symbolSet.id })) as { url?: string }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.url).toBe('string')
+            expect(result.url?.length).toBeGreaterThan(0)
+        })
+    })
+
     describe('update-issue-status tool', () => {
         const updateTool = GENERATED_TOOLS['error-tracking-issues-partial-update']!()
 
@@ -184,6 +467,34 @@ describe('Error Tracking', { concurrent: false }, () => {
 
             expect(result).toBeTruthy()
             expect(result.success).toBe(true)
+        })
+    })
+
+    describe('split-issue tool', () => {
+        const splitTool = GENERATED_TOOLS['error-tracking-issues-split-create']!()
+
+        it('should split a fingerprint into a new issue', async () => {
+            for (const issueId of await getIssueIds(10)) {
+                const [fingerprint] = await getIssueFingerprints(issueId)
+                if (!fingerprint) {
+                    continue
+                }
+
+                const result = (await splitTool.handler(context, {
+                    id: issueId,
+                    fingerprints: [{ fingerprint, name: 'Split from MCP integration test' }],
+                })) as { success: boolean; new_issue_ids: string[] }
+
+                expect(result).toBeTruthy()
+                expect(result.success).toBe(true)
+                expect(Array.isArray(result.new_issue_ids)).toBe(true)
+                expect(result.new_issue_ids.length).toBeGreaterThan(0)
+                return
+            }
+
+            throw new Error(
+                'Split integration test requires at least one error tracking issue with an associated fingerprint in the shared test project.'
+            )
         })
     })
 

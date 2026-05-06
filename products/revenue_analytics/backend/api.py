@@ -14,6 +14,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
@@ -76,6 +77,7 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
 
 class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
     @action(methods=["GET"], detail=False)
@@ -94,6 +96,7 @@ class RevenueAnalyticsJoinSerializer(serializers.Serializer):
 
 class RevenueAnalyticsJoinViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
     def create(self, request: Request, **kwargs):

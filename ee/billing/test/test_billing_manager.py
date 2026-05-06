@@ -15,7 +15,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
 from ee.billing.billing_manager import BillingManager, _get_user_organization_role, build_billing_token
-from ee.billing.billing_types import BillingProvider, Product
+from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
 
 
@@ -206,7 +206,7 @@ class TestBillingManager(BaseTest):
             }
         }
 
-        BillingManager(license).update_org_details(organization, billing_status)
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
 
         assert organization.usage == {

@@ -24,6 +24,7 @@ from posthog.hogql.property import (
 )
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.web_analytics.events_prefilter import PrefilterHogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.query_constants.stats_table_queries import (
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
@@ -32,6 +33,7 @@ from posthog.hogql_queries.web_analytics.query_constants.stats_table_queries imp
 )
 from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from posthog.settings.data_stores import is_web_analytics_events_prefilter_team
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
@@ -50,11 +52,26 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", None)
         self.use_v2_tables = team_version == "v2" if team_version is not None else use_v2_tables
         self.used_preaggregated_tables = False
-        self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY,
-            limit=self.query.limit if self.query.limit else None,
-            offset=self.query.offset if self.query.offset else None,
-        )
+
+        limit = self.query.limit if self.query.limit else None
+        offset = self.query.offset if self.query.offset else None
+        if is_web_analytics_events_prefilter_team(self.team.pk):
+            date_from, date_to = self._events_prefilter_date_bounds()
+            self.paginator = PrefilterHogQLHasMorePaginator.create(
+                limit_context=LimitContext.QUERY,
+                team_id=self.team.pk,
+                date_from=date_from,
+                date_to=date_to,
+                limit=limit,
+                offset=offset,
+            )
+        else:
+            self.paginator = HogQLHasMorePaginator.from_limit_context(
+                limit_context=LimitContext.QUERY,
+                limit=limit,
+                offset=offset,
+            )
+
         self.preaggregated_query_builder = StatsTablePreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:
@@ -503,6 +520,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             timings=self.timings,
             modifiers=modifiers,
         )
+
         results = self.paginator.results
 
         assert results is not None

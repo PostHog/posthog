@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -23,6 +22,8 @@ import {
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
+
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import { IntegrationSettingsTab } from '../components/settings/IntegrationSettingsModal'
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
@@ -63,7 +64,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         values: [
             teamLogic,
             ['currentTeam', 'currentTeamId'],
-            dataWarehouseSettingsLogic,
+            sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSources'],
         ],
         actions: [teamLogic, ['updateCurrentTeam', 'addProductIntent']],

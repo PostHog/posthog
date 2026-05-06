@@ -1,0 +1,31 @@
+{
+  "name": "backups_succesful_typo",
+  "report_id": "test-backups-succesful-typo-001",
+  "generated_at": "2026-04-17T10:00:00Z",
+  "repository": "PostHog/posthog",
+  "signal_ids": ["7e000000-0000-0000-0000-000000000001"],
+  "result": {
+    "title": "fix(backups): correct 'succesful' typo in docstring",
+    "summary": "The docstring of the `_get_base_backup` function in `posthog/dags/backups.py` (line 346) misspells 'successful' as 'succesful'. This is a single-word typo in a docstring — no code behavior is affected.",
+    "findings": [
+      {
+        "signal_id": "7e000000-0000-0000-0000-000000000001",
+        "relevant_code_paths": [
+          "posthog/dags/backups.py"
+        ],
+        "relevant_commit_hashes": {},
+        "data_queried": "Verified via source that posthog/dags/backups.py line 346 reads 'Checks the latest succesful backup to use it as a base backup.' — the correct spelling is 'successful'.",
+        "verified": true
+      }
+    ],
+    "actionability": {
+      "explanation": "Single docstring typo fix in a single file. One word to change. Pure docstring, so zero test/behavior impact. An agent can perform this end to end without any human input.",
+      "actionability": "immediately_actionable",
+      "already_addressed": false
+    },
+    "priority": {
+      "explanation": "Low-risk, low-impact, but immediately actionable and suitable for agent autonomy testing.",
+      "priority": "P1"
+    }
+  }
+}

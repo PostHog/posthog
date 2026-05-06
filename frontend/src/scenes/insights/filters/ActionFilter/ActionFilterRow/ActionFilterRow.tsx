@@ -50,6 +50,7 @@ import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
 import { getDefaultMathHogQLExpression } from './mathUtils'
 import { PropertyValueMathSelector } from './PropertyValueMathSelector'
+import { SaveAsActionBanner } from './SaveAsActionBanner'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
@@ -266,6 +267,8 @@ export function ActionFilterRow({
             value={getValue(value, filter)}
             filter={filter}
             suggestedFiltersLabel={suggestedFiltersLabel}
+            enableKeywordShortcuts
+            selectingKeyOnly
             onChange={(changedValue, taxonomicGroupType, item) => {
                 if (isQuickFilterItem(item)) {
                     if (item.eventName) {
@@ -461,6 +464,7 @@ export function ActionFilterRow({
     const deleteButton = (
         <LemonButton
             key="delete"
+            status={enablePopup ? 'danger' : 'default'}
             icon={<IconTrash />}
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
@@ -703,6 +707,7 @@ export function ActionFilterRow({
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
                     />
+                    <SaveAsActionBanner filter={filter} />
                 </div>
             )}
         </li>
