@@ -113,7 +113,6 @@ export type MarketingAnalyticsUtmAuditRetrieveParams = {
     date_from?: string
     /**
      * End date for the audit period
-     * @minLength 1
      * @nullable
      */
     date_to?: string | null

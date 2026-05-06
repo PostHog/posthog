@@ -36,9 +36,7 @@ export interface MessageCategoryApi {
 
 export interface PaginatedMessageCategoryListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: MessageCategoryApi[]
 }
@@ -96,10 +94,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -123,7 +117,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface MessageTemplateApi {
@@ -144,9 +138,7 @@ export interface MessageTemplateApi {
 
 export interface PaginatedMessageTemplateListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: MessageTemplateApi[]
 }

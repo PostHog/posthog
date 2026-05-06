@@ -1165,13 +1165,13 @@ export const flagValueValuesRetrieve = async (
     })
 }
 
-export const getInsightsSharingListUrl = (projectId: string, insightId: number) => {
+export const getInsightsSharingListUrl = (projectId: string, insightId: number | null) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/`
 }
 
 export const insightsSharingList = async (
     projectId: string,
-    insightId: number,
+    insightId: number | null,
     options?: RequestInit
 ): Promise<SharingConfigurationApi[]> => {
     return apiMutator<SharingConfigurationApi[]>(getInsightsSharingListUrl(projectId, insightId), {
@@ -1183,13 +1183,13 @@ export const insightsSharingList = async (
 /**
  * Create a new password for the sharing configuration.
  */
-export const getInsightsSharingPasswordsCreateUrl = (projectId: string, insightId: number) => {
+export const getInsightsSharingPasswordsCreateUrl = (projectId: string, insightId: number | null) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/passwords/`
 }
 
 export const insightsSharingPasswordsCreate = async (
     projectId: string,
-    insightId: number,
+    insightId: number | null,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
@@ -1204,13 +1204,17 @@ export const insightsSharingPasswordsCreate = async (
 /**
  * Delete a password from the sharing configuration.
  */
-export const getInsightsSharingPasswordsDestroyUrl = (projectId: string, insightId: number, passwordId: string) => {
+export const getInsightsSharingPasswordsDestroyUrl = (
+    projectId: string,
+    insightId: number | null,
+    passwordId: string
+) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/passwords/${passwordId}/`
 }
 
 export const insightsSharingPasswordsDestroy = async (
     projectId: string,
-    insightId: number,
+    insightId: number | null,
     passwordId: string,
     options?: RequestInit
 ): Promise<void> => {
@@ -1220,13 +1224,13 @@ export const insightsSharingPasswordsDestroy = async (
     })
 }
 
-export const getInsightsSharingRefreshCreateUrl = (projectId: string, insightId: number) => {
+export const getInsightsSharingRefreshCreateUrl = (projectId: string, insightId: number | null) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/refresh/`
 }
 
 export const insightsSharingRefreshCreate = async (
     projectId: string,
-    insightId: number,
+    insightId: number | null,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
@@ -1505,13 +1509,13 @@ export const propertyDefinitionsSeenTogetherRetrieve = async (
     })
 }
 
-export const getSessionRecordingsSharingListUrl = (projectId: string, recordingId: string) => {
+export const getSessionRecordingsSharingListUrl = (projectId: string, recordingId: string | null) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/`
 }
 
 export const sessionRecordingsSharingList = async (
     projectId: string,
-    recordingId: string,
+    recordingId: string | null,
     options?: RequestInit
 ): Promise<SharingConfigurationApi[]> => {
     return apiMutator<SharingConfigurationApi[]>(getSessionRecordingsSharingListUrl(projectId, recordingId), {
@@ -1523,13 +1527,13 @@ export const sessionRecordingsSharingList = async (
 /**
  * Create a new password for the sharing configuration.
  */
-export const getSessionRecordingsSharingPasswordsCreateUrl = (projectId: string, recordingId: string) => {
+export const getSessionRecordingsSharingPasswordsCreateUrl = (projectId: string, recordingId: string | null) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/passwords/`
 }
 
 export const sessionRecordingsSharingPasswordsCreate = async (
     projectId: string,
-    recordingId: string,
+    recordingId: string | null,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
@@ -1546,7 +1550,7 @@ export const sessionRecordingsSharingPasswordsCreate = async (
  */
 export const getSessionRecordingsSharingPasswordsDestroyUrl = (
     projectId: string,
-    recordingId: string,
+    recordingId: string | null,
     passwordId: string
 ) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/passwords/${passwordId}/`
@@ -1554,7 +1558,7 @@ export const getSessionRecordingsSharingPasswordsDestroyUrl = (
 
 export const sessionRecordingsSharingPasswordsDestroy = async (
     projectId: string,
-    recordingId: string,
+    recordingId: string | null,
     passwordId: string,
     options?: RequestInit
 ): Promise<void> => {
@@ -1564,13 +1568,13 @@ export const sessionRecordingsSharingPasswordsDestroy = async (
     })
 }
 
-export const getSessionRecordingsSharingRefreshCreateUrl = (projectId: string, recordingId: string) => {
+export const getSessionRecordingsSharingRefreshCreateUrl = (projectId: string, recordingId: string | null) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/refresh/`
 }
 
 export const sessionRecordingsSharingRefreshCreate = async (
     projectId: string,
-    recordingId: string,
+    recordingId: string | null,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {

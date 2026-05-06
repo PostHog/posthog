@@ -401,10 +401,6 @@ export const ActionStepMatchingEnumApi = {
     Exact: 'exact',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 export interface ActionStepJSONApi {
     /**
      * Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).
@@ -438,7 +434,7 @@ export interface ActionStepJSONApi {
 * `contains` - contains
 * `regex` - regex
 * `exact` - exact */
-    text_matching?: ActionStepMatchingEnumApi | NullEnumApi | null
+    text_matching?: ActionStepMatchingEnumApi | null
     /**
      * Link href attribute to match.
      * @nullable
@@ -449,7 +445,7 @@ export interface ActionStepJSONApi {
 * `contains` - contains
 * `regex` - regex
 * `exact` - exact */
-    href_matching?: ActionStepMatchingEnumApi | NullEnumApi | null
+    href_matching?: ActionStepMatchingEnumApi | null
     /**
      * Page URL to match.
      * @nullable
@@ -460,7 +456,7 @@ export interface ActionStepJSONApi {
 * `contains` - contains
 * `regex` - regex
 * `exact` - exact */
-    url_matching?: ActionStepMatchingEnumApi | NullEnumApi | null
+    url_matching?: ActionStepMatchingEnumApi | null
 }
 
 /**
@@ -515,7 +511,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -567,9 +563,7 @@ export interface ActionApi {
 
 export interface PaginatedActionListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ActionApi[]
 }

@@ -35,7 +35,7 @@ export interface BatchImportApi {
     readonly team_id: number
     readonly created_at: string
     readonly updated_at: string
-    readonly state: unknown | null
+    readonly state: unknown
     /** @nullable */
     readonly created_by: BatchImportApiCreatedBy
     readonly status: BatchImportStatusEnumApi
@@ -46,9 +46,7 @@ export interface BatchImportApi {
 
 export interface PaginatedBatchImportListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: BatchImportApi[]
 }
@@ -66,7 +64,7 @@ export interface PatchedBatchImportApi {
     readonly team_id?: number
     readonly created_at?: string
     readonly updated_at?: string
-    readonly state?: unknown | null
+    readonly state?: unknown
     /** @nullable */
     readonly created_by?: PatchedBatchImportApiCreatedBy
     readonly status?: BatchImportStatusEnumApi

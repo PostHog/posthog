@@ -55,7 +55,7 @@ export const notebooksCreateBodyVersionMax = 2147483647
 
 export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -99,7 +99,7 @@ export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
 export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()

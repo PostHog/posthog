@@ -437,12 +437,6 @@ export namespace Schemas {
       Exact: 'exact',
     } as const;
 
-    export type NullEnum = typeof NullEnum[keyof typeof NullEnum];
-
-
-    export const NullEnum = {
-    } as const;
-
     export interface ActionStepJSON {
       /**
        * Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).
@@ -476,7 +470,7 @@ export namespace Schemas {
     * `contains` - contains
     * `regex` - regex
     * `exact` - exact */
-      text_matching?: ActionStepMatchingEnum | NullEnum | null;
+      text_matching?: ActionStepMatchingEnum | null;
       /**
        * Link href attribute to match.
        * @nullable
@@ -487,7 +481,7 @@ export namespace Schemas {
     * `contains` - contains
     * `regex` - regex
     * `exact` - exact */
-      href_matching?: ActionStepMatchingEnum | NullEnum | null;
+      href_matching?: ActionStepMatchingEnum | null;
       /**
        * Page URL to match.
        * @nullable
@@ -498,7 +492,7 @@ export namespace Schemas {
     * `contains` - contains
     * `regex` - regex
     * `exact` - exact */
-      url_matching?: ActionStepMatchingEnum | NullEnum | null;
+      url_matching?: ActionStepMatchingEnum | null;
     }
 
     /**
@@ -555,7 +549,7 @@ export namespace Schemas {
       is_email_verified?: boolean | null;
       /** @nullable */
       readonly hedgehog_config: UserBasicHedgehogConfig;
-      role_at_organization?: RoleAtOrganizationEnum | BlankEnum | NullEnum | null;
+      role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
     }
 
     /**
@@ -641,12 +635,252 @@ export namespace Schemas {
       created_by: UserBasic | null;
     }
 
-    export type ActionsNodeKind = typeof ActionsNodeKind[keyof typeof ActionsNodeKind];
+    export type ActionsNodeResponse = { [key: string]: unknown } | null;
+
+    export type PropertyOperator = typeof PropertyOperator[keyof typeof PropertyOperator];
 
 
-    export const ActionsNodeKind = {
-      ActionsNode: 'ActionsNode',
+    export const PropertyOperator = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+      IsDateExact: 'is_date_exact',
+      IsDateBefore: 'is_date_before',
+      IsDateAfter: 'is_date_after',
+      Between: 'between',
+      NotBetween: 'not_between',
+      Min: 'min',
+      Max: 'max',
+      In: 'in',
+      NotIn: 'not_in',
+      IsCleanedPathExact: 'is_cleaned_path_exact',
+      FlagEvaluatesTo: 'flag_evaluates_to',
+      SemverEq: 'semver_eq',
+      SemverNeq: 'semver_neq',
+      SemverGt: 'semver_gt',
+      SemverGte: 'semver_gte',
+      SemverLt: 'semver_lt',
+      SemverLte: 'semver_lte',
+      SemverTilde: 'semver_tilde',
+      SemverCaret: 'semver_caret',
+      SemverWildcard: 'semver_wildcard',
+      IcontainsMulti: 'icontains_multi',
+      NotIcontainsMulti: 'not_icontains_multi',
     } as const;
+
+    export interface EventPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator?: PropertyOperator | null;
+      /** Event properties */
+      type?: 'event';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface PersonPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Person properties */
+      type?: 'person';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type Key10 = typeof Key10[keyof typeof Key10];
+
+
+    export const Key10 = {
+      TagName: 'tag_name',
+      Text: 'text',
+      Href: 'href',
+      Selector: 'selector',
+    } as const;
+
+    export interface ElementPropertyFilter {
+      key: Key10;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'element';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface EventMetadataPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'event_metadata';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface SessionPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'session';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface CohortPropertyFilter {
+      cohort_name?: string | null;
+      key?: 'id';
+      label?: string | null;
+      operator?: PropertyOperator | null;
+      type?: 'cohort';
+      value: number;
+    }
+
+    export type DurationType = typeof DurationType[keyof typeof DurationType];
+
+
+    export const DurationType = {
+      Duration: 'duration',
+      ActiveSeconds: 'active_seconds',
+      InactiveSeconds: 'inactive_seconds',
+    } as const;
+
+    export interface RecordingPropertyFilter {
+      key: DurationType | string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'recording';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface LogEntryPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'log_entry';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
+    export interface GroupPropertyFilter {
+      group_key_names?: GroupPropertyFilterGroupKeyNames;
+      group_type_index?: number | null;
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'group';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface FeaturePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Event property with "$feature/" prepended */
+      type?: 'feature';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface FlagPropertyFilter {
+      /** The key should be the flag ID */
+      key: string;
+      label?: string | null;
+      /** Only flag_evaluates_to operator is allowed for flag dependencies */
+      operator?: 'flag_evaluates_to';
+      /** Feature flag dependency */
+      type?: 'flag';
+      /** The value can be true, false, or a variant name */
+      value: boolean | string;
+    }
+
+    export interface HogQLPropertyFilter {
+      key: string;
+      label?: string | null;
+      type?: 'hogql';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export const EmptyPropertyFilterValue = {
+      type: 'empty',
+    } as const;
+    export type EmptyPropertyFilter = typeof EmptyPropertyFilterValue;
+
+    export interface DataWarehousePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'data_warehouse';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface DataWarehousePersonPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'data_warehouse_person_property';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface ErrorTrackingIssueFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'error_tracking_issue';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type LogPropertyFilterType = typeof LogPropertyFilterType[keyof typeof LogPropertyFilterType];
+
+
+    export const LogPropertyFilterType = {
+      Log: 'log',
+      LogAttribute: 'log_attribute',
+      LogResourceAttribute: 'log_resource_attribute',
+    } as const;
+
+    export interface LogPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: LogPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type SpanPropertyFilterType = typeof SpanPropertyFilterType[keyof typeof SpanPropertyFilterType];
+
+
+    export const SpanPropertyFilterType = {
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    export interface SpanPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: SpanPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface RevenueAnalyticsPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'revenue_analytics';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface WorkflowVariablePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'workflow_variable';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
 
     export type BaseMathType = typeof BaseMathType[keyof typeof BaseMathType];
 
@@ -721,438 +955,6 @@ export namespace Schemas {
       Total: 'total',
       Dau: 'dau',
     } as const;
-
-    export const ActionsNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type ActionsNodeResponse = { [key: string]: unknown } | null | null;
-
-    export type PropertyOperator = typeof PropertyOperator[keyof typeof PropertyOperator];
-
-
-    export const PropertyOperator = {
-      Exact: 'exact',
-      IsNot: 'is_not',
-      Icontains: 'icontains',
-      NotIcontains: 'not_icontains',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-      Gt: 'gt',
-      Gte: 'gte',
-      Lt: 'lt',
-      Lte: 'lte',
-      IsSet: 'is_set',
-      IsNotSet: 'is_not_set',
-      IsDateExact: 'is_date_exact',
-      IsDateBefore: 'is_date_before',
-      IsDateAfter: 'is_date_after',
-      Between: 'between',
-      NotBetween: 'not_between',
-      Min: 'min',
-      Max: 'max',
-      In: 'in',
-      NotIn: 'not_in',
-      IsCleanedPathExact: 'is_cleaned_path_exact',
-      FlagEvaluatesTo: 'flag_evaluates_to',
-      SemverEq: 'semver_eq',
-      SemverNeq: 'semver_neq',
-      SemverGt: 'semver_gt',
-      SemverGte: 'semver_gte',
-      SemverLt: 'semver_lt',
-      SemverLte: 'semver_lte',
-      SemverTilde: 'semver_tilde',
-      SemverCaret: 'semver_caret',
-      SemverWildcard: 'semver_wildcard',
-      IcontainsMulti: 'icontains_multi',
-      NotIcontainsMulti: 'not_icontains_multi',
-    } as const;
-
-    /**
-     * Event properties
-     */
-    export type EventPropertyFilterType = typeof EventPropertyFilterType[keyof typeof EventPropertyFilterType];
-
-
-    export const EventPropertyFilterType = {
-      Event: 'event',
-    } as const;
-
-    export interface EventPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator?: PropertyOperator | null;
-      /** Event properties */
-      type?: EventPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    /**
-     * Person properties
-     */
-    export type PersonPropertyFilterType = typeof PersonPropertyFilterType[keyof typeof PersonPropertyFilterType];
-
-
-    export const PersonPropertyFilterType = {
-      Person: 'person',
-    } as const;
-
-    export interface PersonPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Person properties */
-      type?: PersonPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type Key10 = typeof Key10[keyof typeof Key10];
-
-
-    export const Key10 = {
-      TagName: 'tag_name',
-      Text: 'text',
-      Href: 'href',
-      Selector: 'selector',
-    } as const;
-
-    export type ElementPropertyFilterType = typeof ElementPropertyFilterType[keyof typeof ElementPropertyFilterType];
-
-
-    export const ElementPropertyFilterType = {
-      Element: 'element',
-    } as const;
-
-    export interface ElementPropertyFilter {
-      key: Key10;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: ElementPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type EventMetadataPropertyFilterType = typeof EventMetadataPropertyFilterType[keyof typeof EventMetadataPropertyFilterType];
-
-
-    export const EventMetadataPropertyFilterType = {
-      EventMetadata: 'event_metadata',
-    } as const;
-
-    export interface EventMetadataPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: EventMetadataPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type SessionPropertyFilterType = typeof SessionPropertyFilterType[keyof typeof SessionPropertyFilterType];
-
-
-    export const SessionPropertyFilterType = {
-      Session: 'session',
-    } as const;
-
-    export interface SessionPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: SessionPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type CohortPropertyFilterKey = typeof CohortPropertyFilterKey[keyof typeof CohortPropertyFilterKey];
-
-
-    export const CohortPropertyFilterKey = {
-      Id: 'id',
-    } as const;
-
-    export type CohortPropertyFilterType = typeof CohortPropertyFilterType[keyof typeof CohortPropertyFilterType];
-
-
-    export const CohortPropertyFilterType = {
-      Cohort: 'cohort',
-    } as const;
-
-    export interface CohortPropertyFilter {
-      /** @nullable */
-      cohort_name?: string | null;
-      key?: CohortPropertyFilterKey;
-      /** @nullable */
-      label?: string | null;
-      operator?: PropertyOperator | null;
-      type?: CohortPropertyFilterType;
-      value: number;
-    }
-
-    export type DurationType = typeof DurationType[keyof typeof DurationType];
-
-
-    export const DurationType = {
-      Duration: 'duration',
-      ActiveSeconds: 'active_seconds',
-      InactiveSeconds: 'inactive_seconds',
-    } as const;
-
-    export type RecordingPropertyFilterType = typeof RecordingPropertyFilterType[keyof typeof RecordingPropertyFilterType];
-
-
-    export const RecordingPropertyFilterType = {
-      Recording: 'recording',
-    } as const;
-
-    export interface RecordingPropertyFilter {
-      key: DurationType | string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: RecordingPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type LogEntryPropertyFilterType = typeof LogEntryPropertyFilterType[keyof typeof LogEntryPropertyFilterType];
-
-
-    export const LogEntryPropertyFilterType = {
-      LogEntry: 'log_entry',
-    } as const;
-
-    export interface LogEntryPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: LogEntryPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type GroupPropertyFilterType = typeof GroupPropertyFilterType[keyof typeof GroupPropertyFilterType];
-
-
-    export const GroupPropertyFilterType = {
-      Group: 'group',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null | null;
-
-    export interface GroupPropertyFilter {
-      /** @nullable */
-      group_key_names?: GroupPropertyFilterGroupKeyNames;
-      /** @nullable */
-      group_type_index?: number | null;
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: GroupPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    /**
-     * Event property with "$feature/" prepended
-     */
-    export type FeaturePropertyFilterType = typeof FeaturePropertyFilterType[keyof typeof FeaturePropertyFilterType];
-
-
-    export const FeaturePropertyFilterType = {
-      Feature: 'feature',
-    } as const;
-
-    export interface FeaturePropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Event property with "$feature/" prepended */
-      type?: FeaturePropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    /**
-     * Only flag_evaluates_to operator is allowed for flag dependencies
-     */
-    export type FlagPropertyFilterOperator = typeof FlagPropertyFilterOperator[keyof typeof FlagPropertyFilterOperator];
-
-
-    export const FlagPropertyFilterOperator = {
-      FlagEvaluatesTo: 'flag_evaluates_to',
-    } as const;
-
-    /**
-     * Feature flag dependency
-     */
-    export type FlagPropertyFilterType = typeof FlagPropertyFilterType[keyof typeof FlagPropertyFilterType];
-
-
-    export const FlagPropertyFilterType = {
-      Flag: 'flag',
-    } as const;
-
-    export interface FlagPropertyFilter {
-      /** The key should be the flag ID */
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      /** Only flag_evaluates_to operator is allowed for flag dependencies */
-      operator?: FlagPropertyFilterOperator;
-      /** Feature flag dependency */
-      type?: FlagPropertyFilterType;
-      /** The value can be true, false, or a variant name */
-      value: boolean | string;
-    }
-
-    export type HogQLPropertyFilterType = typeof HogQLPropertyFilterType[keyof typeof HogQLPropertyFilterType];
-
-
-    export const HogQLPropertyFilterType = {
-      Hogql: 'hogql',
-    } as const;
-
-    export interface HogQLPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      type?: HogQLPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type EmptyPropertyFilterType = typeof EmptyPropertyFilterType[keyof typeof EmptyPropertyFilterType];
-
-
-    export const EmptyPropertyFilterType = {
-      Empty: 'empty',
-    } as const;
-
-    export interface EmptyPropertyFilter {
-      type?: EmptyPropertyFilterType;
-    }
-
-    export type DataWarehousePropertyFilterType = typeof DataWarehousePropertyFilterType[keyof typeof DataWarehousePropertyFilterType];
-
-
-    export const DataWarehousePropertyFilterType = {
-      DataWarehouse: 'data_warehouse',
-    } as const;
-
-    export interface DataWarehousePropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: DataWarehousePropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type DataWarehousePersonPropertyFilterType = typeof DataWarehousePersonPropertyFilterType[keyof typeof DataWarehousePersonPropertyFilterType];
-
-
-    export const DataWarehousePersonPropertyFilterType = {
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
-    } as const;
-
-    export interface DataWarehousePersonPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: DataWarehousePersonPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type ErrorTrackingIssueFilterType = typeof ErrorTrackingIssueFilterType[keyof typeof ErrorTrackingIssueFilterType];
-
-
-    export const ErrorTrackingIssueFilterType = {
-      ErrorTrackingIssue: 'error_tracking_issue',
-    } as const;
-
-    export interface ErrorTrackingIssueFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: ErrorTrackingIssueFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type LogPropertyFilterType = typeof LogPropertyFilterType[keyof typeof LogPropertyFilterType];
-
-
-    export const LogPropertyFilterType = {
-      Log: 'log',
-      LogAttribute: 'log_attribute',
-      LogResourceAttribute: 'log_resource_attribute',
-    } as const;
-
-    export interface LogPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type: LogPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type SpanPropertyFilterType = typeof SpanPropertyFilterType[keyof typeof SpanPropertyFilterType];
-
-
-    export const SpanPropertyFilterType = {
-      Span: 'span',
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    export interface SpanPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type: SpanPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type RevenueAnalyticsPropertyFilterType = typeof RevenueAnalyticsPropertyFilterType[keyof typeof RevenueAnalyticsPropertyFilterType];
-
-
-    export const RevenueAnalyticsPropertyFilterType = {
-      RevenueAnalytics: 'revenue_analytics',
-    } as const;
-
-    export interface RevenueAnalyticsPropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: RevenueAnalyticsPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type WorkflowVariablePropertyFilterType = typeof WorkflowVariablePropertyFilterType[keyof typeof WorkflowVariablePropertyFilterType];
-
-
-    export const WorkflowVariablePropertyFilterType = {
-      WorkflowVariable: 'workflow_variable',
-    } as const;
-
-    export interface WorkflowVariablePropertyFilter {
-      key: string;
-      /** @nullable */
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: WorkflowVariablePropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
 
     export type MathGroupTypeIndex = typeof MathGroupTypeIndex[keyof typeof MathGroupTypeIndex];
 
@@ -1324,54 +1126,34 @@ export namespace Schemas {
     } as const;
 
     export interface RevenueCurrencyPropertyConfig {
-      /** @nullable */
       property?: string | null;
       static?: CurrencyCode | null;
     }
 
     export interface ActionsNode {
-      /** @nullable */
       custom_name?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: number;
-      kind?: ActionsNodeKind;
-      math?: typeof ActionsNodeMath[keyof typeof ActionsNodeMath]  | null;
+      kind?: 'ActionsNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: ActionsNodeResponse;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface ActionsPie {
-      /** @nullable */
       disableHoverOffset?: boolean | null;
-      /** @nullable */
       hideAggregation?: boolean | null;
     }
 
@@ -1432,7 +1214,7 @@ export namespace Schemas {
       item_id?: string | null;
       /** @maxLength 79 */
       scope: string;
-      detail?: unknown | null;
+      detail?: unknown;
       created_at?: string;
     }
 
@@ -1493,13 +1275,6 @@ export namespace Schemas {
       previous: string | null;
       total_count: number;
     }
-
-    export type ActorsPropertyTaxonomyQueryKind = typeof ActorsPropertyTaxonomyQueryKind[keyof typeof ActorsPropertyTaxonomyQueryKind];
-
-
-    export const ActorsPropertyTaxonomyQueryKind = {
-      ActorsPropertyTaxonomyQuery: 'ActorsPropertyTaxonomyQuery',
-    } as const;
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
@@ -1658,62 +1433,37 @@ export namespace Schemas {
     } as const;
 
     export interface HogQLQueryModifiers {
-      /** @nullable */
       bounceRateDurationSeconds?: number | null;
       bounceRatePageViewMode?: BounceRatePageViewMode | null;
-      /** @nullable */
       convertToProjectTimezone?: boolean | null;
-      /** @nullable */
       customChannelTypeRules?: CustomChannelRule[] | null;
-      /** @nullable */
       dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null;
-      /** @nullable */
       debug?: boolean | null;
-      /**
-       * If these are provided, the query will fail if these skip indexes are not used
-       * @nullable
-       */
+      /** If these are provided, the query will fail if these skip indexes are not used */
       forceClickhouseDataSkippingIndexes?: string[] | null;
-      /** @nullable */
       formatCsvAllowDoubleQuotes?: boolean | null;
       inCohortVia?: InCohortVia | null;
       inlineCohortCalculation?: InlineCohortCalculation | null;
       materializationMode?: MaterializationMode | null;
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
-      /** @nullable */
       optimizeJoinedFilters?: boolean | null;
-      /** @nullable */
       optimizeProjections?: boolean | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
       propertyGroupsMode?: PropertyGroupsMode | null;
-      /** @nullable */
       s3TableUseInvalidColumns?: boolean | null;
-      /**
-       * Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.
-       * @nullable
-       */
+      /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
       sessionIdPushdown?: boolean | null;
-      /**
-       * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
-       * @nullable
-       */
+      /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
       sessionPropertyPreAggregation?: boolean | null;
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
-      /** @nullable */
       timings?: boolean | null;
-      /** @nullable */
       useMaterializedViews?: boolean | null;
-      /** @nullable */
       usePreaggregatedIntermediateResults?: boolean | null;
-      /**
-       * Try to automatically convert HogQL queries to use preaggregated tables at the AST level *
-       * @nullable
-       */
+      /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
       usePreaggregatedTableTransforms?: boolean | null;
-      /** @nullable */
       useWebAnalyticsPreAggregatedTables?: boolean | null;
     }
 
@@ -1726,47 +1476,26 @@ export namespace Schemas {
     }
 
     export interface QueryStatus {
-      /**
-       * Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.
-       * @nullable
-       */
+      /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
       complete?: boolean | null;
-      /** @nullable */
       dashboard_id?: number | null;
-      /**
-       * When did the query execution task finish (whether successfully or not).
-       * @nullable
-       */
+      /** When did the query execution task finish (whether successfully or not). */
       end_time?: string | null;
-      /**
-       * If the query failed, this will be set to true. More information can be found in the error_message field.
-       * @nullable
-       */
+      /** If the query failed, this will be set to true. More information can be found in the error_message field. */
       error?: boolean | null;
-      /** @nullable */
       error_message?: string | null;
-      /** @nullable */
       expiration_time?: string | null;
       id: string;
-      /** @nullable */
       insight_id?: number | null;
-      /** @nullable */
       labels?: string[] | null;
-      /**
-       * When was the query execution task picked up by a worker.
-       * @nullable
-       */
+      /** When was the query execution task picked up by a worker. */
       pickup_time?: string | null;
       /** ONLY async queries use QueryStatus. */
-      query_async?: boolean;
+      query_async?: true;
       query_progress?: ClickhouseQueryProgress | null;
-      results?: unknown | null;
-      /**
-       * When was query execution task enqueued.
-       * @nullable
-       */
+      results?: unknown;
+      /** When was query execution task enqueued. */
       start_time?: string | null;
-      /** @nullable */
       task_id?: string | null;
       team_id: number;
     }
@@ -1789,15 +1518,9 @@ export namespace Schemas {
     }
 
     export interface ActorsPropertyTaxonomyQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -1806,55 +1529,31 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryLogTags {
-      /**
-       * Name of the query, preferably unique. For example web_analytics_vitals
-       * @nullable
-       */
+      /** Name of the query, preferably unique. For example web_analytics_vitals */
       name?: string | null;
-      /**
-       * Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *
-       * @nullable
-       */
+      /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
       productKey?: string | null;
-      /**
-       * Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *
-       * @nullable
-       */
+      /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
       scene?: string | null;
     }
 
     export interface ActorsPropertyTaxonomyQuery {
-      /** @nullable */
       groupTypeIndex?: number | null;
-      kind?: ActorsPropertyTaxonomyQueryKind;
-      /** @nullable */
+      kind?: 'ActorsPropertyTaxonomyQuery';
       maxPropertyValues?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       properties: string[];
       response?: ActorsPropertyTaxonomyQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type ActorsQueryKind = typeof ActorsQueryKind[keyof typeof ActorsQueryKind];
-
-
-    export const ActorsQueryKind = {
-      ActorsQuery: 'ActorsQuery',
-    } as const;
 
     export interface PropertyGroupFilterValue {
       type: FilterLogicalOperator;
@@ -1863,17 +1562,12 @@ export namespace Schemas {
 
     export interface ActorsQueryResponse {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
       limit: number;
-      /** @nullable */
       missing_actors_count?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -1883,12 +1577,8 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: string[] | null;
     }
 
@@ -1898,13 +1588,6 @@ export namespace Schemas {
     export const Compare = {
       Current: 'current',
       Previous: 'previous',
-    } as const;
-
-    export type InsightActorsQueryKind = typeof InsightActorsQueryKind[keyof typeof InsightActorsQueryKind];
-
-
-    export const InsightActorsQueryKind = {
-      InsightActorsQuery: 'InsightActorsQuery',
     } as const;
 
     export type BreakdownType = typeof BreakdownType[keyof typeof BreakdownType];
@@ -1940,11 +1623,8 @@ export namespace Schemas {
     } as const;
 
     export interface Breakdown {
-      /** @nullable */
       group_type_index?: number | null;
-      /** @nullable */
       histogram_bin_count?: number | null;
-      /** @nullable */
       normalize_url?: boolean | null;
       property: string | number;
       type?: MultipleBreakdownType | null;
@@ -1952,36 +1632,20 @@ export namespace Schemas {
 
     export interface BreakdownFilter {
       breakdown?: string | (string | number)[] | number | null;
-      /** @nullable */
       breakdown_group_type_index?: number | null;
-      /** @nullable */
       breakdown_hide_other_aggregation?: boolean | null;
-      /** @nullable */
       breakdown_histogram_bin_count?: number | null;
-      /** @nullable */
       breakdown_limit?: number | null;
-      /** @nullable */
       breakdown_normalize_url?: boolean | null;
-      /** @nullable */
       breakdown_path_cleaning?: boolean | null;
       breakdown_type?: BreakdownType | null;
-      /**
-       * @maxItems 3
-       * @nullable
-       */
       breakdowns?: Breakdown[] | null;
     }
 
     export interface CompareFilter {
-      /**
-       * Whether to compare the current date range to a previous date range.
-       * @nullable
-       */
+      /** Whether to compare the current date range to a previous date range. */
       compare?: boolean | null;
-      /**
-       * The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
-       * @nullable
-       */
+      /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
       compare_to?: string | null;
     }
 
@@ -1990,21 +1654,12 @@ export namespace Schemas {
     }
 
     export interface DateRange {
-      /**
-       * Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
-    -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).
-       * @nullable
-       */
+      /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
+    -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
       date_from?: string | null;
-      /**
-       * End of the date range. Same format as date_from. Omit or null for "now".
-       * @nullable
-       */
+      /** End of the date range. Same format as date_from. Omit or null for "now". */
       date_to?: string | null;
-      /**
-       * Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.
-       * @nullable
-       */
+      /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
       explicitDate?: boolean | null;
     }
 
@@ -2018,13 +1673,6 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Month: 'month',
-    } as const;
-
-    export type TrendsQueryKind = typeof TrendsQueryKind[keyof typeof TrendsQueryKind];
-
-
-    export const TrendsQueryKind = {
-      TrendsQuery: 'TrendsQuery',
     } as const;
 
     export interface PropertyGroupFilter {
@@ -2041,31 +1689,19 @@ export namespace Schemas {
       min: number;
       p25: number;
       p75: number;
-      /** @nullable */
       series_index?: number | null;
-      /** @nullable */
       series_label?: string | null;
     }
 
     export type TrendsQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface TrendsQueryResponse {
-      /** @nullable */
       boxplot_data?: BoxPlotDatum[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Wether more breakdown values are available.
-       * @nullable
-       */
+      /** Wether more breakdown values are available. */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -2074,199 +1710,94 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TrendsQueryResponseResultsItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
-    export type GroupNodeKind = typeof GroupNodeKind[keyof typeof GroupNodeKind];
-
-
-    export const GroupNodeKind = {
-      GroupNode: 'GroupNode',
-    } as const;
-
-    export type EventsNodeKind = typeof EventsNodeKind[keyof typeof EventsNodeKind];
-
-
-    export const EventsNodeKind = {
-      EventsNode: 'EventsNode',
-    } as const;
-
-    export const EventsNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type EventsNodeResponse = { [key: string]: unknown } | null | null;
+    export type EventsNodeResponse = { [key: string]: unknown } | null;
 
     export interface EventsNode {
-      /** @nullable */
       custom_name?: string | null;
-      /**
-       * The event or `null` for all events.
-       * @nullable
-       */
+      /** The event or `null` for all events. */
       event?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: EventsNodeKind;
-      /** @nullable */
+      kind?: 'EventsNode';
       limit?: number | null;
-      math?: typeof EventsNodeMath[keyof typeof EventsNodeMath]  | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Columns to order by
-       * @nullable
-       */
+      /** Columns to order by */
       orderBy?: string[] | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: EventsNodeResponse;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type DataWarehouseNodeKind = typeof DataWarehouseNodeKind[keyof typeof DataWarehouseNodeKind];
-
-
-    export const DataWarehouseNodeKind = {
-      DataWarehouseNode: 'DataWarehouseNode',
-    } as const;
-
-    export const DataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type DataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
+    export type DataWarehouseNodeResponse = { [key: string]: unknown } | null;
 
     export interface DataWarehouseNode {
-      /** @nullable */
       custom_name?: string | null;
       distinct_id_field: string;
-      /** @nullable */
       dw_source_type?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
       id_field: string;
-      kind?: DataWarehouseNodeKind;
-      math?: typeof DataWarehouseNodeMath[keyof typeof DataWarehouseNodeMath]  | null;
+      kind?: 'DataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: DataWarehouseNodeResponse;
       table_name: string;
       timestamp_field: string;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export const GroupNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type GroupNodeResponse = { [key: string]: unknown } | null | null;
+    export type GroupNodeResponse = { [key: string]: unknown } | null;
 
     export interface GroupNode {
-      /** @nullable */
       custom_name?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: GroupNodeKind;
-      /** @nullable */
+      kind?: 'GroupNode';
       limit?: number | null;
-      math?: typeof GroupNodeMath[keyof typeof GroupNodeMath]  | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
       /** Entities to combine in this group */
       nodes: (EventsNode | ActionsNode | DataWarehouseNode)[];
       /** Group of entities combined with AND/OR operator */
       operator: FilterLogicalOperator;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Columns to order by
-       * @nullable
-       */
+      /** Columns to order by */
       orderBy?: string[] | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: GroupNodeResponse;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -2314,10 +1845,7 @@ export namespace Schemas {
     } as const;
 
     export interface TrendsFormulaNode {
-      /**
-       * Optional user-defined name for the formula
-       * @nullable
-       */
+      /** Optional user-defined name for the formula */
       custom_name?: string | null;
       formula: string;
     }
@@ -2331,11 +1859,8 @@ export namespace Schemas {
     } as const;
 
     export interface GoalLine {
-      /** @nullable */
       borderColor?: string | null;
-      /** @nullable */
       displayIfCrossed?: boolean | null;
-      /** @nullable */
       displayLabel?: boolean | null;
       label: string;
       position?: Position | null;
@@ -2348,13 +1873,6 @@ export namespace Schemas {
     export const ResultCustomizationBy = {
       Value: 'value',
       Position: 'position',
-    } as const;
-
-    export type ResultCustomizationByValueAssignmentBy = typeof ResultCustomizationByValueAssignmentBy[keyof typeof ResultCustomizationByValueAssignmentBy];
-
-
-    export const ResultCustomizationByValueAssignmentBy = {
-      Value: 'value',
     } as const;
 
     export type DataColorToken = typeof DataColorToken[keyof typeof DataColorToken];
@@ -2379,23 +1897,14 @@ export namespace Schemas {
     } as const;
 
     export interface ResultCustomizationByValue {
-      assignmentBy?: ResultCustomizationByValueAssignmentBy;
+      assignmentBy?: 'value';
       color?: DataColorToken | null;
-      /** @nullable */
       hidden?: boolean | null;
     }
 
-    export type ResultCustomizationByPositionAssignmentBy = typeof ResultCustomizationByPositionAssignmentBy[keyof typeof ResultCustomizationByPositionAssignmentBy];
-
-
-    export const ResultCustomizationByPositionAssignmentBy = {
-      Position: 'position',
-    } as const;
-
     export interface ResultCustomizationByPosition {
-      assignmentBy?: ResultCustomizationByPositionAssignmentBy;
+      assignmentBy?: 'position';
       color?: DataColorToken | null;
-      /** @nullable */
       hidden?: boolean | null;
     }
 
@@ -2414,75 +1923,44 @@ export namespace Schemas {
 
     export interface TrendsFilter {
       aggregationAxisFormat?: AggregationAxisFormat | null;
-      /** @nullable */
       aggregationAxisPostfix?: string | null;
-      /** @nullable */
       aggregationAxisPrefix?: string | null;
-      /** @nullable */
       breakdown_histogram_bin_count?: number | null;
-      /** @nullable */
       confidenceLevel?: number | null;
-      /** @nullable */
       decimalPlaces?: number | null;
       /** detailed results table */
       detailedResultsAggregationType?: DetailedResultsAggregationType | null;
       display?: ChartDisplayType | null;
-      /** @nullable */
       excludeBoxPlotOutliers?: boolean | null;
-      /** @nullable */
       formula?: string | null;
-      /**
-       * List of formulas with optional custom names. Takes precedence over formula/formulas if set.
-       * @nullable
-       */
+      /** List of formulas with optional custom names. Takes precedence over formula/formulas if set. */
       formulaNodes?: TrendsFormulaNode[] | null;
-      /** @nullable */
       formulas?: string[] | null;
-      /**
-       * Goal Lines
-       * @nullable
-       */
+      /** Goal Lines */
       goalLines?: GoalLine[] | null;
-      /** @nullable */
       hiddenLegendIndexes?: number[] | null;
-      /** @nullable */
       hideWeekends?: boolean | null;
-      /** @nullable */
       minDecimalPlaces?: number | null;
-      /** @nullable */
       movingAverageIntervals?: number | null;
       /** Wether result datasets are associated by their values or by their order. */
       resultCustomizationBy?: ResultCustomizationBy | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: TrendsFilterResultCustomizations;
-      /** @nullable */
       showAlertThresholdLines?: boolean | null;
-      /** @nullable */
       showConfidenceIntervals?: boolean | null;
-      /** @nullable */
       showLabelsOnSeries?: boolean | null;
-      /** @nullable */
       showLegend?: boolean | null;
-      /** @nullable */
       showMovingAverage?: boolean | null;
-      /** @nullable */
       showMultipleYAxes?: boolean | null;
-      /** @nullable */
       showPercentStackView?: boolean | null;
-      /** @nullable */
       showTrendLines?: boolean | null;
-      /** @nullable */
       showValuesOnSeries?: boolean | null;
-      /** @nullable */
       smoothingIntervals?: number | null;
       yAxisScaleType?: YAxisScaleType | null;
     }
 
     export interface TrendsQuery {
-      /**
-       * Groups aggregation
-       * @nullable
-       */
+      /** Groups aggregation */
       aggregation_group_type_index?: number | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
@@ -2490,30 +1968,21 @@ export namespace Schemas {
       compareFilter?: CompareFilter | null;
       /** Whether we should be comparing against a specific conversion goal */
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization
-       * @nullable
-       */
+      /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
       dateRange?: DateRange | null;
-      /**
-       * Exclude internal and test users by applying the respective filters
-       * @nullable
-       */
+      /** Exclude internal and test users by applying the respective filters */
       filterTestAccounts?: boolean | null;
       /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
       interval?: IntervalType | null;
-      kind?: TrendsQueryKind;
+      kind?: 'TrendsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: TrendsQueryResponse | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       /** Events and actions to include */
       series: (GroupNode | EventsNode | ActionsNode | DataWarehouseNode)[];
@@ -2521,10 +1990,7 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** Properties specific to the trends insight */
       trendsFilter?: TrendsFilter | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -2538,126 +2004,59 @@ export namespace Schemas {
       Step: 'step',
     } as const;
 
-    export type FunnelExclusionEventsNodeKind = typeof FunnelExclusionEventsNodeKind[keyof typeof FunnelExclusionEventsNodeKind];
-
-
-    export const FunnelExclusionEventsNodeKind = {
-      EventsNode: 'EventsNode',
-    } as const;
-
-    export const FunnelExclusionEventsNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type FunnelExclusionEventsNodeResponse = { [key: string]: unknown } | null | null;
+    export type FunnelExclusionEventsNodeResponse = { [key: string]: unknown } | null;
 
     export interface FunnelExclusionEventsNode {
-      /** @nullable */
       custom_name?: string | null;
-      /**
-       * The event or `null` for all events.
-       * @nullable
-       */
+      /** The event or `null` for all events. */
       event?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       funnelFromStep: number;
       funnelToStep: number;
-      kind?: FunnelExclusionEventsNodeKind;
-      /** @nullable */
+      kind?: 'EventsNode';
       limit?: number | null;
-      math?: typeof FunnelExclusionEventsNodeMath[keyof typeof FunnelExclusionEventsNodeMath]  | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Columns to order by
-       * @nullable
-       */
+      /** Columns to order by */
       orderBy?: string[] | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: FunnelExclusionEventsNodeResponse;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type FunnelExclusionActionsNodeKind = typeof FunnelExclusionActionsNodeKind[keyof typeof FunnelExclusionActionsNodeKind];
-
-
-    export const FunnelExclusionActionsNodeKind = {
-      ActionsNode: 'ActionsNode',
-    } as const;
-
-    export const FunnelExclusionActionsNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type FunnelExclusionActionsNodeResponse = { [key: string]: unknown } | null | null;
+    export type FunnelExclusionActionsNodeResponse = { [key: string]: unknown } | null;
 
     export interface FunnelExclusionActionsNode {
-      /** @nullable */
       custom_name?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       funnelFromStep: number;
       funnelToStep: number;
       id: number;
-      kind?: FunnelExclusionActionsNodeKind;
-      math?: typeof FunnelExclusionActionsNodeMath[keyof typeof FunnelExclusionActionsNodeMath]  | null;
+      kind?: 'ActionsNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: FunnelExclusionActionsNodeResponse;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -2710,84 +2109,43 @@ export namespace Schemas {
 
     /**
      * Customizations for the appearance of result datasets.
-     * @nullable
      */
-    export type FunnelsFilterResultCustomizations = {[key: string]: ResultCustomizationByValue} | null | null;
+    export type FunnelsFilterResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface FunnelsFilter {
-      /** @nullable */
       binCount?: number | null;
       breakdownAttributionType?: BreakdownAttributionType | null;
-      /** @nullable */
       breakdownAttributionValue?: number | null;
-      /**
-       * Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)
-       * @nullable
-       */
+      /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
       breakdownSorting?: string | null;
-      /**
-       * For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.
-       * @nullable
-       */
+      /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
       customAggregationTarget?: boolean | null;
-      /** @nullable */
       exclusions?: (FunnelExclusionEventsNode | FunnelExclusionActionsNode)[] | null;
-      /** @nullable */
       funnelAggregateByHogQL?: string | null;
-      /** @nullable */
       funnelFromStep?: number | null;
       funnelOrderType?: StepOrderValue | null;
       funnelStepReference?: FunnelStepReference | null;
-      /**
-       * To select the range of steps for trends & time to convert funnels, 0-indexed
-       * @nullable
-       */
+      /** To select the range of steps for trends & time to convert funnels, 0-indexed */
       funnelToStep?: number | null;
       funnelVizType?: FunnelVizType | null;
-      /** @nullable */
       funnelWindowInterval?: number | null;
       funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnit | null;
-      /**
-       * Goal Lines
-       * @nullable
-       */
+      /** Goal Lines */
       goalLines?: GoalLine[] | null;
-      /** @nullable */
       hiddenLegendBreakdowns?: string[] | null;
       layout?: FunnelLayout | null;
-      /**
-       * Customizations for the appearance of result datasets.
-       * @nullable
-       */
+      /** Customizations for the appearance of result datasets. */
       resultCustomizations?: FunnelsFilterResultCustomizations;
-      /**
-       * Display linear regression trend lines on the chart (only for historical trends viz)
-       * @nullable
-       */
+      /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
-      /** @nullable */
       showValuesOnSeries?: boolean | null;
-      /** @nullable */
       useUdf?: boolean | null;
     }
 
-    export type FunnelsQueryKind = typeof FunnelsQueryKind[keyof typeof FunnelsQueryKind];
-
-
-    export const FunnelsQueryKind = {
-      FunnelsQuery: 'FunnelsQuery',
-    } as const;
-
     export interface FunnelsQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -2796,131 +2154,73 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
-    export type FunnelsDataWarehouseNodeKind = typeof FunnelsDataWarehouseNodeKind[keyof typeof FunnelsDataWarehouseNodeKind];
-
-
-    export const FunnelsDataWarehouseNodeKind = {
-      FunnelsDataWarehouseNode: 'FunnelsDataWarehouseNode',
-    } as const;
-
-    export const FunnelsDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type FunnelsDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
+    export type FunnelsDataWarehouseNodeResponse = { [key: string]: unknown } | null;
 
     export interface FunnelsDataWarehouseNode {
       aggregation_target_field: string;
-      /** @nullable */
       custom_name?: string | null;
-      /** @nullable */
       dw_source_type?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
       id_field: string;
-      kind?: FunnelsDataWarehouseNodeKind;
-      math?: typeof FunnelsDataWarehouseNodeMath[keyof typeof FunnelsDataWarehouseNodeMath]  | null;
+      kind?: 'FunnelsDataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: FunnelsDataWarehouseNodeResponse;
       table_name: string;
       timestamp_field: string;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface FunnelsQuery {
-      /**
-       * Groups aggregation
-       * @nullable
-       */
+      /** Groups aggregation */
       aggregation_group_type_index?: number | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
-      /**
-       * Colors used in the insight's visualization
-       * @nullable
-       */
+      /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
       dateRange?: DateRange | null;
-      /**
-       * Exclude internal and test users by applying the respective filters
-       * @nullable
-       */
+      /** Exclude internal and test users by applying the respective filters */
       filterTestAccounts?: boolean | null;
       /** Properties specific to the funnels insight */
       funnelsFilter?: FunnelsFilter | null;
       /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
       interval?: IntervalType | null;
-      kind?: FunnelsQueryKind;
+      kind?: 'FunnelsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: FunnelsQueryResponse | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       /** Events and actions to include */
       series: (GroupNode | EventsNode | ActionsNode | FunnelsDataWarehouseNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type RetentionQueryKind = typeof RetentionQueryKind[keyof typeof RetentionQueryKind];
-
-
-    export const RetentionQueryKind = {
-      RetentionQuery: 'RetentionQuery',
-    } as const;
-
     export interface RetentionValue {
-      /** @nullable */
       aggregation_value?: number | null;
       count: number;
-      /** @nullable */
       label?: string | null;
     }
 
@@ -2933,15 +2233,9 @@ export namespace Schemas {
     }
 
     export interface RetentionQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -2950,10 +2244,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RetentionResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -3040,36 +2331,20 @@ export namespace Schemas {
     } as const;
 
     export interface RetentionEntity {
-      /**
-       * Data warehouse field used as the actor identifier
-       * @nullable
-       */
+      /** Data warehouse field used as the actor identifier */
       aggregation_target_field?: string | null;
-      /** @nullable */
       custom_name?: string | null;
       id?: string | number | null;
       kind?: RetentionEntityKind | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       order?: number | null;
-      /**
-       * filters on the event
-       * @nullable
-       */
+      /** filters on the event */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /**
-       * Data warehouse table name
-       * @nullable
-       */
+      /** Data warehouse table name */
       table_name?: string | null;
-      /**
-       * Data warehouse timestamp field
-       * @nullable
-       */
+      /** Data warehouse timestamp field */
       timestamp_field?: string | null;
       type?: EntityType | null;
-      /** @nullable */
       uuid?: string | null;
     }
 
@@ -3082,75 +2357,49 @@ export namespace Schemas {
     } as const;
 
     export interface RetentionFilter {
-      /**
-       * The property to aggregate when aggregationType is sum or avg
-       * @nullable
-       */
+      /** The property to aggregate when aggregationType is sum or avg */
       aggregationProperty?: string | null;
       /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
       aggregationPropertyType?: AggregationPropertyType1 | null;
       /** The aggregation type to use for retention */
       aggregationType?: AggregationType | null;
-      /** @nullable */
       cumulative?: boolean | null;
-      /**
-       * For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups.
-       * @nullable
-       */
+      /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
       customAggregationTarget?: boolean | null;
       dashboardDisplay?: RetentionDashboardDisplayType | null;
       /** controls the display of the retention graph */
       display?: ChartDisplayType | null;
-      /** @nullable */
       goalLines?: GoalLine[] | null;
       meanRetentionCalculation?: MeanRetentionCalculation | null;
-      /** @nullable */
       minimumOccurrences?: number | null;
       period?: RetentionPeriod | null;
-      /**
-       * Custom brackets for retention calculations
-       * @nullable
-       */
+      /** Custom brackets for retention calculations */
       retentionCustomBrackets?: number[] | null;
       /** Whether retention is with regard to initial cohort size, or that of the previous period. */
       retentionReference?: RetentionReference | null;
       retentionType?: RetentionType | null;
       returningEntity?: RetentionEntity | null;
-      /**
-       * The selected interval to display across all cohorts (null = show all intervals for each cohort)
-       * @nullable
-       */
+      /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
       selectedInterval?: number | null;
-      /** @nullable */
       showTrendLines?: boolean | null;
       targetEntity?: RetentionEntity | null;
       /** The time window mode to use for retention calculations */
       timeWindowMode?: TimeWindowMode | null;
-      /** @nullable */
       totalIntervals?: number | null;
     }
 
     export interface RetentionQuery {
-      /**
-       * Groups aggregation
-       * @nullable
-       */
+      /** Groups aggregation */
       aggregation_group_type_index?: number | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
-      /**
-       * Colors used in the insight's visualization
-       * @nullable
-       */
+      /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
       dateRange?: DateRange | null;
-      /**
-       * Exclude internal and test users by applying the respective filters
-       * @nullable
-       */
+      /** Exclude internal and test users by applying the respective filters */
       filterTestAccounts?: boolean | null;
-      kind?: RetentionQueryKind;
+      kind?: 'RetentionQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
@@ -3158,17 +2407,11 @@ export namespace Schemas {
       response?: RetentionQueryResponse | null;
       /** Properties specific to the retention insight */
       retentionFilter: RetentionFilter;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -3184,16 +2427,8 @@ export namespace Schemas {
     export interface FunnelPathsFilter {
       funnelPathType?: FunnelPathType | null;
       funnelSource: FunnelsQuery;
-      /** @nullable */
       funnelStep?: number | null;
     }
-
-    export type PathsQueryKind = typeof PathsQueryKind[keyof typeof PathsQueryKind];
-
-
-    export const PathsQueryKind = {
-      PathsQuery: 'PathsQuery',
-    } as const;
 
     export type PathType = typeof PathType[keyof typeof PathType];
 
@@ -3206,55 +2441,30 @@ export namespace Schemas {
     } as const;
 
     export interface PathCleaningFilter {
-      /** @nullable */
       alias?: string | null;
-      /** @nullable */
       order?: number | null;
-      /** @nullable */
       regex?: string | null;
     }
 
     export interface PathsFilter {
-      /** @nullable */
       edgeLimit?: number | null;
-      /** @nullable */
       endPoint?: string | null;
-      /** @nullable */
       excludeEvents?: string[] | null;
-      /** @nullable */
       includeEventTypes?: PathType[] | null;
-      /** @nullable */
       localPathCleaningFilters?: PathCleaningFilter[] | null;
-      /** @nullable */
       maxEdgeWeight?: number | null;
-      /** @nullable */
       minEdgeWeight?: number | null;
-      /**
-       * Relevant only within actors query
-       * @nullable
-       */
+      /** Relevant only within actors query */
       pathDropoffKey?: string | null;
-      /**
-       * Relevant only within actors query
-       * @nullable
-       */
+      /** Relevant only within actors query */
       pathEndKey?: string | null;
-      /** @nullable */
       pathGroupings?: string[] | null;
-      /** @nullable */
       pathReplacements?: boolean | null;
-      /**
-       * Relevant only within actors query
-       * @nullable
-       */
+      /** Relevant only within actors query */
       pathStartKey?: string | null;
-      /** @nullable */
       pathsHogQLExpression?: string | null;
-      /** @nullable */
       showFullUrls?: boolean | null;
-      /** @nullable */
       startPoint?: string | null;
-      /** @nullable */
       stepLimit?: number | null;
     }
 
@@ -3266,15 +2476,9 @@ export namespace Schemas {
     }
 
     export interface PathsQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -3283,34 +2487,22 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PathsLink[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface PathsQuery {
-      /**
-       * Groups aggregation
-       * @nullable
-       */
+      /** Groups aggregation */
       aggregation_group_type_index?: number | null;
-      /**
-       * Colors used in the insight's visualization
-       * @nullable
-       */
+      /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
       dateRange?: DateRange | null;
-      /**
-       * Exclude internal and test users by applying the respective filters
-       * @nullable
-       */
+      /** Exclude internal and test users by applying the respective filters */
       filterTestAccounts?: boolean | null;
       /** Used for displaying paths in relation to funnel steps. */
       funnelPathsFilter?: FunnelPathsFilter | null;
-      kind?: PathsQueryKind;
+      kind?: 'PathsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Properties specific to the paths insight */
@@ -3318,39 +2510,20 @@ export namespace Schemas {
       /** Property filters for all series */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: PathsQueryResponse | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type StickinessQueryKind = typeof StickinessQueryKind[keyof typeof StickinessQueryKind];
-
-
-    export const StickinessQueryKind = {
-      StickinessQuery: 'StickinessQuery',
-    } as const;
 
     export type StickinessQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface StickinessQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -3359,10 +2532,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: StickinessQueryResponseResultsItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -3397,17 +2567,13 @@ export namespace Schemas {
     export interface StickinessFilter {
       computedAs?: StickinessComputationMode | null;
       display?: ChartDisplayType | null;
-      /** @nullable */
       hiddenLegendIndexes?: number[] | null;
       /** Whether result datasets are associated by their values or by their order. */
       resultCustomizationBy?: ResultCustomizationBy | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: StickinessFilterResultCustomizations;
-      /** @nullable */
       showLegend?: boolean | null;
-      /** @nullable */
       showMultipleYAxes?: boolean | null;
-      /** @nullable */
       showValuesOnSeries?: boolean | null;
       stickinessCriteria?: StickinessCriteria | null;
     }
@@ -3415,36 +2581,23 @@ export namespace Schemas {
     export interface StickinessQuery {
       /** Compare to date range */
       compareFilter?: CompareFilter | null;
-      /**
-       * Colors used in the insight's visualization
-       * @nullable
-       */
+      /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
       dateRange?: DateRange | null;
-      /**
-       * Exclude internal and test users by applying the respective filters
-       * @nullable
-       */
+      /** Exclude internal and test users by applying the respective filters */
       filterTestAccounts?: boolean | null;
       /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
       interval?: IntervalType | null;
-      /**
-       * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
-       * @minimum 1
-       * @nullable
-       */
+      /** How many intervals comprise a period. Only used for cohorts, otherwise default 1. */
       intervalCount?: number | null;
-      kind?: StickinessQueryKind;
+      kind?: 'StickinessQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: StickinessQueryResponse | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       /** Events and actions to include */
       series: (EventsNode | ActionsNode | DataWarehouseNode)[];
@@ -3452,19 +2605,9 @@ export namespace Schemas {
       stickinessFilter?: StickinessFilter | null;
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type LifecycleQueryKind = typeof LifecycleQueryKind[keyof typeof LifecycleQueryKind];
-
-
-    export const LifecycleQueryKind = {
-      LifecycleQuery: 'LifecycleQuery',
-    } as const;
 
     export type LifecycleToggle = typeof LifecycleToggle[keyof typeof LifecycleToggle];
 
@@ -3477,28 +2620,18 @@ export namespace Schemas {
     } as const;
 
     export interface LifecycleFilter {
-      /** @nullable */
       showLegend?: boolean | null;
-      /** @nullable */
       showValuesOnSeries?: boolean | null;
-      /** @nullable */
       stacked?: boolean | null;
-      /** @nullable */
       toggledLifecycles?: LifecycleToggle[] | null;
     }
 
     export type LifecycleQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface LifecycleQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -3507,97 +2640,52 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LifecycleQueryResponseResultsItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
-    export type LifecycleDataWarehouseNodeKind = typeof LifecycleDataWarehouseNodeKind[keyof typeof LifecycleDataWarehouseNodeKind];
-
-
-    export const LifecycleDataWarehouseNodeKind = {
-      LifecycleDataWarehouseNode: 'LifecycleDataWarehouseNode',
-    } as const;
-
-    export const LifecycleDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type LifecycleDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
+    export type LifecycleDataWarehouseNodeResponse = { [key: string]: unknown } | null;
 
     export interface LifecycleDataWarehouseNode {
       aggregation_target_field: string;
       created_at_field: string;
-      /** @nullable */
       custom_name?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
-      kind?: LifecycleDataWarehouseNodeKind;
-      math?: typeof LifecycleDataWarehouseNodeMath[keyof typeof LifecycleDataWarehouseNodeMath]  | null;
+      kind?: 'LifecycleDataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: LifecycleDataWarehouseNodeResponse;
       table_name: string;
       timestamp_field: string;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface LifecycleQuery {
-      /**
-       * Groups aggregation
-       * @nullable
-       */
+      /** Groups aggregation */
       aggregation_group_type_index?: number | null;
-      /**
-       * For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.
-       * @nullable
-       */
+      /** For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups. */
       customAggregationTarget?: boolean | null;
-      /**
-       * Colors used in the insight's visualization
-       * @nullable
-       */
+      /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
       dateRange?: DateRange | null;
-      /**
-       * Exclude internal and test users by applying the respective filters
-       * @nullable
-       */
+      /** Exclude internal and test users by applying the respective filters */
       filterTestAccounts?: boolean | null;
       /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
       interval?: IntervalType | null;
-      kind?: LifecycleQueryKind;
+      kind?: 'LifecycleQuery';
       /** Properties specific to the lifecycle insight */
       lifecycleFilter?: LifecycleFilter | null;
       /** Modifiers used when performing the query */
@@ -3605,19 +2693,13 @@ export namespace Schemas {
       /** Property filters for all series */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: LifecycleQueryResponse | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       /** Events and actions to include */
       series: (EventsNode | ActionsNode | LifecycleDataWarehouseNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -3652,13 +2734,6 @@ export namespace Schemas {
       FrustrationMetrics: 'FrustrationMetrics',
     } as const;
 
-    export type WebStatsTableQueryKind = typeof WebStatsTableQueryKind[keyof typeof WebStatsTableQueryKind];
-
-
-    export const WebStatsTableQueryKind = {
-      WebStatsTableQuery: 'WebStatsTableQuery',
-    } as const;
-
     export type WebAnalyticsOrderByFields = typeof WebAnalyticsOrderByFields[keyof typeof WebAnalyticsOrderByFields];
 
 
@@ -3688,31 +2763,20 @@ export namespace Schemas {
     } as const;
 
     export interface SamplingRate {
-      /** @nullable */
       denominator?: number | null;
       numerator: number;
     }
 
     export interface WebStatsTableQueryResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -3720,88 +2784,51 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
     export interface WebAnalyticsSampling {
-      /** @nullable */
       enabled?: boolean | null;
       forceSamplingRate?: SamplingRate | null;
     }
 
-    export const WebStatsTableQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
     export interface WebStatsTableQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       breakdownBy: WebStatsBreakdown;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeAvgTimeOnPage?: boolean | null;
-      /** @nullable */
       includeBounceRate?: boolean | null;
-      /** @nullable */
       includeHost?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
-      /** @nullable */
       includeScrollDepth?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: WebStatsTableQueryKind;
-      /** @nullable */
+      kind?: 'WebStatsTableQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /** @nullable */
-      orderBy?: typeof WebStatsTableQueryOrderByItem[keyof typeof WebStatsTableQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebStatsTableQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type WebOverviewQueryKind = typeof WebOverviewQueryKind[keyof typeof WebOverviewQueryKind];
-
-
-    export const WebOverviewQueryKind = {
-      WebOverviewQuery: 'WebOverviewQuery',
-    } as const;
 
     export type WebAnalyticsItemKind = typeof WebAnalyticsItemKind[keyof typeof WebAnalyticsItemKind];
 
@@ -3814,34 +2841,21 @@ export namespace Schemas {
     } as const;
 
     export interface WebOverviewItem {
-      /** @nullable */
       changeFromPreviousPct?: number | null;
-      /** @nullable */
       isIncreaseBad?: boolean | null;
       key: string;
       kind: WebAnalyticsItemKind;
-      /** @nullable */
       previous?: number | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
-      /** @nullable */
       value?: number | null;
     }
 
     export interface WebOverviewQueryResponse {
-      /** @nullable */
       dateFrom?: string | null;
-      /** @nullable */
       dateTo?: string | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -3851,58 +2865,36 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
-    export const WebOverviewQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
     export interface WebOverviewQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: WebOverviewQueryKind;
+      kind?: 'WebOverviewQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      orderBy?: typeof WebOverviewQueryOrderByItem[keyof typeof WebOverviewQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebOverviewQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -3910,73 +2902,39 @@ export namespace Schemas {
       breakdown?: string | string[] | number | null;
       compare?: Compare | null;
       day?: string | number | null;
-      /** @nullable */
       includeRecordings?: boolean | null;
-      /**
-       * An interval selected out of available intervals in source query.
-       * @nullable
-       */
+      /** An interval selected out of available intervals in source query. */
       interval?: number | null;
-      kind?: InsightActorsQueryKind;
+      kind?: 'InsightActorsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: ActorsQueryResponse | null;
-      /** @nullable */
       series?: number | null;
       source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
-      /** @nullable */
       status?: string | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type FunnelsActorsQueryKind = typeof FunnelsActorsQueryKind[keyof typeof FunnelsActorsQueryKind];
-
-
-    export const FunnelsActorsQueryKind = {
-      FunnelsActorsQuery: 'FunnelsActorsQuery',
-    } as const;
-
     export interface FunnelsActorsQuery {
-      /**
-       * Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.
-       * @nullable
-       */
+      /** Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons. */
       funnelStep?: number | null;
       /** The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts. */
       funnelStepBreakdown?: number | string | number | (number | string | number)[] | null;
-      /** @nullable */
       funnelTrendsDropOff?: boolean | null;
-      /**
-       * Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.
-       * @nullable
-       */
+      /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
       funnelTrendsEntrancePeriodStart?: string | null;
-      /** @nullable */
       includeRecordings?: boolean | null;
-      kind?: FunnelsActorsQueryKind;
+      kind?: 'FunnelsActorsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: ActorsQueryResponse | null;
       source: FunnelsQuery;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type FunnelCorrelationActorsQueryKind = typeof FunnelCorrelationActorsQueryKind[keyof typeof FunnelCorrelationActorsQueryKind];
-
-
-    export const FunnelCorrelationActorsQueryKind = {
-      FunnelCorrelationActorsQuery: 'FunnelCorrelationActorsQuery',
-    } as const;
 
     export type FunnelCorrelationResultsType = typeof FunnelCorrelationResultsType[keyof typeof FunnelCorrelationResultsType];
 
@@ -3985,13 +2943,6 @@ export namespace Schemas {
       Events: 'events',
       Properties: 'properties',
       EventWithProperties: 'event_with_properties',
-    } as const;
-
-    export type FunnelCorrelationQueryKind = typeof FunnelCorrelationQueryKind[keyof typeof FunnelCorrelationQueryKind];
-
-
-    export const FunnelCorrelationQueryKind = {
-      FunnelCorrelationQuery: 'FunnelCorrelationQuery',
     } as const;
 
     export type CorrelationType = typeof CorrelationType[keyof typeof CorrelationType];
@@ -4024,114 +2975,65 @@ export namespace Schemas {
     }
 
     export interface FunnelCorrelationResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: FunnelCorrelationResult;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface FunnelCorrelationQuery {
-      /** @nullable */
       funnelCorrelationEventExcludePropertyNames?: string[] | null;
-      /** @nullable */
       funnelCorrelationEventNames?: string[] | null;
-      /** @nullable */
       funnelCorrelationExcludeEventNames?: string[] | null;
-      /** @nullable */
       funnelCorrelationExcludeNames?: string[] | null;
-      /** @nullable */
       funnelCorrelationNames?: string[] | null;
       funnelCorrelationType: FunnelCorrelationResultsType;
-      kind?: FunnelCorrelationQueryKind;
+      kind?: 'FunnelCorrelationQuery';
       response?: FunnelCorrelationResponse | null;
       source: FunnelsActorsQuery;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface FunnelCorrelationActorsQuery {
-      /** @nullable */
       funnelCorrelationPersonConverted?: boolean | null;
       funnelCorrelationPersonEntity?: EventsNode | ActionsNode | DataWarehouseNode | null;
-      /** @nullable */
       funnelCorrelationPropertyValues?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       includeRecordings?: boolean | null;
-      kind?: FunnelCorrelationActorsQueryKind;
+      kind?: 'FunnelCorrelationActorsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: ActorsQueryResponse | null;
       source: FunnelCorrelationQuery;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type ExperimentEventExposureConfigKind = typeof ExperimentEventExposureConfigKind[keyof typeof ExperimentEventExposureConfigKind];
-
-
-    export const ExperimentEventExposureConfigKind = {
-      ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentEventExposureConfigResponse = { [key: string]: unknown } | null | null;
+    export type ExperimentEventExposureConfigResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentEventExposureConfig {
       event: string;
-      kind?: ExperimentEventExposureConfigKind;
+      kind?: 'ExperimentEventExposureConfig';
       properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
-      /** @nullable */
       response?: ExperimentEventExposureConfigResponse;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type ExperimentActorsQueryKind = typeof ExperimentActorsQueryKind[keyof typeof ExperimentActorsQueryKind];
-
-
-    export const ExperimentActorsQueryKind = {
-      ExperimentActorsQuery: 'ExperimentActorsQuery',
-    } as const;
 
     export type MultipleVariantHandling = typeof MultipleVariantHandling[keyof typeof MultipleVariantHandling];
 
@@ -4139,13 +3041,6 @@ export namespace Schemas {
     export const MultipleVariantHandling = {
       Exclude: 'exclude',
       FirstSeen: 'first_seen',
-    } as const;
-
-    export type ExperimentQueryKind = typeof ExperimentQueryKind[keyof typeof ExperimentQueryKind];
-
-
-    export const ExperimentQueryKind = {
-      ExperimentQuery: 'ExperimentQuery',
     } as const;
 
     export type ExperimentMetricGoal = typeof ExperimentMetricGoal[keyof typeof ExperimentMetricGoal];
@@ -4156,225 +3051,97 @@ export namespace Schemas {
       Decrease: 'decrease',
     } as const;
 
-    export type ExperimentMeanMetricKind = typeof ExperimentMeanMetricKind[keyof typeof ExperimentMeanMetricKind];
-
-
-    export const ExperimentMeanMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentMeanMetricMetricType = typeof ExperimentMeanMetricMetricType[keyof typeof ExperimentMeanMetricMetricType];
-
-
-    export const ExperimentMeanMetricMetricType = {
-      Mean: 'mean',
-    } as const;
-
-    export type ExperimentDataWarehouseNodeKind = typeof ExperimentDataWarehouseNodeKind[keyof typeof ExperimentDataWarehouseNodeKind];
-
-
-    export const ExperimentDataWarehouseNodeKind = {
-      ExperimentDataWarehouseNode: 'ExperimentDataWarehouseNode',
-    } as const;
-
-    export const ExperimentDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
+    export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentDataWarehouseNode {
-      /** @nullable */
       custom_name?: string | null;
       data_warehouse_join_key: string;
       events_join_key: string;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: ExperimentDataWarehouseNodeKind;
-      math?: typeof ExperimentDataWarehouseNodeMath[keyof typeof ExperimentDataWarehouseNodeMath]  | null;
+      kind?: 'ExperimentDataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: ExperimentDataWarehouseNodeResponse;
       table_name: string;
       timestamp_field: string;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    /**
-     * @nullable
-     */
-    export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null | null;
+    export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentMeanMetric {
       breakdownFilter?: BreakdownFilter | null;
-      /** @nullable */
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /** @nullable */
       fingerprint?: string | null;
       goal?: ExperimentMetricGoal | null;
-      /** @nullable */
       ignore_zeros?: boolean | null;
-      /** @nullable */
       isSharedMetric?: boolean | null;
-      kind?: ExperimentMeanMetricKind;
-      /** @nullable */
+      kind?: 'ExperimentMetric';
       lower_bound_percentile?: number | null;
-      metric_type?: ExperimentMeanMetricMetricType;
-      /** @nullable */
+      metric_type?: 'mean';
       name?: string | null;
-      /** @nullable */
       response?: ExperimentMeanMetricResponse;
-      /** @nullable */
       sharedMetricId?: number | null;
       source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
       upper_bound_percentile?: number | null;
-      /** @nullable */
       uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type ExperimentFunnelMetricKind = typeof ExperimentFunnelMetricKind[keyof typeof ExperimentFunnelMetricKind];
-
-
-    export const ExperimentFunnelMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentFunnelMetricMetricType = typeof ExperimentFunnelMetricMetricType[keyof typeof ExperimentFunnelMetricMetricType];
-
-
-    export const ExperimentFunnelMetricMetricType = {
-      Funnel: 'funnel',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null | null;
+    export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentFunnelMetric {
       breakdownFilter?: BreakdownFilter | null;
-      /** @nullable */
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /** @nullable */
       fingerprint?: string | null;
       funnel_order_type?: StepOrderValue | null;
       goal?: ExperimentMetricGoal | null;
-      /** @nullable */
       isSharedMetric?: boolean | null;
-      kind?: ExperimentFunnelMetricKind;
-      metric_type?: ExperimentFunnelMetricMetricType;
-      /** @nullable */
+      kind?: 'ExperimentMetric';
+      metric_type?: 'funnel';
       name?: string | null;
-      /** @nullable */
       response?: ExperimentFunnelMetricResponse;
       series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[];
-      /** @nullable */
       sharedMetricId?: number | null;
-      /** @nullable */
       uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type ExperimentRatioMetricKind = typeof ExperimentRatioMetricKind[keyof typeof ExperimentRatioMetricKind];
-
-
-    export const ExperimentRatioMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentRatioMetricMetricType = typeof ExperimentRatioMetricMetricType[keyof typeof ExperimentRatioMetricMetricType];
-
-
-    export const ExperimentRatioMetricMetricType = {
-      Ratio: 'ratio',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null | null;
+    export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentRatioMetric {
       breakdownFilter?: BreakdownFilter | null;
-      /** @nullable */
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
       denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
       fingerprint?: string | null;
       goal?: ExperimentMetricGoal | null;
-      /** @nullable */
       isSharedMetric?: boolean | null;
-      kind?: ExperimentRatioMetricKind;
-      metric_type?: ExperimentRatioMetricMetricType;
-      /** @nullable */
+      kind?: 'ExperimentMetric';
+      metric_type?: 'ratio';
       name?: string | null;
       numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
       response?: ExperimentRatioMetricResponse;
-      /** @nullable */
       sharedMetricId?: number | null;
-      /** @nullable */
       uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type ExperimentRetentionMetricKind = typeof ExperimentRetentionMetricKind[keyof typeof ExperimentRetentionMetricKind];
-
-
-    export const ExperimentRetentionMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
-
-    export type ExperimentRetentionMetricMetricType = typeof ExperimentRetentionMetricMetricType[keyof typeof ExperimentRetentionMetricMetricType];
-
-
-    export const ExperimentRetentionMetricMetricType = {
-      Retention: 'retention',
-    } as const;
 
     export type StartHandling = typeof StartHandling[keyof typeof StartHandling];
 
@@ -4384,41 +3151,28 @@ export namespace Schemas {
       LastSeen: 'last_seen',
     } as const;
 
-    /**
-     * @nullable
-     */
-    export type ExperimentRetentionMetricResponse = { [key: string]: unknown } | null | null;
+    export type ExperimentRetentionMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentRetentionMetric {
       breakdownFilter?: BreakdownFilter | null;
       completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
-      /** @nullable */
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /** @nullable */
       fingerprint?: string | null;
       goal?: ExperimentMetricGoal | null;
-      /** @nullable */
       isSharedMetric?: boolean | null;
-      kind?: ExperimentRetentionMetricKind;
-      metric_type?: ExperimentRetentionMetricMetricType;
-      /** @nullable */
+      kind?: 'ExperimentMetric';
+      metric_type?: 'retention';
       name?: string | null;
-      /** @nullable */
       response?: ExperimentRetentionMetricResponse;
       retention_window_end: number;
       retention_window_start: number;
       retention_window_unit: FunnelConversionWindowTimeUnit;
-      /** @nullable */
       sharedMetricId?: number | null;
       start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
       start_handling: StartHandling;
-      /** @nullable */
       uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -4447,113 +3201,58 @@ export namespace Schemas {
     } as const;
 
     export interface ExperimentStatsBaseValidated {
-      /** @nullable */
       covariate_sum?: number | null;
-      /** @nullable */
       covariate_sum_product?: number | null;
-      /** @nullable */
       covariate_sum_squares?: number | null;
-      /** @nullable */
       denominator_sum?: number | null;
-      /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
       number_of_samples: number;
-      /** @nullable */
       numerator_denominator_sum_product?: number | null;
-      /** @nullable */
       step_counts?: number[] | null;
-      /** @nullable */
       step_sessions?: SessionData[][] | null;
       sum: number;
       sum_squares: number;
-      /** @nullable */
       validation_failures?: ExperimentStatsValidationFailure[] | null;
     }
-
-    export type ExperimentVariantResultFrequentistMethod = typeof ExperimentVariantResultFrequentistMethod[keyof typeof ExperimentVariantResultFrequentistMethod];
-
-
-    export const ExperimentVariantResultFrequentistMethod = {
-      Frequentist: 'frequentist',
-    } as const;
 
     export interface ExperimentVariantResultFrequentist {
-      /**
-       * @minItems 2
-       * @maxItems 2
-       * @nullable
-       */
       confidence_interval?: number[] | null;
-      /** @nullable */
       covariate_sum?: number | null;
-      /** @nullable */
       covariate_sum_product?: number | null;
-      /** @nullable */
       covariate_sum_squares?: number | null;
-      /** @nullable */
       denominator_sum?: number | null;
-      /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
-      method?: ExperimentVariantResultFrequentistMethod;
+      method?: 'frequentist';
       number_of_samples: number;
-      /** @nullable */
       numerator_denominator_sum_product?: number | null;
-      /** @nullable */
       p_value?: number | null;
-      /** @nullable */
       significant?: boolean | null;
-      /** @nullable */
       step_counts?: number[] | null;
-      /** @nullable */
       step_sessions?: SessionData[][] | null;
       sum: number;
       sum_squares: number;
-      /** @nullable */
       validation_failures?: ExperimentStatsValidationFailure[] | null;
     }
 
-    export type ExperimentVariantResultBayesianMethod = typeof ExperimentVariantResultBayesianMethod[keyof typeof ExperimentVariantResultBayesianMethod];
-
-
-    export const ExperimentVariantResultBayesianMethod = {
-      Bayesian: 'bayesian',
-    } as const;
-
     export interface ExperimentVariantResultBayesian {
-      /** @nullable */
       chance_to_win?: number | null;
-      /** @nullable */
       covariate_sum?: number | null;
-      /** @nullable */
       covariate_sum_product?: number | null;
-      /** @nullable */
       covariate_sum_squares?: number | null;
-      /**
-       * @minItems 2
-       * @maxItems 2
-       * @nullable
-       */
       credible_interval?: number[] | null;
-      /** @nullable */
       denominator_sum?: number | null;
-      /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
-      method?: ExperimentVariantResultBayesianMethod;
+      method?: 'bayesian';
       number_of_samples: number;
-      /** @nullable */
       numerator_denominator_sum_product?: number | null;
-      /** @nullable */
       significant?: boolean | null;
-      /** @nullable */
       step_counts?: number[] | null;
-      /** @nullable */
       step_sessions?: SessionData[][] | null;
       sum: number;
       sum_squares: number;
-      /** @nullable */
       validation_failures?: ExperimentStatsValidationFailure[] | null;
     }
 
@@ -4565,13 +3264,6 @@ export namespace Schemas {
       /** Test variant results with statistical comparisons for this breakdown */
       variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
     }
-
-    export type ExperimentQueryResponseKind = typeof ExperimentQueryResponseKind[keyof typeof ExperimentQueryResponseKind];
-
-
-    export const ExperimentQueryResponseKind = {
-      ExperimentQuery: 'ExperimentQuery',
-    } as const;
 
     export type ExperimentSignificanceCode = typeof ExperimentSignificanceCode[keyof typeof ExperimentSignificanceCode];
 
@@ -4597,90 +3289,76 @@ export namespace Schemas {
       success_count: number;
     }
 
-    /**
-     * @nullable
-     */
-    export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null | null;
+    export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null;
 
-    export type ExperimentQueryResponseInsightItem = { [key: string]: unknown };
+    export type EndpointsUsageOrderByField = typeof EndpointsUsageOrderByField[keyof typeof EndpointsUsageOrderByField];
 
-    /**
-     * @nullable
-     */
-    export type ExperimentQueryResponseProbability = {[key: string]: number} | null | null;
+
+    export const EndpointsUsageOrderByField = {
+      Requests: 'requests',
+      BytesRead: 'bytes_read',
+      CpuSeconds: 'cpu_seconds',
+      AvgQueryDurationMs: 'avg_query_duration_ms',
+      ErrorRate: 'error_rate',
+    } as const;
+
+    export type EndpointsUsageOrderByDirection = typeof EndpointsUsageOrderByDirection[keyof typeof EndpointsUsageOrderByDirection];
+
+
+    export const EndpointsUsageOrderByDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    export const UndefinedItem = {...EndpointsUsageOrderByField,...EndpointsUsageOrderByDirection,} as const
+    export type ExperimentQueryResponseProbability = {[key: string]: number} | null;
 
     export interface ExperimentQueryResponse {
       baseline?: ExperimentStatsBaseValidated | null;
-      /**
-       * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
-       * @nullable
-       */
+      /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
       breakdown_results?: ExperimentBreakdownResult[] | null;
-      /** @nullable */
       clickhouse_sql?: string | null;
-      /** @nullable */
       credible_intervals?: ExperimentQueryResponseCredibleIntervals;
-      /** @nullable */
       hogql?: string | null;
-      /** @nullable */
-      insight?: ExperimentQueryResponseInsightItem[] | null;
-      /**
-       * Whether exposures were served from the precomputation system
-       * @nullable
-       */
+      insight?: undefinedItem[] | null;
+      /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
-      kind?: ExperimentQueryResponseKind;
+      kind?: 'ExperimentQuery';
       metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
-      /** @nullable */
       p_value?: number | null;
-      /** @nullable */
       probability?: ExperimentQueryResponseProbability;
       significance_code?: ExperimentSignificanceCode | null;
-      /** @nullable */
       significant?: boolean | null;
-      /** @nullable */
       stats_version?: number | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
     }
 
     export interface ExperimentQuery {
-      /** @nullable */
       experiment_id?: number | null;
-      kind?: ExperimentQueryKind;
+      kind?: 'ExperimentQuery';
       metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       name?: string | null;
       precomputation_mode?: PrecomputationMode | null;
       response?: ExperimentQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface ExperimentActorsQuery {
       /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
       exposureConfig?: ExperimentEventExposureConfig | ActionsNode | null;
-      /**
-       * Feature flag key for breakdown filtering.
-       * @nullable
-       */
+      /** Feature flag key for breakdown filtering. */
       featureFlagKey?: string | null;
-      /**
-       * Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons.
-       * @nullable
-       */
+      /** Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons. */
       funnelStep?: number | null;
       /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
       funnelStepBreakdown?: number | string | number | (number | string | number)[] | null;
-      /** @nullable */
       includeRecordings?: boolean | null;
-      kind?: ExperimentActorsQueryKind;
+      kind?: 'ExperimentActorsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** How to handle users with multiple variant exposures. */
@@ -4688,63 +3366,36 @@ export namespace Schemas {
       response?: ActorsQueryResponse | null;
       source: ExperimentQuery;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type StickinessActorsQueryKind = typeof StickinessActorsQueryKind[keyof typeof StickinessActorsQueryKind];
-
-
-    export const StickinessActorsQueryKind = {
-      StickinessActorsQuery: 'StickinessActorsQuery',
-    } as const;
 
     export interface StickinessActorsQuery {
       compare?: Compare | null;
       day?: string | number | null;
-      /** @nullable */
       includeRecordings?: boolean | null;
-      kind?: StickinessActorsQueryKind;
+      kind?: 'StickinessActorsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       operator?: StickinessOperator | null;
       response?: ActorsQueryResponse | null;
-      /** @nullable */
       series?: number | null;
       source: StickinessQuery;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface HogQLFilters {
       dateRange?: DateRange | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
-    export type HogQLQueryKind = typeof HogQLQueryKind[keyof typeof HogQLQueryKind];
-
-
-    export const HogQLQueryKind = {
-      HogQLQuery: 'HogQLQuery',
-    } as const;
-
     export interface HogQLNotice {
-      /** @nullable */
       end?: number | null;
-      /** @nullable */
       fix?: string | null;
       message: string;
-      /** @nullable */
       start?: number | null;
     }
 
@@ -4759,168 +3410,104 @@ export namespace Schemas {
     } as const;
 
     export interface HogQLMetadataResponse {
-      /** @nullable */
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
       isUsingIndices?: QueryIndexUsage | null;
-      /** @nullable */
       isValid?: boolean | null;
       notices: HogQLNotice[];
-      /** @nullable */
       query?: string | null;
-      /** @nullable */
       table_names?: string[] | null;
       warnings: HogQLNotice[];
     }
 
     export interface HogQLQueryResponse {
-      /**
-       * Executed ClickHouse query
-       * @nullable
-       */
+      /** Executed ClickHouse query */
       clickhouse?: string | null;
-      /**
-       * Returned columns
-       * @nullable
-       */
+      /** Returned columns */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Query explanation output
-       * @nullable
-       */
+      /** Query explanation output */
       explain?: string[] | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /**
-       * Input query string
-       * @nullable
-       */
+      /** Input query string */
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /**
-       * Types of returned columns
-       * @nullable
-       */
+      /** Types of returned columns */
       types?: unknown[] | null;
     }
 
     export interface HogQLVariable {
       code_name: string;
-      /** @nullable */
       isNull?: boolean | null;
-      value?: unknown | null;
+      value?: unknown;
       variableId: string;
     }
 
     /**
      * Constant values that can be referenced with the {placeholder} syntax in the query
-     * @nullable
      */
-    export type HogQLQueryValues = { [key: string]: unknown } | null | null;
+    export type HogQLQueryValues = { [key: string]: unknown } | null;
 
     /**
      * Variables to be substituted into the query
-     * @nullable
      */
-    export type HogQLQueryVariables = {[key: string]: HogQLVariable} | null | null;
+    export type HogQLQueryVariables = {[key: string]: HogQLVariable} | null;
 
     export interface HogQLQuery {
-      /**
-       * Optional direct external data source id for running against a specific source
-       * @nullable
-       */
+      /** Optional direct external data source id for running against a specific source */
       connectionId?: string | null;
-      /** @nullable */
       explain?: boolean | null;
       filters?: HogQLFilters | null;
-      kind?: HogQLQueryKind;
+      kind?: 'HogQLQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Client provided name of the query
-       * @nullable
-       */
+      /** Client provided name of the query */
       name?: string | null;
       query: string;
       response?: HogQLQueryResponse | null;
-      /**
-       * Run the selected connection query directly without translating it through HogQL first
-       * @nullable
-       */
+      /** Run the selected connection query directly without translating it through HogQL first */
       sendRawQuery?: boolean | null;
       tags?: QueryLogTags | null;
-      /**
-       * Constant values that can be referenced with the {placeholder} syntax in the query
-       * @nullable
-       */
+      /** Constant values that can be referenced with the {placeholder} syntax in the query */
       values?: HogQLQueryValues;
-      /**
-       * Variables to be substituted into the query
-       * @nullable
-       */
+      /** Variables to be substituted into the query */
       variables?: HogQLQueryVariables;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface ActorsQuery {
-      /**
-       * Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.
-       * @nullable
-       */
+      /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
       fixedProperties?: (PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
-      kind?: ActorsQueryKind;
-      /** @nullable */
+      kind?: 'ActorsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /** @nullable */
       orderBy?: string[] | null;
       /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
       properties?: (PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | PropertyGroupFilterValue | null;
       response?: ActorsQueryResponse | null;
-      /** @nullable */
       search?: string | null;
-      /** @nullable */
       select?: string[] | null;
       source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | ExperimentActorsQuery | StickinessActorsQuery | HogQLQuery | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -4987,15 +3574,9 @@ export namespace Schemas {
     } as const;
 
     export interface InsightsThresholdBounds {
-      /**
-       * Alert fires when the value drops below this number.
-       * @nullable
-       */
+      /** Alert fires when the value drops below this number. */
       lower?: number | null;
-      /**
-       * Alert fires when the value exceeds this number.
-       * @nullable
-       */
+      /** Alert fires when the value exceeds this number. */
       upper?: number | null;
     }
 
@@ -5090,14 +3671,14 @@ export namespace Schemas {
       readonly calculated_value: number | null;
       readonly state: AlertCheckStateEnum;
       readonly targets_notified: boolean;
-      readonly anomaly_scores: unknown | null;
-      readonly triggered_points: unknown | null;
-      readonly triggered_dates: unknown | null;
+      readonly anomaly_scores: unknown;
+      readonly triggered_points: unknown;
+      readonly triggered_dates: unknown;
       /** @nullable */
       readonly interval: string | null;
-      readonly triggered_metadata: unknown | null;
-      readonly investigation_status: InvestigationStatusEnum | NullEnum | null;
-      readonly investigation_verdict: InvestigationVerdictEnum | NullEnum | null;
+      readonly triggered_metadata: unknown;
+      readonly investigation_status: InvestigationStatusEnum | null;
+      readonly investigation_verdict: InvestigationVerdictEnum | null;
       /** @nullable */
       readonly investigation_summary: string | null;
       /**
@@ -5110,205 +3691,92 @@ export namespace Schemas {
       readonly notification_suppressed_by_agent: boolean;
     }
 
-    export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
-
-
-    export const TrendsAlertConfigType = {
-      TrendsAlertConfig: 'TrendsAlertConfig',
-    } as const;
-
     export interface TrendsAlertConfig {
-      /**
-       * When true, evaluate the current (still incomplete) time interval in addition to completed ones.
-       * @nullable
-       */
+      /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
       check_ongoing_interval?: boolean | null;
       /** Zero-based index of the series in the insight's query to monitor. */
       series_index: number;
-      type?: TrendsAlertConfigType;
+      type?: 'TrendsAlertConfig';
     }
 
     export interface PreprocessingConfig {
-      /**
-       * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
-       * @nullable
-       */
+      /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
       diffs_n?: number | null;
-      /**
-       * Number of lag features. 0 = none, >0 = include n lagged values (default: 0)
-       * @nullable
-       */
+      /** Number of lag features. 0 = none, >0 = include n lagged values (default: 0) */
       lags_n?: number | null;
-      /**
-       * Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)
-       * @nullable
-       */
+      /** Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0) */
       smooth_n?: number | null;
     }
-
-    export type ZScoreDetectorConfigType = typeof ZScoreDetectorConfigType[keyof typeof ZScoreDetectorConfigType];
-
-
-    export const ZScoreDetectorConfigType = {
-      Zscore: 'zscore',
-    } as const;
 
     export interface ZScoreDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
       threshold?: number | null;
-      type?: ZScoreDetectorConfigType;
-      /**
-       * Rolling window size for calculating mean/std (default: 30)
-       * @nullable
-       */
+      type?: 'zscore';
+      /** Rolling window size for calculating mean/std (default: 30) */
       window?: number | null;
     }
-
-    export type MADDetectorConfigType = typeof MADDetectorConfigType[keyof typeof MADDetectorConfigType];
-
-
-    export const MADDetectorConfigType = {
-      Mad: 'mad',
-    } as const;
 
     export interface MADDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
       threshold?: number | null;
-      type?: MADDetectorConfigType;
-      /**
-       * Rolling window size for calculating median/MAD (default: 30)
-       * @nullable
-       */
+      type?: 'mad';
+      /** Rolling window size for calculating median/MAD (default: 30) */
       window?: number | null;
     }
 
-    export type IQRDetectorConfigType = typeof IQRDetectorConfigType[keyof typeof IQRDetectorConfigType];
-
-
-    export const IQRDetectorConfigType = {
-      Iqr: 'iqr',
-    } as const;
-
     export interface IQRDetectorConfig {
-      /**
-       * IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)
-       * @nullable
-       */
+      /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
       multiplier?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      type?: IQRDetectorConfigType;
-      /**
-       * Rolling window size for calculating quartiles (default: 30)
-       * @nullable
-       */
+      type?: 'iqr';
+      /** Rolling window size for calculating quartiles (default: 30) */
       window?: number | null;
     }
 
-    export type ThresholdDetectorConfigType = typeof ThresholdDetectorConfigType[keyof typeof ThresholdDetectorConfigType];
-
-
-    export const ThresholdDetectorConfigType = {
-      Threshold: 'threshold',
-    } as const;
-
     export interface ThresholdDetectorConfig {
-      /**
-       * Lower bound - values below this are anomalies
-       * @nullable
-       */
+      /** Lower bound - values below this are anomalies */
       lower_bound?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      type?: ThresholdDetectorConfigType;
-      /**
-       * Upper bound - values above this are anomalies
-       * @nullable
-       */
+      type?: 'threshold';
+      /** Upper bound - values above this are anomalies */
       upper_bound?: number | null;
     }
-
-    export type ECODDetectorConfigType = typeof ECODDetectorConfigType[keyof typeof ECODDetectorConfigType];
-
-
-    export const ECODDetectorConfigType = {
-      Ecod: 'ecod',
-    } as const;
 
     export interface ECODDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: ECODDetectorConfigType;
-      /**
-       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-       * @nullable
-       */
+      type?: 'ecod';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
-
-    export type COPODDetectorConfigType = typeof COPODDetectorConfigType[keyof typeof COPODDetectorConfigType];
-
-
-    export const COPODDetectorConfigType = {
-      Copod: 'copod',
-    } as const;
 
     export interface COPODDetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: COPODDetectorConfigType;
-      /**
-       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-       * @nullable
-       */
+      type?: 'copod';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
 
-    export type IsolationForestDetectorConfigType = typeof IsolationForestDetectorConfigType[keyof typeof IsolationForestDetectorConfigType];
-
-
-    export const IsolationForestDetectorConfigType = {
-      IsolationForest: 'isolation_forest',
-    } as const;
-
     export interface IsolationForestDetectorConfig {
-      /**
-       * Number of trees in the forest (default: 100)
-       * @nullable
-       */
+      /** Number of trees in the forest (default: 100) */
       n_estimators?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: IsolationForestDetectorConfigType;
-      /**
-       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-       * @nullable
-       */
+      type?: 'isolation_forest';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
 
@@ -5321,145 +3789,65 @@ export namespace Schemas {
       Median: 'median',
     } as const;
 
-    export type KNNDetectorConfigType = typeof KNNDetectorConfigType[keyof typeof KNNDetectorConfigType];
-
-
-    export const KNNDetectorConfigType = {
-      Knn: 'knn',
-    } as const;
-
     export interface KNNDetectorConfig {
       /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
       method?: Method | null;
-      /**
-       * Number of neighbors to consider (default: 5)
-       * @nullable
-       */
+      /** Number of neighbors to consider (default: 5) */
       n_neighbors?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: KNNDetectorConfigType;
-      /**
-       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-       * @nullable
-       */
+      type?: 'knn';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
 
-    export type HBOSDetectorConfigType = typeof HBOSDetectorConfigType[keyof typeof HBOSDetectorConfigType];
-
-
-    export const HBOSDetectorConfigType = {
-      Hbos: 'hbos',
-    } as const;
-
     export interface HBOSDetectorConfig {
-      /**
-       * Number of histogram bins (default: 10)
-       * @nullable
-       */
+      /** Number of histogram bins (default: 10) */
       n_bins?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: HBOSDetectorConfigType;
-      /**
-       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-       * @nullable
-       */
+      type?: 'hbos';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
 
-    export type LOFDetectorConfigType = typeof LOFDetectorConfigType[keyof typeof LOFDetectorConfigType];
-
-
-    export const LOFDetectorConfigType = {
-      Lof: 'lof',
-    } as const;
-
     export interface LOFDetectorConfig {
-      /**
-       * Number of neighbors for LOF (default: 20)
-       * @nullable
-       */
+      /** Number of neighbors for LOF (default: 20) */
       n_neighbors?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: LOFDetectorConfigType;
-      /**
-       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-       * @nullable
-       */
+      type?: 'lof';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
 
-    export type OCSVMDetectorConfigType = typeof OCSVMDetectorConfigType[keyof typeof OCSVMDetectorConfigType];
-
-
-    export const OCSVMDetectorConfigType = {
-      Ocsvm: 'ocsvm',
-    } as const;
-
     export interface OCSVMDetectorConfig {
-      /**
-       * SVM kernel type (default: "rbf")
-       * @nullable
-       */
+      /** SVM kernel type (default: "rbf") */
       kernel?: string | null;
-      /**
-       * Upper bound on training errors fraction (default: 0.1)
-       * @nullable
-       */
+      /** Upper bound on training errors fraction (default: 0.1) */
       nu?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: OCSVMDetectorConfigType;
-      /**
-       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-       * @nullable
-       */
+      type?: 'ocsvm';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
-
-    export type PCADetectorConfigType = typeof PCADetectorConfigType[keyof typeof PCADetectorConfigType];
-
-
-    export const PCADetectorConfigType = {
-      Pca: 'pca',
-    } as const;
 
     export interface PCADetectorConfig {
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
-      /**
-       * Anomaly probability threshold (default: 0.9)
-       * @nullable
-       */
+      /** Anomaly probability threshold (default: 0.9) */
       threshold?: number | null;
-      type?: PCADetectorConfigType;
-      /**
-       * Rolling window size — how many historical data points to train on (default: based on calculation interval)
-       * @nullable
-       */
+      type?: 'pca';
+      /** Rolling window size — how many historical data points to train on (default: based on calculation interval) */
       window?: number | null;
     }
 
@@ -5471,19 +3859,12 @@ export namespace Schemas {
       Or: 'or',
     } as const;
 
-    export type EnsembleDetectorConfigType = typeof EnsembleDetectorConfigType[keyof typeof EnsembleDetectorConfigType];
-
-
-    export const EnsembleDetectorConfigType = {
-      Ensemble: 'ensemble',
-    } as const;
-
     export interface EnsembleDetectorConfig {
       /** Sub-detector configurations (minimum 2) */
       detectors: (ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig)[];
       /** How to combine sub-detector results */
       operator: EnsembleOperator;
-      type?: EnsembleDetectorConfigType;
+      type?: 'ensemble';
     }
 
     /**
@@ -5956,15 +4337,9 @@ export namespace Schemas {
     } as const;
 
     export interface AutocompleteCompletionItem {
-      /**
-       * A human-readable string with additional information about this item, like type or symbol information.
-       * @nullable
-       */
+      /** A human-readable string with additional information about this item, like type or symbol information. */
       detail?: string | null;
-      /**
-       * A human-readable string that represents a doc-comment.
-       * @nullable
-       */
+      /** A human-readable string that represents a doc-comment. */
       documentation?: string | null;
       /** A string or snippet that should be inserted in a document when selecting this completion. */
       insertText: string;
@@ -6209,7 +4584,7 @@ export namespace Schemas {
     * `lz4` - lz4
     * `snappy` - snappy
     * `zstd` - zstd */
-      compression?: CompressionEnum | NullEnum | null;
+      compression?: CompressionEnum | null;
       /** File format used for exported objects.
 
     * `JSONLines` - JSONLines
@@ -6883,7 +5258,7 @@ export namespace Schemas {
     * `events` - Events
     * `persons` - Persons
     * `sessions` - Sessions */
-      model?: ModelEnum | BlankEnum | NullEnum | null;
+      model?: ModelEnum | BlankEnum | null;
       /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
       /** How often the batch export should run.
@@ -6920,8 +5295,8 @@ export namespace Schemas {
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
       /** A schema of custom fields to select when exporting data. */
-      readonly schema: unknown | null;
-      filters?: unknown | null;
+      readonly schema: unknown;
+      filters?: unknown;
       /** IANA timezone name controlling daily and weekly interval boundaries. Defaults to UTC.
 
     * `Africa/Abidjan` - Africa/Abidjan
@@ -7520,7 +5895,7 @@ export namespace Schemas {
     * `W-SU` - W-SU
     * `WET` - WET
     * `Zulu` - Zulu */
-      timezone?: string | NullEnum | null;
+      timezone?: string | null;
       /**
        * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday). Only valid when interval is 'week'.
        * @minimum 0
@@ -7541,11 +5916,8 @@ export namespace Schemas {
      * @nullable
      */
     export type BatchExportBackfillProgress = {
-      /** @nullable */
       readonly total_runs?: number | null;
-      /** @nullable */
       readonly finished_runs?: number | null;
-      /** @nullable */
       readonly progress?: number | null;
     } | null | null;
 
@@ -7677,7 +6049,7 @@ export namespace Schemas {
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
-      filters?: unknown | null;
+      filters?: unknown;
       /**
        * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
        * @nullable
@@ -7728,7 +6100,7 @@ export namespace Schemas {
       readonly team_id: number;
       readonly created_at: string;
       readonly updated_at: string;
-      readonly state: unknown | null;
+      readonly state: unknown;
       /** @nullable */
       readonly created_by: BatchImportCreatedBy;
       readonly status: BatchImportStatusEnum;
@@ -7736,13 +6108,6 @@ export namespace Schemas {
       readonly display_status_message: string | null;
       readonly import_config: unknown;
     }
-
-    export type BehavioralFilterType = typeof BehavioralFilterType[keyof typeof BehavioralFilterType];
-
-
-    export const BehavioralFilterType = {
-      Behavioral: 'behavioral',
-    } as const;
 
     export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
 
@@ -7756,59 +6121,36 @@ export namespace Schemas {
       type: EventPropFilterTypeEnum;
       key: string;
       value: unknown;
-      /** @nullable */
       operator?: string | null;
     }
 
-    export type HogQLFilterType = typeof HogQLFilterType[keyof typeof HogQLFilterType];
-
-
-    export const HogQLFilterType = {
-      Hogql: 'hogql',
-    } as const;
-
     export interface HogQLFilter {
-      type: HogQLFilterType;
+      type: 'hogql';
       key: string;
-      value?: unknown | null;
+      value?: unknown;
     }
 
     export interface BehavioralFilter {
-      /** @nullable */
       bytecode?: unknown[] | null;
-      /** @nullable */
       bytecode_error?: string | null;
-      /** @nullable */
       conditionHash?: string | null;
-      type: BehavioralFilterType;
+      type: 'behavioral';
       key: string | number;
       value: string;
       event_type: string;
-      /** @nullable */
       time_value?: number | null;
-      /** @nullable */
       time_interval?: string | null;
       negation?: boolean;
-      /** @nullable */
       operator?: string | null;
-      /** @nullable */
       operator_value?: number | null;
-      /** @nullable */
       seq_time_interval?: string | null;
-      /** @nullable */
       seq_time_value?: number | null;
       seq_event?: string | number | null;
-      /** @nullable */
       seq_event_type?: string | null;
-      /** @nullable */
       total_periods?: number | null;
-      /** @nullable */
       min_periods?: number | null;
-      /** @nullable */
       event_filters?: (EventPropFilter | HogQLFilter)[] | null;
-      /** @nullable */
       explicit_datetime?: string | null;
-      /** @nullable */
       explicit_datetime_to?: string | null;
     }
 
@@ -7952,39 +6294,9 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
-    /**
-     * * `monday` - Monday
-    * `tuesday` - Tuesday
-    * `wednesday` - Wednesday
-    * `thursday` - Thursday
-    * `friday` - Friday
-    * `saturday` - Saturday
-    * `sunday` - Sunday
-     */
-    export type ByweekdayEnum = typeof ByweekdayEnum[keyof typeof ByweekdayEnum];
-
-
-    export const ByweekdayEnum = {
-      Monday: 'monday',
-      Tuesday: 'tuesday',
-      Wednesday: 'wednesday',
-      Thursday: 'thursday',
-      Friday: 'friday',
-      Saturday: 'saturday',
-      Sunday: 'sunday',
-    } as const;
-
     export interface CalendarHeatmapFilter {
-      /** @nullable */
       dummy?: string | null;
     }
-
-    export type CalendarHeatmapQueryKind = typeof CalendarHeatmapQueryKind[keyof typeof CalendarHeatmapQueryKind];
-
-
-    export const CalendarHeatmapQueryKind = {
-      CalendarHeatmapQuery: 'CalendarHeatmapQuery',
-    } as const;
 
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
@@ -8010,20 +6322,11 @@ export namespace Schemas {
     }
 
     export interface CalendarHeatmapResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Wether more breakdown values are available.
-       * @nullable
-       */
+      /** Wether more breakdown values are available. */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -8032,56 +6335,38 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EventsHeatMapStructuredResult;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface CalendarHeatmapQuery {
-      /**
-       * Groups aggregation
-       * @nullable
-       */
+      /** Groups aggregation */
       aggregation_group_type_index?: number | null;
       /** Properties specific to the trends insight */
       calendarHeatmapFilter?: CalendarHeatmapFilter | null;
       /** Whether we should be comparing against a specific conversion goal */
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization
-       * @nullable
-       */
+      /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
       dateRange?: DateRange | null;
-      /**
-       * Exclude internal and test users by applying the respective filters
-       * @nullable
-       */
+      /** Exclude internal and test users by applying the respective filters */
       filterTestAccounts?: boolean | null;
       /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
       interval?: IntervalType | null;
-      kind?: CalendarHeatmapQueryKind;
+      kind?: 'CalendarHeatmapQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Property filters for all series */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | PropertyGroupFilter | null;
       response?: CalendarHeatmapResponse | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       /** Events and actions to include */
       series: (EventsNode | ActionsNode | DataWarehouseNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -8295,7 +6580,7 @@ export namespace Schemas {
       readonly intent_display: unknown;
       readonly policy_snapshot: unknown;
       readonly validation_status: ValidationStatusEnum;
-      readonly validation_errors: unknown | null;
+      readonly validation_errors: unknown;
       /** @nullable */
       readonly validated_at: string | null;
       readonly state: ChangeRequestStateEnum;
@@ -8308,7 +6593,7 @@ export namespace Schemas {
       /** @nullable */
       readonly applied_at: string | null;
       readonly apply_error: string;
-      readonly result_data: unknown | null;
+      readonly result_data: unknown;
       readonly approvals: readonly ChangeRequestApprovalsItem[];
       /** Check if current user can approve this change request. */
       readonly can_approve: boolean;
@@ -8383,12 +6668,9 @@ export namespace Schemas {
     } as const;
 
     export interface ChartSettingsDisplay {
-      /** @nullable */
       color?: string | null;
       displayType?: DisplayType | null;
-      /** @nullable */
       label?: string | null;
-      /** @nullable */
       trendLine?: boolean | null;
       yAxisPosition?: YAxisPosition | null;
     }
@@ -8404,12 +6686,9 @@ export namespace Schemas {
     } as const;
 
     export interface ChartSettingsFormatting {
-      /** @nullable */
       decimalPlaces?: number | null;
-      /** @nullable */
       prefix?: string | null;
       style?: Style | null;
-      /** @nullable */
       suffix?: string | null;
     }
 
@@ -8445,27 +6724,17 @@ export namespace Schemas {
     } as const;
 
     export interface HeatmapSettings {
-      /** @nullable */
       gradient?: HeatmapGradientStop[] | null;
-      /** @nullable */
       gradientPreset?: string | null;
       gradientScaleMode?: GradientScaleMode | null;
-      /** @nullable */
       nullLabel?: string | null;
-      /** @nullable */
       nullValue?: string | null;
-      /** @nullable */
       sortColumn?: string | null;
       sortOrder?: HeatmapSortOrder | null;
-      /** @nullable */
       valueColumn?: string | null;
-      /** @nullable */
       xAxisColumn?: string | null;
-      /** @nullable */
       xAxisLabel?: string | null;
-      /** @nullable */
       yAxisColumn?: string | null;
-      /** @nullable */
       yAxisLabel?: string | null;
     }
 
@@ -8478,58 +6747,34 @@ export namespace Schemas {
     } as const;
 
     export interface YAxisSettings {
-      /** @nullable */
       label?: string | null;
       scale?: Scale | null;
-      /** @nullable */
       showGridLines?: boolean | null;
-      /** @nullable */
       showTicks?: boolean | null;
-      /**
-       * Whether the Y axis should start at zero
-       * @nullable
-       */
+      /** Whether the Y axis should start at zero */
       startAtZero?: boolean | null;
     }
 
     export interface ChartSettings {
-      /** @nullable */
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
       rightYAxisSettings?: YAxisSettings | null;
-      /** @nullable */
       seriesBreakdownColumn?: string | null;
-      /** @nullable */
       showLegend?: boolean | null;
-      /** @nullable */
       showNullsAsZero?: boolean | null;
-      /** @nullable */
       showPieTotal?: boolean | null;
-      /** @nullable */
       showTotalRow?: boolean | null;
-      /** @nullable */
       showValuesOnSeries?: boolean | null;
-      /** @nullable */
       showXAxisBorder?: boolean | null;
-      /** @nullable */
       showXAxisTicks?: boolean | null;
-      /** @nullable */
       showYAxisBorder?: boolean | null;
-      /**
-       * Whether we fill the bars to 100% in stacked mode
-       * @nullable
-       */
+      /** Whether we fill the bars to 100% in stacked mode */
       stackBars100?: boolean | null;
       xAxis?: ChartAxis | null;
-      /** @nullable */
       xAxisLabel?: string | null;
-      /** @nullable */
       yAxis?: ChartAxis[] | null;
-      /**
-       * Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero
-       * @nullable
-       */
+      /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
       yAxisAtZero?: boolean | null;
     }
 
@@ -9018,52 +7263,24 @@ export namespace Schemas {
       Or: 'OR',
     } as const;
 
-    export type CohortFilterType = typeof CohortFilterType[keyof typeof CohortFilterType];
-
-
-    export const CohortFilterType = {
-      Cohort: 'cohort',
-    } as const;
-
-    export type CohortFilterKey = typeof CohortFilterKey[keyof typeof CohortFilterKey];
-
-
-    export const CohortFilterKey = {
-      Id: 'id',
-    } as const;
-
     export interface CohortFilter {
-      /** @nullable */
       bytecode?: unknown[] | null;
-      /** @nullable */
       bytecode_error?: string | null;
-      /** @nullable */
       conditionHash?: string | null;
-      type: CohortFilterType;
-      key: CohortFilterKey;
+      type: 'cohort';
+      key: 'id';
       value: number;
       negation?: boolean;
     }
 
-    export type PersonFilterType = typeof PersonFilterType[keyof typeof PersonFilterType];
-
-
-    export const PersonFilterType = {
-      Person: 'person',
-    } as const;
-
     export interface PersonFilter {
-      /** @nullable */
       bytecode?: unknown[] | null;
-      /** @nullable */
       bytecode_error?: string | null;
-      /** @nullable */
       conditionHash?: string | null;
-      type: PersonFilterType;
+      type: 'person';
       key: string;
-      /** @nullable */
       operator?: string | null;
-      value?: unknown | null;
+      value?: unknown;
       negation?: boolean;
     }
 
@@ -9109,7 +7326,7 @@ export namespace Schemas {
       groups?: unknown;
       deleted?: boolean;
       filters?: CohortFilters | null;
-      query?: unknown | null;
+      query?: unknown;
       /** @nullable */
       readonly version: number | null;
       /** @nullable */
@@ -9135,7 +7352,7 @@ export namespace Schemas {
     * `behavioral` - behavioral
     * `realtime` - realtime
     * `analytical` - analytical */
-      cohort_type?: CohortTypeEnum | BlankEnum | NullEnum | null;
+      cohort_type?: CohortTypeEnum | BlankEnum | null;
       readonly experiment_set: readonly number[];
       _create_in_folder?: string;
       _create_static_person_ids?: string[];
@@ -9234,7 +7451,7 @@ export namespace Schemas {
       readonly completed_by: UserBasic | null;
       /** @nullable */
       content?: string | null;
-      rich_content?: unknown | null;
+      rich_content?: unknown;
       readonly version: number;
       readonly created_at: string;
       /**
@@ -9242,7 +7459,7 @@ export namespace Schemas {
        * @nullable
        */
       item_id?: string | null;
-      item_context?: unknown | null;
+      item_context?: unknown;
       /** @maxLength 79 */
       scope: string;
       /**
@@ -9413,197 +7630,99 @@ export namespace Schemas {
       readonly slack_workspace_domain: string | null;
     }
 
-    export type ConversionGoalFilter1Kind = typeof ConversionGoalFilter1Kind[keyof typeof ConversionGoalFilter1Kind];
-
-
-    export const ConversionGoalFilter1Kind = {
-      EventsNode: 'EventsNode',
-    } as const;
-
-    export const ConversionGoalFilter1Math = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type ConversionGoalFilter1Response = { [key: string]: unknown } | null | null;
+    export type ConversionGoalFilter1Response = { [key: string]: unknown } | null;
 
     export type ConversionGoalFilter1SchemaMap = {[key: string]: string | unknown};
 
     export interface ConversionGoalFilter1 {
       conversion_goal_id: string;
       conversion_goal_name: string;
-      /** @nullable */
       custom_name?: string | null;
-      /**
-       * The event or `null` for all events.
-       * @nullable
-       */
+      /** The event or `null` for all events. */
       event?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: ConversionGoalFilter1Kind;
-      /** @nullable */
+      kind?: 'EventsNode';
       limit?: number | null;
-      math?: typeof ConversionGoalFilter1Math[keyof typeof ConversionGoalFilter1Math]  | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Columns to order by
-       * @nullable
-       */
+      /** Columns to order by */
       orderBy?: string[] | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: ConversionGoalFilter1Response;
       schema_map: ConversionGoalFilter1SchemaMap;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type ConversionGoalFilter2Kind = typeof ConversionGoalFilter2Kind[keyof typeof ConversionGoalFilter2Kind];
-
-
-    export const ConversionGoalFilter2Kind = {
-      ActionsNode: 'ActionsNode',
-    } as const;
-
-    export const ConversionGoalFilter2Math = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type ConversionGoalFilter2Response = { [key: string]: unknown } | null | null;
+    export type ConversionGoalFilter2Response = { [key: string]: unknown } | null;
 
     export type ConversionGoalFilter2SchemaMap = {[key: string]: string | unknown};
 
     export interface ConversionGoalFilter2 {
       conversion_goal_id: string;
       conversion_goal_name: string;
-      /** @nullable */
       custom_name?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: number;
-      kind?: ConversionGoalFilter2Kind;
-      math?: typeof ConversionGoalFilter2Math[keyof typeof ConversionGoalFilter2Math]  | null;
+      kind?: 'ActionsNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: ConversionGoalFilter2Response;
       schema_map: ConversionGoalFilter2SchemaMap;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type ConversionGoalFilter3Kind = typeof ConversionGoalFilter3Kind[keyof typeof ConversionGoalFilter3Kind];
-
-
-    export const ConversionGoalFilter3Kind = {
-      DataWarehouseNode: 'DataWarehouseNode',
-    } as const;
-
-    export const ConversionGoalFilter3Math = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
-      hogql: 'hogql',
-    } as const
-    /**
-     * @nullable
-     */
-    export type ConversionGoalFilter3Response = { [key: string]: unknown } | null | null;
+    export type ConversionGoalFilter3Response = { [key: string]: unknown } | null;
 
     export type ConversionGoalFilter3SchemaMap = {[key: string]: string | unknown};
 
     export interface ConversionGoalFilter3 {
       conversion_goal_id: string;
       conversion_goal_name: string;
-      /** @nullable */
       custom_name?: string | null;
       distinct_id_field: string;
-      /** @nullable */
       dw_source_type?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
       id_field: string;
-      kind?: ConversionGoalFilter3Kind;
-      math?: typeof ConversionGoalFilter3Math[keyof typeof ConversionGoalFilter3Math]  | null;
+      kind?: 'DataWarehouseNode';
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
-      /** @nullable */
       math_hogql?: string | null;
-      /** @nullable */
       math_multiplier?: number | null;
-      /** @nullable */
       math_property?: string | null;
       math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      /** @nullable */
       math_property_type?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       optionalInFunnel?: boolean | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: ConversionGoalFilter3Response;
       schema_map: ConversionGoalFilter3SchemaMap;
       table_name: string;
       timestamp_field: string;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -9743,7 +7862,7 @@ export namespace Schemas {
       group_type_index: number;
       /** @maxLength 400 */
       group_key: string;
-      group_properties?: unknown | null;
+      group_properties?: unknown;
     }
 
     /**
@@ -10034,8 +8153,8 @@ export namespace Schemas {
     export interface CustomerProfileConfig {
       readonly id: string;
       scope: CustomerProfileConfigScopeEnum;
-      content?: unknown | null;
-      sidebar?: unknown | null;
+      content?: unknown;
+      sidebar?: unknown;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -10221,13 +8340,9 @@ export namespace Schemas {
 
     export interface DashboardFilter {
       breakdown_filter?: BreakdownFilter | null;
-      /** @nullable */
       date_from?: string | null;
-      /** @nullable */
       date_to?: string | null;
-      /** @nullable */
       explicitDate?: boolean | null;
-      /** @nullable */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
@@ -10257,11 +8372,11 @@ export namespace Schemas {
        * @nullable
        */
       dashboard_description?: string | null;
-      dashboard_filters?: unknown | null;
+      dashboard_filters?: unknown;
       /** @nullable */
       tags?: string[] | null;
-      tiles?: unknown | null;
-      variables?: unknown | null;
+      tiles?: unknown;
+      variables?: unknown;
       /** @nullable */
       deleted?: boolean | null;
       /** @nullable */
@@ -10274,7 +8389,7 @@ export namespace Schemas {
       image_url?: string | null;
       /** @nullable */
       readonly team_id: number | null;
-      scope?: DashboardTemplateScopeEnum | BlankEnum | NullEnum | null;
+      scope?: DashboardTemplateScopeEnum | BlankEnum | null;
       /** @nullable */
       availability_contexts?: string[] | null;
       /** Manually curated; used to highlight templates in the UI. */
@@ -10366,52 +8481,35 @@ export namespace Schemas {
 
     export interface Response {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       nextCursor?: string | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface Response1 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
       limit: number;
-      /** @nullable */
       missing_actors_count?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10421,34 +8519,19 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: string[] | null;
     }
 
-    export type Response2Kind = typeof Response2Kind[keyof typeof Response2Kind];
-
-
-    export const Response2Kind = {
-      GroupsQuery: 'GroupsQuery',
-    } as const;
-
     export interface Response2 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      kind?: Response2Kind;
+      kind?: 'GroupsQuery';
       limit: number;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10458,86 +8541,48 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface Response3 {
-      /**
-       * Executed ClickHouse query
-       * @nullable
-       */
+      /** Executed ClickHouse query */
       clickhouse?: string | null;
-      /**
-       * Returned columns
-       * @nullable
-       */
+      /** Returned columns */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Query explanation output
-       * @nullable
-       */
+      /** Query explanation output */
       explain?: string[] | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /**
-       * Input query string
-       * @nullable
-       */
+      /** Input query string */
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /**
-       * Types of returned columns
-       * @nullable
-       */
+      /** Types of returned columns */
       types?: unknown[] | null;
     }
 
     export interface Response4 {
-      /** @nullable */
       dateFrom?: string | null;
-      /** @nullable */
       dateTo?: string | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10547,35 +8592,21 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
     export interface Response5 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -10583,37 +8614,22 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
     export interface Response6 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -10621,12 +8637,8 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
@@ -10642,15 +8654,9 @@ export namespace Schemas {
     }
 
     export interface Response8 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10663,90 +8669,57 @@ export namespace Schemas {
        * @maxItems 1
        */
       results: WebVitalsPathBreakdownResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface Response9 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface Response10 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface Response11 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10755,25 +8728,15 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface Response12 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10782,10 +8745,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -10798,17 +8758,10 @@ export namespace Schemas {
     }
 
     export interface Response13 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10817,10 +8770,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -10839,15 +8789,9 @@ export namespace Schemas {
     }
 
     export interface Response14 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10856,25 +8800,15 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface Response15 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10883,54 +8817,34 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface Response16 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface MarketingAnalyticsItem {
-      /** @nullable */
       changeFromPreviousPct?: number | null;
-      /** @nullable */
       hasComparison?: boolean | null;
-      /** @nullable */
       isIncreaseBad?: boolean | null;
       key: string;
       kind: WebAnalyticsItemKind;
@@ -10939,25 +8853,15 @@ export namespace Schemas {
     }
 
     export interface Response18 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -10965,27 +8869,17 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export type Response19Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface Response19 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10995,33 +8889,20 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: Response19Results;
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface Response20 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -11029,12 +8910,8 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
@@ -11047,7 +8924,6 @@ export namespace Schemas {
       occurrences: number;
       sessions: number;
       users: number;
-      /** @nullable */
       volumeRange?: number[] | null;
       volume_buckets: VolumeBucket[];
     }
@@ -11149,56 +9025,37 @@ export namespace Schemas {
       aggregations?: ErrorTrackingIssueAggregations | null;
       assignee?: ErrorTrackingIssueAssignee | null;
       cohort?: ErrorTrackingIssueCohort | null;
-      /** @nullable */
       description?: string | null;
-      /** @nullable */
       external_issues?: ErrorTrackingExternalReference[] | null;
       first_event?: FirstEvent | null;
       first_seen: string;
-      /** @nullable */
       function?: string | null;
       id: string;
       last_event?: LastEvent | null;
       last_seen: string;
-      /** @nullable */
       library?: string | null;
-      /** @nullable */
       name?: string | null;
-      /** @nullable */
       source?: string | null;
       status: ErrorTrackingIssueStatus;
     }
 
     export interface Response21 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -11212,17 +9069,13 @@ export namespace Schemas {
     export interface ErrorTrackingCorrelatedIssue {
       assignee?: ErrorTrackingIssueAssignee | null;
       cohort?: ErrorTrackingIssueCohort | null;
-      /** @nullable */
       description?: string | null;
       event: string;
-      /** @nullable */
       external_issues?: ErrorTrackingExternalReference[] | null;
       first_seen: string;
       id: string;
       last_seen: string;
-      /** @nullable */
       library?: string | null;
-      /** @nullable */
       name?: string | null;
       odds_ratio: number;
       population: Population;
@@ -11230,44 +9083,24 @@ export namespace Schemas {
     }
 
     export interface Response22 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingCorrelatedIssue[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
-
-    export type Response23Kind = typeof Response23Kind[keyof typeof Response23Kind];
-
-
-    export const Response23Kind = {
-      ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
-    } as const;
 
     export type Response23CredibleIntervals = {[key: string]: number[]};
 
@@ -11280,21 +9113,13 @@ export namespace Schemas {
       expected_loss: number;
       funnels_query?: FunnelsQuery | null;
       insight: Response23InsightItemItem[][];
-      kind?: Response23Kind;
+      kind?: 'ExperimentFunnelsQuery';
       probability: Response23Probability;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
-      /** @nullable */
       stats_version?: number | null;
       variants: ExperimentVariantFunnelsBaseStats[];
     }
-
-    export type Response24Kind = typeof Response24Kind[keyof typeof Response24Kind];
-
-
-    export const Response24Kind = {
-      ExperimentTrendsQuery: 'ExperimentTrendsQuery',
-    } as const;
 
     export type Response24CredibleIntervals = {[key: string]: number[]};
 
@@ -11307,12 +9132,11 @@ export namespace Schemas {
       credible_intervals: Response24CredibleIntervals;
       exposure_query?: TrendsQuery | null;
       insight: Response24InsightItem[];
-      kind?: Response24Kind;
+      kind?: 'ExperimentTrendsQuery';
       p_value: number;
       probability: Response24Probability;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
-      /** @nullable */
       stats_version?: number | null;
       variants: ExperimentVariantTrendsBaseStats[];
     }
@@ -11336,106 +9160,66 @@ export namespace Schemas {
     }
 
     export interface LLMTrace {
-      /** @nullable */
       aiSessionId?: string | null;
       createdAt: string;
       distinctId: string;
-      /** @nullable */
       errorCount?: number | null;
       events: LLMTraceEvent[];
       id: string;
-      /** @nullable */
       inputCost?: number | null;
-      inputState?: unknown | null;
-      /** @nullable */
+      inputState?: unknown;
       inputTokens?: number | null;
-      /** @nullable */
       isSupportTrace?: boolean | null;
-      /** @nullable */
       outputCost?: number | null;
-      outputState?: unknown | null;
-      /** @nullable */
+      outputState?: unknown;
       outputTokens?: number | null;
       person?: LLMTracePerson | null;
-      /** @nullable */
       requestCost?: number | null;
-      /** @nullable */
       tools?: string[] | null;
-      /** @nullable */
       totalCost?: number | null;
-      /** @nullable */
       totalLatency?: number | null;
-      /** @nullable */
       traceName?: string | null;
-      /** @nullable */
       webSearchCost?: number | null;
     }
 
     export interface Response25 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface Response26 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
@@ -11450,7 +9234,6 @@ export namespace Schemas {
     } as const;
 
     export interface DataTableNodeViewPropsContext {
-      /** @nullable */
       eventDefinitionId?: string | null;
       type: DataTableNodeViewPropsContextType;
     }
@@ -11544,135 +9327,70 @@ export namespace Schemas {
     } as const;
 
     export interface EventsQueryActionStep {
-      /** @nullable */
       event?: string | null;
-      /** @nullable */
       href?: string | null;
       href_matching?: HrefMatching | null;
-      /** @nullable */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       selector?: string | null;
-      /** @nullable */
       tag_name?: string | null;
-      /** @nullable */
       text?: string | null;
       text_matching?: TextMatching | null;
-      /** @nullable */
       url?: string | null;
       url_matching?: UrlMatching | null;
     }
 
-    export type EventsQueryKind = typeof EventsQueryKind[keyof typeof EventsQueryKind];
-
-
-    export const EventsQueryKind = {
-      EventsQuery: 'EventsQuery',
-    } as const;
-
     export interface EventsQueryResponse {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       nextCursor?: string | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface EventsQuery {
-      /**
-       * Show events matching a given action
-       * @nullable
-       */
+      /** Show events matching a given action */
       actionId?: number | null;
-      /**
-       * Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set.
-       * @nullable
-       */
+      /** Show events matching action steps directly, used when no actionId is provided (e.g. previewing unsaved actions). Ignored if actionId is set. */
       actionSteps?: EventsQueryActionStep[] | null;
-      /**
-       * Only fetch events that happened after this timestamp
-       * @nullable
-       */
+      /** Only fetch events that happened after this timestamp */
       after?: string | null;
-      /**
-       * Only fetch events that happened before this timestamp
-       * @nullable
-       */
+      /** Only fetch events that happened before this timestamp */
       before?: string | null;
-      /**
-       * Limit to events matching this string
-       * @nullable
-       */
+      /** Limit to events matching this string */
       event?: string | null;
-      /**
-       * Filter to events matching any of these event names
-       * @nullable
-       */
+      /** Filter to events matching any of these event names */
       events?: string[] | null;
-      /**
-       * Filter test accounts
-       * @nullable
-       */
+      /** Filter test accounts */
       filterTestAccounts?: boolean | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: EventsQueryKind;
-      /**
-       * Number of rows to return
-       * @nullable
-       */
+      kind?: 'EventsQuery';
+      /** Number of rows to return */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Number of rows to skip before returning rows
-       * @nullable
-       */
+      /** Number of rows to skip before returning rows */
       offset?: number | null;
-      /**
-       * Columns to order by
-       * @nullable
-       */
+      /** Columns to order by */
       orderBy?: string[] | null;
-      /**
-       * Show events for a given person
-       * @nullable
-       */
+      /** Show events for a given person */
       personId?: string | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: EventsQueryResponse | null;
       /** Return a limited set of data. Required. */
@@ -11680,90 +9398,41 @@ export namespace Schemas {
       /** source for querying events for insights */
       source?: InsightActorsQuery | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
-      /**
-       * HogQL filters to apply on returned data
-       * @nullable
-       */
+      /** HogQL filters to apply on returned data */
       where?: string[] | null;
     }
 
-    export type PersonsNodeKind = typeof PersonsNodeKind[keyof typeof PersonsNodeKind];
-
-
-    export const PersonsNodeKind = {
-      PersonsNode: 'PersonsNode',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type PersonsNodeResponse = { [key: string]: unknown } | null | null;
+    export type PersonsNodeResponse = { [key: string]: unknown } | null;
 
     export interface PersonsNode {
-      /** @nullable */
       cohort?: number | null;
-      /** @nullable */
       distinctId?: string | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: PersonsNodeKind;
-      /** @nullable */
+      kind?: 'PersonsNode';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       response?: PersonsNodeResponse;
-      /** @nullable */
       search?: string | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type GroupsQueryKind = typeof GroupsQueryKind[keyof typeof GroupsQueryKind];
-
-
-    export const GroupsQueryKind = {
-      GroupsQuery: 'GroupsQuery',
-    } as const;
-
-    export type GroupsQueryResponseKind = typeof GroupsQueryResponseKind[keyof typeof GroupsQueryResponseKind];
-
-
-    export const GroupsQueryResponseKind = {
-      GroupsQuery: 'GroupsQuery',
-    } as const;
-
     export interface GroupsQueryResponse {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      kind?: GroupsQueryResponseKind;
+      kind?: 'GroupsQuery';
       limit: number;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -11773,67 +9442,38 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface GroupsQuery {
       group_type_index: number;
-      kind?: GroupsQueryKind;
-      /** @nullable */
+      kind?: 'GroupsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /** @nullable */
       orderBy?: string[] | null;
-      /** @nullable */
       properties?: (GroupPropertyFilter | HogQLPropertyFilter)[] | null;
       response?: GroupsQueryResponse | null;
-      /** @nullable */
       search?: string | null;
-      /** @nullable */
       select?: string[] | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type WebExternalClicksTableQueryKind = typeof WebExternalClicksTableQueryKind[keyof typeof WebExternalClicksTableQueryKind];
-
-
-    export const WebExternalClicksTableQueryKind = {
-      WebExternalClicksTableQuery: 'WebExternalClicksTableQuery',
-    } as const;
-
     export interface WebExternalClicksTableQueryResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -11841,92 +9481,51 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
-    export const WebExternalClicksTableQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
     export interface WebExternalClicksTableQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: WebExternalClicksTableQueryKind;
-      /** @nullable */
+      kind?: 'WebExternalClicksTableQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      orderBy?: typeof WebExternalClicksTableQueryOrderByItem[keyof typeof WebExternalClicksTableQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebExternalClicksTableQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
-      /** @nullable */
       stripQueryParams?: boolean | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type WebGoalsQueryKind = typeof WebGoalsQueryKind[keyof typeof WebGoalsQueryKind];
-
-
-    export const WebGoalsQueryKind = {
-      WebGoalsQuery: 'WebGoalsQuery',
-    } as const;
-
     export interface WebGoalsQueryResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -11934,123 +9533,68 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
-    export const WebGoalsQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
     export interface WebGoalsQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: WebGoalsQueryKind;
-      /** @nullable */
+      kind?: 'WebGoalsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      orderBy?: typeof WebGoalsQueryOrderByItem[keyof typeof WebGoalsQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebGoalsQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type WebVitalsQueryKind = typeof WebVitalsQueryKind[keyof typeof WebVitalsQueryKind];
-
-
-    export const WebVitalsQueryKind = {
-      WebVitalsQuery: 'WebVitalsQuery',
-    } as const;
-
-    export const WebVitalsQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
     export interface WebVitalsQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: WebVitalsQueryKind;
+      kind?: 'WebVitalsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      orderBy?: typeof WebVitalsQueryOrderByItem[keyof typeof WebVitalsQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebGoalsQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type WebVitalsPathBreakdownQueryKind = typeof WebVitalsPathBreakdownQueryKind[keyof typeof WebVitalsPathBreakdownQueryKind];
-
-
-    export const WebVitalsPathBreakdownQueryKind = {
-      WebVitalsPathBreakdownQuery: 'WebVitalsPathBreakdownQuery',
-    } as const;
 
     export type WebVitalsMetric = typeof WebVitalsMetric[keyof typeof WebVitalsMetric];
 
@@ -12072,15 +9616,9 @@ export namespace Schemas {
     } as const;
 
     export interface WebVitalsPathBreakdownQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12093,50 +9631,33 @@ export namespace Schemas {
        * @maxItems 1
        */
       results: WebVitalsPathBreakdownResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
-    export const WebVitalsPathBreakdownQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
     export interface WebVitalsPathBreakdownQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: WebVitalsPathBreakdownQueryKind;
+      kind?: 'WebVitalsPathBreakdownQuery';
       metric: WebVitalsMetric;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      orderBy?: typeof WebVitalsPathBreakdownQueryOrderByItem[keyof typeof WebVitalsPathBreakdownQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       percentile: WebVitalsPercentile;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebVitalsPathBreakdownQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       /**
@@ -12144,18 +9665,13 @@ export namespace Schemas {
        * @maxItems 2
        */
       thresholds: number[];
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface Filters {
       dateRange?: DateRange | null;
-      /** @nullable */
       properties?: SessionPropertyFilter[] | null;
     }
 
@@ -12172,194 +9688,103 @@ export namespace Schemas {
       InitialURL: 'InitialURL',
     } as const;
 
-    export type SessionAttributionExplorerQueryKind = typeof SessionAttributionExplorerQueryKind[keyof typeof SessionAttributionExplorerQueryKind];
-
-
-    export const SessionAttributionExplorerQueryKind = {
-      SessionAttributionExplorerQuery: 'SessionAttributionExplorerQuery',
-    } as const;
-
     export interface SessionAttributionExplorerQueryResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface SessionAttributionExplorerQuery {
       filters?: Filters | null;
       groupBy: SessionAttributionGroupBy[];
-      kind?: SessionAttributionExplorerQueryKind;
-      /** @nullable */
+      kind?: 'SessionAttributionExplorerQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       response?: SessionAttributionExplorerQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type SessionsQueryKind = typeof SessionsQueryKind[keyof typeof SessionsQueryKind];
-
-
-    export const SessionsQueryKind = {
-      SessionsQuery: 'SessionsQuery',
-    } as const;
-
     export interface SessionsQueryResponse {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface SessionsQuery {
-      /**
-       * Filter sessions by action - sessions that contain events matching this action
-       * @nullable
-       */
+      /** Filter sessions by action - sessions that contain events matching this action */
       actionId?: number | null;
-      /**
-       * Only fetch sessions that started after this timestamp
-       * @nullable
-       */
+      /** Only fetch sessions that started after this timestamp */
       after?: string | null;
-      /**
-       * Only fetch sessions that started before this timestamp
-       * @nullable
-       */
+      /** Only fetch sessions that started before this timestamp */
       before?: string | null;
-      /**
-       * Filter sessions by event name - sessions that contain this event
-       * @nullable
-       */
+      /** Filter sessions by event name - sessions that contain this event */
       event?: string | null;
-      /**
-       * Event property filters - filters sessions that contain events matching these properties
-       * @nullable
-       */
+      /** Event property filters - filters sessions that contain events matching these properties */
       eventProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /**
-       * Filter test accounts
-       * @nullable
-       */
+      /** Filter test accounts */
       filterTestAccounts?: boolean | null;
-      /**
-       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-       * @nullable
-       */
+      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: SessionsQueryKind;
-      /**
-       * Number of rows to return
-       * @nullable
-       */
+      kind?: 'SessionsQuery';
+      /** Number of rows to return */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Number of rows to skip before returning rows
-       * @nullable
-       */
+      /** Number of rows to skip before returning rows */
       offset?: number | null;
-      /**
-       * Columns to order by
-       * @nullable
-       */
+      /** Columns to order by */
       orderBy?: string[] | null;
-      /**
-       * Show sessions for a given person
-       * @nullable
-       */
+      /** Show sessions for a given person */
       personId?: string | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: SessionsQueryResponse | null;
       /** Return a limited set of data. Required. */
       select: string[];
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
-      /**
-       * HogQL filters to apply on returned data
-       * @nullable
-       */
+      /** HogQL filters to apply on returned data */
       where?: string[] | null;
     }
 
-    export type RevenueAnalyticsBreakdownType = typeof RevenueAnalyticsBreakdownType[keyof typeof RevenueAnalyticsBreakdownType];
-
-
-    export const RevenueAnalyticsBreakdownType = {
-      RevenueAnalytics: 'revenue_analytics',
-    } as const;
-
     export interface RevenueAnalyticsBreakdown {
       property: string;
-      type?: RevenueAnalyticsBreakdownType;
+      type?: 'revenue_analytics';
     }
 
     export type SimpleIntervalType = typeof SimpleIntervalType[keyof typeof SimpleIntervalType];
@@ -12370,25 +9795,11 @@ export namespace Schemas {
       Month: 'month',
     } as const;
 
-    export type RevenueAnalyticsGrossRevenueQueryKind = typeof RevenueAnalyticsGrossRevenueQueryKind[keyof typeof RevenueAnalyticsGrossRevenueQueryKind];
-
-
-    export const RevenueAnalyticsGrossRevenueQueryKind = {
-      RevenueAnalyticsGrossRevenueQuery: 'RevenueAnalyticsGrossRevenueQuery',
-    } as const;
-
     export interface RevenueAnalyticsGrossRevenueQueryResponse {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12397,10 +9808,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -12408,38 +9816,21 @@ export namespace Schemas {
       breakdown: RevenueAnalyticsBreakdown[];
       dateRange?: DateRange | null;
       interval: SimpleIntervalType;
-      kind?: RevenueAnalyticsGrossRevenueQueryKind;
+      kind?: 'RevenueAnalyticsGrossRevenueQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       properties: RevenueAnalyticsPropertyFilter[];
       response?: RevenueAnalyticsGrossRevenueQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type RevenueAnalyticsMetricsQueryKind = typeof RevenueAnalyticsMetricsQueryKind[keyof typeof RevenueAnalyticsMetricsQueryKind];
-
-
-    export const RevenueAnalyticsMetricsQueryKind = {
-      RevenueAnalyticsMetricsQuery: 'RevenueAnalyticsMetricsQuery',
-    } as const;
-
     export interface RevenueAnalyticsMetricsQueryResponse {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12448,10 +9839,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -12459,38 +9847,21 @@ export namespace Schemas {
       breakdown: RevenueAnalyticsBreakdown[];
       dateRange?: DateRange | null;
       interval: SimpleIntervalType;
-      kind?: RevenueAnalyticsMetricsQueryKind;
+      kind?: 'RevenueAnalyticsMetricsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       properties: RevenueAnalyticsPropertyFilter[];
       response?: RevenueAnalyticsMetricsQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type RevenueAnalyticsMRRQueryKind = typeof RevenueAnalyticsMRRQueryKind[keyof typeof RevenueAnalyticsMRRQueryKind];
-
-
-    export const RevenueAnalyticsMRRQueryKind = {
-      RevenueAnalyticsMRRQuery: 'RevenueAnalyticsMRRQuery',
-    } as const;
-
     export interface RevenueAnalyticsMRRQueryResponse {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12499,10 +9870,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -12510,36 +9878,20 @@ export namespace Schemas {
       breakdown: RevenueAnalyticsBreakdown[];
       dateRange?: DateRange | null;
       interval: SimpleIntervalType;
-      kind?: RevenueAnalyticsMRRQueryKind;
+      kind?: 'RevenueAnalyticsMRRQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       properties: RevenueAnalyticsPropertyFilter[];
       response?: RevenueAnalyticsMRRQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type RevenueAnalyticsOverviewQueryKind = typeof RevenueAnalyticsOverviewQueryKind[keyof typeof RevenueAnalyticsOverviewQueryKind];
-
-
-    export const RevenueAnalyticsOverviewQueryKind = {
-      RevenueAnalyticsOverviewQuery: 'RevenueAnalyticsOverviewQuery',
-    } as const;
-
     export interface RevenueAnalyticsOverviewQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12548,25 +9900,19 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface RevenueAnalyticsOverviewQuery {
       dateRange?: DateRange | null;
-      kind?: RevenueAnalyticsOverviewQueryKind;
+      kind?: 'RevenueAnalyticsOverviewQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       properties: RevenueAnalyticsPropertyFilter[];
       response?: RevenueAnalyticsOverviewQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -12578,25 +9924,11 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    export type RevenueAnalyticsTopCustomersQueryKind = typeof RevenueAnalyticsTopCustomersQueryKind[keyof typeof RevenueAnalyticsTopCustomersQueryKind];
-
-
-    export const RevenueAnalyticsTopCustomersQueryKind = {
-      RevenueAnalyticsTopCustomersQuery: 'RevenueAnalyticsTopCustomersQuery',
-    } as const;
-
     export interface RevenueAnalyticsTopCustomersQueryResponse {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12605,144 +9937,86 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface RevenueAnalyticsTopCustomersQuery {
       dateRange?: DateRange | null;
       groupBy: RevenueAnalyticsTopCustomersGroupBy;
-      kind?: RevenueAnalyticsTopCustomersQueryKind;
+      kind?: 'RevenueAnalyticsTopCustomersQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       properties: RevenueAnalyticsPropertyFilter[];
       response?: RevenueAnalyticsTopCustomersQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type RevenueExampleEventsQueryKind = typeof RevenueExampleEventsQueryKind[keyof typeof RevenueExampleEventsQueryKind];
-
-
-    export const RevenueExampleEventsQueryKind = {
-      RevenueExampleEventsQuery: 'RevenueExampleEventsQuery',
-    } as const;
-
     export interface RevenueExampleEventsQueryResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface RevenueExampleEventsQuery {
-      kind?: RevenueExampleEventsQueryKind;
-      /** @nullable */
+      kind?: 'RevenueExampleEventsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       response?: RevenueExampleEventsQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type RevenueExampleDataWarehouseTablesQueryKind = typeof RevenueExampleDataWarehouseTablesQueryKind[keyof typeof RevenueExampleDataWarehouseTablesQueryKind];
-
-
-    export const RevenueExampleDataWarehouseTablesQueryKind = {
-      RevenueExampleDataWarehouseTablesQuery: 'RevenueExampleDataWarehouseTablesQuery',
-    } as const;
-
     export interface RevenueExampleDataWarehouseTablesQueryResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface RevenueExampleDataWarehouseTablesQuery {
-      kind?: RevenueExampleDataWarehouseTablesQueryKind;
-      /** @nullable */
+      kind?: 'RevenueExampleDataWarehouseTablesQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       response?: RevenueExampleDataWarehouseTablesQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -12761,19 +10035,9 @@ export namespace Schemas {
     } as const;
 
     export interface IntegrationFilter {
-      /**
-       * Selected integration source IDs to filter by (e.g., table IDs or source map IDs)
-       * @nullable
-       */
+      /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
       integrationSourceIds?: string[] | null;
     }
-
-    export type MarketingAnalyticsTableQueryKind = typeof MarketingAnalyticsTableQueryKind[keyof typeof MarketingAnalyticsTableQueryKind];
-
-
-    export const MarketingAnalyticsTableQueryKind = {
-      MarketingAnalyticsTableQuery: 'MarketingAnalyticsTableQuery',
-    } as const;
 
     export type MarketingAnalyticsOrderByEnum = typeof MarketingAnalyticsOrderByEnum[keyof typeof MarketingAnalyticsOrderByEnum];
 
@@ -12784,25 +10048,15 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsTableQueryResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -12810,107 +10064,60 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface MarketingAnalyticsTableQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       /** Compare to date range */
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
       /** Draft conversion goal that can be set in the UI without saving */
       draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
       /** Drill-down hierarchy level: channel, source, or campaign (default) */
       drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
-      /**
-       * Filter test accounts
-       * @nullable
-       */
+      /** Filter test accounts */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Filter by integration type */
       integrationFilter?: IntegrationFilter | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: MarketingAnalyticsTableQueryKind;
-      /**
-       * Number of rows to return
-       * @nullable
-       */
+      kind?: 'MarketingAnalyticsTableQuery';
+      /** Number of rows to return */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Number of rows to skip before returning rows
-       * @nullable
-       */
+      /** Number of rows to skip before returning rows */
       offset?: number | null;
-      /**
-       * Columns to order by - similar to EventsQuery format
-       * @nullable
-       */
+      /** Columns to order by - similar to EventsQuery format */
       orderBy?: ((string | MarketingAnalyticsOrderByEnum)[])[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: MarketingAnalyticsTableQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
-      /**
-       * Return a limited set of data. Will use default columns if empty.
-       * @nullable
-       */
+      /** Return a limited set of data. Will use default columns if empty. */
       select?: string[] | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type MarketingAnalyticsAggregatedQueryKind = typeof MarketingAnalyticsAggregatedQueryKind[keyof typeof MarketingAnalyticsAggregatedQueryKind];
-
-
-    export const MarketingAnalyticsAggregatedQueryKind = {
-      MarketingAnalyticsAggregatedQuery: 'MarketingAnalyticsAggregatedQuery',
-    } as const;
 
     export type MarketingAnalyticsAggregatedQueryResponseResults = {[key: string]: MarketingAnalyticsItem};
 
     export interface MarketingAnalyticsAggregatedQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -12920,94 +10127,55 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsAggregatedQueryResponseResults;
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface MarketingAnalyticsAggregatedQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
       /** Draft conversion goal that can be set in the UI without saving */
       draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
       /** Drill-down hierarchy level: channel, source, or campaign (default) */
       drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Filter by integration IDs */
       integrationFilter?: IntegrationFilter | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: MarketingAnalyticsAggregatedQueryKind;
+      kind?: 'MarketingAnalyticsAggregatedQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: MarketingAnalyticsAggregatedQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
-      /**
-       * Return a limited set of data. Will use default columns if empty.
-       * @nullable
-       */
+      /** Return a limited set of data. Will use default columns if empty. */
       select?: string[] | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type NonIntegratedConversionsTableQueryKind = typeof NonIntegratedConversionsTableQueryKind[keyof typeof NonIntegratedConversionsTableQueryKind];
-
-
-    export const NonIntegratedConversionsTableQueryKind = {
-      NonIntegratedConversionsTableQuery: 'NonIntegratedConversionsTableQuery',
-    } as const;
-
     export interface NonIntegratedConversionsTableQueryResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -13015,90 +10183,49 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface NonIntegratedConversionsTableQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       /** Compare to date range */
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
       /** Draft conversion goal that can be set in the UI without saving */
       draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
-      /**
-       * Filter test accounts
-       * @nullable
-       */
+      /** Filter test accounts */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: NonIntegratedConversionsTableQueryKind;
-      /**
-       * Number of rows to return
-       * @nullable
-       */
+      kind?: 'NonIntegratedConversionsTableQuery';
+      /** Number of rows to return */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Number of rows to skip before returning rows
-       * @nullable
-       */
+      /** Number of rows to skip before returning rows */
       offset?: number | null;
-      /**
-       * Columns to order by
-       * @nullable
-       */
+      /** Columns to order by */
       orderBy?: ((string | MarketingAnalyticsOrderByEnum)[])[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: NonIntegratedConversionsTableQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
-      /**
-       * Return a limited set of data. Will use default columns if empty.
-       * @nullable
-       */
+      /** Return a limited set of data. Will use default columns if empty. */
       select?: string[] | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type ErrorTrackingQueryKind = typeof ErrorTrackingQueryKind[keyof typeof ErrorTrackingQueryKind];
-
-
-    export const ErrorTrackingQueryKind = {
-      ErrorTrackingQuery: 'ErrorTrackingQuery',
-    } as const;
 
     export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
@@ -13120,18 +10247,14 @@ export namespace Schemas {
     } as const;
 
     export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
-      /** @nullable */
       assigned_role_id?: string | null;
-      /** @nullable */
       assigned_user_id?: number | null;
       fingerprint: string;
       /** ISO 8601 datetime string. */
       first_seen: string;
       is_deleted: number;
-      /** @nullable */
       issue_description?: string | null;
       issue_id: string;
-      /** @nullable */
       issue_name?: string | null;
       issue_status: string;
       /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
@@ -13139,35 +10262,22 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingQueryResponse {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -13176,138 +10286,72 @@ export namespace Schemas {
       /** Date range to filter results. */
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
-      /**
-       * Whether to filter out test accounts.
-       * @nullable
-       */
+      /** Whether to filter out test accounts. */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       groupKey?: string | null;
-      /** @nullable */
       groupTypeIndex?: number | null;
-      /**
-       * Filter to a specific error tracking issue by ID.
-       * @nullable
-       */
+      /** Filter to a specific error tracking issue by ID. */
       issueId?: string | null;
-      kind?: ErrorTrackingQueryKind;
-      /** @nullable */
+      kind?: 'ErrorTrackingQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Field to sort results by. */
       orderBy: ErrorTrackingOrderBy;
       /** Sort direction. */
       orderDirection?: OrderDirection2 | null;
-      /**
-       * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.
-       * @nullable
-       */
+      /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently. */
       pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[] | null;
-      /** @nullable */
       personId?: string | null;
       response?: ErrorTrackingQueryResponse | null;
-      /**
-       * Free-text search across exception type, message, and stack frames.
-       * @nullable
-       */
+      /** Free-text search across exception type, message, and stack frames. */
       searchQuery?: string | null;
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
-      /**
-       * Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)
-       * @nullable
-       */
+      /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
       useQueryV2?: boolean | null;
-      /**
-       * Use V3 query path (denormalized ClickHouse table, no Postgres joins)
-       * @nullable
-       */
+      /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
       useQueryV3?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
       volumeResolution: number;
-      /** @nullable */
       withAggregations?: boolean | null;
-      /** @nullable */
       withFirstEvent?: boolean | null;
-      /** @nullable */
       withLastEvent?: boolean | null;
     }
 
-    export type ErrorTrackingIssueCorrelationQueryKind = typeof ErrorTrackingIssueCorrelationQueryKind[keyof typeof ErrorTrackingIssueCorrelationQueryKind];
-
-
-    export const ErrorTrackingIssueCorrelationQueryKind = {
-      ErrorTrackingIssueCorrelationQuery: 'ErrorTrackingIssueCorrelationQuery',
-    } as const;
-
     export interface ErrorTrackingIssueCorrelationQueryResponse {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingCorrelatedIssue[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface ErrorTrackingIssueCorrelationQuery {
       events: string[];
-      kind?: ErrorTrackingIssueCorrelationQueryKind;
+      kind?: 'ErrorTrackingIssueCorrelationQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: ErrorTrackingIssueCorrelationQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type ExperimentFunnelsQueryKind = typeof ExperimentFunnelsQueryKind[keyof typeof ExperimentFunnelsQueryKind];
-
-
-    export const ExperimentFunnelsQueryKind = {
-      ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
-    } as const;
-
-    export type ExperimentFunnelsQueryResponseKind = typeof ExperimentFunnelsQueryResponseKind[keyof typeof ExperimentFunnelsQueryResponseKind];
-
-
-    export const ExperimentFunnelsQueryResponseKind = {
-      ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
-    } as const;
 
     export type ExperimentFunnelsQueryResponseCredibleIntervals = {[key: string]: number[]};
 
@@ -13320,50 +10364,28 @@ export namespace Schemas {
       expected_loss: number;
       funnels_query?: FunnelsQuery | null;
       insight: ExperimentFunnelsQueryResponseInsightItemItem[][];
-      kind?: ExperimentFunnelsQueryResponseKind;
+      kind?: 'ExperimentFunnelsQuery';
       probability: ExperimentFunnelsQueryResponseProbability;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
-      /** @nullable */
       stats_version?: number | null;
       variants: ExperimentVariantFunnelsBaseStats[];
     }
 
     export interface ExperimentFunnelsQuery {
-      /** @nullable */
       experiment_id?: number | null;
-      /** @nullable */
       fingerprint?: string | null;
       funnels_query: FunnelsQuery;
-      kind?: ExperimentFunnelsQueryKind;
+      kind?: 'ExperimentFunnelsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       name?: string | null;
       response?: ExperimentFunnelsQueryResponse | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type ExperimentTrendsQueryKind = typeof ExperimentTrendsQueryKind[keyof typeof ExperimentTrendsQueryKind];
-
-
-    export const ExperimentTrendsQueryKind = {
-      ExperimentTrendsQuery: 'ExperimentTrendsQuery',
-    } as const;
-
-    export type ExperimentTrendsQueryResponseKind = typeof ExperimentTrendsQueryResponseKind[keyof typeof ExperimentTrendsQueryResponseKind];
-
-
-    export const ExperimentTrendsQueryResponseKind = {
-      ExperimentTrendsQuery: 'ExperimentTrendsQuery',
-    } as const;
 
     export type ExperimentTrendsQueryResponseCredibleIntervals = {[key: string]: number[]};
 
@@ -13376,179 +10398,106 @@ export namespace Schemas {
       credible_intervals: ExperimentTrendsQueryResponseCredibleIntervals;
       exposure_query?: TrendsQuery | null;
       insight: ExperimentTrendsQueryResponseInsightItem[];
-      kind?: ExperimentTrendsQueryResponseKind;
+      kind?: 'ExperimentTrendsQuery';
       p_value: number;
       probability: ExperimentTrendsQueryResponseProbability;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
-      /** @nullable */
       stats_version?: number | null;
       variants: ExperimentVariantTrendsBaseStats[];
     }
 
     export interface ExperimentTrendsQuery {
       count_query: TrendsQuery;
-      /** @nullable */
       experiment_id?: number | null;
       exposure_query?: TrendsQuery | null;
-      /** @nullable */
       fingerprint?: string | null;
-      kind?: ExperimentTrendsQueryKind;
+      kind?: 'ExperimentTrendsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       name?: string | null;
       response?: ExperimentTrendsQueryResponse | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       uuid?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type TracesQueryKind = typeof TracesQueryKind[keyof typeof TracesQueryKind];
-
-
-    export const TracesQueryKind = {
-      TracesQuery: 'TracesQuery',
-    } as const;
-
     export interface TracesQueryResponse {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface TracesQuery {
       dateRange?: DateRange | null;
-      /** @nullable */
       filterSupportTraces?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       groupKey?: string | null;
-      /** @nullable */
       groupTypeIndex?: number | null;
-      kind?: TracesQueryKind;
-      /** @nullable */
+      kind?: 'TracesQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /**
-       * Person who performed the event
-       * @nullable
-       */
+      /** Person who performed the event */
       personId?: string | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /**
-       * Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.
-       * @nullable
-       */
+      /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
       randomOrder?: boolean | null;
       response?: TracesQueryResponse | null;
-      /** @nullable */
       showColumnConfigurator?: boolean | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type TraceQueryKind = typeof TraceQueryKind[keyof typeof TraceQueryKind];
-
-
-    export const TraceQueryKind = {
-      TraceQuery: 'TraceQuery',
-    } as const;
-
     export interface TraceQueryResponse {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface TraceQuery {
       dateRange?: DateRange | null;
-      kind?: TraceQueryKind;
+      kind?: 'TraceQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: TraceQueryResponse | null;
       tags?: QueryLogTags | null;
       traceId: string;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -13562,13 +10511,6 @@ export namespace Schemas {
       Status: 'Status',
     } as const;
 
-    export type EndpointsUsageTableQueryKind = typeof EndpointsUsageTableQueryKind[keyof typeof EndpointsUsageTableQueryKind];
-
-
-    export const EndpointsUsageTableQueryKind = {
-      EndpointsUsageTableQuery: 'EndpointsUsageTableQuery',
-    } as const;
-
     export type MaterializationType = typeof MaterializationType[keyof typeof MaterializationType];
 
 
@@ -13577,258 +10519,119 @@ export namespace Schemas {
       Inline: 'inline',
     } as const;
 
-    export type EndpointsUsageOrderByField = typeof EndpointsUsageOrderByField[keyof typeof EndpointsUsageOrderByField];
-
-
-    export const EndpointsUsageOrderByField = {
-      Requests: 'requests',
-      BytesRead: 'bytes_read',
-      CpuSeconds: 'cpu_seconds',
-      AvgQueryDurationMs: 'avg_query_duration_ms',
-      ErrorRate: 'error_rate',
-    } as const;
-
-    export type EndpointsUsageOrderByDirection = typeof EndpointsUsageOrderByDirection[keyof typeof EndpointsUsageOrderByDirection];
-
-
-    export const EndpointsUsageOrderByDirection = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
     export interface EndpointsUsageTableQueryResponse {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
-    export const EndpointsUsageTableQueryOrderByItem = {...EndpointsUsageOrderByField,...EndpointsUsageOrderByDirection,} as const
     export interface EndpointsUsageTableQuery {
       breakdownBy: EndpointsUsageBreakdown;
       dateRange?: DateRange | null;
-      /**
-       * Filter to specific endpoints by name
-       * @nullable
-       */
+      /** Filter to specific endpoints by name */
       endpointNames?: string[] | null;
-      kind?: EndpointsUsageTableQueryKind;
-      /** @nullable */
+      kind?: 'EndpointsUsageTableQuery';
       limit?: number | null;
       /** Filter by materialization type */
       materializationType?: MaterializationType | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /** @nullable */
-      orderBy?: typeof EndpointsUsageTableQueryOrderByItem[keyof typeof EndpointsUsageTableQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       response?: EndpointsUsageTableQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface DataTableNode {
-      /**
-       * Can the user click on column headers to sort the table? (default: true)
-       * @nullable
-       */
+      /** Can the user click on column headers to sort the table? (default: true) */
       allowSorting?: boolean | null;
-      /**
-       * Columns shown in the table, unless the `source` provides them.
-       * @nullable
-       */
+      /** Columns shown in the table, unless the `source` provides them. */
       columns?: string[] | null;
       /** Context for the table, used by components like ColumnConfigurator */
       context?: DataTableNodeViewPropsContext | null;
-      /**
-       * Context key for universal column configuration (e.g., "survey:123")
-       * @nullable
-       */
+      /** Context key for universal column configuration (e.g., "survey:123") */
       contextKey?: string | null;
-      /**
-       * Default columns to use when resetting column configuration
-       * @nullable
-       */
+      /** Default columns to use when resetting column configuration */
       defaultColumns?: string[] | null;
-      /**
-       * Uses the embedded version of LemonTable
-       * @nullable
-       */
+      /** Uses the embedded version of LemonTable */
       embedded?: boolean | null;
-      /**
-       * Can expand row to show raw event data (default: true)
-       * @nullable
-       */
+      /** Can expand row to show raw event data (default: true) */
       expandable?: boolean | null;
-      /**
-       * Show with most visual options enabled. Used in scenes.
-       * @nullable
-       */
+      /** Show with most visual options enabled. Used in scenes. */
       full?: boolean | null;
-      /**
-       * Columns that aren't shown in the table, even if in columns or returned data
-       * @nullable
-       */
+      /** Columns that aren't shown in the table, even if in columns or returned data */
       hiddenColumns?: string[] | null;
       kind: DataTableNodeKind;
-      /**
-       * Columns that are sticky when scrolling horizontally
-       * @nullable
-       */
+      /** Columns that are sticky when scrolling horizontally */
       pinnedColumns?: string[] | null;
-      /**
-       * Link properties via the URL (default: false)
-       * @nullable
-       */
+      /** Link properties via the URL (default: false) */
       propertiesViaUrl?: boolean | null;
       response?: DataTableNodeResponse;
-      /**
-       * Show the kebab menu at the end of the row
-       * @nullable
-       */
+      /** Show the kebab menu at the end of the row */
       showActions?: boolean | null;
-      /**
-       * Show a button to configure the table's columns if possible
-       * @nullable
-       */
+      /** Show a button to configure the table's columns if possible */
       showColumnConfigurator?: boolean | null;
-      /**
-       * Show count of total and filtered results
-       * @nullable
-       */
+      /** Show count of total and filtered results */
       showCount?: boolean | null;
-      /**
-       * Show date range selector
-       * @nullable
-       */
+      /** Show date range selector */
       showDateRange?: boolean | null;
-      /**
-       * Show the time it takes to run a query
-       * @nullable
-       */
+      /** Show the time it takes to run a query */
       showElapsedTime?: boolean | null;
-      /**
-       * Include an event filter above the table (EventsNode only)
-       * @nullable
-       */
+      /** Include an event filter above the table (EventsNode only) */
       showEventFilter?: boolean | null;
-      /**
-       * Include an events filter above the table to filter by multiple events (EventsQuery only)
-       * @nullable
-       */
+      /** Include an events filter above the table to filter by multiple events (EventsQuery only) */
       showEventsFilter?: boolean | null;
-      /**
-       * Show the export button
-       * @nullable
-       */
+      /** Show the export button */
       showExport?: boolean | null;
-      /**
-       * Include a HogQL query editor above HogQL tables
-       * @nullable
-       */
+      /** Include a HogQL query editor above HogQL tables */
       showHogQLEditor?: boolean | null;
-      /**
-       * Show a button to open the current query as a new insight. (default: true)
-       * @nullable
-       */
+      /** Show a button to open the current query as a new insight. (default: true) */
       showOpenEditorButton?: boolean | null;
-      /**
-       * Show a button to configure and persist the table's default columns if possible
-       * @nullable
-       */
+      /** Show a button to configure and persist the table's default columns if possible */
       showPersistentColumnConfigurator?: boolean | null;
       /** Include a property filter above the table */
       showPropertyFilter?: boolean | TaxonomicFilterGroupType[] | null;
-      /**
-       * Show a recording column for events with session recordings
-       * @nullable
-       */
+      /** Show a recording column for events with session recordings */
       showRecordingColumn?: boolean | null;
-      /**
-       * Show a reload button
-       * @nullable
-       */
+      /** Show a reload button */
       showReload?: boolean | null;
-      /**
-       * Show a results table
-       * @nullable
-       */
+      /** Show a results table */
       showResultsTable?: boolean | null;
-      /**
-       * Show saved filters feature for this table (requires uniqueKey)
-       * @nullable
-       */
+      /** Show saved filters feature for this table (requires uniqueKey) */
       showSavedFilters?: boolean | null;
-      /**
-       * Shows a list of saved queries
-       * @nullable
-       */
+      /** Shows a list of saved queries */
       showSavedQueries?: boolean | null;
-      /**
-       * Include a free text search field (PersonsNode only)
-       * @nullable
-       */
+      /** Include a free text search field (PersonsNode only) */
       showSearch?: boolean | null;
-      /**
-       * Show actors query options and back to source
-       * @nullable
-       */
+      /** Show actors query options and back to source */
       showSourceQueryOptions?: boolean | null;
-      /**
-       * Show table views feature for this table (requires uniqueKey)
-       * @nullable
-       */
+      /** Show table views feature for this table (requires uniqueKey) */
       showTableViews?: boolean | null;
-      /**
-       * Show filter to exclude test accounts
-       * @nullable
-       */
+      /** Show filter to exclude test accounts */
       showTestAccountFilters?: boolean | null;
-      /**
-       * Show a detailed query timing breakdown
-       * @nullable
-       */
+      /** Show a detailed query timing breakdown */
       showTimings?: boolean | null;
       /** Source of the events */
       source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | GroupsQuery | HogQLQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | SessionAttributionExplorerQuery | SessionsQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | ErrorTrackingQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | TracesQuery | TraceQuery | EndpointsUsageTableQuery;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -13840,13 +10643,9 @@ export namespace Schemas {
     } as const;
 
     export interface TableSettings {
-      /** @nullable */
       columns?: ChartAxis[] | null;
-      /** @nullable */
       conditionalFormatting?: ConditionalFormattingRule[] | null;
-      /** @nullable */
       pinnedColumns?: string[] | null;
-      /** @nullable */
       transpose?: boolean | null;
     }
 
@@ -13856,10 +10655,7 @@ export namespace Schemas {
       kind: DataVisualizationNodeKind;
       source: HogQLQuery;
       tableSettings?: TableSettings | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -13926,7 +10722,7 @@ export namespace Schemas {
        */
       name: string;
       /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown | null;
+      query?: unknown;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -13939,7 +10735,7 @@ export namespace Schemas {
     * `Completed` - Completed
     * `Failed` - Failed
     * `Running` - Running */
-      readonly status: SavedQueryStatusEnum | NullEnum | null;
+      readonly status: SavedQueryStatusEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
       /** @nullable */
@@ -13980,7 +10776,7 @@ export namespace Schemas {
     * `data_warehouse` - Data Warehouse
     * `endpoint` - Endpoint
     * `managed_viewset` - Managed Viewset */
-      readonly origin: OriginEnum | NullEnum | null;
+      readonly origin: OriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
       is_test?: boolean;
       /**
@@ -14056,7 +10852,7 @@ export namespace Schemas {
     * `Completed` - Completed
     * `Failed` - Failed
     * `Running` - Running */
-      readonly status: SavedQueryStatusEnum | NullEnum | null;
+      readonly status: SavedQueryStatusEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
       /** @nullable */
@@ -14074,7 +10870,7 @@ export namespace Schemas {
     * `data_warehouse` - Data Warehouse
     * `endpoint` - Endpoint
     * `managed_viewset` - Managed Viewset */
-      readonly origin: OriginEnum | NullEnum | null;
+      readonly origin: OriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
       readonly is_test: boolean;
       /**
@@ -14139,7 +10935,6 @@ export namespace Schemas {
     } as const;
 
     export interface MinimalHedgehogConfig {
-      /** @nullable */
       accessories?: HedgehogActorAccessoryOption[] | null;
       color?: HedgehogActorColorOption | null;
       skin?: HedgehogActorSkinOption | null;
@@ -14152,28 +10947,20 @@ export namespace Schemas {
       first_name: string;
       hedgehog_config?: MinimalHedgehogConfig | null;
       id: number;
-      is_email_verified?: unknown | null;
-      /** @nullable */
+      is_email_verified?: unknown;
       last_name?: string | null;
-      /** @nullable */
       role_at_organization?: string | null;
       uuid: string;
     }
 
     export interface DataWarehouseViewLink {
-      /** @nullable */
       created_at?: string | null;
       created_by?: UserBasicType | null;
-      /** @nullable */
       field_name?: string | null;
       id: string;
-      /** @nullable */
       joining_table_key?: string | null;
-      /** @nullable */
       joining_table_name?: string | null;
-      /** @nullable */
       source_table_key?: string | null;
-      /** @nullable */
       source_table_name?: string | null;
     }
 
@@ -14200,63 +10987,40 @@ export namespace Schemas {
     } as const;
 
     export interface DatabaseSchemaField {
-      /** @nullable */
       chain?: (string | number)[] | null;
-      /** @nullable */
       fields?: string[] | null;
       hogql_value: string;
-      /** @nullable */
       id?: string | null;
       name: string;
       schema_valid: boolean;
-      /** @nullable */
       table?: string | null;
       type: DatabaseSerializedFieldType;
     }
 
     export type DatabaseSchemaBatchExportTableFields = {[key: string]: DatabaseSchemaField};
 
-    export type DatabaseSchemaBatchExportTableType = typeof DatabaseSchemaBatchExportTableType[keyof typeof DatabaseSchemaBatchExportTableType];
-
-
-    export const DatabaseSchemaBatchExportTableType = {
-      BatchExport: 'batch_export',
-    } as const;
-
     export interface DatabaseSchemaBatchExportTable {
       fields: DatabaseSchemaBatchExportTableFields;
       id: string;
       name: string;
-      /** @nullable */
       row_count?: number | null;
-      type?: DatabaseSchemaBatchExportTableType;
+      type?: 'batch_export';
     }
 
     export type DatabaseSchemaDataWarehouseTableFields = {[key: string]: DatabaseSchemaField};
 
-    export type DatabaseSchemaDataWarehouseTableType = typeof DatabaseSchemaDataWarehouseTableType[keyof typeof DatabaseSchemaDataWarehouseTableType];
-
-
-    export const DatabaseSchemaDataWarehouseTableType = {
-      DataWarehouse: 'data_warehouse',
-    } as const;
-
     export interface DatabaseSchemaSchema {
       id: string;
       incremental: boolean;
-      /** @nullable */
       last_synced_at?: string | null;
       name: string;
       should_sync: boolean;
-      /** @nullable */
       status?: string | null;
     }
 
     export interface DatabaseSchemaSource {
-      /** @nullable */
       access_method?: string | null;
       id: string;
-      /** @nullable */
       last_synced_at?: string | null;
       prefix: string;
       source_type: string;
@@ -14268,43 +11032,26 @@ export namespace Schemas {
       format: string;
       id: string;
       name: string;
-      /** @nullable */
       row_count?: number | null;
       schema?: DatabaseSchemaSchema | null;
       source?: DatabaseSchemaSource | null;
-      type?: DatabaseSchemaDataWarehouseTableType;
+      type?: 'data_warehouse';
       url_pattern: string;
     }
 
     export type DatabaseSchemaEndpointTableFields = {[key: string]: DatabaseSchemaField};
-
-    export type DatabaseSchemaEndpointTableType = typeof DatabaseSchemaEndpointTableType[keyof typeof DatabaseSchemaEndpointTableType];
-
-
-    export const DatabaseSchemaEndpointTableType = {
-      Endpoint: 'endpoint',
-    } as const;
 
     export interface DatabaseSchemaEndpointTable {
       fields: DatabaseSchemaEndpointTableFields;
       id: string;
       name: string;
       query: HogQLQuery;
-      /** @nullable */
       row_count?: number | null;
-      /** @nullable */
       status?: string | null;
-      type?: DatabaseSchemaEndpointTableType;
+      type?: 'endpoint';
     }
 
     export type DatabaseSchemaManagedViewTableFields = {[key: string]: DatabaseSchemaField};
-
-    export type DatabaseSchemaManagedViewTableType = typeof DatabaseSchemaManagedViewTableType[keyof typeof DatabaseSchemaManagedViewTableType];
-
-
-    export const DatabaseSchemaManagedViewTableType = {
-      ManagedView: 'managed_view',
-    } as const;
 
     export type DatabaseSchemaManagedViewTableKind = typeof DatabaseSchemaManagedViewTableKind[keyof typeof DatabaseSchemaManagedViewTableKind];
 
@@ -14324,67 +11071,33 @@ export namespace Schemas {
       kind: DatabaseSchemaManagedViewTableKind;
       name: string;
       query: HogQLQuery;
-      /** @nullable */
       row_count?: number | null;
-      /** @nullable */
       source_id?: string | null;
-      type?: DatabaseSchemaManagedViewTableType;
+      type?: 'managed_view';
     }
 
     export type DatabaseSchemaMaterializedViewTableFields = {[key: string]: DatabaseSchemaField};
 
-    export type DatabaseSchemaMaterializedViewTableType = typeof DatabaseSchemaMaterializedViewTableType[keyof typeof DatabaseSchemaMaterializedViewTableType];
-
-
-    export const DatabaseSchemaMaterializedViewTableType = {
-      MaterializedView: 'materialized_view',
-    } as const;
-
     export interface DatabaseSchemaMaterializedViewTable {
       fields: DatabaseSchemaMaterializedViewTableFields;
       id: string;
-      /** @nullable */
       last_run_at?: string | null;
       name: string;
       query: HogQLQuery;
-      /** @nullable */
       row_count?: number | null;
-      /** @nullable */
       status?: string | null;
-      type?: DatabaseSchemaMaterializedViewTableType;
+      type?: 'materialized_view';
     }
 
     export type DatabaseSchemaPostHogTableFields = {[key: string]: DatabaseSchemaField};
-
-    export type DatabaseSchemaPostHogTableType = typeof DatabaseSchemaPostHogTableType[keyof typeof DatabaseSchemaPostHogTableType];
-
-
-    export const DatabaseSchemaPostHogTableType = {
-      Posthog: 'posthog',
-    } as const;
 
     export interface DatabaseSchemaPostHogTable {
       fields: DatabaseSchemaPostHogTableFields;
       id: string;
       name: string;
-      /** @nullable */
       row_count?: number | null;
-      type?: DatabaseSchemaPostHogTableType;
+      type?: 'posthog';
     }
-
-    export type DatabaseSchemaQueryKind = typeof DatabaseSchemaQueryKind[keyof typeof DatabaseSchemaQueryKind];
-
-
-    export const DatabaseSchemaQueryKind = {
-      DatabaseSchemaQuery: 'DatabaseSchemaQuery',
-    } as const;
-
-    export type DatabaseSchemaSystemTableType = typeof DatabaseSchemaSystemTableType[keyof typeof DatabaseSchemaSystemTableType];
-
-
-    export const DatabaseSchemaSystemTableType = {
-      System: 'system',
-    } as const;
 
     export type DatabaseSchemaSystemTableFields = {[key: string]: DatabaseSchemaField};
 
@@ -14392,17 +11105,9 @@ export namespace Schemas {
       fields: DatabaseSchemaSystemTableFields;
       id: string;
       name: string;
-      /** @nullable */
       row_count?: number | null;
-      type?: DatabaseSchemaSystemTableType;
+      type?: 'system';
     }
-
-    export type DatabaseSchemaViewTableType = typeof DatabaseSchemaViewTableType[keyof typeof DatabaseSchemaViewTableType];
-
-
-    export const DatabaseSchemaViewTableType = {
-      View: 'view',
-    } as const;
 
     export type DatabaseSchemaViewTableFields = {[key: string]: DatabaseSchemaField};
 
@@ -14411,9 +11116,8 @@ export namespace Schemas {
       id: string;
       name: string;
       query: HogQLQuery;
-      /** @nullable */
       row_count?: number | null;
-      type?: DatabaseSchemaViewTableType;
+      type?: 'view';
     }
 
     export type DatabaseSchemaQueryResponseTables = {[key: string]: DatabaseSchemaPostHogTable | DatabaseSchemaSystemTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable | DatabaseSchemaBatchExportTable | DatabaseSchemaMaterializedViewTable | DatabaseSchemaEndpointTable};
@@ -14424,20 +11128,14 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaQuery {
-      /**
-       * Optional direct external data source id for schema introspection
-       * @nullable
-       */
+      /** Optional direct external data source id for schema introspection */
       connectionId?: string | null;
-      kind?: DatabaseSchemaQueryKind;
+      kind?: 'DatabaseSchemaQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: DatabaseSchemaQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -14910,7 +11608,7 @@ export namespace Schemas {
       name: string;
       /** @nullable */
       description?: string | null;
-      metadata?: unknown | null;
+      metadata?: unknown;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
@@ -14923,9 +11621,9 @@ export namespace Schemas {
     export interface DatasetItem {
       readonly id: string;
       dataset: string;
-      input?: unknown | null;
-      output?: unknown | null;
-      metadata?: unknown | null;
+      input?: unknown;
+      output?: unknown;
+      metadata?: unknown;
       /**
        * @maxLength 255
        * @nullable
@@ -15112,13 +11810,6 @@ export namespace Schemas {
       content: string;
     }
 
-    export type DocumentSimilarityQueryKind = typeof DocumentSimilarityQueryKind[keyof typeof DocumentSimilarityQueryKind];
-
-
-    export const DocumentSimilarityQueryKind = {
-      DocumentSimilarityQuery: 'DocumentSimilarityQuery',
-    } as const;
-
     export type OrderBy = typeof OrderBy[keyof typeof OrderBy];
 
 
@@ -15166,33 +11857,21 @@ export namespace Schemas {
     }
 
     export interface DocumentSimilarityQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EmbeddingDistance[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -15200,13 +11879,11 @@ export namespace Schemas {
       dateRange: DateRange;
       distance_func: DistanceFunc;
       document_types: string[];
-      kind?: DocumentSimilarityQueryKind;
-      /** @nullable */
+      kind?: 'DocumentSimilarityQuery';
       limit?: number | null;
       model: string;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       order_by: OrderBy;
       order_direction: OrderDirection1;
@@ -15215,12 +11892,8 @@ export namespace Schemas {
       renderings: string[];
       response?: DocumentSimilarityQueryResponse | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       threshold?: number | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -15302,12 +11975,12 @@ export namespace Schemas {
     * `server` - Server
     * `client` - Client
     * `all` - All */
-      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null;
+      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | null;
       /** Identifier used for bucketing users into rollout and variants
 
     * `distinct_id` - User ID (default)
     * `device_id` - Device ID */
-      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
+      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
       readonly evaluation_contexts: readonly string[];
     }
 
@@ -15460,21 +12133,14 @@ export namespace Schemas {
     export type ElementTypeAttributes = {[key: string]: string};
 
     export interface ElementType {
-      /** @nullable */
       attr_class?: string[] | null;
-      /** @nullable */
       attr_id?: string | null;
       attributes: ElementTypeAttributes;
-      /** @nullable */
       href?: string | null;
-      /** @nullable */
       nth_child?: number | null;
-      /** @nullable */
       nth_of_type?: number | null;
-      /** @nullable */
       order?: number | null;
       tag_name: string;
-      /** @nullable */
       text?: string | null;
     }
 
@@ -15493,7 +12159,7 @@ export namespace Schemas {
     * `inconclusive` - inconclusive
     * `stopped_early` - stopped_early
     * `invalid` - invalid */
-      conclusion?: ConclusionEnum | NullEnum | null;
+      conclusion?: ConclusionEnum | null;
       /**
        * Optional comment about the experiment conclusion.
        * @nullable
@@ -15569,7 +12235,7 @@ export namespace Schemas {
        */
       name?: string | null;
       /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
-      query?: unknown | null;
+      query?: unknown;
       /**
        * Human-readable description of what this endpoint returns.
        * @nullable
@@ -15697,35 +12363,21 @@ export namespace Schemas {
     For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
 
     Unknown variable names will return a 400 error.
-     * @nullable
      */
-    export type EndpointRunRequestVariables = { [key: string]: unknown } | null | null;
+    export type EndpointRunRequestVariables = { [key: string]: unknown } | null;
 
     export interface EndpointRunRequest {
-      /**
-       * Client provided query ID. Can be used to retrieve the status or cancel the query.
-       * @nullable
-       */
+      /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
       client_query_id?: string | null;
-      /**
-       * Whether to include debug information (such as the executed HogQL) in the response.
-       * @nullable
-       */
+      /** Whether to include debug information (such as the executed HogQL) in the response. */
       debug?: boolean | null;
       filters_override?: DashboardFilter | null;
-      /**
-       * Maximum number of results to return. If not provided, returns all results.
-       * @nullable
-       */
+      /** Maximum number of results to return. If not provided, returns all results. */
       limit?: number | null;
-      /**
-       * Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints.
-       * @nullable
-       */
+      /** Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints. */
       offset?: number | null;
       refresh?: EndpointRefreshMode | null;
-      /**
-       * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
+      /** Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
 
     For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
 
@@ -15733,14 +12385,9 @@ export namespace Schemas {
 
     For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
 
-    Unknown variable names will return a 400 error.
-       * @nullable
-       */
+    Unknown variable names will return a 400 error. */
       variables?: EndpointRunRequestVariables;
-      /**
-       * Specific endpoint version to execute. If not provided, the latest version is used.
-       * @nullable
-       */
+      /** Specific endpoint version to execute. If not provided, the latest version is used. */
       version?: number | null;
     }
 
@@ -15865,32 +12512,16 @@ export namespace Schemas {
     } as const;
 
     export interface EndpointsUsageOverviewItem {
-      /** @nullable */
       changeFromPreviousPct?: number | null;
       key: EndpointsUsageOverviewItemKey;
-      /** @nullable */
       previous?: number | null;
-      /** @nullable */
       value?: number | null;
     }
 
-    export type EndpointsUsageOverviewQueryKind = typeof EndpointsUsageOverviewQueryKind[keyof typeof EndpointsUsageOverviewQueryKind];
-
-
-    export const EndpointsUsageOverviewQueryKind = {
-      EndpointsUsageOverviewQuery: 'EndpointsUsageOverviewQuery',
-    } as const;
-
     export interface EndpointsUsageOverviewQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -15899,10 +12530,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EndpointsUsageOverviewItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -15910,31 +12538,18 @@ export namespace Schemas {
       /** Compare to previous period */
       compareFilter?: CompareFilter | null;
       dateRange?: DateRange | null;
-      /**
-       * Filter to specific endpoints by name
-       * @nullable
-       */
+      /** Filter to specific endpoints by name */
       endpointNames?: string[] | null;
-      kind?: EndpointsUsageOverviewQueryKind;
+      kind?: 'EndpointsUsageOverviewQuery';
       /** Filter by materialization type */
       materializationType?: MaterializationType | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: EndpointsUsageOverviewQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type EndpointsUsageTrendsQueryKind = typeof EndpointsUsageTrendsQueryKind[keyof typeof EndpointsUsageTrendsQueryKind];
-
-
-    export const EndpointsUsageTrendsQueryKind = {
-      EndpointsUsageTrendsQuery: 'EndpointsUsageTrendsQuery',
-    } as const;
 
     export type Metric = typeof Metric[keyof typeof Metric];
 
@@ -15950,15 +12565,9 @@ export namespace Schemas {
     export type EndpointsUsageTrendsQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface EndpointsUsageTrendsQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -15967,10 +12576,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EndpointsUsageTrendsQueryResponseResultsItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -15980,14 +12586,11 @@ export namespace Schemas {
       /** Compare to previous period */
       compareFilter?: CompareFilter | null;
       dateRange?: DateRange | null;
-      /**
-       * Filter to specific endpoints by name
-       * @nullable
-       */
+      /** Filter to specific endpoints by name */
       endpointNames?: string[] | null;
       /** Time interval */
       interval?: IntervalType | null;
-      kind?: EndpointsUsageTrendsQueryKind;
+      kind?: 'EndpointsUsageTrendsQuery';
       /** Filter by materialization type */
       materializationType?: MaterializationType | null;
       /** Metric to trend */
@@ -15996,10 +12599,7 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       response?: EndpointsUsageTrendsQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -16101,7 +12701,7 @@ export namespace Schemas {
       readonly updated_by: UserBasic;
       /** @nullable */
       readonly is_seen_on_filtered_events: boolean | null;
-      property_type?: PropertyDefinitionTypeEnum | BlankEnum | NullEnum | null;
+      property_type?: PropertyDefinitionTypeEnum | BlankEnum | null;
       verified?: boolean;
       /** @nullable */
       readonly verified_at: string | null;
@@ -16133,7 +12733,7 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key: number;
-      disabled_data?: unknown | null;
+      disabled_data?: unknown;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -16162,13 +12762,6 @@ export namespace Schemas {
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
     }
 
-    export type ErrorTrackingBreakdownsQueryKind = typeof ErrorTrackingBreakdownsQueryKind[keyof typeof ErrorTrackingBreakdownsQueryKind];
-
-
-    export const ErrorTrackingBreakdownsQueryKind = {
-      ErrorTrackingBreakdownsQuery: 'ErrorTrackingBreakdownsQuery',
-    } as const;
-
     export interface Results {
       total_count: number;
       values: BreakdownValue[];
@@ -16177,15 +12770,9 @@ export namespace Schemas {
     export type ErrorTrackingBreakdownsQueryResponseResults = {[key: string]: Results};
 
     export interface ErrorTrackingBreakdownsQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -16194,30 +12781,22 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingBreakdownsQueryResponseResults;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface ErrorTrackingBreakdownsQuery {
       breakdownProperties: string[];
       dateRange?: DateRange | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
       issueId: string;
-      kind?: ErrorTrackingBreakdownsQueryKind;
-      /** @nullable */
+      kind?: 'ErrorTrackingBreakdownsQuery';
       maxValuesPerProperty?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: ErrorTrackingBreakdownsQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -16274,7 +12853,7 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key: number;
-      disabled_data?: unknown | null;
+      disabled_data?: unknown;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -16401,7 +12980,7 @@ export namespace Schemas {
       hash_id: string;
       readonly team_id: number;
       readonly created_at: string;
-      metadata?: unknown | null;
+      metadata?: unknown;
       version: string;
       project: string;
     }
@@ -16433,76 +13012,49 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
     }
 
-    export type ErrorTrackingSimilarIssuesQueryKind = typeof ErrorTrackingSimilarIssuesQueryKind[keyof typeof ErrorTrackingSimilarIssuesQueryKind];
-
-
-    export const ErrorTrackingSimilarIssuesQueryKind = {
-      ErrorTrackingSimilarIssuesQuery: 'ErrorTrackingSimilarIssuesQuery',
-    } as const;
-
     export interface SimilarIssue {
       description: string;
       distance: number;
       first_seen: string;
       id: string;
-      /** @nullable */
       library?: string | null;
       name: string;
       status: string;
     }
 
     export interface ErrorTrackingSimilarIssuesQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SimilarIssue[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface ErrorTrackingSimilarIssuesQuery {
       dateRange?: DateRange | null;
       issueId: string;
-      kind?: ErrorTrackingSimilarIssuesQueryKind;
-      /** @nullable */
+      kind?: 'ErrorTrackingSimilarIssuesQuery';
       limit?: number | null;
-      /** @nullable */
       maxDistance?: number | null;
       modelName?: EmbeddingModelName | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /** @nullable */
       rendering?: string | null;
       response?: ErrorTrackingSimilarIssuesQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -16547,7 +13099,7 @@ export namespace Schemas {
       readonly created_at: string;
       contents: unknown;
       resolved: boolean;
-      context?: unknown | null;
+      context?: unknown;
       symbol_set_ref?: string;
       readonly release: ErrorTrackingRelease;
     }
@@ -16560,7 +13112,7 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key: number;
-      disabled_data?: unknown | null;
+      disabled_data?: unknown;
       sampling_rate?: number;
       readonly created_at: string;
       readonly updated_at: string;
@@ -16782,7 +13334,7 @@ export namespace Schemas {
       /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
-      readonly status_reason: StatusReasonEnum | NullEnum | null;
+      readonly status_reason: StatusReasonEnum | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
     * `llm_judge` - LLM as a judge
@@ -17104,7 +13656,7 @@ export namespace Schemas {
       readonly id: string;
       mode?: EventFilterConfigModeEnum;
       /** Boolean expression tree. Nodes: {"type": "and"|"or", "children": [...]}, {"type": "not", "child": {...}}, {"type": "condition", "field": "event_name"|"distinct_id", "operator": "exact"|"contains", "value": "<string>"} */
-      filter_tree?: unknown | null;
+      filter_tree?: unknown;
       /** Test events to validate the filter. Each: {"event_name": "...", "distinct_id": "...", "expected_result": "drop"|"ingest"} */
       test_cases?: unknown;
       readonly created_at: string;
@@ -17168,72 +13720,40 @@ export namespace Schemas {
       sample_values: string[];
     }
 
-    export type EventTaxonomyQueryKind = typeof EventTaxonomyQueryKind[keyof typeof EventTaxonomyQueryKind];
-
-
-    export const EventTaxonomyQueryKind = {
-      EventTaxonomyQuery: 'EventTaxonomyQuery',
-    } as const;
-
     export interface EventTaxonomyQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EventTaxonomyItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface EventTaxonomyQuery {
-      /** @nullable */
       actionId?: number | null;
-      /** @nullable */
       event?: string | null;
-      kind?: EventTaxonomyQueryKind;
-      /**
-       * Number of rows to return
-       * @nullable
-       */
+      kind?: 'EventTaxonomyQuery';
+      /** Number of rows to return */
       limit?: number | null;
-      /** @nullable */
       maxPropertyValues?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Number of rows to skip before returning rows
-       * @nullable
-       */
+      /** Number of rows to skip before returning rows */
       offset?: number | null;
-      /** @nullable */
       properties?: string[] | null;
       response?: EventTaxonomyQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -17243,7 +13763,6 @@ export namespace Schemas {
 
     export interface Person {
       distinct_ids: string[];
-      /** @nullable */
       is_identified?: boolean | null;
       properties: PersonProperties;
     }
@@ -17251,18 +13770,14 @@ export namespace Schemas {
     export interface EventType {
       distinct_id: string;
       elements: ElementType[];
-      /** @nullable */
       elements_chain?: string | null;
       event: string;
       id: string;
       person?: Person | null;
-      /** @nullable */
       person_id?: string | null;
-      /** @nullable */
       person_mode?: string | null;
       properties: EventTypeProperties;
       timestamp: string;
-      /** @nullable */
       uuid?: string | null;
     }
 
@@ -17353,35 +13868,19 @@ export namespace Schemas {
     export interface ExperimentVariant {
       /** Variant key, e.g. 'control', 'test', 'variant_a'. */
       key: string;
-      /**
-       * Human-readable variant name.
-       * @nullable
-       */
+      /** Human-readable variant name. */
       name?: string | null;
-      /** @nullable */
       rollout_percentage?: number | null;
-      /**
-       * Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.
-       * @nullable
-       */
+      /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided. */
       split_percent?: number | null;
     }
 
     export interface ExperimentParameters {
-      /**
-       * Experiment variants. If not specified, defaults to a 50/50 control/test split.
-       * @nullable
-       */
+      /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
       feature_flag_variants?: ExperimentVariant[] | null;
-      /**
-       * Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.
-       * @nullable
-       */
+      /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
       minimum_detectable_effect?: number | null;
-      /**
-       * Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.
-       * @nullable
-       */
+      /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
       rollout_percentage?: number | null;
     }
 
@@ -17407,24 +13906,16 @@ export namespace Schemas {
       Product: 'product',
     } as const;
 
-    export type ExperimentApiExposureConfigKind = typeof ExperimentApiExposureConfigKind[keyof typeof ExperimentApiExposureConfigKind];
-
-
-    export const ExperimentApiExposureConfigKind = {
-      ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
-    } as const;
-
     export interface ExperimentApiExposureConfig {
       /** Custom exposure event name. */
       event: string;
-      kind?: ExperimentApiExposureConfigKind;
+      kind?: 'ExperimentEventExposureConfig';
       /** Event property filters. Pass an empty array if no filters needed. */
       properties: EventPropertyFilter[];
     }
 
     export interface ExperimentApiExposureCriteria {
       exposure_config?: ExperimentApiExposureConfig | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
     }
 
@@ -17437,30 +13928,14 @@ export namespace Schemas {
     } as const;
 
     export interface ExperimentApiEventSource {
-      /**
-       * Event name, e.g. '$pageview'. Required for EventsNode.
-       * @nullable
-       */
+      /** Event name, e.g. '$pageview'. Required for EventsNode. */
       event?: string | null;
-      /**
-       * Action ID. Required for ActionsNode.
-       * @nullable
-       */
+      /** Action ID. Required for ActionsNode. */
       id?: number | null;
       kind: Kind;
-      /**
-       * Event property filters to narrow which events are counted.
-       * @nullable
-       */
+      /** Event property filters to narrow which events are counted. */
       properties?: EventPropertyFilter[] | null;
     }
-
-    export type ExperimentApiMetricKind = typeof ExperimentApiMetricKind[keyof typeof ExperimentApiMetricKind];
-
-
-    export const ExperimentApiMetricKind = {
-      ExperimentMetric: 'ExperimentMetric',
-    } as const;
 
     export type ExperimentMetricType = typeof ExperimentMetricType[keyof typeof ExperimentMetricType];
 
@@ -17475,43 +13950,29 @@ export namespace Schemas {
     export interface ExperimentApiMetric {
       /** For retention metrics: completion event. */
       completion_event?: ExperimentApiEventSource | null;
-      /**
-       * Conversion window duration.
-       * @nullable
-       */
+      /** Conversion window duration. */
       conversion_window?: number | null;
       /** For ratio metrics: denominator source. */
       denominator?: ExperimentApiEventSource | null;
       /** Whether higher or lower values indicate success. */
       goal?: ExperimentMetricGoal | null;
-      kind?: ExperimentApiMetricKind;
+      kind?: 'ExperimentMetric';
       metric_type: ExperimentMetricType;
-      /**
-       * Human-readable metric name.
-       * @nullable
-       */
+      /** Human-readable metric name. */
       name?: string | null;
       /** For ratio metrics: numerator source. */
       numerator?: ExperimentApiEventSource | null;
-      /** @nullable */
       retention_window_end?: number | null;
-      /** @nullable */
       retention_window_start?: number | null;
       retention_window_unit?: FunnelConversionWindowTimeUnit | null;
-      /**
-       * For funnel metrics: array of EventsNode/ActionsNode steps.
-       * @nullable
-       */
+      /** For funnel metrics: array of EventsNode/ActionsNode steps. */
       series?: ExperimentApiEventSource[] | null;
       /** For mean metrics: event source. */
       source?: ExperimentApiEventSource | null;
       /** For retention metrics: start event. */
       start_event?: ExperimentApiEventSource | null;
       start_handling?: StartHandling | null;
-      /**
-       * Unique identifier. Auto-generated if omitted.
-       * @nullable
-       */
+      /** Unique identifier. Auto-generated if omitted. */
       uuid?: string | null;
     }
 
@@ -17563,7 +14024,7 @@ export namespace Schemas {
       readonly exposure_cohort: number | null;
       /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
-      secondary_metrics?: unknown | null;
+      secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
       /**
        * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
@@ -17582,15 +14043,15 @@ export namespace Schemas {
 
     * `web` - web
     * `product` - product */
-      type?: ExperimentTypeEnum | NullEnum | null;
+      type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
       /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
-      stats_config?: unknown | null;
-      scheduling_config?: unknown | null;
+      stats_config?: unknown;
+      scheduling_config?: unknown;
       allow_unknown_events?: boolean;
       _create_in_folder?: string;
       /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
@@ -17600,14 +14061,14 @@ export namespace Schemas {
     * `inconclusive` - inconclusive
     * `stopped_early` - stopped_early
     * `invalid` - invalid */
-      conclusion?: ConclusionEnum | NullEnum | null;
+      conclusion?: ConclusionEnum | null;
       /**
        * Comment about the experiment conclusion.
        * @nullable
        */
       conclusion_comment?: string | null;
-      primary_metrics_ordered_uuids?: unknown | null;
-      secondary_metrics_ordered_uuids?: unknown | null;
+      primary_metrics_ordered_uuids?: unknown;
+      secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
       /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
       update_feature_flag_params?: boolean;
@@ -17622,57 +14083,31 @@ export namespace Schemas {
 
     export interface ExperimentExposureCriteria {
       exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
     export type ExperimentExposureQueryFeatureFlag = { [key: string]: unknown };
 
-    export type ExperimentExposureQueryKind = typeof ExperimentExposureQueryKind[keyof typeof ExperimentExposureQueryKind];
-
-
-    export const ExperimentExposureQueryKind = {
-      ExperimentExposureQuery: 'ExperimentExposureQuery',
-    } as const;
-
     export interface FeatureFlagGroupType {
-      /** @nullable */
       aggregation_group_type_index?: number | null;
-      /** @nullable */
       description?: string | null;
-      /** @nullable */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      /** @nullable */
       rollout_percentage?: number | null;
-      /** @nullable */
       sort_key?: string | null;
-      /** @nullable */
       users_affected?: number | null;
-      /** @nullable */
       variant?: string | null;
     }
 
     export interface ExperimentHoldoutType {
-      /** @nullable */
       created_at?: string | null;
       created_by?: UserBasicType | null;
-      /** @nullable */
       description?: string | null;
       filters: FeatureFlagGroupType[];
-      /** @nullable */
       id?: number | null;
       name: string;
-      /** @nullable */
       updated_at?: string | null;
     }
-
-    export type ExperimentExposureQueryResponseKind = typeof ExperimentExposureQueryResponseKind[keyof typeof ExperimentExposureQueryResponseKind];
-
-
-    export const ExperimentExposureQueryResponseKind = {
-      ExperimentExposureQuery: 'ExperimentExposureQuery',
-    } as const;
 
     export type SampleRatioMismatchExpected = {[key: string]: number};
 
@@ -17692,32 +14127,26 @@ export namespace Schemas {
     export interface ExperimentExposureQueryResponse {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
-      kind?: ExperimentExposureQueryResponseKind;
+      kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: ExperimentExposureQueryResponseTotalExposures;
     }
 
     export interface ExperimentExposureQuery {
-      /** @nullable */
       end_date?: string | null;
-      /** @nullable */
       experiment_id?: number | null;
       experiment_name: string;
       exposure_criteria?: ExperimentExposureCriteria | null;
       feature_flag: ExperimentExposureQueryFeatureFlag;
       holdout?: ExperimentHoldoutType | null;
-      kind?: ExperimentExposureQueryKind;
+      kind?: 'ExperimentExposureQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: ExperimentExposureQueryResponse | null;
-      /** @nullable */
       start_date?: string | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -17804,7 +14233,7 @@ export namespace Schemas {
       export_format: ExportFormatEnum;
       readonly created_at: string;
       readonly has_content: boolean;
-      export_context?: unknown | null;
+      export_context?: unknown;
       readonly filename: string;
       /** @nullable */
       readonly expires_after: string | null;
@@ -17910,7 +14339,7 @@ export namespace Schemas {
     * `append` - append
     * `webhook` - webhook
     * `cdc` - cdc */
-      sync_type?: SyncTypeEnum | NullEnum | null;
+      sync_type?: SyncTypeEnum | null;
       /**
        * Column name used to track sync progress.
        * @nullable
@@ -17924,7 +14353,7 @@ export namespace Schemas {
     * `date` - date
     * `timestamp` - timestamp
     * `objectid` - objectid */
-      incremental_field_type?: IncrementalFieldTypeEnum | NullEnum | null;
+      incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
 
     * `never` - never
@@ -17938,7 +14367,7 @@ export namespace Schemas {
     * `24hour` - 24hour
     * `7day` - 7day
     * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | NullEnum | null;
+      sync_frequency?: SyncFrequencyEnum | null;
       /**
        * UTC time of day to run the sync (HH:MM:SS).
        * @nullable
@@ -17956,7 +14385,7 @@ export namespace Schemas {
     * `consolidated` - consolidated
     * `cdc_only` - cdc_only
     * `both` - both */
-      cdc_table_mode?: CdcTableModeEnum | NullEnum | null;
+      cdc_table_mode?: CdcTableModeEnum | null;
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -17971,7 +14400,7 @@ export namespace Schemas {
     * `append` - append
     * `webhook` - webhook
     * `cdc` - cdc */
-      sync_type?: SyncTypeEnum | NullEnum | null;
+      sync_type?: SyncTypeEnum | null;
       /**
        * Incremental cursor field for incremental or append syncs.
        * @nullable
@@ -17997,7 +14426,7 @@ export namespace Schemas {
     * `consolidated` - consolidated
     * `cdc_only` - cdc_only
     * `both` - both */
-      cdc_table_mode?: CdcTableModeEnum | NullEnum | null;
+      cdc_table_mode?: CdcTableModeEnum | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -18008,7 +14437,7 @@ export namespace Schemas {
 
     * `duckdb` - duckdb
     * `postgres` - postgres */
-      readonly engine: EngineEnum | NullEnum | null;
+      readonly engine: EngineEnum | null;
     }
 
     /**
@@ -18233,11 +14662,11 @@ export namespace Schemas {
 
     * `duckdb` - duckdb
     * `postgres` - postgres */
-      readonly engine: EngineEnum | NullEnum | null;
+      readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
       readonly schemas: readonly ExternalDataSourceSerializersSchemasItem[];
-      job_inputs?: unknown | null;
+      job_inputs?: unknown;
       readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig;
       /**
        * The effective access level the user has for this object
@@ -18320,7 +14749,7 @@ export namespace Schemas {
       readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadataItem[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
-      rollback_conditions?: unknown | null;
+      rollback_conditions?: unknown;
       /** @nullable */
       performed_rollback?: boolean | null;
       readonly can_edit: boolean;
@@ -18354,12 +14783,12 @@ export namespace Schemas {
     * `server` - Server
     * `client` - Client
     * `all` - All */
-      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null;
+      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | null;
       /** Identifier used for bucketing users into rollout and variants
 
     * `distinct_id` - User ID (default)
     * `device_id` - Device ID */
-      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
+      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
       /**
        * Last time this feature flag was called (from $feature_flag_called events)
        * @nullable
@@ -18381,7 +14810,7 @@ export namespace Schemas {
       /** Property type (person, group, etc.) */
       type: string;
       /** Actual property value from user */
-      actual_value: unknown | null;
+      actual_value: unknown;
       /** Whether this property condition matched */
       matched: boolean;
       /** Human-readable explanation of the match result */
@@ -18854,7 +15283,7 @@ export namespace Schemas {
        */
       condition_index: number | null;
       /** Payload associated with the flag result, if any */
-      payload: unknown | null;
+      payload: unknown;
       /** Person properties at the time of evaluation (for historical evaluations) */
       person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
       /**
@@ -18885,7 +15314,7 @@ export namespace Schemas {
        * @nullable
        */
       version?: number | null;
-      rollback_conditions?: unknown | null;
+      rollback_conditions?: unknown;
       /** @nullable */
       performed_rollback?: boolean | null;
       /** @nullable */
@@ -18901,12 +15330,12 @@ export namespace Schemas {
     * `server` - Server
     * `client` - Client
     * `all` - All */
-      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | NullEnum | null;
+      evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | null;
       /** Identifier used for bucketing users into rollout and variants
 
     * `distinct_id` - User ID (default)
     * `device_id` - Device ID */
-      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | NullEnum | null;
+      bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
       /**
        * Last time this feature flag was called (from $feature_flag_called events)
        * @nullable
@@ -18940,7 +15369,7 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
-      meta?: unknown | null;
+      meta?: unknown;
       /** @nullable */
       shortcut?: boolean | null;
       readonly created_at: string;
@@ -19003,7 +15432,7 @@ export namespace Schemas {
     /**
      * Optional translation-only draft survey payload to translate instead of the last saved survey.
      */
-    export type GenerateSurveyTranslationsRequestSurvey = {[key: string]: unknown | null};
+    export type GenerateSurveyTranslationsRequestSurvey = {[key: string]: unknown};
 
     export interface GenerateSurveyTranslationsRequest {
       /** Language code to generate translations for, for example pt-BR. */
@@ -19384,7 +15813,7 @@ export namespace Schemas {
       /** @nullable */
       threshold?: number | null;
       hash: string;
-      bytecode?: unknown | null;
+      bytecode?: unknown;
     }
 
     /**
@@ -19431,7 +15860,7 @@ export namespace Schemas {
       events?: HogFunctionFiltersEventsItem[];
       data_warehouse?: HogFunctionFiltersDataWarehouseItem[];
       properties?: HogFunctionFiltersPropertiesItem[];
-      bytecode?: unknown | null;
+      bytecode?: unknown;
       transpiled?: unknown;
       filter_test_accounts?: boolean;
       bytecode_error?: string;
@@ -19442,14 +15871,14 @@ export namespace Schemas {
       /** @maxLength 400 */
       name: string;
       description?: string;
-      on_error?: OnErrorEnum | NullEnum | null;
+      on_error?: OnErrorEnum | null;
       created_at?: number;
       updated_at?: number;
       filters?: HogFunctionFilters | null;
       /** @maxLength 100 */
       type: string;
       config: unknown;
-      output_variable?: unknown | null;
+      output_variable?: unknown;
     }
 
     export interface HogFlow {
@@ -19467,14 +15896,14 @@ export namespace Schemas {
       readonly updated_at: string;
       trigger?: unknown;
       trigger_masking?: HogFlowMasking | null;
-      conversion?: unknown | null;
+      conversion?: unknown;
       exit_condition?: ExitConditionEnum;
       edges?: unknown;
       actions: HogFlowAction[];
       /** @nullable */
       readonly abort_action: string | null;
       variables?: HogFlowVariablesItem[];
-      readonly billable_action_types: unknown | null;
+      readonly billable_action_types: unknown;
     }
 
     export interface HogFlowMinimal {
@@ -19488,15 +15917,15 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       readonly trigger: unknown;
-      readonly trigger_masking: unknown | null;
-      readonly conversion: unknown | null;
+      readonly trigger_masking: unknown;
+      readonly conversion: unknown;
       readonly exit_condition: ExitConditionEnum;
       readonly edges: unknown;
       readonly actions: unknown;
       /** @nullable */
       readonly abort_action: string | null;
-      readonly variables: unknown | null;
-      readonly billable_action_types: unknown | null;
+      readonly variables: unknown;
+      readonly billable_action_types: unknown;
     }
 
     /**
@@ -19557,14 +15986,14 @@ export namespace Schemas {
       /** @maxLength 400 */
       name: string;
       description?: string;
-      on_error?: OnErrorEnum | NullEnum | null;
+      on_error?: OnErrorEnum | null;
       created_at?: number;
       updated_at?: number;
       filters?: HogFunctionFilters | null;
       /** @maxLength 100 */
       type: string;
       config: unknown;
-      output_variable?: unknown | null;
+      output_variable?: unknown;
     }
 
     /**
@@ -19589,7 +16018,7 @@ export namespace Schemas {
       readonly updated_at: string;
       trigger?: unknown;
       trigger_masking?: HogFlowMasking | null;
-      conversion?: unknown | null;
+      conversion?: unknown;
       exit_condition?: ExitConditionEnum;
       edges?: unknown;
       actions: HogFlowTemplateAction[];
@@ -19717,7 +16146,7 @@ export namespace Schemas {
       /** Hog expression used to compute the masking hash. */
       hash: string;
       /** Compiled bytecode for the hash expression. Auto-generated. */
-      bytecode?: unknown | null;
+      bytecode?: unknown;
     }
 
     export type MappingsInputs = {[key: string]: InputsItem};
@@ -19743,11 +16172,11 @@ export namespace Schemas {
        */
       use_all_events_by_default?: boolean | null;
       /** Event filters specific to this mapping. */
-      filters?: unknown | null;
+      filters?: unknown;
       /** Input values specific to this mapping. */
-      inputs?: unknown | null;
+      inputs?: unknown;
       /** Additional input schema fields specific to this mapping. */
-      inputs_schema?: unknown | null;
+      inputs_schema?: unknown;
     }
 
     export interface HogFunctionTemplate {
@@ -19792,9 +16221,9 @@ export namespace Schemas {
        */
       icon_url?: string | null;
       /** Default event filters. */
-      filters?: unknown | null;
+      filters?: unknown;
       /** Default PII masking configuration. */
-      masking?: unknown | null;
+      masking?: unknown;
       /**
        * Pre-defined mapping configurations for destination templates.
        * @nullable
@@ -19838,7 +16267,7 @@ export namespace Schemas {
     * `warehouse_source_webhook` - Warehouse Source Webhook
     * `site_app` - Site App
     * `transformation` - Transformation */
-      type?: HogFunctionTypeEnum | NullEnum | null;
+      type?: HogFunctionTypeEnum | null;
       /**
        * Display name for the function.
        * @maxLength 400
@@ -19856,7 +16285,7 @@ export namespace Schemas {
       deleted?: boolean;
       /** Source code. Hog language for most types; TypeScript for site_destination and site_app. */
       hog?: string;
-      readonly bytecode: unknown | null;
+      readonly bytecode: unknown;
       /** @nullable */
       readonly transpiled: string | null;
       /** Schema defining the configurable input parameters for this function. */
@@ -19939,7 +16368,7 @@ export namespace Schemas {
       readonly updated_at: string;
       readonly enabled: boolean;
       readonly hog: string;
-      readonly filters: unknown | null;
+      readonly filters: unknown;
       /** @nullable */
       readonly icon_url: string | null;
       readonly template: HogFunctionTemplate;
@@ -19962,34 +16391,16 @@ export namespace Schemas {
 
     /**
      * Global values in scope
-     * @nullable
      */
-    export type HogQLAutocompleteGlobals = { [key: string]: unknown } | null | null;
-
-    export type HogQLAutocompleteKind = typeof HogQLAutocompleteKind[keyof typeof HogQLAutocompleteKind];
-
-
-    export const HogQLAutocompleteKind = {
-      HogQLAutocomplete: 'HogQLAutocomplete',
-    } as const;
+    export type HogQLAutocompleteGlobals = { [key: string]: unknown } | null;
 
     export interface HogQLAutocompleteResponse {
       /** Whether or not the suggestions returned are complete */
       incomplete_list: boolean;
       suggestions: AutocompleteCompletionItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
-
-    export type InsightActorsQueryOptionsKind = typeof InsightActorsQueryOptionsKind[keyof typeof InsightActorsQueryOptionsKind];
-
-
-    export const InsightActorsQueryOptionsKind = {
-      InsightActorsQueryOptions: 'InsightActorsQueryOptions',
-    } as const;
 
     export interface MultipleBreakdownOptions {
       values: BreakdownItem[];
@@ -20012,66 +16423,36 @@ export namespace Schemas {
     }
 
     export interface InsightActorsQueryOptionsResponse {
-      /** @nullable */
       breakdown?: BreakdownItem[] | null;
-      /** @nullable */
       breakdowns?: MultipleBreakdownOptions[] | null;
-      /** @nullable */
       compare?: CompareItem[] | null;
-      /** @nullable */
       day?: DayItem[] | null;
-      /** @nullable */
       interval?: IntervalItem[] | null;
-      /** @nullable */
       series?: Series[] | null;
-      /** @nullable */
       status?: StatusItem[] | null;
     }
 
     export interface InsightActorsQueryOptions {
-      kind?: InsightActorsQueryOptionsKind;
+      kind?: 'InsightActorsQueryOptions';
       response?: InsightActorsQueryOptionsResponse | null;
       source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | ExperimentActorsQuery;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type SessionsTimelineQueryKind = typeof SessionsTimelineQueryKind[keyof typeof SessionsTimelineQueryKind];
-
-
-    export const SessionsTimelineQueryKind = {
-      SessionsTimelineQuery: 'SessionsTimelineQuery',
-    } as const;
-
     export interface TimelineEntry {
       events: EventType[];
-      /**
-       * Duration of the recording in seconds.
-       * @nullable
-       */
+      /** Duration of the recording in seconds. */
       recording_duration_s?: number | null;
-      /**
-       * Session ID. None means out-of-session events
-       * @nullable
-       */
+      /** Session ID. None means out-of-session events */
       sessionId?: string | null;
     }
 
     export interface SessionsTimelineQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -20080,38 +16461,23 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TimelineEntry[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface SessionsTimelineQuery {
-      /**
-       * Only fetch sessions that started after this timestamp (default: '-24h')
-       * @nullable
-       */
+      /** Only fetch sessions that started after this timestamp (default: '-24h') */
       after?: string | null;
-      /**
-       * Only fetch sessions that started before this timestamp (default: '+5s')
-       * @nullable
-       */
+      /** Only fetch sessions that started before this timestamp (default: '+5s') */
       before?: string | null;
-      kind?: SessionsTimelineQueryKind;
+      kind?: 'SessionsTimelineQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Fetch sessions only for a given person
-       * @nullable
-       */
+      /** Fetch sessions only for a given person */
       personId?: string | null;
       response?: SessionsTimelineQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -20123,62 +16489,33 @@ export namespace Schemas {
     } as const;
 
     export interface HogQueryResponse {
-      /** @nullable */
       bytecode?: unknown[] | null;
-      /** @nullable */
       coloredBytecode?: unknown[] | null;
       results: unknown;
-      /** @nullable */
       stdout?: string | null;
     }
 
     export interface HogQuery {
-      /** @nullable */
       code?: string | null;
       kind: HogQueryKind;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: HogQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type HogQLMetadataKind = typeof HogQLMetadataKind[keyof typeof HogQLMetadataKind];
-
-
-    export const HogQLMetadataKind = {
-      HogQLMetadata: 'HogQLMetadata',
-    } as const;
-
-    export type WebPageURLSearchQueryKind = typeof WebPageURLSearchQueryKind[keyof typeof WebPageURLSearchQueryKind];
-
-
-    export const WebPageURLSearchQueryKind = {
-      WebPageURLSearchQuery: 'WebPageURLSearchQuery',
-    } as const;
 
     export interface PageURL {
       url: string;
     }
 
     export interface WebPageURLSearchQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -20187,71 +16524,40 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PageURL[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
-    export const WebPageURLSearchQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
     export interface WebPageURLSearchQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: WebPageURLSearchQueryKind;
-      /** @nullable */
+      kind?: 'WebPageURLSearchQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      orderBy?: typeof WebPageURLSearchQueryOrderByItem[keyof typeof WebPageURLSearchQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebPageURLSearchQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
-      /** @nullable */
       searchTerm?: string | null;
-      /** @nullable */
       stripQueryParams?: boolean | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type WebTrendsQueryKind = typeof WebTrendsQueryKind[keyof typeof WebTrendsQueryKind];
-
-
-    export const WebTrendsQueryKind = {
-      WebTrendsQuery: 'WebTrendsQuery',
-    } as const;
 
     export type WebTrendsMetric = typeof WebTrendsMetric[keyof typeof WebTrendsMetric];
 
@@ -20266,17 +16572,11 @@ export namespace Schemas {
     } as const;
 
     export interface Metrics {
-      /** @nullable */
       Bounces?: number | null;
-      /** @nullable */
       PageViews?: number | null;
-      /** @nullable */
       SessionDuration?: number | null;
-      /** @nullable */
       Sessions?: number | null;
-      /** @nullable */
       TotalSessions?: number | null;
-      /** @nullable */
       UniqueUsers?: number | null;
     }
 
@@ -20286,45 +16586,24 @@ export namespace Schemas {
     }
 
     export interface WebTrendsQueryResponse {
-      /**
-       * Executed ClickHouse query
-       * @nullable
-       */
+      /** Executed ClickHouse query */
       clickhouse?: string | null;
-      /**
-       * Returned columns
-       * @nullable
-       */
+      /** Returned columns */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Query explanation output
-       * @nullable
-       */
+      /** Query explanation output */
       explain?: string[] | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /**
-       * Input query string
-       * @nullable
-       */
+      /** Input query string */
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -20332,77 +16611,43 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebTrendsItem[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /**
-       * Types of returned columns
-       * @nullable
-       */
+      /** Types of returned columns */
       types?: unknown[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
-    export const WebTrendsQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
     export interface WebTrendsQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval: IntervalType;
-      kind?: WebTrendsQueryKind;
-      /** @nullable */
+      kind?: 'WebTrendsQuery';
       limit?: number | null;
       metrics: WebTrendsMetric[];
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /** @nullable */
-      orderBy?: typeof WebTrendsQueryOrderByItem[keyof typeof WebTrendsQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebTrendsQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type WebAnalyticsExternalSummaryQueryKind = typeof WebAnalyticsExternalSummaryQueryKind[keyof typeof WebAnalyticsExternalSummaryQueryKind];
-
-
-    export const WebAnalyticsExternalSummaryQueryKind = {
-      WebAnalyticsExternalSummaryQuery: 'WebAnalyticsExternalSummaryQuery',
-    } as const;
 
     export type WebAnalyticsExternalSummaryQueryResponseData = { [key: string]: unknown };
 
@@ -20414,22 +16659,12 @@ export namespace Schemas {
 
     export interface WebAnalyticsExternalSummaryQuery {
       dateRange: DateRange;
-      kind?: WebAnalyticsExternalSummaryQueryKind;
+      kind?: 'WebAnalyticsExternalSummaryQuery';
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebAnalyticsExternalSummaryQueryResponse | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type WebNotableChangesQueryKind = typeof WebNotableChangesQueryKind[keyof typeof WebNotableChangesQueryKind];
-
-
-    export const WebNotableChangesQueryKind = {
-      WebNotableChangesQuery: 'WebNotableChangesQuery',
-    } as const;
 
     export interface WebNotableChangeItem {
       current_value: number;
@@ -20442,15 +16677,9 @@ export namespace Schemas {
     }
 
     export interface WebNotableChangesQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -20460,69 +16689,39 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebNotableChangeItem[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
-    export const WebNotableChangesQueryOrderByItem = {...WebAnalyticsOrderByFields,...WebAnalyticsOrderByDirection,} as const
     export interface WebNotableChangesQuery {
-      /**
-       * Groups aggregation - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
       aggregation_group_type_index?: number | null;
       compareFilter?: CompareFilter | null;
       conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /**
-       * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
-       * @nullable
-       */
+      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
-      /** @nullable */
       doPathCleaning?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      /** @nullable */
       includeRevenue?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
-      kind?: WebNotableChangesQueryKind;
-      /** @nullable */
+      kind?: 'WebNotableChangesQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
-      orderBy?: typeof WebNotableChangesQueryOrderByItem[keyof typeof WebNotableChangesQueryOrderByItem] [] | null;
+      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebNotableChangesQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
-      /**
-       * Sampling rate
-       * @nullable
-       */
+      /** Sampling rate */
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       useSessionsTable?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type LogsQueryKind = typeof LogsQueryKind[keyof typeof LogsQueryKind];
-
-
-    export const LogsQueryKind = {
-      LogsQuery: 'LogsQuery',
-    } as const;
 
     export type LogsOrderBy = typeof LogsOrderBy[keyof typeof LogsOrderBy];
 
@@ -20533,40 +16732,24 @@ export namespace Schemas {
     } as const;
 
     export interface LogsQueryResponse {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       nextCursor?: string | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -20591,46 +16774,28 @@ export namespace Schemas {
     } as const;
 
     export interface LogsQuery {
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       after?: string | null;
       dateRange: DateRange;
       filterGroup: PropertyGroupFilter;
-      kind?: LogsQueryKind;
-      /** @nullable */
+      kind?: 'LogsQuery';
       limit?: number | null;
-      /** @nullable */
       liveLogsCheckpoint?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       orderBy?: LogsOrderBy | null;
-      /** @nullable */
       resourceFingerprint?: string | null;
       response?: LogsQueryResponse | null;
-      /** @nullable */
       searchTerm?: string | null;
       serviceNames: string[];
       severityLevels: LogSeverityLevel[];
       /** Field to break down sparkline data by (used only by sparkline endpoint) */
       sparklineBreakdownBy?: LogsSparklineBreakdownBy | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type LogAttributesQueryKind = typeof LogAttributesQueryKind[keyof typeof LogAttributesQueryKind];
-
-
-    export const LogAttributesQueryKind = {
-      LogAttributesQuery: 'LogAttributesQuery',
-    } as const;
 
     export type MatchedOn = typeof MatchedOn[keyof typeof MatchedOn];
 
@@ -20643,10 +16808,7 @@ export namespace Schemas {
     export interface LogAttributeResult {
       /** Whether this row matched the search by attribute key or by attribute value. */
       matchedOn: MatchedOn;
-      /**
-       * Sample value that matched the search — only set when matchedOn is 'value'.
-       * @nullable
-       */
+      /** Sample value that matched the search — only set when matchedOn is 'value'. */
       matchedValue?: string | null;
       name: string;
       /** Either 'log_attribute' or 'log_resource_attribute'. */
@@ -20655,15 +16817,9 @@ export namespace Schemas {
 
     export interface LogAttributesQueryResponse {
       count: number;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -20672,10 +16828,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogAttributeResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -20683,39 +16836,21 @@ export namespace Schemas {
       attributeType: string;
       dateRange?: DateRange | null;
       filterGroup?: PropertyGroupFilter | null;
-      kind?: LogAttributesQueryKind;
-      /** @nullable */
+      kind?: 'LogAttributesQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       response?: LogAttributesQueryResponse | null;
-      /** @nullable */
       search?: string | null;
-      /**
-       * When true, the search query also matches attribute values (not just keys).
-       * @nullable
-       */
+      /** When true, the search query also matches attribute values (not just keys). */
       searchValues?: boolean | null;
-      /** @nullable */
       serviceNames?: string[] | null;
-      /** @nullable */
       severityLevels?: LogSeverityLevel[] | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type LogValuesQueryKind = typeof LogValuesQueryKind[keyof typeof LogValuesQueryKind];
-
-
-    export const LogValuesQueryKind = {
-      LogValuesQuery: 'LogValuesQuery',
-    } as const;
 
     export interface LogValueResult {
       id: string;
@@ -20723,15 +16858,9 @@ export namespace Schemas {
     }
 
     export interface LogValuesQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -20740,10 +16869,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogValueResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -20752,115 +16878,63 @@ export namespace Schemas {
       attributeType: string;
       dateRange?: DateRange | null;
       filterGroup?: PropertyGroupFilter | null;
-      kind?: LogValuesQueryKind;
-      /** @nullable */
+      kind?: 'LogValuesQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       response?: LogValuesQueryResponse | null;
-      /** @nullable */
       search?: string | null;
-      /** @nullable */
       serviceNames?: string[] | null;
-      /** @nullable */
       severityLevels?: LogSeverityLevel[] | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type TraceSpansQueryKind = typeof TraceSpansQueryKind[keyof typeof TraceSpansQueryKind];
-
-
-    export const TraceSpansQueryKind = {
-      TraceSpansQuery: 'TraceSpansQuery',
-    } as const;
-
     export interface TraceSpansQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       nextCursor?: string | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface TraceSpansQuery {
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       after?: string | null;
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
-      kind?: TraceSpansQueryKind;
-      /** @nullable */
+      kind?: 'TraceSpansQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       orderBy?: LogsOrderBy | null;
-      /**
-       * Prefetch up to this many spans per trace and include them in results
-       * @nullable
-       */
+      /** Prefetch up to this many spans per trace and include them in results */
       prefetchSpans?: number | null;
       response?: TraceSpansQueryResponse | null;
-      /** @nullable */
       rootSpans?: boolean | null;
-      /** @nullable */
       serviceNames?: string[] | null;
-      /** @nullable */
       statusCodes?: number[] | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       traceId?: string | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type RecordingsQueryKind = typeof RecordingsQueryKind[keyof typeof RecordingsQueryKind];
-
-
-    export const RecordingsQueryKind = {
-      RecordingsQuery: 'RecordingsQuery',
-    } as const;
 
     export type RecordingOrder = typeof RecordingOrder[keyof typeof RecordingOrder];
 
@@ -20893,17 +16967,13 @@ export namespace Schemas {
       kind: IntegrationKind;
     }
 
-    /**
-     * @nullable
-     */
-    export type SessionRecordingExternalReferenceMetadata = {[key: string]: string} | null | null;
+    export type SessionRecordingExternalReferenceMetadata = {[key: string]: string} | null;
 
     export interface SessionRecordingExternalReference {
       external_url: string;
       id: string;
       integration: Integration;
       issue_id: string;
-      /** @nullable */
       metadata?: SessionRecordingExternalReferenceMetadata;
       title: string;
     }
@@ -20915,26 +16985,19 @@ export namespace Schemas {
 
     export interface MatchedRecording {
       events: MatchedRecordingEvent[];
-      /** @nullable */
       session_id?: string | null;
     }
 
     export type PersonTypeProperties = { [key: string]: unknown };
 
     export interface PersonType {
-      /** @nullable */
       created_at?: string | null;
       distinct_ids: string[];
-      /** @nullable */
       id?: string | null;
-      /** @nullable */
       is_identified?: boolean | null;
-      /** @nullable */
       last_seen_at?: string | null;
-      /** @nullable */
       name?: string | null;
       properties: PersonTypeProperties;
-      /** @nullable */
       uuid?: string | null;
     }
 
@@ -20948,88 +17011,49 @@ export namespace Schemas {
     } as const;
 
     export interface SummaryOutcome {
-      /** @nullable */
       description?: string | null;
-      /** @nullable */
       success?: boolean | null;
     }
 
     export interface SessionRecordingType {
-      /** @nullable */
       active_seconds?: number | null;
-      /**
-       * calculated on the backend so that we can sort by it, definition may change over time
-       * @nullable
-       */
+      /** calculated on the backend so that we can sort by it, definition may change over time */
       activity_score?: number | null;
-      /** @nullable */
       click_count?: number | null;
-      /** @nullable */
       console_error_count?: number | null;
-      /** @nullable */
       console_log_count?: number | null;
-      /** @nullable */
       console_warn_count?: number | null;
-      /** @nullable */
       distinct_id?: string | null;
-      /** @nullable */
       email?: string | null;
       /** When the recording ends in ISO format. */
       end_time: string;
-      /**
-       * When the recording expires, in ISO format.
-       * @nullable
-       */
+      /** When the recording expires, in ISO format. */
       expiry_time?: string | null;
-      /**
-       * External references to third party issues.
-       * @nullable
-       */
+      /** External references to third party issues. */
       external_references?: SessionRecordingExternalReference[] | null;
-      /** @nullable */
       has_summary?: boolean | null;
       id: string;
-      /** @nullable */
       inactive_seconds?: number | null;
-      /** @nullable */
       keypress_count?: number | null;
-      /**
-       * List of matching events. *
-       * @nullable
-       */
+      /** List of matching events. * */
       matching_events?: MatchedRecording[] | null;
-      /**
-       * count of all mouse activity in the recording, not just clicks
-       * @nullable
-       */
+      /** count of all mouse activity in the recording, not just clicks */
       mouse_activity_count?: number | null;
-      /**
-       * whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded from ClickHouse)
-    *
-       * @nullable
-       */
+      /** whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded from ClickHouse)
+    * */
       ongoing?: boolean | null;
       person?: PersonType | null;
       /** Length of recording in seconds. */
       recording_duration: number;
-      /**
-       * Number of whole days left until the recording expires.
-       * @nullable
-       */
+      /** Number of whole days left until the recording expires. */
       recording_ttl?: number | null;
-      /**
-       * retention period for this recording
-       * @nullable
-       */
+      /** retention period for this recording */
       retention_period_days?: number | null;
-      /** @nullable */
       snapshot_library?: string | null;
       snapshot_source: SnapshotSource;
       /** When the recording starts in ISO format. */
       start_time: string;
-      /** @nullable */
       start_url?: string | null;
-      /** @nullable */
       summary?: string | null;
       summary_outcome?: SummaryOutcome | null;
       /** Whether this recording has been viewed by you already. */
@@ -21039,149 +17063,80 @@ export namespace Schemas {
     }
 
     export interface RecordingsQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       has_next: boolean;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for the next page. Contains the ordering value and session_id from the last record.
-       * @nullable
-       */
+      /** Cursor for the next page. Contains the ordering value and session_id from the last record. */
       next_cursor?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SessionRecordingType[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
-    export type RecordingsQueryActionsItem = { [key: string]: unknown };
-
-    export type RecordingsQueryEventsItem = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type RecordingsQueryUserModifiedFilters = { [key: string]: unknown } | null | null;
+    export type RecordingsQueryUserModifiedFilters = { [key: string]: unknown } | null;
 
     export interface RecordingsQuery {
-      /** @nullable */
-      actions?: RecordingsQueryActionsItem[] | null;
-      /**
-       * Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page.
-       * @nullable
-       */
+      actions?: undefinedItem[] | null;
+      /** Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page. */
       after?: string | null;
       comment_text?: RecordingPropertyFilter | null;
-      /** @nullable */
       console_log_filters?: LogEntryPropertyFilter[] | null;
-      /** @nullable */
       date_from?: string | null;
-      /** @nullable */
       date_to?: string | null;
-      /** @nullable */
       distinct_ids?: string[] | null;
-      /** @nullable */
-      events?: RecordingsQueryEventsItem[] | null;
-      /** @nullable */
+      events?: undefinedItem[] | null;
       filter_test_accounts?: boolean | null;
-      /** @nullable */
       having_predicates?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: RecordingsQueryKind;
-      /** @nullable */
+      kind?: 'RecordingsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       operand?: FilterLogicalOperator | null;
       order?: RecordingOrder | null;
       /** Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here */
       order_direction?: RecordingOrderDirection | null;
-      /** @nullable */
       person_uuid?: string | null;
-      /** @nullable */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: RecordingsQueryResponse | null;
-      /** @nullable */
       session_ids?: string[] | null;
-      /**
-       * If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters
-       * @nullable
-       */
+      /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
       session_recording_id?: string | null;
       tags?: QueryLogTags | null;
-      /** @nullable */
       user_modified_filters?: RecordingsQueryUserModifiedFilters;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
-    export type TraceNeighborsQueryKind = typeof TraceNeighborsQueryKind[keyof typeof TraceNeighborsQueryKind];
-
-
-    export const TraceNeighborsQueryKind = {
-      TraceNeighborsQuery: 'TraceNeighborsQuery',
-    } as const;
-
     export interface TraceNeighborsQueryResponse {
-      /**
-       * Timestamp of the newer trace
-       * @nullable
-       */
+      /** Timestamp of the newer trace */
       newerTimestamp?: string | null;
-      /**
-       * ID of the newer trace (chronologically after current)
-       * @nullable
-       */
+      /** ID of the newer trace (chronologically after current) */
       newerTraceId?: string | null;
-      /**
-       * Timestamp of the older trace
-       * @nullable
-       */
+      /** Timestamp of the older trace */
       olderTimestamp?: string | null;
-      /**
-       * ID of the older trace (chronologically before current)
-       * @nullable
-       */
+      /** ID of the older trace (chronologically before current) */
       olderTraceId?: string | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface TraceNeighborsQuery {
       dateRange?: DateRange | null;
-      /** @nullable */
       filterSupportTraces?: boolean | null;
-      /** @nullable */
       filterTestAccounts?: boolean | null;
-      kind?: TraceNeighborsQueryKind;
+      kind?: 'TraceNeighborsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Properties configurable in the interface
-       * @nullable
-       */
+      /** Properties configurable in the interface */
       properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: TraceNeighborsQueryResponse | null;
       tags?: QueryLogTags | null;
@@ -21189,19 +17144,9 @@ export namespace Schemas {
       timestamp: string;
       /** ID of the current trace to find neighbors for */
       traceId: string;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type VectorSearchQueryKind = typeof VectorSearchQueryKind[keyof typeof VectorSearchQueryKind];
-
-
-    export const VectorSearchQueryKind = {
-      VectorSearchQuery: 'VectorSearchQuery',
-    } as const;
 
     export interface VectorSearchResponseItem {
       distance: number;
@@ -21209,15 +17154,9 @@ export namespace Schemas {
     }
 
     export interface VectorSearchQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -21226,35 +17165,21 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: VectorSearchResponseItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface VectorSearchQuery {
       embedding: number[];
-      /** @nullable */
       embeddingVersion?: number | null;
-      kind?: VectorSearchQueryKind;
+      kind?: 'VectorSearchQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: VectorSearchQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type UsageMetricsQueryKind = typeof UsageMetricsQueryKind[keyof typeof UsageMetricsQueryKind];
-
-
-    export const UsageMetricsQueryKind = {
-      UsageMetricsQuery: 'UsageMetricsQuery',
-    } as const;
 
     export type UsageMetricDisplay = typeof UsageMetricDisplay[keyof typeof UsageMetricDisplay];
 
@@ -21273,7 +17198,6 @@ export namespace Schemas {
     } as const;
 
     export interface UsageMetric {
-      /** @nullable */
       change_from_previous_pct?: number | null;
       display: UsageMetricDisplay;
       format: UsageMetricFormat;
@@ -21281,29 +17205,17 @@ export namespace Schemas {
       interval: number;
       name: string;
       previous: number;
-      /**
-       * Daily values over the current interval period. Only populated when display is 'sparkline'.
-       * @nullable
-       */
+      /** Daily values over the current interval period. Only populated when display is 'sparkline'. */
       timeseries?: number[] | null;
-      /**
-       * ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'.
-       * @nullable
-       */
+      /** ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'. */
       timeseries_labels?: string[] | null;
       value: number;
     }
 
     export interface UsageMetricsQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -21312,72 +17224,46 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: UsageMetric[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface UsageMetricsQuery {
-      /**
-       * Group key. Required with group_type_index for group queries.
-       * @nullable
-       */
+      /** Group key. Required with group_type_index for group queries. */
       group_key?: string | null;
-      /**
-       * Group type index. Required with group_key for group queries.
-       * @nullable
-       */
+      /** Group type index. Required with group_key for group queries. */
       group_type_index?: number | null;
-      kind?: UsageMetricsQueryKind;
+      kind?: 'UsageMetricsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Person ID to fetch metrics for. Mutually exclusive with group parameters.
-       * @nullable
-       */
+      /** Person ID to fetch metrics for. Mutually exclusive with group parameters. */
       person_id?: string | null;
       response?: UsageMetricsQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     /**
      * Extra globals for the query
-     * @nullable
      */
-    export type HogQLMetadataGlobals = { [key: string]: unknown } | null | null;
+    export type HogQLMetadataGlobals = { [key: string]: unknown } | null;
 
     /**
      * Variables to be subsituted into the query
-     * @nullable
      */
-    export type HogQLMetadataVariables = {[key: string]: HogQLVariable} | null | null;
+    export type HogQLMetadataVariables = {[key: string]: HogQLVariable} | null;
 
     export interface HogQLMetadata {
-      /**
-       * Optional direct external data source id for running against a specific source
-       * @nullable
-       */
+      /** Optional direct external data source id for running against a specific source */
       connectionId?: string | null;
-      /**
-       * Enable more verbose output, usually run from the /debug page
-       * @nullable
-       */
+      /** Enable more verbose output, usually run from the /debug page */
       debug?: boolean | null;
       /** Extra filters applied to query via {filters} */
       filters?: HogQLFilters | null;
-      /**
-       * Extra globals for the query
-       * @nullable
-       */
+      /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
-      kind?: HogQLMetadataKind;
+      kind?: 'HogQLMetadata';
       /** Language to validate */
       language: HogLanguage;
       /** Modifiers used when performing the query */
@@ -21388,34 +17274,22 @@ export namespace Schemas {
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
       sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
-      /**
-       * Variables to be subsituted into the query
-       * @nullable
-       */
+      /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
     export interface HogQLAutocomplete {
-      /**
-       * Optional direct external data source id for running against a specific source
-       * @nullable
-       */
+      /** Optional direct external data source id for running against a specific source */
       connectionId?: string | null;
       /** End position of the editor word */
       endPosition: number;
       /** Table to validate the expression against */
       filters?: HogQLFilters | null;
-      /**
-       * Global values in scope
-       * @nullable
-       */
+      /** Global values in scope */
       globals?: HogQLAutocompleteGlobals;
-      kind?: HogQLAutocompleteKind;
+      kind?: 'HogQLAutocomplete';
       /** Language to validate */
       language: HogLanguage;
       /** Modifiers used when performing the query */
@@ -21428,10 +17302,7 @@ export namespace Schemas {
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -21451,11 +17322,8 @@ export namespace Schemas {
     } as const;
 
     export interface Retention {
-      /** @nullable */
       hideLineGraph?: boolean | null;
-      /** @nullable */
       hideSizeColumn?: boolean | null;
-      /** @nullable */
       useSmallLayout?: boolean | null;
     }
 
@@ -21465,42 +17333,23 @@ export namespace Schemas {
     }
 
     export interface InsightVizNode {
-      /**
-       * Query is embedded inside another bordered component
-       * @nullable
-       */
+      /** Query is embedded inside another bordered component */
       embedded?: boolean | null;
-      /**
-       * Show with most visual options enabled. Used in insight scene.
-       * @nullable
-       */
+      /** Show with most visual options enabled. Used in insight scene. */
       full?: boolean | null;
-      /** @nullable */
       hidePersonsModal?: boolean | null;
-      /** @nullable */
       hideTooltipOnScroll?: boolean | null;
       kind: InsightVizNodeKind;
-      /** @nullable */
       showCorrelationTable?: boolean | null;
-      /** @nullable */
       showFilters?: boolean | null;
-      /** @nullable */
       showHeader?: boolean | null;
-      /** @nullable */
       showLastComputation?: boolean | null;
-      /** @nullable */
       showLastComputationRefresh?: boolean | null;
-      /** @nullable */
       showResults?: boolean | null;
-      /** @nullable */
       showTable?: boolean | null;
       source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery;
-      /** @nullable */
       suppressSessionAnalysisWarning?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
       vizSpecificOptions?: VizSpecificOptions | null;
     }
@@ -21666,7 +17515,7 @@ export namespace Schemas {
     * `Date` - Date */
       type: InsightVariableTypeEnum;
       /** Default value used when a query references this variable. */
-      default_value?: unknown | null;
+      default_value?: unknown;
       /**
        * ID of the user who created the SQL variable.
        * @nullable
@@ -21680,7 +17529,7 @@ export namespace Schemas {
        */
       readonly code_name: string | null;
       /** Allowed values for List variables. Null for other variable types. */
-      values?: unknown | null;
+      values?: unknown;
     }
 
     export interface InsightsToolCall {
@@ -22987,7 +18836,7 @@ export namespace Schemas {
     export interface PropertyDefinition {
       readonly id: string;
       readonly name: string;
-      readonly property_type: PropertyDefinitionTypeEnum | NullEnum | null;
+      readonly property_type: PropertyDefinitionTypeEnum | null;
       readonly type: PropertyDefinitionTypeEnum;
     }
 
@@ -23046,7 +18895,7 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 10000 */
       text: string;
-      scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
+      scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
     export type MessageContextualTools = { [key: string]: unknown };
@@ -23068,7 +18917,7 @@ export namespace Schemas {
       session_id?: string;
       agent_mode?: AgentModeEnum;
       is_sandbox?: boolean;
-      resume_payload?: unknown | null;
+      resume_payload?: unknown;
     }
 
     export interface MessageCategory {
@@ -23259,7 +19108,7 @@ export namespace Schemas {
        */
       title?: string | null;
       /** Notebook content as a ProseMirror JSON document structure. */
-      content?: unknown | null;
+      content?: unknown;
       /**
        * Plain text representation of the notebook content for search.
        * @nullable
@@ -23368,7 +19217,7 @@ export namespace Schemas {
       resource_type: string | null;
       resource_id: string;
       source_url: string;
-      source_type: NotificationEventSourceTypeEnum | NullEnum | null;
+      source_type: NotificationEventSourceTypeEnum | null;
       /** @nullable */
       source_id: string | null;
       created_at: string;
@@ -23515,7 +19364,7 @@ export namespace Schemas {
       logo_media_id?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
-      readonly membership_level: EffectiveMembershipLevelEnum | null;
+      readonly membership_level: EffectiveMembershipLevelEnum;
       readonly plugins_access_level: PluginsAccessLevelEnum;
       readonly teams: readonly OrganizationTeamsItem[];
       readonly projects: readonly OrganizationProjectsItem[];
@@ -23539,7 +19388,7 @@ export namespace Schemas {
 
     * `bayesian` - Bayesian
     * `frequentist` - Frequentist */
-      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null;
+      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
@@ -23579,7 +19428,7 @@ export namespace Schemas {
       slug: string;
       /** @nullable */
       readonly logo_media_id: string | null;
-      readonly membership_level: EffectiveMembershipLevelEnum | null;
+      readonly membership_level: EffectiveMembershipLevelEnum;
       members_can_use_personal_api_keys?: boolean;
       /**
        * Set this to 'No' to temporarily disable an organization.
@@ -23688,7 +19537,7 @@ export namespace Schemas {
       /** @nullable */
       message?: string | null;
       /** List of team IDs and corresponding access levels to private projects. */
-      private_project_access?: unknown | null;
+      private_project_access?: unknown;
       send_email?: boolean;
       combine_pending_invites?: boolean;
     }
@@ -23794,910 +19643,707 @@ export namespace Schemas {
 
     export interface PaginatedActionList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Action[];
     }
 
     export interface PaginatedActivityLogList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ActivityLog[];
     }
 
     export interface PaginatedAlertList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Alert[];
     }
 
     export interface PaginatedAnnotationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Annotation[];
     }
 
     export interface PaginatedApprovalPolicyList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ApprovalPolicy[];
     }
 
     export interface PaginatedAsyncDeletionStatusList {
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       count?: number;
       results?: AsyncDeletionStatus[];
     }
 
     export interface PaginatedBatchExportBackfillList {
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: BatchExportBackfill[];
     }
 
     export interface PaginatedBatchExportList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: BatchExport[];
     }
 
     export interface PaginatedBatchExportRunList {
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: BatchExportRun[];
     }
 
     export interface PaginatedBatchImportList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: BatchImport[];
     }
 
     export interface PaginatedChangeRequestList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ChangeRequest[];
     }
 
     export interface PaginatedClickhouseEventList {
-      /** @nullable */
       next?: string | null;
       results?: ClickhouseEvent[];
     }
 
     export interface PaginatedClusteringJobList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ClusteringJob[];
     }
 
     export interface PaginatedCohortList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Cohort[];
     }
 
     export interface PaginatedColumnConfigurationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ColumnConfiguration[];
     }
 
     export interface PaginatedCommentList {
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Comment[];
     }
 
     export interface PaginatedConversationMinimalList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ConversationMinimal[];
     }
 
     export interface PaginatedCoreEventList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: CoreEvent[];
     }
 
     export interface PaginatedCustomerJourneyList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: CustomerJourney[];
     }
 
     export interface PaginatedCustomerProfileConfigList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: CustomerProfileConfig[];
     }
 
     export interface PaginatedDAGList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Dag[];
     }
 
     export interface PaginatedDashboardBasicList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: DashboardBasic[];
     }
 
     export interface PaginatedDashboardTemplateList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: DashboardTemplate[];
     }
 
     export interface PaginatedDataColorThemeList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: DataColorTheme[];
     }
 
     export interface PaginatedDataModelingJobList {
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: DataModelingJob[];
     }
 
     export interface PaginatedDataWarehouseModelPathList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: DataWarehouseModelPath[];
     }
 
     export interface PaginatedDataWarehouseSavedQueryDraftList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: DataWarehouseSavedQueryDraft[];
     }
 
     export interface PaginatedDataWarehouseSavedQueryMinimalList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: DataWarehouseSavedQueryMinimal[];
     }
 
     export interface PaginatedDatasetItemList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: DatasetItem[];
     }
 
     export interface PaginatedDatasetList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Dataset[];
     }
 
     export interface PaginatedDesktopRecordingList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: DesktopRecording[];
     }
 
     export interface PaginatedEarlyAccessFeatureList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: EarlyAccessFeature[];
     }
 
     export interface PaginatedEdgeList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Edge[];
     }
 
     export interface PaginatedElementList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Element[];
     }
 
     export interface PaginatedEndpointResponseList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: EndpointResponse[];
     }
 
     export interface PaginatedEndpointVersionResponseList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: EndpointVersionResponse[];
     }
 
     export interface PaginatedEnterpriseEventDefinitionList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: EnterpriseEventDefinition[];
     }
 
     export interface PaginatedEnterprisePropertyDefinitionList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: EnterprisePropertyDefinition[];
     }
 
     export interface PaginatedErrorTrackingAssignmentRuleList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingAssignmentRule[];
     }
 
     export interface PaginatedErrorTrackingExternalReferenceResultList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingExternalReferenceResult[];
     }
 
     export interface PaginatedErrorTrackingFingerprintList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingFingerprint[];
     }
 
     export interface PaginatedErrorTrackingIssueFullList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingIssueFull[];
     }
 
     export interface PaginatedErrorTrackingRecommendationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingRecommendation[];
     }
 
     export interface PaginatedErrorTrackingReleaseList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingRelease[];
     }
 
     export interface PaginatedErrorTrackingSpikeEventList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingSpikeEvent[];
     }
 
     export interface PaginatedErrorTrackingStackFrameList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingStackFrame[];
     }
 
     export interface PaginatedErrorTrackingSuppressionRuleList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingSuppressionRule[];
     }
 
     export interface PaginatedErrorTrackingSymbolSetList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ErrorTrackingSymbolSet[];
     }
 
     export interface PaginatedEvaluationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Evaluation[];
     }
 
     export interface PaginatedEvaluationReportList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: EvaluationReport[];
     }
 
     export interface PaginatedEvaluationReportRunList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: EvaluationReportRun[];
     }
 
     export interface PaginatedEventSchemaList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: EventSchema[];
     }
 
     export interface PaginatedExperimentHoldoutList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ExperimentHoldout[];
     }
 
     export interface PaginatedExperimentList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Experiment[];
     }
 
     export interface PaginatedExperimentSavedMetricList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ExperimentSavedMetric[];
     }
 
     export interface PaginatedExportedAssetList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ExportedAsset[];
     }
 
     export interface PaginatedExternalDataSchemaList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ExternalDataSchema[];
     }
 
     export interface PaginatedExternalDataSourceConnectionOptionList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ExternalDataSourceConnectionOption[];
     }
 
     export interface PaginatedExternalDataSourceSerializersList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ExternalDataSourceSerializers[];
     }
 
     export interface PaginatedFeatureFlagList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: FeatureFlag[];
     }
 
     export interface PaginatedFileSystemList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: FileSystem[];
     }
 
     export interface PaginatedFileSystemShortcutList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: FileSystemShortcut[];
     }
 
     export interface PaginatedGroupList {
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Group[];
     }
 
     export interface PaginatedGroupUsageMetricList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: GroupUsageMetric[];
     }
 
     export interface PaginatedHealthIssueList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: HealthIssue[];
     }
 
     export interface PaginatedHeatmapScreenshotResponseList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: HeatmapScreenshotResponse[];
     }
 
     export interface PaginatedHeatmapsResponseList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: HeatmapsResponse[];
     }
 
     export interface PaginatedHogFlowMinimalList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: HogFlowMinimal[];
     }
 
     export interface PaginatedHogFlowScheduleList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: HogFlowSchedule[];
     }
 
     export interface PaginatedHogFlowTemplateList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: HogFlowTemplate[];
     }
 
     export interface PaginatedHogFunctionMinimalList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: HogFunctionMinimal[];
     }
 
     export interface PaginatedHogFunctionTemplateList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: HogFunctionTemplate[];
     }
 
     export interface PaginatedInsightList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Insight[];
     }
 
     export interface PaginatedInsightVariableList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: InsightVariable[];
     }
 
     export interface PaginatedIntegrationConfigList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: IntegrationConfig[];
     }
 
     export interface PaginatedLLMPromptListList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: LLMPromptList[];
     }
 
     export interface PaginatedLLMProviderKeyList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: LLMProviderKey[];
     }
 
     export interface PaginatedLLMSkillListList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: LLMSkillList[];
     }
 
     export interface PaginatedLegalDocumentDTOList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: LegalDocumentDTO[];
     }
 
     export interface PaginatedLiveDebuggerBreakpointList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: LiveDebuggerBreakpoint[];
     }
 
     export interface PaginatedLogsAlertConfigurationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: LogsAlertConfiguration[];
     }
 
     export interface PaginatedLogsAlertEventList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: LogsAlertEvent[];
     }
 
     export interface PaginatedLogsSamplingRuleList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: LogsSamplingRule[];
     }
 
     export interface PaginatedLogsViewList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: LogsView[];
     }
 
     export interface PaginatedMCPAnalyticsSubmissionList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: MCPAnalyticsSubmission[];
     }
 
     export interface PaginatedMCPServerInstallationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: MCPServerInstallation[];
     }
 
     export interface PaginatedMCPServerInstallationToolList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: MCPServerInstallationTool[];
     }
 
     export interface PaginatedMCPServerTemplateList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: MCPServerTemplate[];
     }
 
     export interface PaginatedMaterializedColumnSlotList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: MaterializedColumnSlot[];
     }
 
     export interface PaginatedMaxCoreMemoryList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: MaxCoreMemory[];
     }
 
     export interface PaginatedMessageCategoryList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: MessageCategory[];
     }
 
     export interface PaginatedMessageTemplateList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: MessageTemplate[];
     }
 
     export interface PaginatedNodeList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Node[];
     }
 
     export interface PaginatedNotebookMinimalList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: NotebookMinimal[];
     }
 
     export interface PaginatedNotificationEventList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: NotificationEvent[];
     }
 
     export interface PaginatedObjectMediaPreviewList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ObjectMediaPreview[];
     }
 
     export interface PaginatedOrganizationDomainList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: OrganizationDomain[];
     }
 
     export interface PaginatedOrganizationIntegrationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: OrganizationIntegration[];
     }
 
     export interface PaginatedOrganizationInviteList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: OrganizationInvite[];
     }
 
     export interface PaginatedOrganizationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Organization[];
     }
 
     export interface PaginatedOrganizationMemberList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: OrganizationMember[];
     }
 
     export interface PaginatedOrganizationOAuthApplicationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: OrganizationOAuthApplication[];
     }
@@ -24712,9 +20358,7 @@ export namespace Schemas {
 
     export interface PaginatedPauseStateResponseList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: PauseStateResponse[];
     }
@@ -24745,9 +20389,7 @@ export namespace Schemas {
 
     export interface PaginatedPersistedFolderList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: PersistedFolder[];
     }
@@ -24772,9 +20414,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedPersonRecordList {
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       count?: number;
       results?: PersonRecord[];
@@ -24826,9 +20466,7 @@ export namespace Schemas {
 
     export interface PaginatedPluginLogEntryList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: PluginLogEntry[];
     }
@@ -24855,7 +20493,7 @@ export namespace Schemas {
        */
       readonly targeting_flag_filters: ProductTourTargetingFlagFilters;
       content?: unknown;
-      readonly draft_content: unknown | null;
+      readonly draft_content: unknown;
       readonly has_draft: boolean;
       auto_launch?: boolean;
       /** @nullable */
@@ -24870,9 +20508,7 @@ export namespace Schemas {
 
     export interface PaginatedProductTourList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ProductTour[];
     }
@@ -24890,7 +20526,7 @@ export namespace Schemas {
       readonly api_token: string;
       readonly name: string;
       readonly completed_snippet_onboarding: boolean;
-      readonly has_completed_onboarding_for: unknown | null;
+      readonly has_completed_onboarding_for: unknown;
       readonly ingested_event: boolean;
       readonly is_demo: boolean;
       readonly timezone: string;
@@ -24899,9 +20535,7 @@ export namespace Schemas {
 
     export interface PaginatedProjectBackwardCompatBasicList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ProjectBackwardCompatBasic[];
     }
@@ -24925,9 +20559,7 @@ export namespace Schemas {
 
     export interface PaginatedProjectSecretAPIKeyList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ProjectSecretAPIKey[];
     }
@@ -24946,9 +20578,7 @@ export namespace Schemas {
 
     export interface PaginatedQuarantinedIdentifierEntryList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: QuarantinedIdentifierEntry[];
     }
@@ -24961,14 +20591,12 @@ export namespace Schemas {
                 ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
                 for a user.
                  */
-      state?: unknown | null;
+      state?: unknown;
     }
 
     export interface PaginatedQueryTabStateList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: QueryTabState[];
     }
@@ -24992,7 +20620,7 @@ export namespace Schemas {
       /** @maxLength 500 */
       property_name: string;
       type?: QuickFilterTypeEnum;
-      options?: unknown | null;
+      options?: unknown;
       readonly contexts: readonly string[];
       readonly created_at: string;
       readonly updated_at: string;
@@ -25000,9 +20628,7 @@ export namespace Schemas {
 
     export interface PaginatedQuickFilterList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: QuickFilter[];
     }
@@ -25021,9 +20647,7 @@ export namespace Schemas {
 
     export interface PaginatedRepoList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Repo[];
     }
@@ -25046,9 +20670,7 @@ export namespace Schemas {
 
     export interface PaginatedReviewQueueItemList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ReviewQueueItem[];
     }
@@ -25069,9 +20691,7 @@ export namespace Schemas {
 
     export interface PaginatedReviewQueueList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ReviewQueue[];
     }
@@ -25112,9 +20732,7 @@ export namespace Schemas {
 
     export interface PaginatedRoleExternalReferenceList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: RoleExternalReference[];
     }
@@ -25134,9 +20752,7 @@ export namespace Schemas {
 
     export interface PaginatedRoleList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Role[];
     }
@@ -25153,18 +20769,14 @@ export namespace Schemas {
 
     export interface PaginatedRoleMembershipList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: RoleMembership[];
     }
 
     export interface PaginatedRunList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Run[];
     }
@@ -25189,9 +20801,7 @@ export namespace Schemas {
 
     export interface PaginatedSandboxEnvironmentListList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SandboxEnvironmentList[];
     }
@@ -25246,7 +20856,7 @@ export namespace Schemas {
     * `weekly` - weekly
     * `monthly` - monthly
     * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      recurrence_interval?: RecurrenceIntervalEnum | null;
       /**
        * @maxLength 100
        * @nullable
@@ -25265,18 +20875,14 @@ export namespace Schemas {
 
     export interface PaginatedScheduledChangeList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ScheduledChange[];
     }
 
     export interface PaginatedSchemaPropertyGroupList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SchemaPropertyGroup[];
     }
@@ -25303,9 +20909,7 @@ export namespace Schemas {
 
     export interface PaginatedScoreDefinitionList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ScoreDefinition[];
     }
@@ -25321,9 +20925,7 @@ export namespace Schemas {
 
     export interface PaginatedSessionGroupSummaryMinimalList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SessionGroupSummaryMinimal[];
     }
@@ -25362,9 +20964,7 @@ export namespace Schemas {
 
     export interface PaginatedSessionRecordingExternalRefList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SessionRecordingExternalRef[];
     }
@@ -25422,9 +21022,7 @@ export namespace Schemas {
 
     export interface PaginatedSessionRecordingList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SessionRecording[];
     }
@@ -25474,7 +21072,7 @@ export namespace Schemas {
 
     * `collection` - Collection
     * `filters` - Filters */
-      type?: SessionRecordingPlaylistTypeEnum | NullEnum | null;
+      type?: SessionRecordingPlaylistTypeEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic: boolean;
       _create_in_folder?: string;
@@ -25482,9 +21080,7 @@ export namespace Schemas {
 
     export interface PaginatedSessionRecordingPlaylistList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SessionRecordingPlaylist[];
     }
@@ -25553,9 +21149,7 @@ export namespace Schemas {
 
     export interface PaginatedSignalReportList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SignalReport[];
     }
@@ -25618,9 +21212,7 @@ export namespace Schemas {
 
     export interface PaginatedSignalSourceConfigList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SignalSourceConfig[];
     }
@@ -25646,9 +21238,7 @@ export namespace Schemas {
 
     export interface PaginatedSnapshotHistoryEntryList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SnapshotHistoryEntry[];
     }
@@ -25685,9 +21275,7 @@ export namespace Schemas {
 
     export interface PaginatedSnapshotList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Snapshot[];
     }
@@ -25742,7 +21330,7 @@ export namespace Schemas {
     * `skipped` - Skipped */
       readonly status: SubscriptionDeliveryStatusEnum;
       /** Top-level failure payload when status is failed, if any. */
-      readonly error: unknown | null;
+      readonly error: unknown;
       /** When the delivery row was created. */
       readonly created_at: string;
       /** Last ORM update to this row. */
@@ -25760,9 +21348,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedSubscriptionDeliveryList {
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: SubscriptionDelivery[];
     }
@@ -25795,6 +21381,28 @@ export namespace Schemas {
       Weekly: 'weekly',
       Monthly: 'monthly',
       Yearly: 'yearly',
+    } as const;
+
+    /**
+     * * `monday` - Monday
+    * `tuesday` - Tuesday
+    * `wednesday` - Wednesday
+    * `thursday` - Thursday
+    * `friday` - Friday
+    * `saturday` - Saturday
+    * `sunday` - Sunday
+     */
+    export type SubscriptionByweekdayItem = typeof SubscriptionByweekdayItem[keyof typeof SubscriptionByweekdayItem];
+
+
+    export const SubscriptionByweekdayItem = {
+      Monday: 'monday',
+      Tuesday: 'tuesday',
+      Wednesday: 'wednesday',
+      Thursday: 'thursday',
+      Friday: 'friday',
+      Saturday: 'saturday',
+      Sunday: 'sunday',
     } as const;
 
     /**
@@ -25843,7 +21451,7 @@ export namespace Schemas {
        * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
        * @nullable
        */
-      byweekday?: ByweekdayEnum[] | null;
+      byweekday?: SubscriptionByweekdayItem[] | null;
       /**
        * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
        * @minimum -2147483648
@@ -25898,9 +21506,7 @@ export namespace Schemas {
 
     export interface PaginatedSubscriptionList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Subscription[];
     }
@@ -26072,10 +21678,10 @@ export namespace Schemas {
             }
             ```
              */
-      questions?: unknown | null;
+      questions?: unknown;
       /** @nullable */
       readonly conditions: SurveyConditions;
-      appearance?: unknown | null;
+      appearance?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
@@ -26114,7 +21720,7 @@ export namespace Schemas {
       current_iteration_start_date?: string | null;
       /** @nullable */
       response_sampling_start_date?: string | null;
-      response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum | null;
+      response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | null;
       /**
        * @minimum 0
        * @maximum 2147483647
@@ -26127,25 +21733,23 @@ export namespace Schemas {
        * @nullable
        */
       response_sampling_limit?: number | null;
-      response_sampling_daily_limits?: unknown | null;
+      response_sampling_daily_limits?: unknown;
       /** @nullable */
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
-      translations?: unknown | null;
+      translations?: unknown;
       /**
        * The effective access level the user has for this object
        * @nullable
        */
       readonly user_access_level: string | null;
-      form_content?: unknown | null;
+      form_content?: unknown;
     }
 
     export interface PaginatedSurveyList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Survey[];
     }
@@ -26217,9 +21821,7 @@ export namespace Schemas {
 
     export interface PaginatedTableList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Table[];
     }
@@ -26230,9 +21832,7 @@ export namespace Schemas {
 
     export interface PaginatedTaggedItemList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: TaggedItem[];
     }
@@ -26300,9 +21900,7 @@ export namespace Schemas {
 
     export interface PaginatedTaggerList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Tagger[];
     }
@@ -26342,9 +21940,7 @@ export namespace Schemas {
 
     export interface PaginatedTaskAutomationList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: TaskAutomation[];
     }
@@ -26394,7 +21990,7 @@ export namespace Schemas {
       signal_report?: string | null;
       signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
       /** JSON schema for the task. This is used to validate the output of the task. */
-      json_schema?: unknown | null;
+      json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
       /**
@@ -26414,9 +22010,7 @@ export namespace Schemas {
 
     export interface PaginatedTaskList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Task[];
     }
@@ -26514,16 +22108,16 @@ export namespace Schemas {
     * `cloud` - Cloud */
       environment?: TaskRunEnvironmentEnum;
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-      readonly runtime_adapter: RuntimeAdapterEnum | NullEnum | null;
+      readonly runtime_adapter: RuntimeAdapterEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
-      readonly provider: TaskRunDetailProviderEnum | NullEnum | null;
+      readonly provider: TaskRunDetailProviderEnum | null;
       /**
        * Configured LLM model identifier for this run.
        * @nullable
        */
       readonly model: string | null;
       /** Configured reasoning effort for this run when the selected model supports it. */
-      readonly reasoning_effort: ReasoningEffortEnum | NullEnum | null;
+      readonly reasoning_effort: ReasoningEffortEnum | null;
       /**
        * Presigned S3 URL for log access (valid for 1 hour).
        * @nullable
@@ -26535,7 +22129,7 @@ export namespace Schemas {
        */
       error_message?: string | null;
       /** Run output data (e.g., PR URL, commit SHA, etc.) */
-      output?: unknown | null;
+      output?: unknown;
       /** Run state data for resuming or tracking execution state */
       state?: unknown;
       readonly artifacts: readonly TaskRunArtifactResponse[];
@@ -26547,16 +22141,14 @@ export namespace Schemas {
 
     export interface PaginatedTaskRunDetailList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: TaskRunDetail[];
     }
 
     export interface TaskRunSummary {
-      status: TaskRunStatusEnum | NullEnum | null;
-      environment: TaskRunEnvironmentEnum | NullEnum | null;
+      status: TaskRunStatusEnum | null;
+      environment: TaskRunEnvironmentEnum | null;
     }
 
     export interface TaskSummary {
@@ -26571,9 +22163,7 @@ export namespace Schemas {
 
     export interface PaginatedTaskSummaryList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: TaskSummary[];
     }
@@ -26594,7 +22184,7 @@ export namespace Schemas {
       readonly api_token: string;
       readonly name: string;
       readonly completed_snippet_onboarding: boolean;
-      readonly has_completed_onboarding_for: unknown | null;
+      readonly has_completed_onboarding_for: unknown;
       readonly ingested_event: boolean;
       readonly is_demo: boolean;
       readonly timezone: string;
@@ -26603,9 +22193,7 @@ export namespace Schemas {
 
     export interface PaginatedTeamBasicList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: TeamBasic[];
     }
@@ -26622,9 +22210,7 @@ export namespace Schemas {
 
     export interface PaginatedThresholdWithAlertList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ThresholdWithAlert[];
     }
@@ -26705,7 +22291,7 @@ export namespace Schemas {
       readonly id: string;
       readonly ticket_number: number;
       readonly channel_source: ChannelSourceEnum;
-      readonly channel_detail: ChannelDetailEnum | NullEnum | null;
+      readonly channel_detail: ChannelDetailEnum | null;
       readonly distinct_id: string;
       /** Ticket status: new, open, pending, on_hold, or resolved
 
@@ -26720,7 +22306,7 @@ export namespace Schemas {
     * `low` - Low
     * `medium` - Medium
     * `high` - High */
-      priority?: PriorityEnum | BlankEnum | NullEnum | null;
+      priority?: PriorityEnum | BlankEnum | null;
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
@@ -26769,9 +22355,7 @@ export namespace Schemas {
 
     export interface PaginatedTicketList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: Ticket[];
     }
@@ -26794,9 +22378,7 @@ export namespace Schemas {
 
     export interface PaginatedTicketViewList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: TicketView[];
     }
@@ -26815,9 +22397,7 @@ export namespace Schemas {
 
     export interface PaginatedToleratedHashEntryList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ToleratedHashEntry[];
     }
@@ -26877,9 +22457,7 @@ export namespace Schemas {
 
     export interface PaginatedTraceReviewList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: TraceReview[];
     }
@@ -26924,9 +22502,7 @@ export namespace Schemas {
 
     export interface PaginatedUserGitHubIntegrationListResponseList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: UserGitHubIntegrationListResponse[];
     }
@@ -26943,9 +22519,7 @@ export namespace Schemas {
 
     export interface PaginatedUserInterviewList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: UserInterview[];
     }
@@ -27037,7 +22611,7 @@ export namespace Schemas {
       anonymize_data?: boolean | null;
       /** @nullable */
       allow_impersonation?: boolean | null;
-      toolbar_mode?: ToolbarModeEnum | BlankEnum | NullEnum | null;
+      toolbar_mode?: ToolbarModeEnum | BlankEnum | null;
       readonly has_password: boolean;
       readonly id: number;
       /** Designates whether the user can log into this admin site. */
@@ -27063,13 +22637,13 @@ export namespace Schemas {
       readonly is_2fa_enabled: boolean;
       readonly has_social_auth: boolean;
       readonly has_sso_enforcement: boolean;
-      has_seen_product_intro_for?: unknown | null;
+      has_seen_product_intro_for?: unknown;
       readonly scene_personalisation: readonly ScenePersonalisationBasic[];
-      theme_mode?: ThemeModeEnum | BlankEnum | NullEnum | null;
-      hedgehog_config?: unknown | null;
+      theme_mode?: ThemeModeEnum | BlankEnum | null;
+      hedgehog_config?: unknown;
       /** @nullable */
       allow_sidebar_suggestions?: boolean | null;
-      shortcut_position?: ShortcutPositionEnum | BlankEnum | NullEnum | null;
+      shortcut_position?: ShortcutPositionEnum | BlankEnum | null;
       role_at_organization?: RoleAtOrganizationEnum;
       /**
        * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
@@ -27078,7 +22652,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
-      readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | NullEnum | null;
+      readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
       /** @nullable */
       readonly onboarding_skipped_organization_id: string | null;
       /** @nullable */
@@ -27099,9 +22673,7 @@ export namespace Schemas {
 
     export interface PaginatedUserList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: User[];
     }
@@ -27134,7 +22706,7 @@ export namespace Schemas {
       readonly id: string;
       readonly product_path: string;
       enabled?: boolean;
-      readonly reason: UserProductListReasonEnum | NullEnum | null;
+      readonly reason: UserProductListReasonEnum | null;
       /** @nullable */
       readonly reason_text: string | null;
       readonly created_at: string;
@@ -27144,9 +22716,7 @@ export namespace Schemas {
 
     export interface PaginatedUserProductListList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: UserProductList[];
     }
@@ -27167,14 +22737,12 @@ export namespace Schemas {
       joining_table_key: string;
       /** @maxLength 400 */
       field_name: string;
-      configuration?: unknown | null;
+      configuration?: unknown;
     }
 
     export interface PaginatedViewLinkList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: ViewLink[];
     }
@@ -27196,9 +22764,7 @@ export namespace Schemas {
 
     export interface PaginatedWebAnalyticsFilterPresetList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: WebAnalyticsFilterPreset[];
     }
@@ -27232,9 +22798,7 @@ export namespace Schemas {
 
     export interface PaginatedWebExperimentsAPIList {
       count: number;
-      /** @nullable */
       next?: string | null;
-      /** @nullable */
       previous?: string | null;
       results: WebExperimentsAPI[];
     }
@@ -27454,7 +23018,7 @@ export namespace Schemas {
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
       hogql_query?: string;
-      filters?: unknown | null;
+      filters?: unknown;
       /**
        * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
        * @nullable
@@ -27489,7 +23053,7 @@ export namespace Schemas {
       readonly team_id?: number;
       readonly created_at?: string;
       readonly updated_at?: string;
-      readonly state?: unknown | null;
+      readonly state?: unknown;
       /** @nullable */
       readonly created_by?: PatchedBatchImportCreatedBy;
       readonly status?: BatchImportStatusEnum;
@@ -27521,7 +23085,7 @@ export namespace Schemas {
       groups?: unknown;
       deleted?: boolean;
       filters?: CohortFilters | null;
-      query?: unknown | null;
+      query?: unknown;
       /** @nullable */
       readonly version?: number | null;
       /** @nullable */
@@ -27547,7 +23111,7 @@ export namespace Schemas {
     * `behavioral` - behavioral
     * `realtime` - realtime
     * `analytical` - analytical */
-      cohort_type?: CohortTypeEnum | BlankEnum | NullEnum | null;
+      cohort_type?: CohortTypeEnum | BlankEnum | null;
       readonly experiment_set?: readonly number[];
       _create_in_folder?: string;
       _create_static_person_ids?: string[];
@@ -27586,7 +23150,7 @@ export namespace Schemas {
       readonly completed_by?: UserBasic | null;
       /** @nullable */
       content?: string | null;
-      rich_content?: unknown | null;
+      rich_content?: unknown;
       readonly version?: number;
       readonly created_at?: string;
       /**
@@ -27594,7 +23158,7 @@ export namespace Schemas {
        * @nullable
        */
       item_id?: string | null;
-      item_context?: unknown | null;
+      item_context?: unknown;
       /** @maxLength 79 */
       scope?: string;
       /**
@@ -27694,8 +23258,8 @@ export namespace Schemas {
     export interface PatchedCustomerProfileConfig {
       readonly id?: string;
       scope?: CustomerProfileConfigScopeEnum;
-      content?: unknown | null;
-      sidebar?: unknown | null;
+      content?: unknown;
+      sidebar?: unknown;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
@@ -27819,11 +23383,11 @@ export namespace Schemas {
        * @nullable
        */
       dashboard_description?: string | null;
-      dashboard_filters?: unknown | null;
+      dashboard_filters?: unknown;
       /** @nullable */
       tags?: string[] | null;
-      tiles?: unknown | null;
-      variables?: unknown | null;
+      tiles?: unknown;
+      variables?: unknown;
       /** @nullable */
       deleted?: boolean | null;
       /** @nullable */
@@ -27836,7 +23400,7 @@ export namespace Schemas {
       image_url?: string | null;
       /** @nullable */
       readonly team_id?: number | null;
-      scope?: DashboardTemplateScopeEnum | BlankEnum | NullEnum | null;
+      scope?: DashboardTemplateScopeEnum | BlankEnum | null;
       /** @nullable */
       availability_contexts?: string[] | null;
       /** Manually curated; used to highlight templates in the UI. */
@@ -27871,7 +23435,7 @@ export namespace Schemas {
        */
       name?: string;
       /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown | null;
+      query?: unknown;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -27884,7 +23448,7 @@ export namespace Schemas {
     * `Completed` - Completed
     * `Failed` - Failed
     * `Running` - Running */
-      readonly status?: SavedQueryStatusEnum | NullEnum | null;
+      readonly status?: SavedQueryStatusEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
       /** @nullable */
@@ -27925,7 +23489,7 @@ export namespace Schemas {
     * `data_warehouse` - Data Warehouse
     * `endpoint` - Endpoint
     * `managed_viewset` - Managed Viewset */
-      readonly origin?: OriginEnum | NullEnum | null;
+      readonly origin?: OriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
       is_test?: boolean;
       /**
@@ -27985,7 +23549,7 @@ export namespace Schemas {
       name?: string;
       /** @nullable */
       description?: string | null;
-      metadata?: unknown | null;
+      metadata?: unknown;
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
@@ -27998,9 +23562,9 @@ export namespace Schemas {
     export interface PatchedDatasetItem {
       readonly id?: string;
       dataset?: string;
-      input?: unknown | null;
-      output?: unknown | null;
-      metadata?: unknown | null;
+      input?: unknown;
+      output?: unknown;
+      metadata?: unknown;
       /**
        * @maxLength 255
        * @nullable
@@ -28189,7 +23753,7 @@ export namespace Schemas {
        */
       name?: string | null;
       /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
-      query?: unknown | null;
+      query?: unknown;
       /**
        * Human-readable description of what this endpoint returns.
        * @nullable
@@ -28288,7 +23852,7 @@ export namespace Schemas {
       readonly updated_by?: UserBasic;
       /** @nullable */
       readonly is_seen_on_filtered_events?: boolean | null;
-      property_type?: PropertyDefinitionTypeEnum | BlankEnum | NullEnum | null;
+      property_type?: PropertyDefinitionTypeEnum | BlankEnum | null;
       verified?: boolean;
       /** @nullable */
       readonly verified_at?: string | null;
@@ -28315,7 +23879,7 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key?: number;
-      disabled_data?: unknown | null;
+      disabled_data?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
     }
@@ -28358,7 +23922,7 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key?: number;
-      disabled_data?: unknown | null;
+      disabled_data?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
     }
@@ -28390,7 +23954,7 @@ export namespace Schemas {
       hash_id?: string;
       readonly team_id?: number;
       readonly created_at?: string;
-      metadata?: unknown | null;
+      metadata?: unknown;
       version?: string;
       project?: string;
     }
@@ -28448,7 +24012,7 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key?: number;
-      disabled_data?: unknown | null;
+      disabled_data?: unknown;
       sampling_rate?: number;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -28525,7 +24089,7 @@ export namespace Schemas {
       /** Whether the evaluation runs automatically on new $ai_generation events. */
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
-      readonly status_reason?: StatusReasonEnum | NullEnum | null;
+      readonly status_reason?: StatusReasonEnum | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
     * `llm_judge` - LLM as a judge
@@ -28656,7 +24220,7 @@ export namespace Schemas {
       readonly exposure_cohort?: number | null;
       /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
       parameters?: ExperimentParameters | null;
-      secondary_metrics?: unknown | null;
+      secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
       /**
        * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
@@ -28675,15 +24239,15 @@ export namespace Schemas {
 
     * `web` - web
     * `product` - product */
-      type?: ExperimentTypeEnum | NullEnum | null;
+      type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
       /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
-      stats_config?: unknown | null;
-      scheduling_config?: unknown | null;
+      stats_config?: unknown;
+      scheduling_config?: unknown;
       allow_unknown_events?: boolean;
       _create_in_folder?: string;
       /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
@@ -28693,14 +24257,14 @@ export namespace Schemas {
     * `inconclusive` - inconclusive
     * `stopped_early` - stopped_early
     * `invalid` - invalid */
-      conclusion?: ConclusionEnum | NullEnum | null;
+      conclusion?: ConclusionEnum | null;
       /**
        * Comment about the experiment conclusion.
        * @nullable
        */
       conclusion_comment?: string | null;
-      primary_metrics_ordered_uuids?: unknown | null;
-      secondary_metrics_ordered_uuids?: unknown | null;
+      primary_metrics_ordered_uuids?: unknown;
+      secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
       /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
       update_feature_flag_params?: boolean;
@@ -28782,7 +24346,7 @@ export namespace Schemas {
     * `append` - append
     * `webhook` - webhook
     * `cdc` - cdc */
-      sync_type?: SyncTypeEnum | NullEnum | null;
+      sync_type?: SyncTypeEnum | null;
       /**
        * Column name used to track sync progress.
        * @nullable
@@ -28796,7 +24360,7 @@ export namespace Schemas {
     * `date` - date
     * `timestamp` - timestamp
     * `objectid` - objectid */
-      incremental_field_type?: IncrementalFieldTypeEnum | NullEnum | null;
+      incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
 
     * `never` - never
@@ -28810,7 +24374,7 @@ export namespace Schemas {
     * `24hour` - 24hour
     * `7day` - 7day
     * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | NullEnum | null;
+      sync_frequency?: SyncFrequencyEnum | null;
       /**
        * UTC time of day to run the sync (HH:MM:SS).
        * @nullable
@@ -28828,7 +24392,7 @@ export namespace Schemas {
     * `consolidated` - consolidated
     * `cdc_only` - cdc_only
     * `both` - both */
-      cdc_table_mode?: CdcTableModeEnum | NullEnum | null;
+      cdc_table_mode?: CdcTableModeEnum | null;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -28873,11 +24437,11 @@ export namespace Schemas {
 
     * `duckdb` - duckdb
     * `postgres` - postgres */
-      readonly engine?: EngineEnum | NullEnum | null;
+      readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
       readonly schemas?: readonly PatchedExternalDataSourceSerializersSchemasItem[];
-      job_inputs?: unknown | null;
+      job_inputs?: unknown;
       readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfig;
       /**
        * The effective access level the user has for this object
@@ -28916,7 +24480,7 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
-      meta?: unknown | null;
+      meta?: unknown;
       /** @nullable */
       shortcut?: boolean | null;
       readonly created_at?: string;
@@ -29073,14 +24637,14 @@ export namespace Schemas {
       readonly updated_at?: string;
       trigger?: unknown;
       trigger_masking?: HogFlowMasking | null;
-      conversion?: unknown | null;
+      conversion?: unknown;
       exit_condition?: ExitConditionEnum;
       edges?: unknown;
       actions?: HogFlowAction[];
       /** @nullable */
       readonly abort_action?: string | null;
       variables?: PatchedHogFlowVariablesItem[];
-      readonly billable_action_types?: unknown | null;
+      readonly billable_action_types?: unknown;
     }
 
     /**
@@ -29112,7 +24676,7 @@ export namespace Schemas {
       readonly updated_at?: string;
       trigger?: unknown;
       trigger_masking?: HogFlowMasking | null;
-      conversion?: unknown | null;
+      conversion?: unknown;
       exit_condition?: ExitConditionEnum;
       edges?: unknown;
       actions?: HogFlowTemplateAction[];
@@ -29140,7 +24704,7 @@ export namespace Schemas {
     * `warehouse_source_webhook` - Warehouse Source Webhook
     * `site_app` - Site App
     * `transformation` - Transformation */
-      type?: HogFunctionTypeEnum | NullEnum | null;
+      type?: HogFunctionTypeEnum | null;
       /**
        * Display name for the function.
        * @maxLength 400
@@ -29158,7 +24722,7 @@ export namespace Schemas {
       deleted?: boolean;
       /** Source code. Hog language for most types; TypeScript for site_destination and site_app. */
       hog?: string;
-      readonly bytecode?: unknown | null;
+      readonly bytecode?: unknown;
       /** @nullable */
       readonly transpiled?: string | null;
       /** Schema defining the configurable input parameters for this function. */
@@ -29335,7 +24899,7 @@ export namespace Schemas {
     * `Date` - Date */
       type?: InsightVariableTypeEnum;
       /** Default value used when a query references this variable. */
-      default_value?: unknown | null;
+      default_value?: unknown;
       /**
        * ID of the user who created the SQL variable.
        * @nullable
@@ -29349,7 +24913,7 @@ export namespace Schemas {
        */
       readonly code_name?: string | null;
       /** Allowed values for List variables. Null for other variable types. */
-      values?: unknown | null;
+      values?: unknown;
     }
 
     /**
@@ -29675,7 +25239,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 10000 */
       text?: string;
-      scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
+      scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
     export interface PatchedMessageCategory {
@@ -29748,7 +25312,7 @@ export namespace Schemas {
        */
       title?: string | null;
       /** Notebook content as a ProseMirror JSON document structure. */
-      content?: unknown | null;
+      content?: unknown;
       /**
        * Plain text representation of the notebook content for search.
        * @nullable
@@ -29807,7 +25371,7 @@ export namespace Schemas {
       logo_media_id?: string | null;
       readonly created_at?: string;
       readonly updated_at?: string;
-      readonly membership_level?: EffectiveMembershipLevelEnum | null;
+      readonly membership_level?: EffectiveMembershipLevelEnum;
       readonly plugins_access_level?: PluginsAccessLevelEnum;
       readonly teams?: readonly PatchedOrganizationTeamsItem[];
       readonly projects?: readonly PatchedOrganizationProjectsItem[];
@@ -29831,7 +25395,7 @@ export namespace Schemas {
 
     * `bayesian` - Bayesian
     * `frequentist` - Frequentist */
-      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum | null;
+      default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
@@ -30010,7 +25574,7 @@ export namespace Schemas {
       readonly linked_flag?: MinimalFeatureFlag;
       /** @nullable */
       linked_flag_id?: number | null;
-      targeting_flag_filters?: unknown | null;
+      targeting_flag_filters?: unknown;
       content?: unknown;
       auto_launch?: boolean;
       /** @nullable */
@@ -30035,7 +25599,6 @@ export namespace Schemas {
     export type PatchedProjectBackwardCompatProductIntentsItem = {
       product_type?: string;
       created_at?: string;
-      /** @nullable */
       onboarding_completed_at?: string | null;
       updated_at?: string;
     };
@@ -30090,7 +25653,7 @@ export namespace Schemas {
        */
       product_description?: string | null;
       readonly created_at?: string;
-      readonly effective_membership_level?: EffectiveMembershipLevelEnum | null;
+      readonly effective_membership_level?: EffectiveMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
@@ -30111,7 +25674,7 @@ export namespace Schemas {
        */
       test_account_filters_default_checked?: boolean | null;
       /** Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths. */
-      path_cleaning_filters?: unknown | null;
+      path_cleaning_filters?: unknown;
       is_demo?: boolean;
       /** IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`).
 
@@ -30719,7 +26282,7 @@ export namespace Schemas {
        * @nullable
        */
       person_display_name_properties?: string[] | null;
-      correlation_config?: unknown | null;
+      correlation_config?: unknown;
       /**
        * Disables posthog-js autocapture (clicks, page views) when true.
        * @nullable
@@ -30735,8 +26298,8 @@ export namespace Schemas {
        * @nullable
        */
       autocapture_web_vitals_opt_in?: boolean | null;
-      autocapture_web_vitals_allowed_metrics?: unknown | null;
-      autocapture_exceptions_errors_to_ignore?: unknown | null;
+      autocapture_web_vitals_allowed_metrics?: unknown;
+      autocapture_exceptions_errors_to_ignore?: unknown;
       /**
        * Enables capturing browser console logs alongside session replays.
        * @nullable
@@ -30762,13 +26325,13 @@ export namespace Schemas {
        * @nullable
        */
       session_recording_minimum_duration_milliseconds?: number | null;
-      session_recording_linked_flag?: unknown | null;
-      session_recording_network_payload_capture_config?: unknown | null;
-      session_recording_masking_config?: unknown | null;
+      session_recording_linked_flag?: unknown;
+      session_recording_network_payload_capture_config?: unknown;
+      session_recording_masking_config?: unknown;
       /** @nullable */
-      session_recording_url_trigger_config?: (unknown | null)[] | null;
+      session_recording_url_trigger_config?: unknown[] | null;
       /** @nullable */
-      session_recording_url_blocklist_config?: (unknown | null)[] | null;
+      session_recording_url_blocklist_config?: unknown[] | null;
       /** @nullable */
       session_recording_event_trigger_config?: (string | null)[] | null;
       /**
@@ -30777,7 +26340,7 @@ export namespace Schemas {
        */
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-      session_recording_trigger_groups?: unknown | null;
+      session_recording_trigger_groups?: unknown;
       /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
 
     * `30d` - 30 Days
@@ -30785,14 +26348,14 @@ export namespace Schemas {
     * `1y` - 1 Year
     * `5y` - 5 Years */
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
-      session_replay_config?: unknown | null;
-      survey_config?: unknown | null;
+      session_replay_config?: unknown;
+      survey_config?: unknown;
       access_control?: boolean;
       /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
     * `0` - Sunday
     * `1` - Monday */
-      week_start_day?: WeekStartDayEnum | NullEnum | null;
+      week_start_day?: WeekStartDayEnum | null;
       /**
        * ID of the dashboard shown as the project's default landing dashboard.
        * @nullable
@@ -30808,10 +26371,10 @@ export namespace Schemas {
       readonly person_on_events_querying_enabled?: boolean;
       /** @nullable */
       inject_web_apps?: boolean | null;
-      extra_settings?: unknown | null;
-      modifiers?: unknown | null;
+      extra_settings?: unknown;
+      modifiers?: unknown;
       readonly default_modifiers?: PatchedProjectBackwardCompatDefaultModifiers;
-      has_completed_onboarding_for?: unknown | null;
+      has_completed_onboarding_for?: unknown;
       /**
        * Enables displaying surveys via posthog-js on allowed origins.
        * @nullable
@@ -30839,14 +26402,14 @@ export namespace Schemas {
     * `b2b` - B2B
     * `b2c` - B2C
     * `other` - Other */
-      business_model?: BusinessModelEnum | BlankEnum | NullEnum | null;
+      business_model?: BusinessModelEnum | BlankEnum | null;
       /**
        * Enables the customer conversations / live chat product for this project.
        * @nullable
        */
       conversations_enabled?: boolean | null;
-      conversations_settings?: unknown | null;
-      logs_settings?: unknown | null;
+      conversations_settings?: unknown;
+      logs_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
@@ -30877,7 +26440,7 @@ export namespace Schemas {
                 ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
                 for a user.
                  */
-      state?: unknown | null;
+      state?: unknown;
     }
 
     export interface PatchedQuickFilter {
@@ -30887,7 +26450,7 @@ export namespace Schemas {
       /** @maxLength 500 */
       property_name?: string;
       type?: QuickFilterTypeEnum;
-      options?: unknown | null;
+      options?: unknown;
       readonly contexts?: readonly string[];
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -30984,7 +26547,7 @@ export namespace Schemas {
     * `weekly` - weekly
     * `monthly` - monthly
     * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | NullEnum | null;
+      recurrence_interval?: RecurrenceIntervalEnum | null;
       /**
        * @maxLength 100
        * @nullable
@@ -31037,9 +26600,9 @@ export namespace Schemas {
       /** Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema) */
       readonly summary?: unknown;
       /** Additional context passed to the summary (ExtraSummaryContext schema) */
-      readonly extra_summary_context?: unknown | null;
+      readonly extra_summary_context?: unknown;
       /** Summary run metadata (SessionSummaryRunMeta schema) */
-      readonly run_metadata?: unknown | null;
+      readonly run_metadata?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly team?: number;
@@ -31152,7 +26715,7 @@ export namespace Schemas {
 
     * `collection` - Collection
     * `filters` - Filters */
-      type?: SessionRecordingPlaylistTypeEnum | NullEnum | null;
+      type?: SessionRecordingPlaylistTypeEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
@@ -31177,6 +26740,28 @@ export namespace Schemas {
       /** @nullable */
       readonly status?: string | null;
     }
+
+    /**
+     * * `monday` - Monday
+    * `tuesday` - Tuesday
+    * `wednesday` - Wednesday
+    * `thursday` - Thursday
+    * `friday` - Friday
+    * `saturday` - Saturday
+    * `sunday` - Sunday
+     */
+    export type PatchedSubscriptionByweekdayItem = typeof PatchedSubscriptionByweekdayItem[keyof typeof PatchedSubscriptionByweekdayItem];
+
+
+    export const PatchedSubscriptionByweekdayItem = {
+      Monday: 'monday',
+      Tuesday: 'tuesday',
+      Wednesday: 'wednesday',
+      Thursday: 'thursday',
+      Friday: 'friday',
+      Saturday: 'saturday',
+      Sunday: 'sunday',
+    } as const;
 
     /**
      * Standard Subscription serializer.
@@ -31224,7 +26809,7 @@ export namespace Schemas {
        * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
        * @nullable
        */
-      byweekday?: ByweekdayEnum[] | null;
+      byweekday?: PatchedSubscriptionByweekdayItem[] | null;
       /**
        * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
        * @minimum -2147483648
@@ -31673,7 +27258,7 @@ export namespace Schemas {
     * `once` - once
     * `recurring` - recurring
     * `always` - always */
-      schedule?: ScheduleEnum | NullEnum | null;
+      schedule?: ScheduleEnum | null;
       readonly linked_flag?: MinimalFeatureFlag;
       /**
        * The feature flag linked to this survey.
@@ -31858,7 +27443,7 @@ export namespace Schemas {
       current_iteration_start_date?: string | null;
       /** @nullable */
       response_sampling_start_date?: string | null;
-      response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum | null;
+      response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | null;
       /**
        * @minimum 0
        * @maximum 2147483647
@@ -31871,7 +27456,7 @@ export namespace Schemas {
        * @nullable
        */
       response_sampling_limit?: number | null;
-      response_sampling_daily_limits?: unknown | null;
+      response_sampling_daily_limits?: unknown;
       /**
        * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
        * @nullable
@@ -31879,9 +27464,9 @@ export namespace Schemas {
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
-      translations?: unknown | null;
+      translations?: unknown;
       _create_in_folder?: string;
-      form_content?: unknown | null;
+      form_content?: unknown;
     }
 
     export type PatchedTableColumnsItem = { [key: string]: unknown };
@@ -31973,7 +27558,7 @@ export namespace Schemas {
       signal_report?: string | null;
       signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
       /** JSON schema for the task. This is used to validate the output of the task. */
-      json_schema?: unknown | null;
+      json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
       /**
@@ -32080,7 +27665,7 @@ export namespace Schemas {
        */
       stage?: string | null;
       /** Output from the run */
-      output?: unknown | null;
+      output?: unknown;
       /** State of the run */
       state?: unknown;
       /** State keys to remove atomically before applying any state updates. */
@@ -32169,24 +27754,24 @@ export namespace Schemas {
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
-      path_cleaning_filters?: unknown | null;
+      path_cleaning_filters?: unknown;
       is_demo?: boolean;
       timezone?: string;
       data_attributes?: unknown;
       /** @nullable */
       person_display_name_properties?: string[] | null;
-      correlation_config?: unknown | null;
+      correlation_config?: unknown;
       /** @nullable */
       autocapture_opt_out?: boolean | null;
       /** @nullable */
       autocapture_exceptions_opt_in?: boolean | null;
       /** @nullable */
       autocapture_web_vitals_opt_in?: boolean | null;
-      autocapture_web_vitals_allowed_metrics?: unknown | null;
-      autocapture_exceptions_errors_to_ignore?: unknown | null;
+      autocapture_web_vitals_allowed_metrics?: unknown;
+      autocapture_exceptions_errors_to_ignore?: unknown;
       /** @nullable */
       capture_console_log_opt_in?: boolean | null;
-      logs_settings?: unknown | null;
+      logs_settings?: unknown;
       /** @nullable */
       capture_performance_opt_in?: boolean | null;
       session_recording_opt_in?: boolean;
@@ -32201,13 +27786,13 @@ export namespace Schemas {
        * @nullable
        */
       session_recording_minimum_duration_milliseconds?: number | null;
-      session_recording_linked_flag?: unknown | null;
-      session_recording_network_payload_capture_config?: unknown | null;
-      session_recording_masking_config?: unknown | null;
+      session_recording_linked_flag?: unknown;
+      session_recording_network_payload_capture_config?: unknown;
+      session_recording_masking_config?: unknown;
       /** @nullable */
-      session_recording_url_trigger_config?: (unknown | null)[] | null;
+      session_recording_url_trigger_config?: unknown[] | null;
       /** @nullable */
-      session_recording_url_blocklist_config?: (unknown | null)[] | null;
+      session_recording_url_blocklist_config?: unknown[] | null;
       /** @nullable */
       session_recording_event_trigger_config?: (string | null)[] | null;
       /**
@@ -32216,25 +27801,25 @@ export namespace Schemas {
        */
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-      session_recording_trigger_groups?: unknown | null;
+      session_recording_trigger_groups?: unknown;
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
-      session_replay_config?: unknown | null;
-      survey_config?: unknown | null;
-      week_start_day?: WeekStartDayEnum | NullEnum | null;
+      session_replay_config?: unknown;
+      survey_config?: unknown;
+      week_start_day?: WeekStartDayEnum | null;
       /** @nullable */
       primary_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
       /** @nullable */
       recording_domains?: (string | null)[] | null;
-      cookieless_server_hash_mode?: CookielessServerHashModeEnum | NullEnum | null;
+      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
       /** @nullable */
       human_friendly_comparison_periods?: boolean | null;
       /** @nullable */
       inject_web_apps?: boolean | null;
-      extra_settings?: unknown | null;
-      modifiers?: unknown | null;
-      has_completed_onboarding_for?: unknown | null;
+      extra_settings?: unknown;
+      modifiers?: unknown;
+      has_completed_onboarding_for?: unknown;
       /** @nullable */
       surveys_opt_in?: boolean | null;
       /** @nullable */
@@ -32266,7 +27851,7 @@ export namespace Schemas {
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
-      onboarding_tasks?: unknown | null;
+      onboarding_tasks?: unknown;
       base_currency?: BaseCurrencyEnum;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
@@ -32277,13 +27862,13 @@ export namespace Schemas {
     * `b2b` - B2B
     * `b2c` - B2C
     * `other` - Other */
-      business_model?: BusinessModelEnum | BlankEnum | NullEnum | null;
+      business_model?: BusinessModelEnum | BlankEnum | null;
       /** @nullable */
       conversations_enabled?: boolean | null;
-      conversations_settings?: unknown | null;
+      conversations_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
-      readonly effective_membership_level?: EffectiveMembershipLevelEnum | null;
+      readonly effective_membership_level?: EffectiveMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedTeamGroupTypesItem[];
       /** @nullable */
@@ -32300,7 +27885,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly ticket_number?: number;
       readonly channel_source?: ChannelSourceEnum;
-      readonly channel_detail?: ChannelDetailEnum | NullEnum | null;
+      readonly channel_detail?: ChannelDetailEnum | null;
       readonly distinct_id?: string;
       /** Ticket status: new, open, pending, on_hold, or resolved
 
@@ -32315,7 +27900,7 @@ export namespace Schemas {
     * `low` - Low
     * `medium` - Medium
     * `high` - High */
-      priority?: PriorityEnum | BlankEnum | NullEnum | null;
+      priority?: PriorityEnum | BlankEnum | null;
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
@@ -32468,7 +28053,7 @@ export namespace Schemas {
       anonymize_data?: boolean | null;
       /** @nullable */
       allow_impersonation?: boolean | null;
-      toolbar_mode?: ToolbarModeEnum | BlankEnum | NullEnum | null;
+      toolbar_mode?: ToolbarModeEnum | BlankEnum | null;
       readonly has_password?: boolean;
       readonly id?: number;
       /** Designates whether the user can log into this admin site. */
@@ -32494,13 +28079,13 @@ export namespace Schemas {
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
       readonly has_sso_enforcement?: boolean;
-      has_seen_product_intro_for?: unknown | null;
+      has_seen_product_intro_for?: unknown;
       readonly scene_personalisation?: readonly ScenePersonalisationBasic[];
-      theme_mode?: ThemeModeEnum | BlankEnum | NullEnum | null;
-      hedgehog_config?: unknown | null;
+      theme_mode?: ThemeModeEnum | BlankEnum | null;
+      hedgehog_config?: unknown;
       /** @nullable */
       allow_sidebar_suggestions?: boolean | null;
-      shortcut_position?: ShortcutPositionEnum | BlankEnum | NullEnum | null;
+      shortcut_position?: ShortcutPositionEnum | BlankEnum | null;
       role_at_organization?: RoleAtOrganizationEnum;
       /**
        * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
@@ -32509,7 +28094,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
-      readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | NullEnum | null;
+      readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;
       /** @nullable */
       readonly onboarding_skipped_organization_id?: string | null;
       /** @nullable */
@@ -32542,7 +28127,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly product_path?: string;
       enabled?: boolean;
-      readonly reason?: UserProductListReasonEnum | NullEnum | null;
+      readonly reason?: UserProductListReasonEnum | null;
       /** @nullable */
       readonly reason_text?: string | null;
       readonly created_at?: string;
@@ -32566,7 +28151,7 @@ export namespace Schemas {
       joining_table_key?: string;
       /** @maxLength 400 */
       field_name?: string;
-      configuration?: unknown | null;
+      configuration?: unknown;
     }
 
     export interface PatchedWebAnalyticsFilterPreset {
@@ -32748,7 +28333,7 @@ export namespace Schemas {
       readonly linked_flag: MinimalFeatureFlag;
       /** @nullable */
       linked_flag_id?: number | null;
-      targeting_flag_filters?: unknown | null;
+      targeting_flag_filters?: unknown;
       content?: unknown;
       auto_launch?: boolean;
       /** @nullable */
@@ -32773,7 +28358,6 @@ export namespace Schemas {
     export type ProjectBackwardCompatProductIntentsItem = {
       product_type?: string;
       created_at?: string;
-      /** @nullable */
       onboarding_completed_at?: string | null;
       updated_at?: string;
     };
@@ -32800,7 +28384,7 @@ export namespace Schemas {
        */
       product_description?: string | null;
       readonly created_at: string;
-      readonly effective_membership_level: EffectiveMembershipLevelEnum | null;
+      readonly effective_membership_level: EffectiveMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly ProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
@@ -32821,7 +28405,7 @@ export namespace Schemas {
        */
       test_account_filters_default_checked?: boolean | null;
       /** Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths. */
-      path_cleaning_filters?: unknown | null;
+      path_cleaning_filters?: unknown;
       is_demo?: boolean;
       /** IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`).
 
@@ -33429,7 +29013,7 @@ export namespace Schemas {
        * @nullable
        */
       person_display_name_properties?: string[] | null;
-      correlation_config?: unknown | null;
+      correlation_config?: unknown;
       /**
        * Disables posthog-js autocapture (clicks, page views) when true.
        * @nullable
@@ -33445,8 +29029,8 @@ export namespace Schemas {
        * @nullable
        */
       autocapture_web_vitals_opt_in?: boolean | null;
-      autocapture_web_vitals_allowed_metrics?: unknown | null;
-      autocapture_exceptions_errors_to_ignore?: unknown | null;
+      autocapture_web_vitals_allowed_metrics?: unknown;
+      autocapture_exceptions_errors_to_ignore?: unknown;
       /**
        * Enables capturing browser console logs alongside session replays.
        * @nullable
@@ -33472,13 +29056,13 @@ export namespace Schemas {
        * @nullable
        */
       session_recording_minimum_duration_milliseconds?: number | null;
-      session_recording_linked_flag?: unknown | null;
-      session_recording_network_payload_capture_config?: unknown | null;
-      session_recording_masking_config?: unknown | null;
+      session_recording_linked_flag?: unknown;
+      session_recording_network_payload_capture_config?: unknown;
+      session_recording_masking_config?: unknown;
       /** @nullable */
-      session_recording_url_trigger_config?: (unknown | null)[] | null;
+      session_recording_url_trigger_config?: unknown[] | null;
       /** @nullable */
-      session_recording_url_blocklist_config?: (unknown | null)[] | null;
+      session_recording_url_blocklist_config?: unknown[] | null;
       /** @nullable */
       session_recording_event_trigger_config?: (string | null)[] | null;
       /**
@@ -33487,7 +29071,7 @@ export namespace Schemas {
        */
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-      session_recording_trigger_groups?: unknown | null;
+      session_recording_trigger_groups?: unknown;
       /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
 
     * `30d` - 30 Days
@@ -33495,14 +29079,14 @@ export namespace Schemas {
     * `1y` - 1 Year
     * `5y` - 5 Years */
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
-      session_replay_config?: unknown | null;
-      survey_config?: unknown | null;
+      session_replay_config?: unknown;
+      survey_config?: unknown;
       access_control?: boolean;
       /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
     * `0` - Sunday
     * `1` - Monday */
-      week_start_day?: WeekStartDayEnum | NullEnum | null;
+      week_start_day?: WeekStartDayEnum | null;
       /**
        * ID of the dashboard shown as the project's default landing dashboard.
        * @nullable
@@ -33518,10 +29102,10 @@ export namespace Schemas {
       readonly person_on_events_querying_enabled: boolean;
       /** @nullable */
       inject_web_apps?: boolean | null;
-      extra_settings?: unknown | null;
-      modifiers?: unknown | null;
+      extra_settings?: unknown;
+      modifiers?: unknown;
       readonly default_modifiers: ProjectBackwardCompatDefaultModifiers;
-      has_completed_onboarding_for?: unknown | null;
+      has_completed_onboarding_for?: unknown;
       /**
        * Enables displaying surveys via posthog-js on allowed origins.
        * @nullable
@@ -33549,14 +29133,14 @@ export namespace Schemas {
     * `b2b` - B2B
     * `b2c` - B2C
     * `other` - Other */
-      business_model?: BusinessModelEnum | BlankEnum | NullEnum | null;
+      business_model?: BusinessModelEnum | BlankEnum | null;
       /**
        * Enables the customer conversations / live chat product for this project.
        * @nullable
        */
       conversations_enabled?: boolean | null;
-      conversations_settings?: unknown | null;
-      logs_settings?: unknown | null;
+      conversations_settings?: unknown;
+      logs_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
@@ -33609,7 +29193,7 @@ export namespace Schemas {
       key: string;
       /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
       value: string | number | boolean | (string | number)[];
-      operator?: PropertyItemOperatorEnum | BlankEnum | NullEnum | null;
+      operator?: PropertyItemOperatorEnum | BlankEnum | null;
       type?: PropertyFilterTypeEnum | BlankEnum;
     }
 
@@ -33670,28 +29254,14 @@ export namespace Schemas {
     } as const;
 
     export interface PropertyValueItem {
-      /** @nullable */
       count?: number | null;
       name?: string | number | boolean | null;
     }
 
-    export type PropertyValuesQueryKind = typeof PropertyValuesQueryKind[keyof typeof PropertyValuesQueryKind];
-
-
-    export const PropertyValuesQueryKind = {
-      PropertyValuesQuery: 'PropertyValuesQuery',
-    } as const;
-
     export interface PropertyValuesQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -33700,31 +29270,22 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PropertyValueItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface PropertyValuesQuery {
-      /** @nullable */
       event_names?: string[] | null;
-      /** @nullable */
       is_column?: boolean | null;
-      kind?: PropertyValuesQueryKind;
+      kind?: 'PropertyValuesQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       property_key: string;
       property_type: PropertyType;
       response?: PropertyValuesQueryResponse | null;
-      /** @nullable */
       search_value?: string | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -33805,223 +29366,99 @@ export namespace Schemas {
       expires_at?: string | null;
     }
 
-    /**
-     * @nullable
-     */
-    export type QueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null | null;
-
-    export type SavedInsightNodeKind = typeof SavedInsightNodeKind[keyof typeof SavedInsightNodeKind];
-
-
-    export const SavedInsightNodeKind = {
-      SavedInsightNode: 'SavedInsightNode',
-    } as const;
+    export type QueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
 
     export interface SavedInsightNode {
-      /**
-       * Can the user click on column headers to sort the table? (default: true)
-       * @nullable
-       */
+      /** Can the user click on column headers to sort the table? (default: true) */
       allowSorting?: boolean | null;
       /** Context for the table, used by components like ColumnConfigurator */
       context?: DataTableNodeViewPropsContext | null;
-      /**
-       * Context key for universal column configuration (e.g., "survey:123")
-       * @nullable
-       */
+      /** Context key for universal column configuration (e.g., "survey:123") */
       contextKey?: string | null;
-      /**
-       * Default columns to use when resetting column configuration
-       * @nullable
-       */
+      /** Default columns to use when resetting column configuration */
       defaultColumns?: string[] | null;
-      /**
-       * Query is embedded inside another bordered component
-       * @nullable
-       */
+      /** Query is embedded inside another bordered component */
       embedded?: boolean | null;
-      /**
-       * Can expand row to show raw event data (default: true)
-       * @nullable
-       */
+      /** Can expand row to show raw event data (default: true) */
       expandable?: boolean | null;
-      /**
-       * Show with most visual options enabled. Used in insight scene.
-       * @nullable
-       */
+      /** Show with most visual options enabled. Used in insight scene. */
       full?: boolean | null;
-      /** @nullable */
       hidePersonsModal?: boolean | null;
-      /** @nullable */
       hideTooltipOnScroll?: boolean | null;
-      kind?: SavedInsightNodeKind;
-      /**
-       * Link properties via the URL (default: false)
-       * @nullable
-       */
+      kind?: 'SavedInsightNode';
+      /** Link properties via the URL (default: false) */
       propertiesViaUrl?: boolean | null;
       shortId: string;
-      /**
-       * Show the kebab menu at the end of the row
-       * @nullable
-       */
+      /** Show the kebab menu at the end of the row */
       showActions?: boolean | null;
-      /**
-       * Show a button to configure the table's columns if possible
-       * @nullable
-       */
+      /** Show a button to configure the table's columns if possible */
       showColumnConfigurator?: boolean | null;
-      /** @nullable */
       showCorrelationTable?: boolean | null;
-      /**
-       * Show count of total and filtered results
-       * @nullable
-       */
+      /** Show count of total and filtered results */
       showCount?: boolean | null;
-      /**
-       * Show date range selector
-       * @nullable
-       */
+      /** Show date range selector */
       showDateRange?: boolean | null;
-      /**
-       * Show the time it takes to run a query
-       * @nullable
-       */
+      /** Show the time it takes to run a query */
       showElapsedTime?: boolean | null;
-      /**
-       * Include an event filter above the table (EventsNode only)
-       * @nullable
-       */
+      /** Include an event filter above the table (EventsNode only) */
       showEventFilter?: boolean | null;
-      /**
-       * Include an events filter above the table to filter by multiple events (EventsQuery only)
-       * @nullable
-       */
+      /** Include an events filter above the table to filter by multiple events (EventsQuery only) */
       showEventsFilter?: boolean | null;
-      /**
-       * Show the export button
-       * @nullable
-       */
+      /** Show the export button */
       showExport?: boolean | null;
-      /** @nullable */
       showFilters?: boolean | null;
-      /** @nullable */
       showHeader?: boolean | null;
-      /**
-       * Include a HogQL query editor above HogQL tables
-       * @nullable
-       */
+      /** Include a HogQL query editor above HogQL tables */
       showHogQLEditor?: boolean | null;
-      /** @nullable */
       showLastComputation?: boolean | null;
-      /** @nullable */
       showLastComputationRefresh?: boolean | null;
-      /**
-       * Show a button to open the current query as a new insight. (default: true)
-       * @nullable
-       */
+      /** Show a button to open the current query as a new insight. (default: true) */
       showOpenEditorButton?: boolean | null;
-      /**
-       * Show a button to configure and persist the table's default columns if possible
-       * @nullable
-       */
+      /** Show a button to configure and persist the table's default columns if possible */
       showPersistentColumnConfigurator?: boolean | null;
       /** Include a property filter above the table */
       showPropertyFilter?: boolean | TaxonomicFilterGroupType[] | null;
-      /**
-       * Show a recording column for events with session recordings
-       * @nullable
-       */
+      /** Show a recording column for events with session recordings */
       showRecordingColumn?: boolean | null;
-      /**
-       * Show a reload button
-       * @nullable
-       */
+      /** Show a reload button */
       showReload?: boolean | null;
-      /** @nullable */
       showResults?: boolean | null;
-      /**
-       * Show a results table
-       * @nullable
-       */
+      /** Show a results table */
       showResultsTable?: boolean | null;
-      /**
-       * Show saved filters feature for this table (requires uniqueKey)
-       * @nullable
-       */
+      /** Show saved filters feature for this table (requires uniqueKey) */
       showSavedFilters?: boolean | null;
-      /**
-       * Shows a list of saved queries
-       * @nullable
-       */
+      /** Shows a list of saved queries */
       showSavedQueries?: boolean | null;
-      /**
-       * Include a free text search field (PersonsNode only)
-       * @nullable
-       */
+      /** Include a free text search field (PersonsNode only) */
       showSearch?: boolean | null;
-      /**
-       * Show actors query options and back to source
-       * @nullable
-       */
+      /** Show actors query options and back to source */
       showSourceQueryOptions?: boolean | null;
-      /** @nullable */
       showTable?: boolean | null;
-      /**
-       * Show table views feature for this table (requires uniqueKey)
-       * @nullable
-       */
+      /** Show table views feature for this table (requires uniqueKey) */
       showTableViews?: boolean | null;
-      /**
-       * Show filter to exclude test accounts
-       * @nullable
-       */
+      /** Show filter to exclude test accounts */
       showTestAccountFilters?: boolean | null;
-      /**
-       * Show a detailed query timing breakdown
-       * @nullable
-       */
+      /** Show a detailed query timing breakdown */
       showTimings?: boolean | null;
-      /** @nullable */
       suppressSessionAnalysisWarning?: boolean | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
       vizSpecificOptions?: VizSpecificOptions | null;
     }
-
-    export type SuggestedQuestionsQueryKind = typeof SuggestedQuestionsQueryKind[keyof typeof SuggestedQuestionsQueryKind];
-
-
-    export const SuggestedQuestionsQueryKind = {
-      SuggestedQuestionsQuery: 'SuggestedQuestionsQuery',
-    } as const;
 
     export interface SuggestedQuestionsQueryResponse {
       questions: string[];
     }
 
     export interface SuggestedQuestionsQuery {
-      kind?: SuggestedQuestionsQueryKind;
+      kind?: 'SuggestedQuestionsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: SuggestedQuestionsQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
-
-    export type TeamTaxonomyQueryKind = typeof TeamTaxonomyQueryKind[keyof typeof TeamTaxonomyQueryKind];
-
-
-    export const TeamTaxonomyQueryKind = {
-      TeamTaxonomyQuery: 'TeamTaxonomyQuery',
-    } as const;
 
     export interface TeamTaxonomyItem {
       count: number;
@@ -34029,56 +29466,35 @@ export namespace Schemas {
     }
 
     export interface TeamTaxonomyQueryResponse {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TeamTaxonomyItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface TeamTaxonomyQuery {
-      kind?: TeamTaxonomyQueryKind;
-      /**
-       * Number of rows to return
-       * @nullable
-       */
+      kind?: 'TeamTaxonomyQuery';
+      /** Number of rows to return */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Number of rows to skip before returning rows
-       * @nullable
-       */
+      /** Number of rows to skip before returning rows */
       offset?: number | null;
       response?: TeamTaxonomyQueryResponse | null;
       tags?: QueryLogTags | null;
-      /**
-       * version of the node, used for schema migrations
-       * @nullable
-       */
+      /** version of the node, used for schema migrations */
       version?: number | null;
     }
 
@@ -34096,20 +29512,13 @@ export namespace Schemas {
     } as const;
 
     export interface QueryRequest {
-      /** @nullable */
       async?: boolean | null;
-      /**
-       * Client provided query ID. Can be used to retrieve the status or cancel the query.
-       * @nullable
-       */
+      /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
       client_query_id?: string | null;
       filters_override?: DashboardFilter | null;
       /** Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value. */
       limit_context?: LimitContext | null;
-      /**
-       * Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.
-       * @nullable
-       */
+      /** Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name. */
       name?: string | null;
       /** Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.
 
@@ -34131,88 +29540,61 @@ export namespace Schemas {
     - `'force_async'` - kick off background calculation, even if fresh results are already cached
     - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field. */
       refresh?: RefreshType | null;
-      /** @nullable */
       variables_override?: QueryRequestVariablesOverride;
     }
 
     export interface QueryResponseAlternative1 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       nextCursor?: string | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface QueryResponseAlternative2 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface QueryResponseAlternative3 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
       limit: number;
-      /** @nullable */
       missing_actors_count?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34222,34 +29604,19 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: string[] | null;
     }
 
-    export type QueryResponseAlternative4Kind = typeof QueryResponseAlternative4Kind[keyof typeof QueryResponseAlternative4Kind];
-
-
-    export const QueryResponseAlternative4Kind = {
-      GroupsQuery: 'GroupsQuery',
-    } as const;
-
     export interface QueryResponseAlternative4 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      kind?: QueryResponseAlternative4Kind;
+      kind?: 'GroupsQuery';
       limit: number;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34259,43 +29626,26 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface QueryResponseAlternative5 {
-      /** @nullable */
       breakdown?: BreakdownItem[] | null;
-      /** @nullable */
       breakdowns?: MultipleBreakdownOptions[] | null;
-      /** @nullable */
       compare?: CompareItem[] | null;
-      /** @nullable */
       day?: DayItem[] | null;
-      /** @nullable */
       interval?: IntervalItem[] | null;
-      /** @nullable */
       series?: Series[] | null;
-      /** @nullable */
       status?: StatusItem[] | null;
     }
 
     export interface QueryResponseAlternative6 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34304,92 +29654,55 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TimelineEntry[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative7 {
-      /** @nullable */
       bytecode?: unknown[] | null;
-      /** @nullable */
       coloredBytecode?: unknown[] | null;
       results: unknown;
-      /** @nullable */
       stdout?: string | null;
     }
 
     export interface QueryResponseAlternative8 {
-      /**
-       * Executed ClickHouse query
-       * @nullable
-       */
+      /** Executed ClickHouse query */
       clickhouse?: string | null;
-      /**
-       * Returned columns
-       * @nullable
-       */
+      /** Returned columns */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Query explanation output
-       * @nullable
-       */
+      /** Query explanation output */
       explain?: string[] | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /**
-       * Input query string
-       * @nullable
-       */
+      /** Input query string */
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /**
-       * Types of returned columns
-       * @nullable
-       */
+      /** Types of returned columns */
       types?: unknown[] | null;
     }
 
     export interface QueryResponseAlternative9 {
-      /** @nullable */
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
       isUsingIndices?: QueryIndexUsage | null;
-      /** @nullable */
       isValid?: boolean | null;
       notices: HogQLNotice[];
-      /** @nullable */
       query?: string | null;
-      /** @nullable */
       table_names?: string[] | null;
       warnings: HogQLNotice[];
     }
@@ -34398,124 +29711,76 @@ export namespace Schemas {
       /** Whether or not the suggestions returned are complete */
       incomplete_list: boolean;
       suggestions: AutocompleteCompletionItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative11 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface QueryResponseAlternative14 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative15 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SimilarIssue[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export type QueryResponseAlternative16Results = {[key: string]: Results};
 
     export interface QueryResponseAlternative16 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34524,52 +29789,29 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative16Results;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative17 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingCorrelatedIssue[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
-
-    export type QueryResponseAlternative18Kind = typeof QueryResponseAlternative18Kind[keyof typeof QueryResponseAlternative18Kind];
-
-
-    export const QueryResponseAlternative18Kind = {
-      ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
-    } as const;
 
     export type QueryResponseAlternative18CredibleIntervals = {[key: string]: number[]};
 
@@ -34582,21 +29824,13 @@ export namespace Schemas {
       expected_loss: number;
       funnels_query?: FunnelsQuery | null;
       insight: QueryResponseAlternative18InsightItemItem[][];
-      kind?: QueryResponseAlternative18Kind;
+      kind?: 'ExperimentFunnelsQuery';
       probability: QueryResponseAlternative18Probability;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
-      /** @nullable */
       stats_version?: number | null;
       variants: ExperimentVariantFunnelsBaseStats[];
     }
-
-    export type QueryResponseAlternative19Kind = typeof QueryResponseAlternative19Kind[keyof typeof QueryResponseAlternative19Kind];
-
-
-    export const QueryResponseAlternative19Kind = {
-      ExperimentTrendsQuery: 'ExperimentTrendsQuery',
-    } as const;
 
     export type QueryResponseAlternative19CredibleIntervals = {[key: string]: number[]};
 
@@ -34609,133 +29843,76 @@ export namespace Schemas {
       credible_intervals: QueryResponseAlternative19CredibleIntervals;
       exposure_query?: TrendsQuery | null;
       insight: QueryResponseAlternative19InsightItem[];
-      kind?: QueryResponseAlternative19Kind;
+      kind?: 'ExperimentTrendsQuery';
       p_value: number;
       probability: QueryResponseAlternative19Probability;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
-      /** @nullable */
       stats_version?: number | null;
       variants: ExperimentVariantTrendsBaseStats[];
     }
 
-    export type QueryResponseAlternative20Kind = typeof QueryResponseAlternative20Kind[keyof typeof QueryResponseAlternative20Kind];
+    export type QueryResponseAlternative20CredibleIntervals = {[key: string]: number[]} | null;
 
-
-    export const QueryResponseAlternative20Kind = {
-      ExperimentQuery: 'ExperimentQuery',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type QueryResponseAlternative20CredibleIntervals = {[key: string]: number[]} | null | null;
-
-    export type QueryResponseAlternative20InsightItem = { [key: string]: unknown };
-
-    /**
-     * @nullable
-     */
-    export type QueryResponseAlternative20Probability = {[key: string]: number} | null | null;
+    export type QueryResponseAlternative20Probability = {[key: string]: number} | null;
 
     export interface QueryResponseAlternative20 {
       baseline?: ExperimentStatsBaseValidated | null;
-      /**
-       * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
-       * @nullable
-       */
+      /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
       breakdown_results?: ExperimentBreakdownResult[] | null;
-      /** @nullable */
       clickhouse_sql?: string | null;
-      /** @nullable */
       credible_intervals?: QueryResponseAlternative20CredibleIntervals;
-      /** @nullable */
       hogql?: string | null;
-      /** @nullable */
-      insight?: QueryResponseAlternative20InsightItem[] | null;
-      /**
-       * Whether exposures were served from the precomputation system
-       * @nullable
-       */
+      insight?: undefinedItem[] | null;
+      /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
-      kind?: QueryResponseAlternative20Kind;
+      kind?: 'ExperimentQuery';
       metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
-      /** @nullable */
       p_value?: number | null;
-      /** @nullable */
       probability?: QueryResponseAlternative20Probability;
       significance_code?: ExperimentSignificanceCode | null;
-      /** @nullable */
       significant?: boolean | null;
-      /** @nullable */
       stats_version?: number | null;
       variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[] | null;
       variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[] | null;
     }
-
-    export type QueryResponseAlternative21Kind = typeof QueryResponseAlternative21Kind[keyof typeof QueryResponseAlternative21Kind];
-
-
-    export const QueryResponseAlternative21Kind = {
-      ExperimentExposureQuery: 'ExperimentExposureQuery',
-    } as const;
 
     export type QueryResponseAlternative21TotalExposures = {[key: string]: number};
 
     export interface QueryResponseAlternative21 {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
-      kind?: QueryResponseAlternative21Kind;
+      kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: QueryResponseAlternative21TotalExposures;
     }
 
     export interface QueryResponseAlternative22 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EmbeddingDistance[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative23 {
-      /** @nullable */
       dateFrom?: string | null;
-      /** @nullable */
       dateTo?: string | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34745,35 +29922,21 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
     export interface QueryResponseAlternative24 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -34781,37 +29944,22 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
     export interface QueryResponseAlternative25 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -34819,25 +29967,15 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface QueryResponseAlternative27 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34850,27 +29988,16 @@ export namespace Schemas {
        * @maxItems 1
        */
       results: WebVitalsPathBreakdownResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative28 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34879,10 +30006,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PageURL[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -34895,15 +30019,9 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative30 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34913,27 +30031,16 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebNotableChangeItem[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
     export interface QueryResponseAlternative31 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34942,25 +30049,15 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative32 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34969,25 +30066,15 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative33 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -34996,23 +30083,14 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative34 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35021,25 +30099,15 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative35 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35048,33 +30116,20 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative36 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -35082,27 +30137,17 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export type QueryResponseAlternative37Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface QueryResponseAlternative37 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35112,33 +30157,20 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative37Results;
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative38 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -35146,63 +30178,42 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface QueryResponseAlternative39 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       nextCursor?: string | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface QueryResponseAlternative40 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
       limit: number;
-      /** @nullable */
       missing_actors_count?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35212,34 +30223,19 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: string[] | null;
     }
 
-    export type QueryResponseAlternative41Kind = typeof QueryResponseAlternative41Kind[keyof typeof QueryResponseAlternative41Kind];
-
-
-    export const QueryResponseAlternative41Kind = {
-      GroupsQuery: 'GroupsQuery',
-    } as const;
-
     export interface QueryResponseAlternative41 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      kind?: QueryResponseAlternative41Kind;
+      kind?: 'GroupsQuery';
       limit: number;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35249,86 +30245,48 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface QueryResponseAlternative42 {
-      /**
-       * Executed ClickHouse query
-       * @nullable
-       */
+      /** Executed ClickHouse query */
       clickhouse?: string | null;
-      /**
-       * Returned columns
-       * @nullable
-       */
+      /** Returned columns */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Query explanation output
-       * @nullable
-       */
+      /** Query explanation output */
       explain?: string[] | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Query metadata output */
       metadata?: HogQLMetadataResponse | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
-      /**
-       * Input query string
-       * @nullable
-       */
+      /** Input query string */
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /**
-       * Types of returned columns
-       * @nullable
-       */
+      /** Types of returned columns */
       types?: unknown[] | null;
     }
 
     export interface QueryResponseAlternative43 {
-      /** @nullable */
       dateFrom?: string | null;
-      /** @nullable */
       dateTo?: string | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35338,35 +30296,21 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
     export interface QueryResponseAlternative44 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -35374,37 +30318,22 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
-      /** @nullable */
       usedPreAggregatedTables?: boolean | null;
     }
 
     export interface QueryResponseAlternative45 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -35412,25 +30341,15 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface QueryResponseAlternative47 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35443,90 +30362,57 @@ export namespace Schemas {
        * @maxItems 1
        */
       results: WebVitalsPathBreakdownResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative48 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface QueryResponseAlternative49 {
       columns: unknown[];
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types: string[];
     }
 
     export interface QueryResponseAlternative50 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35535,25 +30421,15 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative51 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35562,25 +30438,15 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative52 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35589,23 +30455,14 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative53 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35614,25 +30471,15 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative54 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35641,68 +30488,41 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative55 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface QueryResponseAlternative57 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -35710,27 +30530,17 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export type QueryResponseAlternative58Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface QueryResponseAlternative58 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35740,33 +30550,20 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative58Results;
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative59 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
@@ -35774,54 +30571,30 @@ export namespace Schemas {
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
       samplingRate?: SamplingRate | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export interface QueryResponseAlternative60 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
-
-    export type QueryResponseAlternative62Kind = typeof QueryResponseAlternative62Kind[keyof typeof QueryResponseAlternative62Kind];
-
-
-    export const QueryResponseAlternative62Kind = {
-      ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
-    } as const;
 
     export type QueryResponseAlternative62CredibleIntervals = {[key: string]: number[]};
 
@@ -35834,21 +30607,13 @@ export namespace Schemas {
       expected_loss: number;
       funnels_query?: FunnelsQuery | null;
       insight: QueryResponseAlternative62InsightItemItem[][];
-      kind?: QueryResponseAlternative62Kind;
+      kind?: 'ExperimentFunnelsQuery';
       probability: QueryResponseAlternative62Probability;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
-      /** @nullable */
       stats_version?: number | null;
       variants: ExperimentVariantFunnelsBaseStats[];
     }
-
-    export type QueryResponseAlternative63Kind = typeof QueryResponseAlternative63Kind[keyof typeof QueryResponseAlternative63Kind];
-
-
-    export const QueryResponseAlternative63Kind = {
-      ExperimentTrendsQuery: 'ExperimentTrendsQuery',
-    } as const;
 
     export type QueryResponseAlternative63CredibleIntervals = {[key: string]: number[]};
 
@@ -35861,103 +30626,65 @@ export namespace Schemas {
       credible_intervals: QueryResponseAlternative63CredibleIntervals;
       exposure_query?: TrendsQuery | null;
       insight: QueryResponseAlternative63InsightItem[];
-      kind?: QueryResponseAlternative63Kind;
+      kind?: 'ExperimentTrendsQuery';
       p_value: number;
       probability: QueryResponseAlternative63Probability;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
-      /** @nullable */
       stats_version?: number | null;
       variants: ExperimentVariantTrendsBaseStats[];
     }
 
     export interface QueryResponseAlternative64 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative65 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export type QueryResponseAlternative66ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative66 {
-      /** @nullable */
       boxplot_data?: BoxPlotDatum[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Wether more breakdown values are available.
-       * @nullable
-       */
+      /** Wether more breakdown values are available. */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35966,23 +30693,14 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative66ResultsItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative67 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -35991,23 +30709,14 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative68 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36016,23 +30725,14 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RetentionResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative69 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36041,25 +30741,16 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PathsLink[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export type QueryResponseAlternative70ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative70 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36068,45 +30759,28 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative70ResultsItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative72 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: FunnelCorrelationResult;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
@@ -36118,85 +30792,51 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative74 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       has_next: boolean;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for the next page. Contains the ordering value and session_id from the last record.
-       * @nullable
-       */
+      /** Cursor for the next page. Contains the ordering value and session_id from the last record. */
       next_cursor?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SessionRecordingType[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative75 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       nextCursor?: string | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative76 {
       count: number;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36205,23 +30845,14 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogAttributeResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative77 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36230,46 +30861,28 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogValueResult[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative78 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /**
-       * Cursor for fetching the next page of results
-       * @nullable
-       */
+      /** Cursor for fetching the next page of results */
       nextCursor?: string | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -36278,77 +30891,47 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative80 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TeamTaxonomyItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative81 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EventTaxonomyItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative82 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36357,84 +30940,47 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative83 {
-      /** @nullable */
       columns?: string[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative85 {
-      /**
-       * Timestamp of the newer trace
-       * @nullable
-       */
+      /** Timestamp of the newer trace */
       newerTimestamp?: string | null;
-      /**
-       * ID of the newer trace (chronologically after current)
-       * @nullable
-       */
+      /** ID of the newer trace (chronologically after current) */
       newerTraceId?: string | null;
-      /**
-       * Timestamp of the older trace
-       * @nullable
-       */
+      /** Timestamp of the older trace */
       olderTimestamp?: string | null;
-      /**
-       * ID of the older trace (chronologically before current)
-       * @nullable
-       */
+      /** ID of the older trace (chronologically before current) */
       olderTraceId?: string | null;
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative86 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36443,23 +30989,14 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: VectorSearchResponseItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative87 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36468,23 +31005,14 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: UsageMetric[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative88 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36493,60 +31021,37 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EndpointsUsageOverviewItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative89 {
-      /** @nullable */
       columns?: unknown[] | null;
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /** @nullable */
       hasMore?: boolean | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
-      /** @nullable */
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** @nullable */
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
-      /** @nullable */
       types?: unknown[] | null;
     }
 
     export type QueryResponseAlternative90ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative90 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36555,23 +31060,14 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative90ResultsItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
     export interface QueryResponseAlternative91 {
-      /**
-       * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-       * @nullable
-       */
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
-      /**
-       * Generated HogQL query.
-       * @nullable
-       */
+      /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -36580,10 +31076,7 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PropertyValueItem[];
-      /**
-       * Measured timings for different parts of the query generation process
-       * @nullable
-       */
+      /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
     }
 
@@ -36947,9 +31440,9 @@ export namespace Schemas {
       /** Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema) */
       readonly summary: unknown;
       /** Additional context passed to the summary (ExtraSummaryContext schema) */
-      readonly extra_summary_context: unknown | null;
+      readonly extra_summary_context: unknown;
       /** Summary run metadata (SessionSummaryRunMeta schema) */
-      readonly run_metadata: unknown | null;
+      readonly run_metadata: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly team: number;
@@ -37014,7 +31507,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** @nullable */
       readonly access_token: string | null;
-      settings?: unknown | null;
+      settings?: unknown;
       password_required?: boolean;
       readonly share_passwords: readonly SharePassword[];
     }
@@ -37027,7 +31520,7 @@ export namespace Schemas {
     * `inconclusive` - inconclusive
     * `stopped_early` - stopped_early
     * `invalid` - invalid */
-      conclusion?: ConclusionEnum | NullEnum | null;
+      conclusion?: ConclusionEnum | null;
       /**
        * Optional comment about the experiment conclusion.
        * @nullable
@@ -37048,7 +31541,7 @@ export namespace Schemas {
     export interface SignalUserAutonomyConfig {
       readonly id: string;
       readonly user: _User;
-      autostart_priority?: AutostartPriorityEnum | BlankEnum | NullEnum | null;
+      autostart_priority?: AutostartPriorityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -37219,7 +31712,7 @@ export namespace Schemas {
       targeting_flag_id?: number;
       readonly targeting_flag: MinimalFeatureFlag;
       readonly internal_targeting_flag: MinimalFeatureFlag;
-      targeting_flag_filters?: unknown | null;
+      targeting_flag_filters?: unknown;
       /** @nullable */
       remove_targeting_flag?: boolean | null;
       /** 
@@ -37334,9 +31827,9 @@ export namespace Schemas {
             }
             ```
              */
-      questions?: unknown | null;
-      conditions?: unknown | null;
-      appearance?: unknown | null;
+      questions?: unknown;
+      conditions?: unknown;
+      appearance?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
@@ -37374,7 +31867,7 @@ export namespace Schemas {
       current_iteration_start_date?: string | null;
       /** @nullable */
       response_sampling_start_date?: string | null;
-      response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum | null;
+      response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | null;
       /**
        * @minimum 0
        * @maximum 2147483647
@@ -37387,14 +31880,14 @@ export namespace Schemas {
        * @nullable
        */
       response_sampling_limit?: number | null;
-      response_sampling_daily_limits?: unknown | null;
+      response_sampling_daily_limits?: unknown;
       /** @nullable */
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
-      translations?: unknown | null;
+      translations?: unknown;
       _create_in_folder?: string;
-      form_content?: unknown | null;
+      form_content?: unknown;
     }
 
     export interface SurveySerializerCreateUpdateOnlySchema {
@@ -37419,7 +31912,7 @@ export namespace Schemas {
     * `once` - once
     * `recurring` - recurring
     * `always` - always */
-      schedule?: ScheduleEnum | NullEnum | null;
+      schedule?: ScheduleEnum | null;
       readonly linked_flag: MinimalFeatureFlag;
       /**
        * The feature flag linked to this survey.
@@ -37604,7 +32097,7 @@ export namespace Schemas {
       current_iteration_start_date?: string | null;
       /** @nullable */
       response_sampling_start_date?: string | null;
-      response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum | null;
+      response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | null;
       /**
        * @minimum 0
        * @maximum 2147483647
@@ -37617,7 +32110,7 @@ export namespace Schemas {
        * @nullable
        */
       response_sampling_limit?: number | null;
-      response_sampling_daily_limits?: unknown | null;
+      response_sampling_daily_limits?: unknown;
       /**
        * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
        * @nullable
@@ -37625,9 +32118,9 @@ export namespace Schemas {
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
-      translations?: unknown | null;
+      translations?: unknown;
       _create_in_folder?: string;
-      form_content?: unknown | null;
+      form_content?: unknown;
     }
 
     /**
@@ -38243,24 +32736,24 @@ export namespace Schemas {
       test_account_filters?: unknown;
       /** @nullable */
       test_account_filters_default_checked?: boolean | null;
-      path_cleaning_filters?: unknown | null;
+      path_cleaning_filters?: unknown;
       is_demo?: boolean;
       timezone?: string;
       data_attributes?: unknown;
       /** @nullable */
       person_display_name_properties?: string[] | null;
-      correlation_config?: unknown | null;
+      correlation_config?: unknown;
       /** @nullable */
       autocapture_opt_out?: boolean | null;
       /** @nullable */
       autocapture_exceptions_opt_in?: boolean | null;
       /** @nullable */
       autocapture_web_vitals_opt_in?: boolean | null;
-      autocapture_web_vitals_allowed_metrics?: unknown | null;
-      autocapture_exceptions_errors_to_ignore?: unknown | null;
+      autocapture_web_vitals_allowed_metrics?: unknown;
+      autocapture_exceptions_errors_to_ignore?: unknown;
       /** @nullable */
       capture_console_log_opt_in?: boolean | null;
-      logs_settings?: unknown | null;
+      logs_settings?: unknown;
       /** @nullable */
       capture_performance_opt_in?: boolean | null;
       session_recording_opt_in?: boolean;
@@ -38275,13 +32768,13 @@ export namespace Schemas {
        * @nullable
        */
       session_recording_minimum_duration_milliseconds?: number | null;
-      session_recording_linked_flag?: unknown | null;
-      session_recording_network_payload_capture_config?: unknown | null;
-      session_recording_masking_config?: unknown | null;
+      session_recording_linked_flag?: unknown;
+      session_recording_network_payload_capture_config?: unknown;
+      session_recording_masking_config?: unknown;
       /** @nullable */
-      session_recording_url_trigger_config?: (unknown | null)[] | null;
+      session_recording_url_trigger_config?: unknown[] | null;
       /** @nullable */
-      session_recording_url_blocklist_config?: (unknown | null)[] | null;
+      session_recording_url_blocklist_config?: unknown[] | null;
       /** @nullable */
       session_recording_event_trigger_config?: (string | null)[] | null;
       /**
@@ -38290,25 +32783,25 @@ export namespace Schemas {
        */
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-      session_recording_trigger_groups?: unknown | null;
+      session_recording_trigger_groups?: unknown;
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
-      session_replay_config?: unknown | null;
-      survey_config?: unknown | null;
-      week_start_day?: WeekStartDayEnum | NullEnum | null;
+      session_replay_config?: unknown;
+      survey_config?: unknown;
+      week_start_day?: WeekStartDayEnum | null;
       /** @nullable */
       primary_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
       /** @nullable */
       recording_domains?: (string | null)[] | null;
-      cookieless_server_hash_mode?: CookielessServerHashModeEnum | NullEnum | null;
+      cookieless_server_hash_mode?: CookielessServerHashModeEnum | null;
       /** @nullable */
       human_friendly_comparison_periods?: boolean | null;
       /** @nullable */
       inject_web_apps?: boolean | null;
-      extra_settings?: unknown | null;
-      modifiers?: unknown | null;
-      has_completed_onboarding_for?: unknown | null;
+      extra_settings?: unknown;
+      modifiers?: unknown;
+      has_completed_onboarding_for?: unknown;
       /** @nullable */
       surveys_opt_in?: boolean | null;
       /** @nullable */
@@ -38340,7 +32833,7 @@ export namespace Schemas {
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
-      onboarding_tasks?: unknown | null;
+      onboarding_tasks?: unknown;
       base_currency?: BaseCurrencyEnum;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
@@ -38351,13 +32844,13 @@ export namespace Schemas {
     * `b2b` - B2B
     * `b2c` - B2C
     * `other` - Other */
-      business_model?: BusinessModelEnum | BlankEnum | NullEnum | null;
+      business_model?: BusinessModelEnum | BlankEnum | null;
       /** @nullable */
       conversations_enabled?: boolean | null;
-      conversations_settings?: unknown | null;
+      conversations_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
-      readonly effective_membership_level: EffectiveMembershipLevelEnum | null;
+      readonly effective_membership_level: EffectiveMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly TeamGroupTypesItem[];
       /** @nullable */
@@ -38869,7 +33362,7 @@ export namespace Schemas {
     * `is_not_set` - is_not_set */
       operator: _LogPropertyFilterOperatorEnum;
       /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
-      value?: unknown | null;
+      value?: unknown;
     }
 
     export interface _LogsAttributesResponse {
@@ -39171,7 +33664,7 @@ export namespace Schemas {
     * `is_not_set` - is_not_set */
       operator: _SpanPropertyFilterOperatorEnum;
       /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
-      value?: unknown | null;
+      value?: unknown;
     }
 
     export interface _SymbolSetDownloadResponse {
@@ -41615,7 +36108,6 @@ export namespace Schemas {
 
     export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;
-      /** @nullable */
       limit: number | null;
       at_limit: boolean;
     };
@@ -42432,7 +36924,6 @@ export namespace Schemas {
     date_from?: string;
     /**
      * End date for the audit period
-     * @minLength 1
      * @nullable
      */
     date_to?: string | null;
@@ -46659,7 +41150,6 @@ export namespace Schemas {
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;
-      /** @nullable */
       limit: number | null;
       at_limit: boolean;
     };

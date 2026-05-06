@@ -285,18 +285,21 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -350,7 +353,7 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({}).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().nullish(),
+        rollback_conditions: zod.unknown().optional(),
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
@@ -380,9 +383,9 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
                     .enum(['server', 'client', 'all'])
                     .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
             ),
@@ -392,9 +395,9 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
                     .enum(['distinct_id', 'device_id'])
                     .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
             ),
@@ -659,18 +662,21 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -724,7 +730,7 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         created_at: zod.iso.datetime({}).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().nullish(),
+        rollback_conditions: zod.unknown().optional(),
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
@@ -754,9 +760,9 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
                     .enum(['server', 'client', 'all'])
                     .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
             ),
@@ -766,9 +772,9 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
                     .enum(['distinct_id', 'device_id'])
                     .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
             ),
@@ -806,7 +812,7 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({}).optional(),
         version: zod.number().default(featureFlagsDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().nullish(),
+        rollback_conditions: zod.unknown().optional(),
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
@@ -836,9 +842,9 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
                     .enum(['server', 'client', 'all'])
                     .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
             ),
@@ -848,9 +854,9 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
                     .enum(['distinct_id', 'device_id'])
                     .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
             ),
@@ -888,7 +894,7 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({}).optional(),
         version: zod.number().default(featureFlagsEnrichUsageDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().nullish(),
+        rollback_conditions: zod.unknown().optional(),
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
@@ -918,9 +924,9 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
                     .enum(['server', 'client', 'all'])
                     .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
             ),
@@ -930,9 +936,9 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
                     .enum(['distinct_id', 'device_id'])
                     .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
             ),
@@ -1002,7 +1008,7 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({}).optional(),
         version: zod.number().default(featureFlagsBulkDeleteCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().nullish(),
+        rollback_conditions: zod.unknown().optional(),
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
@@ -1032,9 +1038,9 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod
                     .enum(['server', 'client', 'all'])
                     .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
             ),
@@ -1044,9 +1050,9 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod
                     .enum(['distinct_id', 'device_id'])
                     .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
             ),
@@ -1083,7 +1089,7 @@ export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({}).optional(),
         version: zod.number().default(featureFlagsBulkKeysCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().nullish(),
+        rollback_conditions: zod.unknown().optional(),
         performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
@@ -1113,9 +1119,9 @@ export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod
                     .enum(['server', 'client', 'all'])
                     .describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All'
             ),
@@ -1125,9 +1131,9 @@ export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod
                     .enum(['distinct_id', 'device_id'])
                     .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID'
             ),
@@ -1218,9 +1224,9 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
@@ -1267,9 +1273,9 @@ export const ScheduledChangesUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
@@ -1320,9 +1326,9 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),

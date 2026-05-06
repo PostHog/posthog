@@ -41,10 +41,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `distinct_id` - User ID (default)
  * `device_id` - Device ID
@@ -82,12 +78,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -137,7 +133,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -291,10 +287,10 @@ export interface SurveyApi {
         }
         ```
          */
-    questions?: unknown | null
+    questions?: unknown
     /** @nullable */
     readonly conditions: SurveyApiConditions
-    appearance?: unknown | null
+    appearance?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -333,7 +329,7 @@ export interface SurveyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -346,25 +342,23 @@ export interface SurveyApi {
      * @nullable
      */
     response_sampling_limit?: number | null
-    response_sampling_daily_limits?: unknown | null
+    response_sampling_daily_limits?: unknown
     /** @nullable */
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
-    translations?: unknown | null
+    translations?: unknown
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level: string | null
-    form_content?: unknown | null
+    form_content?: unknown
 }
 
 export interface PaginatedSurveyListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SurveyApi[]
 }
@@ -1236,7 +1230,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
 * `once` - once
 * `recurring` - recurring
 * `always` - always */
-    schedule?: ScheduleEnumApi | NullEnumApi | null
+    schedule?: ScheduleEnumApi | null
     readonly linked_flag: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1421,7 +1415,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1434,7 +1428,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      * @nullable
      */
     response_sampling_limit?: number | null
-    response_sampling_daily_limits?: unknown | null
+    response_sampling_daily_limits?: unknown
     /**
      * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
      * @nullable
@@ -1442,9 +1436,9 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
-    translations?: unknown | null
+    translations?: unknown
     _create_in_folder?: string
-    form_content?: unknown | null
+    form_content?: unknown
 }
 
 export interface SurveySerializerCreateUpdateOnlyApi {
@@ -1463,7 +1457,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     targeting_flag_id?: number
     readonly targeting_flag: MinimalFeatureFlagApi
     readonly internal_targeting_flag: MinimalFeatureFlagApi
-    targeting_flag_filters?: unknown | null
+    targeting_flag_filters?: unknown
     /** @nullable */
     remove_targeting_flag?: boolean | null
     /**
@@ -1578,9 +1572,9 @@ export interface SurveySerializerCreateUpdateOnlyApi {
         }
         ```
          */
-    questions?: unknown | null
-    conditions?: unknown | null
-    appearance?: unknown | null
+    questions?: unknown
+    conditions?: unknown
+    appearance?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -1618,7 +1612,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1631,14 +1625,14 @@ export interface SurveySerializerCreateUpdateOnlyApi {
      * @nullable
      */
     response_sampling_limit?: number | null
-    response_sampling_daily_limits?: unknown | null
+    response_sampling_daily_limits?: unknown
     /** @nullable */
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
-    translations?: unknown | null
+    translations?: unknown
     _create_in_folder?: string
-    form_content?: unknown | null
+    form_content?: unknown
 }
 
 export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
@@ -1663,7 +1657,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
 * `once` - once
 * `recurring` - recurring
 * `always` - always */
-    schedule?: ScheduleEnumApi | NullEnumApi | null
+    schedule?: ScheduleEnumApi | null
     readonly linked_flag?: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1848,7 +1842,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1861,7 +1855,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      * @nullable
      */
     response_sampling_limit?: number | null
-    response_sampling_daily_limits?: unknown | null
+    response_sampling_daily_limits?: unknown
     /**
      * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
      * @nullable
@@ -1869,15 +1863,15 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
-    translations?: unknown | null
+    translations?: unknown
     _create_in_folder?: string
-    form_content?: unknown | null
+    form_content?: unknown
 }
 
 /**
  * Optional translation-only draft survey payload to translate instead of the last saved survey.
  */
-export type GenerateSurveyTranslationsRequestApiSurvey = { [key: string]: unknown | null }
+export type GenerateSurveyTranslationsRequestApiSurvey = { [key: string]: unknown }
 
 export interface GenerateSurveyTranslationsRequestApi {
     /** Language code to generate translations for, for example pt-BR. */

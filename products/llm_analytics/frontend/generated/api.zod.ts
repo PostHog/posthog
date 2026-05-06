@@ -85,18 +85,30 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -155,18 +167,30 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -227,18 +251,30 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -1711,18 +1747,30 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Conditions that scope when the tagger runs'),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(taggersCreateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(taggersCreateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional(),
 })
 
@@ -1771,18 +1819,30 @@ export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Conditions that scope when the tagger runs'),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(taggersTestHogCreateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.uuid().nullish(),
-            provider_key_name: zod.string().nullable(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(taggersTestHogCreateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullable(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional(),
 })
 
@@ -1792,9 +1852,9 @@ export const datasetItemsCreateBodyRefSourceIdMax = 255
 
 export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
     dataset: zod.uuid(),
-    input: zod.unknown().nullish(),
-    output: zod.unknown().nullish(),
-    metadata: zod.unknown().nullish(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
     ref_trace_id: zod.string().max(datasetItemsCreateBodyRefTraceIdMax).nullish(),
     ref_timestamp: zod.iso.datetime({}).nullish(),
     ref_source_id: zod.string().max(datasetItemsCreateBodyRefSourceIdMax).nullish(),
@@ -1807,9 +1867,9 @@ export const datasetItemsUpdateBodyRefSourceIdMax = 255
 
 export const DatasetItemsUpdateBody = /* @__PURE__ */ zod.object({
     dataset: zod.uuid(),
-    input: zod.unknown().nullish(),
-    output: zod.unknown().nullish(),
-    metadata: zod.unknown().nullish(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
     ref_trace_id: zod.string().max(datasetItemsUpdateBodyRefTraceIdMax).nullish(),
     ref_timestamp: zod.iso.datetime({}).nullish(),
     ref_source_id: zod.string().max(datasetItemsUpdateBodyRefSourceIdMax).nullish(),
@@ -1822,9 +1882,9 @@ export const datasetItemsPartialUpdateBodyRefSourceIdMax = 255
 
 export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
     dataset: zod.uuid().optional(),
-    input: zod.unknown().nullish(),
-    output: zod.unknown().nullish(),
-    metadata: zod.unknown().nullish(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
     ref_trace_id: zod.string().max(datasetItemsPartialUpdateBodyRefTraceIdMax).nullish(),
     ref_timestamp: zod.iso.datetime({}).nullish(),
     ref_source_id: zod.string().max(datasetItemsPartialUpdateBodyRefSourceIdMax).nullish(),
@@ -1836,7 +1896,7 @@ export const datasetsCreateBodyNameMax = 400
 export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(datasetsCreateBodyNameMax),
     description: zod.string().nullish(),
-    metadata: zod.unknown().nullish(),
+    metadata: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
 })
 
@@ -1845,7 +1905,7 @@ export const datasetsUpdateBodyNameMax = 400
 export const DatasetsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(datasetsUpdateBodyNameMax),
     description: zod.string().nullish(),
-    metadata: zod.unknown().nullish(),
+    metadata: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
 })
 
@@ -1854,6 +1914,6 @@ export const datasetsPartialUpdateBodyNameMax = 400
 export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(datasetsPartialUpdateBodyNameMax).optional(),
     description: zod.string().nullish(),
-    metadata: zod.unknown().nullish(),
+    metadata: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
 })

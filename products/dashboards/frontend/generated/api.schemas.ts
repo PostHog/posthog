@@ -36,10 +36,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -92,11 +88,11 @@ export interface DashboardTemplateApi {
      * @nullable
      */
     dashboard_description?: string | null
-    dashboard_filters?: unknown | null
+    dashboard_filters?: unknown
     /** @nullable */
     tags?: string[] | null
-    tiles?: unknown | null
-    variables?: unknown | null
+    tiles?: unknown
+    variables?: unknown
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -109,7 +105,7 @@ export interface DashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
@@ -118,9 +114,7 @@ export interface DashboardTemplateApi {
 
 export interface PaginatedDashboardTemplateListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DashboardTemplateApi[]
 }
@@ -208,9 +202,7 @@ export interface DashboardBasicApi {
 
 export interface PaginatedDashboardBasicListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DashboardBasicApi[]
 }
@@ -328,7 +320,7 @@ export interface SharingConfigurationApi {
     enabled?: boolean
     /** @nullable */
     readonly access_token: string | null
-    settings?: unknown | null
+    settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
 }
@@ -517,9 +509,7 @@ export interface DataColorThemeApi {
 
 export interface PaginatedDataColorThemeListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DataColorThemeApi[]
 }

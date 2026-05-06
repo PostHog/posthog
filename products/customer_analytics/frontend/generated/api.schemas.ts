@@ -23,9 +23,7 @@ export interface CustomerJourneyApi {
 
 export interface PaginatedCustomerJourneyListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: CustomerJourneyApi[]
 }
@@ -53,8 +51,8 @@ export const CustomerProfileConfigScopeEnumApi = {
 export interface CustomerProfileConfigApi {
     readonly id: string
     scope: CustomerProfileConfigScopeEnumApi
-    content?: unknown | null
-    sidebar?: unknown | null
+    content?: unknown
+    sidebar?: unknown
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -62,9 +60,7 @@ export interface CustomerProfileConfigApi {
 
 export interface PaginatedCustomerProfileConfigListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: CustomerProfileConfigApi[]
 }
@@ -153,9 +149,7 @@ export interface GroupUsageMetricApi {
 
 export interface PaginatedGroupUsageMetricListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: GroupUsageMetricApi[]
 }

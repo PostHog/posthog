@@ -61,10 +61,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `event` - event
  * `event_metadata` - event_metadata
@@ -131,7 +127,7 @@ export interface PropertyItemApi {
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string | number | boolean | (string | number)[]
-    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
+    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | null
     type?: PropertyFilterTypeEnumApi | BlankEnumApi
 }
 
@@ -203,9 +199,7 @@ export interface PersonRecordApi {
 }
 
 export interface PaginatedPersonRecordListApi {
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     count?: number
     results?: PersonRecordApi[]
@@ -285,9 +279,7 @@ export interface AsyncDeletionStatusApi {
 }
 
 export interface PaginatedAsyncDeletionStatusListApi {
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     count?: number
     results?: AsyncDeletionStatusApi[]

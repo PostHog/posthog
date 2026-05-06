@@ -21,9 +21,7 @@ export interface RepoApi {
 
 export interface PaginatedRepoListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: RepoApi[]
 }
@@ -103,9 +101,7 @@ export interface QuarantinedIdentifierEntryApi {
 
 export interface PaginatedQuarantinedIdentifierEntryListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: QuarantinedIdentifierEntryApi[]
 }
@@ -158,9 +154,7 @@ export interface RunApi {
 
 export interface PaginatedRunListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: RunApi[]
 }
@@ -204,9 +198,7 @@ export interface SnapshotHistoryEntryApi {
 
 export interface PaginatedSnapshotHistoryEntryListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SnapshotHistoryEntryApi[]
 }
@@ -340,9 +332,7 @@ export interface SnapshotApi {
 
 export interface PaginatedSnapshotListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
 }
@@ -365,9 +355,7 @@ export interface ToleratedHashEntryApi {
 
 export interface PaginatedToleratedHashEntryListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ToleratedHashEntryApi[]
 }

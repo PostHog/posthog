@@ -31,10 +31,6 @@ export const NotificationEventSourceTypeEnumApi = {
     ErrorTracking: 'error_tracking',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 export interface NotificationEventApi {
     id: string
     /** @nullable */
@@ -50,7 +46,7 @@ export interface NotificationEventApi {
     resource_type: string | null
     resource_id: string
     source_url: string
-    source_type: NotificationEventSourceTypeEnumApi | NullEnumApi | null
+    source_type: NotificationEventSourceTypeEnumApi | null
     /** @nullable */
     source_id: string | null
     created_at: string
@@ -58,9 +54,7 @@ export interface NotificationEventApi {
 
 export interface PaginatedNotificationEventListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: NotificationEventApi[]
 }

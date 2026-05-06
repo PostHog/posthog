@@ -26,10 +26,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `distinct_id` - User ID (default)
  * `device_id` - Device ID
@@ -67,12 +63,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -122,7 +118,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -147,7 +143,7 @@ export interface ProductTourApi {
      */
     readonly targeting_flag_filters: ProductTourApiTargetingFlagFilters
     content?: unknown
-    readonly draft_content: unknown | null
+    readonly draft_content: unknown
     readonly has_draft: boolean
     auto_launch?: boolean
     /** @nullable */
@@ -162,9 +158,7 @@ export interface ProductTourApi {
 
 export interface PaginatedProductTourListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ProductTourApi[]
 }
@@ -193,7 +187,7 @@ export interface ProductTourSerializerCreateUpdateOnlyApi {
     readonly linked_flag: MinimalFeatureFlagApi
     /** @nullable */
     linked_flag_id?: number | null
-    targeting_flag_filters?: unknown | null
+    targeting_flag_filters?: unknown
     content?: unknown
     auto_launch?: boolean
     /** @nullable */
@@ -223,7 +217,7 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
     readonly linked_flag?: MinimalFeatureFlagApi
     /** @nullable */
     linked_flag_id?: number | null
-    targeting_flag_filters?: unknown | null
+    targeting_flag_filters?: unknown
     content?: unknown
     auto_launch?: boolean
     /** @nullable */

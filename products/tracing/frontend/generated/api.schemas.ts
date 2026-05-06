@@ -96,7 +96,7 @@ export interface _SpanPropertyFilterApi {
 * `is_not_set` - is_not_set */
     operator: _SpanPropertyFilterOperatorEnumApi
     /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
-    value?: unknown | null
+    value?: unknown
 }
 
 export interface _TracingQueryBodyApi {

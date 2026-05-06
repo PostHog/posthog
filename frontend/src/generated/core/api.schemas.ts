@@ -57,7 +57,7 @@ export interface SubscriptionDeliveryApi {
 * `skipped` - Skipped */
     readonly status: SubscriptionDeliveryStatusEnumApi
     /** Top-level failure payload when status is failed, if any. */
-    readonly error: unknown | null
+    readonly error: unknown
     /** When the delivery row was created. */
     readonly created_at: string
     /** Last ORM update to this row. */
@@ -75,9 +75,7 @@ export interface SubscriptionDeliveryApi {
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SubscriptionDeliveryApi[]
 }
@@ -119,9 +117,7 @@ export interface OrganizationDomainApi {
 
 export interface PaginatedOrganizationDomainListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: OrganizationDomainApi[]
 }
@@ -204,10 +200,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -231,7 +223,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface OrganizationInviteApi {
@@ -250,16 +242,14 @@ export interface OrganizationInviteApi {
     /** @nullable */
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
-    private_project_access?: unknown | null
+    private_project_access?: unknown
     send_email?: boolean
     combine_pending_invites?: boolean
 }
 
 export interface PaginatedOrganizationInviteListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: OrganizationInviteApi[]
 }
@@ -297,9 +287,7 @@ export interface OrganizationOAuthApplicationApi {
 
 export interface PaginatedOrganizationOAuthApplicationListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: OrganizationOAuthApplicationApi[]
 }
@@ -317,7 +305,7 @@ export interface ProjectBackwardCompatBasicApi {
     readonly api_token: string
     readonly name: string
     readonly completed_snippet_onboarding: boolean
-    readonly has_completed_onboarding_for: unknown | null
+    readonly has_completed_onboarding_for: unknown
     readonly ingested_event: boolean
     readonly is_demo: boolean
     readonly timezone: string
@@ -326,9 +314,7 @@ export interface ProjectBackwardCompatBasicApi {
 
 export interface PaginatedProjectBackwardCompatBasicListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ProjectBackwardCompatBasicApi[]
 }
@@ -340,7 +326,6 @@ export type ProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown 
 export type ProjectBackwardCompatApiProductIntentsItem = {
     product_type?: string
     created_at?: string
-    /** @nullable */
     onboarding_completed_at?: string | null
     updated_at?: string
 }
@@ -554,7 +539,7 @@ export interface ProjectBackwardCompatApi {
      */
     product_description?: string | null
     readonly created_at: string
-    readonly effective_membership_level: EffectiveMembershipLevelEnumApi | null
+    readonly effective_membership_level: EffectiveMembershipLevelEnumApi
     readonly has_group_types: boolean
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -575,7 +560,7 @@ export interface ProjectBackwardCompatApi {
      */
     test_account_filters_default_checked?: boolean | null
     /** Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths. */
-    path_cleaning_filters?: unknown | null
+    path_cleaning_filters?: unknown
     is_demo?: boolean
     /** IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`).
 
@@ -1183,7 +1168,7 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown | null
+    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -1199,8 +1184,8 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     autocapture_web_vitals_opt_in?: boolean | null
-    autocapture_web_vitals_allowed_metrics?: unknown | null
-    autocapture_exceptions_errors_to_ignore?: unknown | null
+    autocapture_web_vitals_allowed_metrics?: unknown
+    autocapture_exceptions_errors_to_ignore?: unknown
     /**
      * Enables capturing browser console logs alongside session replays.
      * @nullable
@@ -1226,13 +1211,13 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     session_recording_minimum_duration_milliseconds?: number | null
-    session_recording_linked_flag?: unknown | null
-    session_recording_network_payload_capture_config?: unknown | null
-    session_recording_masking_config?: unknown | null
+    session_recording_linked_flag?: unknown
+    session_recording_network_payload_capture_config?: unknown
+    session_recording_masking_config?: unknown
     /** @nullable */
-    session_recording_url_trigger_config?: (unknown | null)[] | null
+    session_recording_url_trigger_config?: unknown[] | null
     /** @nullable */
-    session_recording_url_blocklist_config?: (unknown | null)[] | null
+    session_recording_url_blocklist_config?: unknown[] | null
     /** @nullable */
     session_recording_event_trigger_config?: (string | null)[] | null
     /**
@@ -1241,7 +1226,7 @@ export interface ProjectBackwardCompatApi {
      */
     session_recording_trigger_match_type_config?: string | null
     /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-    session_recording_trigger_groups?: unknown | null
+    session_recording_trigger_groups?: unknown
     /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
 
 * `30d` - 30 Days
@@ -1249,14 +1234,14 @@ export interface ProjectBackwardCompatApi {
 * `1y` - 1 Year
 * `5y` - 5 Years */
     session_recording_retention_period?: SessionRecordingRetentionPeriodEnumApi
-    session_replay_config?: unknown | null
-    survey_config?: unknown | null
+    session_replay_config?: unknown
+    survey_config?: unknown
     access_control?: boolean
     /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
 * `0` - Sunday
 * `1` - Monday */
-    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
+    week_start_day?: WeekStartDayEnumApi | null
     /**
      * ID of the dashboard shown as the project's default landing dashboard.
      * @nullable
@@ -1272,10 +1257,10 @@ export interface ProjectBackwardCompatApi {
     readonly person_on_events_querying_enabled: boolean
     /** @nullable */
     inject_web_apps?: boolean | null
-    extra_settings?: unknown | null
-    modifiers?: unknown | null
+    extra_settings?: unknown
+    modifiers?: unknown
     readonly default_modifiers: ProjectBackwardCompatApiDefaultModifiers
-    has_completed_onboarding_for?: unknown | null
+    has_completed_onboarding_for?: unknown
     /**
      * Enables displaying surveys via posthog-js on allowed origins.
      * @nullable
@@ -1303,14 +1288,14 @@ export interface ProjectBackwardCompatApi {
 * `b2b` - B2B
 * `b2c` - B2C
 * `other` - Other */
-    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
+    business_model?: BusinessModelEnumApi | BlankEnumApi | null
     /**
      * Enables the customer conversations / live chat product for this project.
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown | null
-    logs_settings?: unknown | null
+    conversations_settings?: unknown
+    logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
@@ -1323,7 +1308,6 @@ export type PatchedProjectBackwardCompatApiDefaultModifiers = { [key: string]: u
 export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     product_type?: string
     created_at?: string
-    /** @nullable */
     onboarding_completed_at?: string | null
     updated_at?: string
 }
@@ -1350,7 +1334,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     product_description?: string | null
     readonly created_at?: string
-    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi | null
+    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi
     readonly has_group_types?: boolean
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -1371,7 +1355,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     test_account_filters_default_checked?: boolean | null
     /** Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths. */
-    path_cleaning_filters?: unknown | null
+    path_cleaning_filters?: unknown
     is_demo?: boolean
     /** IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`).
 
@@ -1979,7 +1963,7 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     person_display_name_properties?: string[] | null
-    correlation_config?: unknown | null
+    correlation_config?: unknown
     /**
      * Disables posthog-js autocapture (clicks, page views) when true.
      * @nullable
@@ -1995,8 +1979,8 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     autocapture_web_vitals_opt_in?: boolean | null
-    autocapture_web_vitals_allowed_metrics?: unknown | null
-    autocapture_exceptions_errors_to_ignore?: unknown | null
+    autocapture_web_vitals_allowed_metrics?: unknown
+    autocapture_exceptions_errors_to_ignore?: unknown
     /**
      * Enables capturing browser console logs alongside session replays.
      * @nullable
@@ -2022,13 +2006,13 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     session_recording_minimum_duration_milliseconds?: number | null
-    session_recording_linked_flag?: unknown | null
-    session_recording_network_payload_capture_config?: unknown | null
-    session_recording_masking_config?: unknown | null
+    session_recording_linked_flag?: unknown
+    session_recording_network_payload_capture_config?: unknown
+    session_recording_masking_config?: unknown
     /** @nullable */
-    session_recording_url_trigger_config?: (unknown | null)[] | null
+    session_recording_url_trigger_config?: unknown[] | null
     /** @nullable */
-    session_recording_url_blocklist_config?: (unknown | null)[] | null
+    session_recording_url_blocklist_config?: unknown[] | null
     /** @nullable */
     session_recording_event_trigger_config?: (string | null)[] | null
     /**
@@ -2037,7 +2021,7 @@ export interface PatchedProjectBackwardCompatApi {
      */
     session_recording_trigger_match_type_config?: string | null
     /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
-    session_recording_trigger_groups?: unknown | null
+    session_recording_trigger_groups?: unknown
     /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
 
 * `30d` - 30 Days
@@ -2045,14 +2029,14 @@ export interface PatchedProjectBackwardCompatApi {
 * `1y` - 1 Year
 * `5y` - 5 Years */
     session_recording_retention_period?: SessionRecordingRetentionPeriodEnumApi
-    session_replay_config?: unknown | null
-    survey_config?: unknown | null
+    session_replay_config?: unknown
+    survey_config?: unknown
     access_control?: boolean
     /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
 * `0` - Sunday
 * `1` - Monday */
-    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
+    week_start_day?: WeekStartDayEnumApi | null
     /**
      * ID of the dashboard shown as the project's default landing dashboard.
      * @nullable
@@ -2068,10 +2052,10 @@ export interface PatchedProjectBackwardCompatApi {
     readonly person_on_events_querying_enabled?: boolean
     /** @nullable */
     inject_web_apps?: boolean | null
-    extra_settings?: unknown | null
-    modifiers?: unknown | null
+    extra_settings?: unknown
+    modifiers?: unknown
     readonly default_modifiers?: PatchedProjectBackwardCompatApiDefaultModifiers
-    has_completed_onboarding_for?: unknown | null
+    has_completed_onboarding_for?: unknown
     /**
      * Enables displaying surveys via posthog-js on allowed origins.
      * @nullable
@@ -2099,14 +2083,14 @@ export interface PatchedProjectBackwardCompatApi {
 * `b2b` - B2B
 * `b2c` - B2C
 * `other` - Other */
-    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
+    business_model?: BusinessModelEnumApi | BlankEnumApi | null
     /**
      * Enables the customer conversations / live chat product for this project.
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown | null
-    logs_settings?: unknown | null
+    conversations_settings?: unknown
+    logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
@@ -2138,11 +2122,11 @@ export interface DashboardTemplateApi {
      * @nullable
      */
     dashboard_description?: string | null
-    dashboard_filters?: unknown | null
+    dashboard_filters?: unknown
     /** @nullable */
     tags?: string[] | null
-    tiles?: unknown | null
-    variables?: unknown | null
+    tiles?: unknown
+    variables?: unknown
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -2155,7 +2139,7 @@ export interface DashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
@@ -2174,11 +2158,11 @@ export interface PatchedDashboardTemplateApi {
      * @nullable
      */
     dashboard_description?: string | null
-    dashboard_filters?: unknown | null
+    dashboard_filters?: unknown
     /** @nullable */
     tags?: string[] | null
-    tiles?: unknown | null
-    variables?: unknown | null
+    tiles?: unknown
+    variables?: unknown
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -2191,7 +2175,7 @@ export interface PatchedDashboardTemplateApi {
     image_url?: string | null
     /** @nullable */
     readonly team_id?: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
     /** @nullable */
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
@@ -2234,7 +2218,7 @@ export interface ExportedAssetApi {
     export_format: ExportFormatEnumApi
     readonly created_at: string
     readonly has_content: boolean
-    export_context?: unknown | null
+    export_context?: unknown
     readonly filename: string
     /** @nullable */
     readonly expires_after: string | null
@@ -2244,9 +2228,7 @@ export interface ExportedAssetApi {
 
 export interface PaginatedExportedAssetListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ExportedAssetApi[]
 }
@@ -2265,7 +2247,7 @@ export interface FileSystemApi {
     ref?: string | null
     /** @nullable */
     href?: string | null
-    meta?: unknown | null
+    meta?: unknown
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at: string
@@ -2275,9 +2257,7 @@ export interface FileSystemApi {
 
 export interface PaginatedFileSystemListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: FileSystemApi[]
 }
@@ -2296,7 +2276,7 @@ export interface PatchedFileSystemApi {
     ref?: string | null
     /** @nullable */
     href?: string | null
-    meta?: unknown | null
+    meta?: unknown
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at?: string
@@ -2330,7 +2310,7 @@ export interface SharingConfigurationApi {
     enabled?: boolean
     /** @nullable */
     readonly access_token: string | null
-    settings?: unknown | null
+    settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
 }
@@ -2354,9 +2334,7 @@ export interface ProjectSecretAPIKeyApi {
 
 export interface PaginatedProjectSecretAPIKeyListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ProjectSecretAPIKeyApi[]
 }
@@ -2410,7 +2388,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -2421,9 +2399,7 @@ export interface EnterprisePropertyDefinitionApi {
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: EnterprisePropertyDefinitionApi[]
 }
@@ -2442,7 +2418,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -2533,9 +2509,10 @@ export const SubscriptionFrequencyEnumApi = {
  * `saturday` - Saturday
  * `sunday` - Sunday
  */
-export type ByweekdayEnumApi = (typeof ByweekdayEnumApi)[keyof typeof ByweekdayEnumApi]
+export type SubscriptionApiByweekdayItem =
+    (typeof SubscriptionApiByweekdayItem)[keyof typeof SubscriptionApiByweekdayItem]
 
-export const ByweekdayEnumApi = {
+export const SubscriptionApiByweekdayItem = {
     Monday: 'monday',
     Tuesday: 'tuesday',
     Wednesday: 'wednesday',
@@ -2591,7 +2568,7 @@ export interface SubscriptionApi {
      * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
-    byweekday?: ByweekdayEnumApi[] | null
+    byweekday?: SubscriptionApiByweekdayItem[] | null
     /**
      * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
      * @minimum -2147483648
@@ -2646,12 +2623,32 @@ export interface SubscriptionApi {
 
 export interface PaginatedSubscriptionListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SubscriptionApi[]
 }
+
+/**
+ * * `monday` - Monday
+ * `tuesday` - Tuesday
+ * `wednesday` - Wednesday
+ * `thursday` - Thursday
+ * `friday` - Friday
+ * `saturday` - Saturday
+ * `sunday` - Sunday
+ */
+export type PatchedSubscriptionApiByweekdayItem =
+    (typeof PatchedSubscriptionApiByweekdayItem)[keyof typeof PatchedSubscriptionApiByweekdayItem]
+
+export const PatchedSubscriptionApiByweekdayItem = {
+    Monday: 'monday',
+    Tuesday: 'tuesday',
+    Wednesday: 'wednesday',
+    Thursday: 'thursday',
+    Friday: 'friday',
+    Saturday: 'saturday',
+    Sunday: 'sunday',
+} as const
 
 /**
  * Standard Subscription serializer.
@@ -2699,7 +2696,7 @@ export interface PatchedSubscriptionApi {
      * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
-    byweekday?: ByweekdayEnumApi[] | null
+    byweekday?: PatchedSubscriptionApiByweekdayItem[] | null
     /**
      * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
      * @minimum -2147483648
@@ -2779,7 +2776,7 @@ export interface TeamBasicApi {
     readonly api_token: string
     readonly name: string
     readonly completed_snippet_onboarding: boolean
-    readonly has_completed_onboarding_for: unknown | null
+    readonly has_completed_onboarding_for: unknown
     readonly ingested_event: boolean
     readonly is_demo: boolean
     readonly timezone: string
@@ -2829,7 +2826,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -2853,7 +2850,7 @@ export interface OrganizationApi {
 
 * `bayesian` - Bayesian
 * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -2893,7 +2890,7 @@ export interface OrganizationBasicApi {
     slug: string
     /** @nullable */
     readonly logo_media_id: string | null
-    readonly membership_level: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi
     members_can_use_personal_api_keys?: boolean
     /**
      * Set this to 'No' to temporarily disable an organization.
@@ -3000,7 +2997,7 @@ export interface UserApi {
     anonymize_data?: boolean | null
     /** @nullable */
     allow_impersonation?: boolean | null
-    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi | null
+    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | null
     readonly has_password: boolean
     readonly id: number
     /** Designates whether the user can log into this admin site. */
@@ -3026,13 +3023,13 @@ export interface UserApi {
     readonly is_2fa_enabled: boolean
     readonly has_social_auth: boolean
     readonly has_sso_enforcement: boolean
-    has_seen_product_intro_for?: unknown | null
+    has_seen_product_intro_for?: unknown
     readonly scene_personalisation: readonly ScenePersonalisationBasicApi[]
-    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi | null
-    hedgehog_config?: unknown | null
+    theme_mode?: ThemeModeEnumApi | BlankEnumApi | null
+    hedgehog_config?: unknown
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi | null
+    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | null
     role_at_organization?: RoleAtOrganizationEnumApi
     /**
      * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
@@ -3041,7 +3038,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** @nullable */
     readonly onboarding_skipped_at: string | null
-    readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | NullEnumApi | null
+    readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | null
     /** @nullable */
     readonly onboarding_skipped_organization_id: string | null
     /** @nullable */
@@ -3062,9 +3059,7 @@ export interface UserApi {
 
 export interface PaginatedUserListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: UserApi[]
 }
@@ -3098,7 +3093,7 @@ export interface PatchedUserApi {
     anonymize_data?: boolean | null
     /** @nullable */
     allow_impersonation?: boolean | null
-    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | NullEnumApi | null
+    toolbar_mode?: ToolbarModeEnumApi | BlankEnumApi | null
     readonly has_password?: boolean
     readonly id?: number
     /** Designates whether the user can log into this admin site. */
@@ -3124,13 +3119,13 @@ export interface PatchedUserApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly has_sso_enforcement?: boolean
-    has_seen_product_intro_for?: unknown | null
+    has_seen_product_intro_for?: unknown
     readonly scene_personalisation?: readonly ScenePersonalisationBasicApi[]
-    theme_mode?: ThemeModeEnumApi | BlankEnumApi | NullEnumApi | null
-    hedgehog_config?: unknown | null
+    theme_mode?: ThemeModeEnumApi | BlankEnumApi | null
+    hedgehog_config?: unknown
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi | null
+    shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | null
     role_at_organization?: RoleAtOrganizationEnumApi
     /**
      * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
@@ -3139,7 +3134,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
-    readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | NullEnumApi | null
+    readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | null
     /** @nullable */
     readonly onboarding_skipped_organization_id?: string | null
     /** @nullable */
@@ -3441,7 +3436,6 @@ export const SubscriptionsListTargetType = {
 
 export type SubscriptionsSummaryQuotaRetrieve200 = {
     active_count: number
-    /** @nullable */
     limit: number | null
     at_limit: boolean
 }

@@ -783,6 +783,12 @@ def _fix_pydantic_schema_for_openapi(schema):
     - ``additionalProperties: {}`` → ``true`` — an empty object schema means "any type" but
       trips vacuum's ``oas-missing-type`` rule since the inner object lacks a ``type`` key.
       Boolean ``true`` is the spec-blessed equivalent.
+    - Collapses ``oneOf: [{}, {"type": "null"}]`` (and the ``anyOf`` variant) to just ``{}``
+      — drf-spectacular's ``append_meta`` emits this for bare-nullable JSONFields in 3.1 mode
+      (the equivalent of 3.0's ``nullable: true`` on a typeless schema). Empty ``{}`` already
+      matches any value including ``null`` in JSON Schema, so the combinator is redundant —
+      and Orval translates the verbose form to ``zod.union([zod.unknown(), zod.null()])``
+      instead of the cleaner ``zod.unknown()``.
     - Strips vestigial numeric bounds (``minimum``/``maximum`` etc.) from schemas whose only
       content is ref-only combinators — drf-spectacular emits these for ``IntegerChoices``
       fields and nullable enums; the ref'd components already encode the allowed values so the
@@ -795,6 +801,14 @@ def _fix_pydantic_schema_for_openapi(schema):
         return schema
 
     schema = dict(schema)
+
+    # Collapse the bare-nullable-any pattern drf-spectacular emits for nullable JSONFields:
+    # {"oneOf": [{}, {"type": "null"}]} → {}.  Must run before the recursive walks below so
+    # the cleanup also catches nested occurrences.
+    for combinator in ("oneOf", "anyOf"):
+        entries = schema.get(combinator)
+        if entries == [{}, {"type": "null"}] or entries == [{"type": "null"}, {}]:
+            schema.pop(combinator)
 
     # Recursively fix nested schemas
     if "anyOf" in schema:

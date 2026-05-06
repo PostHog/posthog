@@ -122,18 +122,30 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.string().nullish(),
-            provider_key_name: zod.string().nullish(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullish(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -212,18 +224,30 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
-        .object({
-            provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
-                .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
-                ),
-            model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
-            provider_key_id: zod.string().nullish(),
-            provider_key_name: zod.string().nullish(),
-        })
-        .describe('Nested serializer for model configuration.')
-        .nullish(),
+        .union([
+            zod
+                .object({
+                    provider: zod
+                        .enum([
+                            'openai',
+                            'anthropic',
+                            'gemini',
+                            'openrouter',
+                            'fireworks',
+                            'azure_openai',
+                            'together_ai',
+                        ])
+                        .describe(
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        ),
+                    model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
+                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_name: zod.string().nullish(),
+                })
+                .describe('Nested serializer for model configuration.'),
+            zod.null(),
+        ])
+        .optional(),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
 })
 
@@ -972,7 +996,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 definition_id: zod.string().describe('Stable scorer definition ID.'),
                 definition_version_id: zod
-                    .string()
+                    .uuid()
                     .nullish()
                     .describe("Optional immutable scorer version ID. Defaults to the scorer's current version."),
                 categorical_values: zod
@@ -991,7 +1015,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Full desired score set for this review. Omit scorers you want to leave blank.'),
     queue_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe(
             'Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.'
@@ -1036,7 +1060,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
             zod.object({
                 definition_id: zod.string().describe('Stable scorer definition ID.'),
                 definition_version_id: zod
-                    .string()
+                    .uuid()
                     .nullish()
                     .describe("Optional immutable scorer version ID. Defaults to the scorer's current version."),
                 categorical_values: zod
@@ -1057,7 +1081,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .optional()
         .describe('Full desired score set for this review. Omit scorers you want to leave blank.'),
     queue_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe(
             'Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.'

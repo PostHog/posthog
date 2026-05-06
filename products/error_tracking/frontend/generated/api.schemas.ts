@@ -25,16 +25,14 @@ export interface ErrorTrackingAssignmentRuleApi {
      * @maximum 2147483647
      */
     order_key: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     readonly created_at: string
     readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingAssignmentRuleListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingAssignmentRuleApi[]
 }
@@ -85,41 +83,21 @@ export const PropertyOperatorApi = {
     NotIcontainsMulti: 'not_icontains_multi',
 } as const
 
-/**
- * Event properties
- */
-export type EventPropertyFilterApiType = (typeof EventPropertyFilterApiType)[keyof typeof EventPropertyFilterApiType]
-
-export const EventPropertyFilterApiType = {
-    Event: 'event',
-} as const
-
 export interface EventPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator?: PropertyOperatorApi | null
     /** Event properties */
-    type?: EventPropertyFilterApiType
+    type?: 'event'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-/**
- * Person properties
- */
-export type PersonPropertyFilterApiType = (typeof PersonPropertyFilterApiType)[keyof typeof PersonPropertyFilterApiType]
-
-export const PersonPropertyFilterApiType = {
-    Person: 'person',
-} as const
-
 export interface PersonPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     /** Person properties */
-    type?: PersonPropertyFilterApiType
+    type?: 'person'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -132,74 +110,36 @@ export const Key10Api = {
     Selector: 'selector',
 } as const
 
-export type ElementPropertyFilterApiType =
-    (typeof ElementPropertyFilterApiType)[keyof typeof ElementPropertyFilterApiType]
-
-export const ElementPropertyFilterApiType = {
-    Element: 'element',
-} as const
-
 export interface ElementPropertyFilterApi {
     key: Key10Api
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: ElementPropertyFilterApiType
+    type?: 'element'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type EventMetadataPropertyFilterApiType =
-    (typeof EventMetadataPropertyFilterApiType)[keyof typeof EventMetadataPropertyFilterApiType]
-
-export const EventMetadataPropertyFilterApiType = {
-    EventMetadata: 'event_metadata',
-} as const
 
 export interface EventMetadataPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: EventMetadataPropertyFilterApiType
+    type?: 'event_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type SessionPropertyFilterApiType =
-    (typeof SessionPropertyFilterApiType)[keyof typeof SessionPropertyFilterApiType]
-
-export const SessionPropertyFilterApiType = {
-    Session: 'session',
-} as const
 
 export interface SessionPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: SessionPropertyFilterApiType
+    type?: 'session'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type CohortPropertyFilterApiKey = (typeof CohortPropertyFilterApiKey)[keyof typeof CohortPropertyFilterApiKey]
-
-export const CohortPropertyFilterApiKey = {
-    Id: 'id',
-} as const
-
-export type CohortPropertyFilterApiType = (typeof CohortPropertyFilterApiType)[keyof typeof CohortPropertyFilterApiType]
-
-export const CohortPropertyFilterApiType = {
-    Cohort: 'cohort',
-} as const
-
 export interface CohortPropertyFilterApi {
-    /** @nullable */
     cohort_name?: string | null
-    key?: CohortPropertyFilterApiKey
-    /** @nullable */
+    key?: 'id'
     label?: string | null
     operator?: PropertyOperatorApi | null
-    type?: CohortPropertyFilterApiType
+    type?: 'cohort'
     value: number
 }
 
@@ -211,183 +151,88 @@ export const DurationTypeApi = {
     InactiveSeconds: 'inactive_seconds',
 } as const
 
-export type RecordingPropertyFilterApiType =
-    (typeof RecordingPropertyFilterApiType)[keyof typeof RecordingPropertyFilterApiType]
-
-export const RecordingPropertyFilterApiType = {
-    Recording: 'recording',
-} as const
-
 export interface RecordingPropertyFilterApi {
     key: DurationTypeApi | string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: RecordingPropertyFilterApiType
+    type?: 'recording'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type LogEntryPropertyFilterApiType =
-    (typeof LogEntryPropertyFilterApiType)[keyof typeof LogEntryPropertyFilterApiType]
-
-export const LogEntryPropertyFilterApiType = {
-    LogEntry: 'log_entry',
-} as const
 
 export interface LogEntryPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: LogEntryPropertyFilterApiType
+    type?: 'log_entry'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type GroupPropertyFilterApiType = (typeof GroupPropertyFilterApiType)[keyof typeof GroupPropertyFilterApiType]
-
-export const GroupPropertyFilterApiType = {
-    Group: 'group',
-} as const
-
-/**
- * @nullable
- */
-export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
 
 export interface GroupPropertyFilterApi {
-    /** @nullable */
     group_key_names?: GroupPropertyFilterApiGroupKeyNames
-    /** @nullable */
     group_type_index?: number | null
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: GroupPropertyFilterApiType
+    type?: 'group'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-/**
- * Event property with "$feature/" prepended
- */
-export type FeaturePropertyFilterApiType =
-    (typeof FeaturePropertyFilterApiType)[keyof typeof FeaturePropertyFilterApiType]
-
-export const FeaturePropertyFilterApiType = {
-    Feature: 'feature',
-} as const
 
 export interface FeaturePropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     /** Event property with "$feature/" prepended */
-    type?: FeaturePropertyFilterApiType
+    type?: 'feature'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-/**
- * Only flag_evaluates_to operator is allowed for flag dependencies
- */
-export type FlagPropertyFilterApiOperator =
-    (typeof FlagPropertyFilterApiOperator)[keyof typeof FlagPropertyFilterApiOperator]
-
-export const FlagPropertyFilterApiOperator = {
-    FlagEvaluatesTo: 'flag_evaluates_to',
-} as const
-
-/**
- * Feature flag dependency
- */
-export type FlagPropertyFilterApiType = (typeof FlagPropertyFilterApiType)[keyof typeof FlagPropertyFilterApiType]
-
-export const FlagPropertyFilterApiType = {
-    Flag: 'flag',
-} as const
 
 export interface FlagPropertyFilterApi {
     /** The key should be the flag ID */
     key: string
-    /** @nullable */
     label?: string | null
     /** Only flag_evaluates_to operator is allowed for flag dependencies */
-    operator?: FlagPropertyFilterApiOperator
+    operator?: 'flag_evaluates_to'
     /** Feature flag dependency */
-    type?: FlagPropertyFilterApiType
+    type?: 'flag'
     /** The value can be true, false, or a variant name */
     value: boolean | string
 }
 
-export type HogQLPropertyFilterApiType = (typeof HogQLPropertyFilterApiType)[keyof typeof HogQLPropertyFilterApiType]
-
-export const HogQLPropertyFilterApiType = {
-    Hogql: 'hogql',
-} as const
-
 export interface HogQLPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
-    type?: HogQLPropertyFilterApiType
+    type?: 'hogql'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type EmptyPropertyFilterApiType = (typeof EmptyPropertyFilterApiType)[keyof typeof EmptyPropertyFilterApiType]
-
-export const EmptyPropertyFilterApiType = {
-    Empty: 'empty',
+export const EmptyPropertyFilterApiValue = {
+    type: 'empty',
 } as const
-
-export interface EmptyPropertyFilterApi {
-    type?: EmptyPropertyFilterApiType
-}
-
-export type DataWarehousePropertyFilterApiType =
-    (typeof DataWarehousePropertyFilterApiType)[keyof typeof DataWarehousePropertyFilterApiType]
-
-export const DataWarehousePropertyFilterApiType = {
-    DataWarehouse: 'data_warehouse',
-} as const
+export type EmptyPropertyFilterApi = typeof EmptyPropertyFilterApiValue
 
 export interface DataWarehousePropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: DataWarehousePropertyFilterApiType
+    type?: 'data_warehouse'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
-
-export type DataWarehousePersonPropertyFilterApiType =
-    (typeof DataWarehousePersonPropertyFilterApiType)[keyof typeof DataWarehousePersonPropertyFilterApiType]
-
-export const DataWarehousePersonPropertyFilterApiType = {
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
-} as const
 
 export interface DataWarehousePersonPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: DataWarehousePersonPropertyFilterApiType
+    type?: 'data_warehouse_person_property'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type ErrorTrackingIssueFilterApiType =
-    (typeof ErrorTrackingIssueFilterApiType)[keyof typeof ErrorTrackingIssueFilterApiType]
-
-export const ErrorTrackingIssueFilterApiType = {
-    ErrorTrackingIssue: 'error_tracking_issue',
-} as const
-
 export interface ErrorTrackingIssueFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: ErrorTrackingIssueFilterApiType
+    type?: 'error_tracking_issue'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -401,7 +246,6 @@ export const LogPropertyFilterTypeApi = {
 
 export interface LogPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     type: LogPropertyFilterTypeApi
@@ -418,42 +262,25 @@ export const SpanPropertyFilterTypeApi = {
 
 export interface SpanPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
     type: SpanPropertyFilterTypeApi
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type RevenueAnalyticsPropertyFilterApiType =
-    (typeof RevenueAnalyticsPropertyFilterApiType)[keyof typeof RevenueAnalyticsPropertyFilterApiType]
-
-export const RevenueAnalyticsPropertyFilterApiType = {
-    RevenueAnalytics: 'revenue_analytics',
-} as const
-
 export interface RevenueAnalyticsPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: RevenueAnalyticsPropertyFilterApiType
+    type?: 'revenue_analytics'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
-export type WorkflowVariablePropertyFilterApiType =
-    (typeof WorkflowVariablePropertyFilterApiType)[keyof typeof WorkflowVariablePropertyFilterApiType]
-
-export const WorkflowVariablePropertyFilterApiType = {
-    WorkflowVariable: 'workflow_variable',
-} as const
-
 export interface WorkflowVariablePropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator: PropertyOperatorApi
-    type?: WorkflowVariablePropertyFilterApiType
+    type?: 'workflow_variable'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -544,7 +371,7 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     readonly created_at?: string
     readonly updated_at?: string
 }
@@ -566,9 +393,7 @@ export interface ErrorTrackingExternalReferenceResultApi {
 
 export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingExternalReferenceResultApi[]
 }
@@ -582,9 +407,7 @@ export interface ErrorTrackingFingerprintApi {
 
 export interface PaginatedErrorTrackingFingerprintListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingFingerprintApi[]
 }
@@ -629,7 +452,7 @@ export interface ErrorTrackingGroupingRuleApi {
      * @maximum 2147483647
      */
     order_key: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     readonly created_at: string
     readonly updated_at: string
 }
@@ -691,7 +514,7 @@ export interface PatchedErrorTrackingGroupingRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     readonly created_at?: string
     readonly updated_at?: string
 }
@@ -743,9 +566,7 @@ export interface ErrorTrackingIssueFullApi {
 
 export interface PaginatedErrorTrackingIssueFullListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingIssueFullApi[]
 }
@@ -820,9 +641,7 @@ export interface ErrorTrackingRecommendationApi {
 
 export interface PaginatedErrorTrackingRecommendationListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingRecommendationApi[]
 }
@@ -935,9 +754,7 @@ export interface ErrorTrackingSpikeEventApi {
 
 export interface PaginatedErrorTrackingSpikeEventListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingSpikeEventApi[]
 }
@@ -947,7 +764,7 @@ export interface ErrorTrackingReleaseApi {
     hash_id: string
     readonly team_id: number
     readonly created_at: string
-    metadata?: unknown | null
+    metadata?: unknown
     version: string
     project: string
 }
@@ -959,16 +776,14 @@ export interface ErrorTrackingStackFrameApi {
     readonly created_at: string
     contents: unknown
     resolved: boolean
-    context?: unknown | null
+    context?: unknown
     symbol_set_ref?: string
     readonly release: ErrorTrackingReleaseApi
 }
 
 export interface PaginatedErrorTrackingStackFrameListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingStackFrameApi[]
 }
@@ -981,7 +796,7 @@ export interface ErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     sampling_rate?: number
     readonly created_at: string
     readonly updated_at: string
@@ -989,9 +804,7 @@ export interface ErrorTrackingSuppressionRuleApi {
 
 export interface PaginatedErrorTrackingSuppressionRuleListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingSuppressionRuleApi[]
 }
@@ -1015,7 +828,7 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
-    disabled_data?: unknown | null
+    disabled_data?: unknown
     sampling_rate?: number
     readonly created_at?: string
     readonly updated_at?: string
@@ -1023,9 +836,7 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
 
 export interface PaginatedErrorTrackingReleaseListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingReleaseApi[]
 }
@@ -1035,7 +846,7 @@ export interface PatchedErrorTrackingReleaseApi {
     hash_id?: string
     readonly team_id?: number
     readonly created_at?: string
-    metadata?: unknown | null
+    metadata?: unknown
     version?: string
     project?: string
 }
@@ -1076,9 +887,7 @@ export interface ErrorTrackingSymbolSetApi {
 
 export interface PaginatedErrorTrackingSymbolSetListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ErrorTrackingSymbolSetApi[]
 }

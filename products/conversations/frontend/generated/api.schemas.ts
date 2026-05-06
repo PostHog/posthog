@@ -49,10 +49,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -76,7 +72,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -127,9 +123,7 @@ export interface ConversationMinimalApi {
 
 export interface PaginatedConversationMinimalListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ConversationMinimalApi[]
 }
@@ -182,7 +176,7 @@ export interface MessageApi {
     session_id?: string
     agent_mode?: AgentModeEnumApi
     is_sandbox?: boolean
-    resume_payload?: unknown | null
+    resume_payload?: unknown
 }
 
 export type ConversationApiMessagesItem = { [key: string]: unknown }
@@ -301,9 +295,7 @@ export interface TicketViewApi {
 
 export interface PaginatedTicketViewListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: TicketViewApi[]
 }
@@ -422,7 +414,7 @@ export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
     readonly channel_source: ChannelSourceEnumApi
-    readonly channel_detail: ChannelDetailEnumApi | NullEnumApi | null
+    readonly channel_detail: ChannelDetailEnumApi | null
     readonly distinct_id: string
     /** Ticket status: new, open, pending, on_hold, or resolved
 
@@ -437,7 +429,7 @@ export interface TicketApi {
 * `low` - Low
 * `medium` - Medium
 * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    priority?: PriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
@@ -486,9 +478,7 @@ export interface TicketApi {
 
 export interface PaginatedTicketListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: TicketApi[]
 }
@@ -500,7 +490,7 @@ export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
     readonly channel_source?: ChannelSourceEnumApi
-    readonly channel_detail?: ChannelDetailEnumApi | NullEnumApi | null
+    readonly channel_detail?: ChannelDetailEnumApi | null
     readonly distinct_id?: string
     /** Ticket status: new, open, pending, on_hold, or resolved
 
@@ -515,7 +505,7 @@ export interface PatchedTicketApi {
 * `low` - Low
 * `medium` - Medium
 * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    priority?: PriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown

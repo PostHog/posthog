@@ -69,9 +69,9 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
         ),
@@ -142,7 +142,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().nullish(),
+            bytecode: zod.unknown().optional(),
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
@@ -150,17 +150,23 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Event filters that control which events trigger this function.'),
     masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFunctionsCreateBodyMaskingOneTtlMin)
-                .max(hogFunctionsCreateBodyMaskingOneTtlMax)
-                .describe('Time-to-live in seconds for the masking cache (60–86400).'),
-            threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
-            hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-            bytecode: zod.unknown().nullish().describe('Compiled bytecode for the hash expression. Auto-generated.'),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFunctionsCreateBodyMaskingOneTtlMin)
+                    .max(hogFunctionsCreateBodyMaskingOneTtlMax)
+                    .describe('Time-to-live in seconds for the masking cache (60–86400).'),
+                threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
+                hash: zod.string().describe('Hog expression used to compute the masking hash.'),
+                bytecode: zod
+                    .unknown()
+                    .optional()
+                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe('PII masking configuration with TTL, threshold, and hash expression.'),
     mappings: zod
         .array(
@@ -306,9 +312,9 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
         ),
@@ -379,7 +385,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().nullish(),
+            bytecode: zod.unknown().optional(),
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
@@ -387,17 +393,23 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Event filters that control which events trigger this function.'),
     masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFunctionsPartialUpdateBodyMaskingOneTtlMin)
-                .max(hogFunctionsPartialUpdateBodyMaskingOneTtlMax)
-                .describe('Time-to-live in seconds for the masking cache (60–86400).'),
-            threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
-            hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-            bytecode: zod.unknown().nullish().describe('Compiled bytecode for the hash expression. Auto-generated.'),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFunctionsPartialUpdateBodyMaskingOneTtlMin)
+                    .max(hogFunctionsPartialUpdateBodyMaskingOneTtlMax)
+                    .describe('Time-to-live in seconds for the masking cache (60–86400).'),
+                threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
+                hash: zod.string().describe('Hog expression used to compute the masking hash.'),
+                bytecode: zod
+                    .unknown()
+                    .optional()
+                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe('PII masking configuration with TTL, threshold, and hash expression.'),
     mappings: zod
         .array(
@@ -567,9 +579,9 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         .describe(
                             '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                         ),
-                    zod.literal(null),
+                    zod.null(),
                 ])
-                .nullish()
+                .optional()
                 .describe(
                     'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
@@ -616,9 +628,9 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
                                 ),
                             zod.enum(['']),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish(),
+                        .optional(),
                 })
                 .optional(),
             updated_at: zod.iso.datetime({}).optional(),
@@ -628,7 +640,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-            bytecode: zod.unknown().nullish(),
+            bytecode: zod.unknown().optional(),
             transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
@@ -704,7 +716,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    bytecode: zod.unknown().nullish(),
+                    bytecode: zod.unknown().optional(),
                     transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
                     bytecode_error: zod.string().optional(),
@@ -712,20 +724,23 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
             masking: zod
-                .object({
-                    ttl: zod
-                        .number()
-                        .min(hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMin)
-                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMax)
-                        .describe('Time-to-live in seconds for the masking cache (60–86400).'),
-                    threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
-                    hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-                    bytecode: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Compiled bytecode for the hash expression. Auto-generated.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        ttl: zod
+                            .number()
+                            .min(hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMin)
+                            .max(hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMax)
+                            .describe('Time-to-live in seconds for the masking cache (60–86400).'),
+                        threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
+                        hash: zod.string().describe('Hog expression used to compute the masking hash.'),
+                        bytecode: zod
+                            .unknown()
+                            .optional()
+                            .describe('Compiled bytecode for the hash expression. Auto-generated.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('PII masking configuration with TTL, threshold, and hash expression.'),
             mappings: zod
                 .array(
@@ -811,7 +826,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                bytecode: zod.unknown().nullish(),
+                                bytecode: zod.unknown().optional(),
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
@@ -851,8 +866,8 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     category: zod.unknown().optional().describe('Category tags for organizing templates.'),
                     free: zod.boolean().optional().describe('Whether available on free plans.'),
                     icon_url: zod.string().nullish().describe("URL for the template's icon."),
-                    filters: zod.unknown().nullish().describe('Default event filters.'),
-                    masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+                    filters: zod.unknown().optional().describe('Default event filters.'),
+                    masking: zod.unknown().optional().describe('Default PII masking configuration.'),
                     mapping_templates: zod
                         .array(
                             zod.object({
@@ -867,11 +882,11 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     .describe(
                                         'Whether this mapping should match all events by default, hiding the event filter UI.'
                                     ),
-                                filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                                inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                                filters: zod.unknown().optional().describe('Event filters specific to this mapping.'),
+                                inputs: zod.unknown().optional().describe('Input values specific to this mapping.'),
                                 inputs_schema: zod
                                     .unknown()
-                                    .nullish()
+                                    .optional()
                                     .describe('Additional input schema fields specific to this mapping.'),
                             })
                         )
@@ -885,20 +900,23 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe('ID of the template to create this function from.'),
             status: zod
-                .object({
-                    state: zod
-                        .union([
-                            zod.literal(0),
-                            zod.literal(1),
-                            zod.literal(2),
-                            zod.literal(3),
-                            zod.literal(11),
-                            zod.literal(12),
-                        ])
-                        .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
-                    tokens: zod.number(),
-                })
-                .nullish(),
+                .union([
+                    zod.object({
+                        state: zod
+                            .union([
+                                zod.literal(0),
+                                zod.literal(1),
+                                zod.literal(2),
+                                zod.literal(3),
+                                zod.literal(11),
+                                zod.literal(12),
+                            ])
+                            .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+                        tokens: zod.number(),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
             execution_order: zod
                 .number()
                 .min(hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMin)
@@ -906,7 +924,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
             _create_in_folder: zod.string().optional(),
-            batch_export_id: zod.string().nullish(),
+            batch_export_id: zod.uuid().nullish(),
         })
         .describe('Full function configuration to test.'),
     globals: zod

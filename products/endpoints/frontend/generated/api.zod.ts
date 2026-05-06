@@ -22,7 +22,7 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
         data_freshness_seconds: zod
@@ -64,7 +64,7 @@ export const EndpointsUpdateBody = /* @__PURE__ */ zod
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
         data_freshness_seconds: zod
@@ -106,7 +106,7 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         query: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe('HogQL or insight query this endpoint executes. Changing this auto-creates a new version.'),
         description: zod.string().nullish().describe('Human-readable description of what this endpoint returns.'),
         data_freshness_seconds: zod

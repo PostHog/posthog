@@ -17,9 +17,7 @@ export interface PauseStateResponseApi {
 
 export interface PaginatedPauseStateResponseListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: PauseStateResponseApi[]
 }
@@ -99,9 +97,7 @@ export interface SignalReportApi {
 
 export interface PaginatedSignalReportListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SignalReportApi[]
 }
@@ -163,9 +159,7 @@ export interface SignalSourceConfigApi {
 
 export interface PaginatedSignalSourceConfigListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SignalSourceConfigApi[]
 }
@@ -213,14 +207,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
-    autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | null
     readonly created_at: string
     readonly updated_at: string
 }

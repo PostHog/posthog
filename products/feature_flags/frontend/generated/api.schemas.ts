@@ -79,10 +79,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -106,7 +102,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -185,7 +181,7 @@ export interface FeatureFlagApi {
     readonly experiment_set_metadata: readonly FeatureFlagApiExperimentSetMetadataItem[]
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
-    rollback_conditions?: unknown | null
+    rollback_conditions?: unknown
     /** @nullable */
     performed_rollback?: boolean | null
     readonly can_edit: boolean
@@ -219,12 +215,12 @@ export interface FeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -238,9 +234,7 @@ export interface FeatureFlagApi {
 
 export interface PaginatedFeatureFlagListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: FeatureFlagApi[]
 }
@@ -798,7 +792,7 @@ export interface FeatureFlagConditionPropertyAnalysisApi {
     /** Property type (person, group, etc.) */
     type: string
     /** Actual property value from user */
-    actual_value: unknown | null
+    actual_value: unknown
     /** Whether this property condition matched */
     matched: boolean
     /** Human-readable explanation of the match result */
@@ -840,7 +834,7 @@ export interface FeatureFlagTestEvaluationResponseApi {
      */
     condition_index: number | null
     /** Payload associated with the flag result, if any */
-    payload: unknown | null
+    payload: unknown
     /** Person properties at the time of evaluation (for historical evaluations) */
     person_properties: FeatureFlagTestEvaluationResponseApiPersonProperties
     /**
@@ -876,7 +870,7 @@ export interface FeatureFlagVersionResponseApi {
      * @nullable
      */
     version?: number | null
-    rollback_conditions?: unknown | null
+    rollback_conditions?: unknown
     /** @nullable */
     performed_rollback?: boolean | null
     /** @nullable */
@@ -892,12 +886,12 @@ export interface FeatureFlagVersionResponseApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -994,12 +988,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -1095,7 +1089,7 @@ export interface ScheduledChangeApi {
 * `weekly` - weekly
 * `monthly` - monthly
 * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    recurrence_interval?: RecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1114,9 +1108,7 @@ export interface ScheduledChangeApi {
 
 export interface PaginatedScheduledChangeListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ScheduledChangeApi[]
 }
@@ -1155,7 +1147,7 @@ export interface PatchedScheduledChangeApi {
 * `weekly` - weekly
 * `monthly` - monthly
 * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    recurrence_interval?: RecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable

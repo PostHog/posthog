@@ -337,18 +337,21 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -654,18 +657,21 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
             multivariate: zod
-                .object({
-                    variants: zod
-                        .array(
-                            zod.object({
-                                key: zod.string().describe('Unique key for this variant.'),
-                                name: zod.string().optional().describe('Human-readable name for this variant.'),
-                                rollout_percentage: zod.number().describe('Variant rollout percentage.'),
-                            })
-                        )
-                        .describe('Variant definitions for multivariate feature flags.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        variants: zod
+                            .array(
+                                zod.object({
+                                    key: zod.string().describe('Unique key for this variant.'),
+                                    name: zod.string().optional().describe('Human-readable name for this variant.'),
+                                    rollout_percentage: zod.number().describe('Variant rollout percentage.'),
+                                })
+                            )
+                            .describe('Variant definitions for multivariate feature flags.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('Multivariate configuration for variant-based rollouts.'),
             aggregation_group_type_index: zod
                 .number()
@@ -870,9 +876,9 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),
@@ -943,9 +949,9 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['daily', 'weekly', 'monthly', 'yearly'])
                 .describe('* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.\n\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly\n* `yearly` - yearly'
         ),

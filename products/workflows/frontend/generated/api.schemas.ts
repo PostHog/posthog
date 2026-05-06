@@ -30,7 +30,7 @@ export interface HogFlowMaskingApi {
     /** @nullable */
     threshold?: number | null
     hash: string
-    bytecode?: unknown | null
+    bytecode?: unknown
 }
 
 /**
@@ -63,10 +63,6 @@ export const OnErrorEnumApi = {
     Branch: 'branch',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `events` - events
  * `person-updates` - person-updates
@@ -95,7 +91,7 @@ export interface HogFunctionFiltersApi {
     events?: HogFunctionFiltersApiEventsItem[]
     data_warehouse?: HogFunctionFiltersApiDataWarehouseItem[]
     properties?: HogFunctionFiltersApiPropertiesItem[]
-    bytecode?: unknown | null
+    bytecode?: unknown
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
@@ -110,14 +106,14 @@ export interface HogFlowTemplateActionApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    on_error?: OnErrorEnumApi | NullEnumApi | null
+    on_error?: OnErrorEnumApi | null
     created_at?: number
     updated_at?: number
     filters?: HogFunctionFiltersApi | null
     /** @maxLength 100 */
     type: string
     config: unknown
-    output_variable?: unknown | null
+    output_variable?: unknown
 }
 
 /**
@@ -149,7 +145,7 @@ export interface HogFlowTemplateApi {
     readonly updated_at: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
-    conversion?: unknown | null
+    conversion?: unknown
     exit_condition?: ExitConditionEnumApi
     edges?: unknown
     actions: HogFlowTemplateActionApi[]
@@ -163,9 +159,7 @@ export interface HogFlowTemplateApi {
 
 export interface PaginatedHogFlowTemplateListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: HogFlowTemplateApi[]
 }
@@ -199,7 +193,7 @@ export interface PatchedHogFlowTemplateApi {
     readonly updated_at?: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
-    conversion?: unknown | null
+    conversion?: unknown
     exit_condition?: ExitConditionEnumApi
     edges?: unknown
     actions?: HogFlowTemplateActionApi[]
@@ -276,7 +270,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface HogFlowMinimalApi {
@@ -290,22 +284,20 @@ export interface HogFlowMinimalApi {
     readonly created_by: UserBasicApi
     readonly updated_at: string
     readonly trigger: unknown
-    readonly trigger_masking: unknown | null
-    readonly conversion: unknown | null
+    readonly trigger_masking: unknown
+    readonly conversion: unknown
     readonly exit_condition: ExitConditionEnumApi
     readonly edges: unknown
     readonly actions: unknown
     /** @nullable */
     readonly abort_action: string | null
-    readonly variables: unknown | null
-    readonly billable_action_types: unknown | null
+    readonly variables: unknown
+    readonly billable_action_types: unknown
 }
 
 export interface PaginatedHogFlowMinimalListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: HogFlowMinimalApi[]
 }
@@ -317,14 +309,14 @@ export interface HogFlowActionApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    on_error?: OnErrorEnumApi | NullEnumApi | null
+    on_error?: OnErrorEnumApi | null
     created_at?: number
     updated_at?: number
     filters?: HogFunctionFiltersApi | null
     /** @maxLength 100 */
     type: string
     config: unknown
-    output_variable?: unknown | null
+    output_variable?: unknown
 }
 
 export interface HogFlowApi {
@@ -342,14 +334,14 @@ export interface HogFlowApi {
     readonly updated_at: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
-    conversion?: unknown | null
+    conversion?: unknown
     exit_condition?: ExitConditionEnumApi
     edges?: unknown
     actions: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action: string | null
     variables?: HogFlowApiVariablesItem[]
-    readonly billable_action_types: unknown | null
+    readonly billable_action_types: unknown
 }
 
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
@@ -369,14 +361,14 @@ export interface PatchedHogFlowApi {
     readonly updated_at?: string
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
-    conversion?: unknown | null
+    conversion?: unknown
     exit_condition?: ExitConditionEnumApi
     edges?: unknown
     actions?: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action?: string | null
     variables?: PatchedHogFlowApiVariablesItem[]
-    readonly billable_action_types?: unknown | null
+    readonly billable_action_types?: unknown
 }
 
 export interface AppMetricSeriesApi {
@@ -425,9 +417,7 @@ export interface HogFlowScheduleApi {
 
 export interface PaginatedHogFlowScheduleListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: HogFlowScheduleApi[]
 }

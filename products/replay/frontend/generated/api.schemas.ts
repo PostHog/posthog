@@ -50,10 +50,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -77,7 +73,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -125,7 +121,7 @@ export interface SessionRecordingPlaylistApi {
 
 * `collection` - Collection
 * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+    type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
@@ -133,9 +129,7 @@ export interface SessionRecordingPlaylistApi {
 
 export interface PaginatedSessionRecordingPlaylistListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SessionRecordingPlaylistApi[]
 }
@@ -175,7 +169,7 @@ export interface PatchedSessionRecordingPlaylistApi {
 
 * `collection` - Collection
 * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | NullEnumApi | null
+    type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string
@@ -267,9 +261,7 @@ export interface SessionRecordingApi {
 
 export interface PaginatedSessionRecordingListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SessionRecordingApi[]
 }

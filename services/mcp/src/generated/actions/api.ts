@@ -387,9 +387,9 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['contains', 'regex', 'exact'])
                                 .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish()
+                        .optional()
                         .describe(
                             'How to match the text value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact'
                         ),
@@ -399,9 +399,9 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['contains', 'regex', 'exact'])
                                 .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish()
+                        .optional()
                         .describe(
                             'How to match the href value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact'
                         ),
@@ -411,9 +411,9 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['contains', 'regex', 'exact'])
                                 .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish()
+                        .optional()
                         .describe(
                             'How to match the URL value. Defaults to contains.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact'
                         ),
@@ -814,9 +814,9 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['contains', 'regex', 'exact'])
                                 .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish()
+                        .optional()
                         .describe(
                             'How to match the text value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact'
                         ),
@@ -826,9 +826,9 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['contains', 'regex', 'exact'])
                                 .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish()
+                        .optional()
                         .describe(
                             'How to match the href value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact'
                         ),
@@ -838,9 +838,9 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['contains', 'regex', 'exact'])
                                 .describe('* `contains` - contains\n* `regex` - regex\n* `exact` - exact'),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish()
+                        .optional()
                         .describe(
                             'How to match the URL value. Defaults to contains.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact'
                         ),

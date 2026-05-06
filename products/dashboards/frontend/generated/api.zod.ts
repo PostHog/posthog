@@ -22,10 +22,10 @@ export const dashboardTemplatesCreateBodyAvailabilityContextsItemMax = 255
 export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
     template_name: zod.string().max(dashboardTemplatesCreateBodyTemplateNameMax).nullish(),
     dashboard_description: zod.string().max(dashboardTemplatesCreateBodyDashboardDescriptionMax).nullish(),
-    dashboard_filters: zod.unknown().nullish(),
+    dashboard_filters: zod.unknown().optional(),
     tags: zod.array(zod.string().max(dashboardTemplatesCreateBodyTagsItemMax)).nullish(),
-    tiles: zod.unknown().nullish(),
-    variables: zod.unknown().nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
     image_url: zod.string().max(dashboardTemplatesCreateBodyImageUrlMax).nullish(),
     scope: zod
@@ -34,9 +34,9 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['team', 'global', 'feature_flag'])
                 .describe('* `team` - Only team\n* `global` - Global\n* `feature_flag` - Feature Flag'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     availability_contexts: zod
         .array(zod.string().max(dashboardTemplatesCreateBodyAvailabilityContextsItemMax))
         .nullish(),
@@ -105,13 +105,13 @@ export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
  */
 export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
-    settings: zod.unknown().nullish(),
+    settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
 
 export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
-    settings: zod.unknown().nullish(),
+    settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
 

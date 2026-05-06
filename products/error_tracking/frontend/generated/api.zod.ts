@@ -31,7 +31,7 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
         .min(errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMin)
         .max(errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMax)
         .optional(),
-    disabled_data: zod.unknown().nullish(),
+    disabled_data: zod.unknown().optional(),
 })
 
 export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
@@ -54,7 +54,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(errorTrackingGroupingRulesUpdateBodyOrderKeyMin)
         .max(errorTrackingGroupingRulesUpdateBodyOrderKeyMax),
-    disabled_data: zod.unknown().nullish(),
+    disabled_data: zod.unknown().optional(),
 })
 
 export const errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMin = -2147483648
@@ -68,7 +68,7 @@ export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod.o
         .min(errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMin)
         .max(errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMax)
         .optional(),
-    disabled_data: zod.unknown().nullish(),
+    disabled_data: zod.unknown().optional(),
 })
 
 export const errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
@@ -82,7 +82,7 @@ export const ErrorTrackingGroupingRulesReorderPartialUpdateBody = /* @__PURE__ *
         .min(errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMin)
         .max(errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMax)
         .optional(),
-    disabled_data: zod.unknown().nullish(),
+    disabled_data: zod.unknown().optional(),
 })
 
 export const ErrorTrackingIssuesCreateBody = /* @__PURE__ */ zod.object({
@@ -96,7 +96,7 @@ export const ErrorTrackingIssuesCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
     first_seen: zod.iso.datetime({}),
     assignee: zod.object({
-        id: zod.union([zod.number(), zod.string()]).nullable(),
+        id: zod.union([zod.number(), zod.string(), zod.null()]),
         type: zod.string(),
     }),
     external_issues: zod.array(
@@ -126,7 +126,7 @@ export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
     first_seen: zod.iso.datetime({}),
     assignee: zod.object({
-        id: zod.union([zod.number(), zod.string()]).nullable(),
+        id: zod.union([zod.number(), zod.string(), zod.null()]),
         type: zod.string(),
     }),
     external_issues: zod.array(
@@ -157,7 +157,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     first_seen: zod.iso.datetime({}).optional(),
     assignee: zod
         .object({
-            id: zod.union([zod.number(), zod.string()]).nullable(),
+            id: zod.union([zod.number(), zod.string(), zod.null()]),
             type: zod.string(),
         })
         .optional(),
@@ -191,7 +191,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.ob
     first_seen: zod.iso.datetime({}).optional(),
     assignee: zod
         .object({
-            id: zod.union([zod.number(), zod.string()]).nullable(),
+            id: zod.union([zod.number(), zod.string(), zod.null()]),
             type: zod.string(),
         })
         .optional(),
@@ -224,7 +224,7 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
     first_seen: zod.iso.datetime({}),
     assignee: zod.object({
-        id: zod.union([zod.number(), zod.string()]).nullable(),
+        id: zod.union([zod.number(), zod.string(), zod.null()]),
         type: zod.string(),
     }),
     external_issues: zod.array(
@@ -277,7 +277,7 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
     first_seen: zod.iso.datetime({}),
     assignee: zod.object({
-        id: zod.union([zod.number(), zod.string()]).nullable(),
+        id: zod.union([zod.number(), zod.string(), zod.null()]),
         type: zod.string(),
     }),
     external_issues: zod.array(
@@ -344,7 +344,7 @@ export const ErrorTrackingSpikeDetectionConfigUpdateConfigPartialUpdateBody = /*
 export const ErrorTrackingStackFramesBatchGetCreateBody = /* @__PURE__ */ zod.object({
     contents: zod.unknown(),
     resolved: zod.boolean(),
-    context: zod.unknown().nullish(),
+    context: zod.unknown().optional(),
     symbol_set_ref: zod.string().optional(),
 })
 
@@ -361,7 +361,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
         .number()
         .min(errorTrackingSuppressionRulesUpdateBodyOrderKeyMin)
         .max(errorTrackingSuppressionRulesUpdateBodyOrderKeyMax),
-    disabled_data: zod.unknown().nullish(),
+    disabled_data: zod.unknown().optional(),
     sampling_rate: zod.number().optional(),
 })
 
@@ -375,7 +375,7 @@ export const ErrorTrackingSuppressionRulesPartialUpdateBody = /* @__PURE__ */ zo
         .min(errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMin)
         .max(errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMax)
         .optional(),
-    disabled_data: zod.unknown().nullish(),
+    disabled_data: zod.unknown().optional(),
     sampling_rate: zod.number().optional(),
 })
 
@@ -389,27 +389,27 @@ export const ErrorTrackingSuppressionRulesReorderPartialUpdateBody = /* @__PURE_
         .min(errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMin)
         .max(errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMax)
         .optional(),
-    disabled_data: zod.unknown().nullish(),
+    disabled_data: zod.unknown().optional(),
     sampling_rate: zod.number().optional(),
 })
 
 export const ErrorTrackingReleasesCreateBody = /* @__PURE__ */ zod.object({
     hash_id: zod.string(),
-    metadata: zod.unknown().nullish(),
+    metadata: zod.unknown().optional(),
     version: zod.string(),
     project: zod.string(),
 })
 
 export const ErrorTrackingReleasesUpdateBody = /* @__PURE__ */ zod.object({
     hash_id: zod.string(),
-    metadata: zod.unknown().nullish(),
+    metadata: zod.unknown().optional(),
     version: zod.string(),
     project: zod.string(),
 })
 
 export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
     hash_id: zod.string().optional(),
-    metadata: zod.unknown().nullish(),
+    metadata: zod.unknown().optional(),
     version: zod.string().optional(),
     project: zod.string().optional(),
 })

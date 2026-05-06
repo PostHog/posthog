@@ -45,10 +45,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -72,7 +68,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -96,9 +92,7 @@ export interface LogsViewApi {
 
 export interface PaginatedLogsViewListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: LogsViewApi[]
 }
@@ -283,9 +277,7 @@ export interface LogsAlertConfigurationApi {
 
 export interface PaginatedLogsAlertConfigurationListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: LogsAlertConfigurationApi[]
 }
@@ -454,9 +446,7 @@ export interface LogsAlertEventApi {
 
 export interface PaginatedLogsAlertEventListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: LogsAlertEventApi[]
 }
@@ -620,7 +610,7 @@ export interface _LogPropertyFilterApi {
 * `is_not_set` - is_not_set */
     operator: _LogPropertyFilterOperatorEnumApi
     /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
-    value?: unknown | null
+    value?: unknown
 }
 
 /**
@@ -898,9 +888,7 @@ export interface LogsSamplingRuleApi {
 
 export interface PaginatedLogsSamplingRuleListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: LogsSamplingRuleApi[]
 }
@@ -1143,9 +1131,7 @@ export interface PluginLogEntryApi {
 
 export interface PaginatedPluginLogEntryListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: PluginLogEntryApi[]
 }

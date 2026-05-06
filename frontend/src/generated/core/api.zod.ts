@@ -119,7 +119,7 @@ export const InvitesCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().nullish(),
     private_project_access: zod
         .unknown()
-        .nullish()
+        .optional()
         .describe('List of team IDs and corresponding access levels to private projects.'),
     send_email: zod.boolean().default(invitesCreateBodySendEmailDefault),
     combine_pending_invites: zod.boolean().default(invitesCreateBodyCombinePendingInvitesDefault),
@@ -142,7 +142,7 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().nullish(),
     private_project_access: zod
         .unknown()
-        .nullish()
+        .optional()
         .describe('List of team IDs and corresponding access levels to private projects.'),
     send_email: zod.boolean().default(invitesBulkCreateBodySendEmailDefault),
     combine_pending_invites: zod.boolean().default(invitesBulkCreateBodyCombinePendingInvitesDefault),
@@ -226,7 +226,7 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -247,7 +247,7 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .array(zod.string().max(organizationsProjectsCreateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -260,8 +260,8 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -287,11 +287,11 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .max(organizationsProjectsCreateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -299,7 +299,7 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -310,15 +310,12 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -332,9 +329,9 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -349,9 +346,9 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -359,8 +356,8 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -419,7 +416,7 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -440,7 +437,7 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .array(zod.string().max(organizationsProjectsUpdateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -453,8 +450,8 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -480,11 +477,11 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .max(organizationsProjectsUpdateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -492,7 +489,7 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -503,15 +500,12 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -525,9 +519,9 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -542,9 +536,9 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -552,8 +546,8 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -614,7 +608,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -635,7 +629,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string().max(organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -648,8 +642,8 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -675,11 +669,11 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .max(organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -687,7 +681,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -698,15 +692,12 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -720,9 +711,9 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -737,9 +728,9 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -747,8 +738,8 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -809,7 +800,7 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -834,7 +825,7 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             )
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -847,8 +838,8 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -874,11 +865,11 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .max(organizationsProjectsAddProductIntentPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -886,7 +877,7 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -897,15 +888,12 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -924,9 +912,9 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -941,9 +929,9 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -951,8 +939,8 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -1013,7 +1001,7 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -1036,7 +1024,7 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             )
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -1049,8 +1037,8 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -1076,11 +1064,11 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .max(organizationsProjectsChangeOrganizationCreateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -1088,7 +1076,7 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -1099,15 +1087,12 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -1123,9 +1108,9 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -1140,9 +1125,9 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -1150,8 +1135,8 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -1216,7 +1201,7 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -1243,7 +1228,7 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             )
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -1256,8 +1241,8 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -1287,11 +1272,11 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             )
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -1301,7 +1286,7 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -1312,15 +1297,12 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -1339,9 +1321,9 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -1356,9 +1338,9 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -1366,8 +1348,8 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -1430,7 +1412,7 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -1457,7 +1439,7 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             )
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -1470,8 +1452,8 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -1501,11 +1483,11 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             )
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -1513,7 +1495,7 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -1524,15 +1506,12 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -1551,9 +1530,9 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -1568,9 +1547,9 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -1578,8 +1557,8 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -1644,7 +1623,7 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -1671,7 +1650,7 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             )
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -1684,8 +1663,8 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -1715,11 +1694,11 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             )
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -1729,7 +1708,7 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -1740,15 +1719,12 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -1767,9 +1743,9 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -1784,9 +1760,9 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -1794,8 +1770,8 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -1856,7 +1832,7 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -1877,7 +1853,7 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .array(zod.string().max(organizationsProjectsResetTokenPartialUpdateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -1890,8 +1866,8 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -1917,11 +1893,11 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .max(organizationsProjectsResetTokenPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -1929,7 +1905,7 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -1940,15 +1916,12 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -1962,9 +1935,9 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -1979,9 +1952,9 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -1989,8 +1962,8 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -2051,7 +2024,7 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .describe('When true, new insights default to excluding internal/test users.'),
         path_cleaning_filters: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths.'
             ),
@@ -2076,7 +2049,7 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             )
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().nullish(),
+        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -2089,8 +2062,8 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .boolean()
             .nullish()
             .describe('Enables automatic capture of Core Web Vitals performance metrics.'),
-        autocapture_web_vitals_allowed_metrics: zod.unknown().nullish(),
-        autocapture_exceptions_errors_to_ignore: zod.unknown().nullish(),
+        autocapture_web_vitals_allowed_metrics: zod.unknown().optional(),
+        autocapture_exceptions_errors_to_ignore: zod.unknown().optional(),
         capture_console_log_opt_in: zod
             .boolean()
             .nullish()
@@ -2116,11 +2089,11 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .max(organizationsProjectsRotateSecretTokenPartialUpdateBodySessionRecordingMinimumDurationMillisecondsMax)
             .nullish()
             .describe('Skip saving sessions shorter than this many milliseconds.'),
-        session_recording_linked_flag: zod.unknown().nullish(),
-        session_recording_network_payload_capture_config: zod.unknown().nullish(),
-        session_recording_masking_config: zod.unknown().nullish(),
-        session_recording_url_trigger_config: zod.array(zod.unknown().nullable()).nullish(),
-        session_recording_url_blocklist_config: zod.array(zod.unknown().nullable()).nullish(),
+        session_recording_linked_flag: zod.unknown().optional(),
+        session_recording_network_payload_capture_config: zod.unknown().optional(),
+        session_recording_masking_config: zod.unknown().optional(),
+        session_recording_url_trigger_config: zod.array(zod.unknown()).nullish(),
+        session_recording_url_blocklist_config: zod.array(zod.unknown()).nullish(),
         session_recording_event_trigger_config: zod.array(zod.string().nullable()).nullish(),
         session_recording_trigger_match_type_config: zod
             .string()
@@ -2128,7 +2101,7 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .nullish(),
         session_recording_trigger_groups: zod
             .unknown()
-            .nullish()
+            .optional()
             .describe(
                 'V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields.'
             ),
@@ -2139,15 +2112,12 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .describe(
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years'
             ),
-        session_replay_config: zod.unknown().nullish(),
-        survey_config: zod.unknown().nullish(),
+        session_replay_config: zod.unknown().optional(),
+        survey_config: zod.unknown().optional(),
         access_control: zod.boolean().optional(),
         week_start_day: zod
-            .union([
-                zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'),
-                zod.literal(null),
-            ])
-            .nullish()
+            .union([zod.union([zod.literal(0), zod.literal(1)]).describe('* `0` - Sunday\n* `1` - Monday'), zod.null()])
+            .optional()
             .describe(
                 'First day of the week for date range filters. 0 = Sunday, 1 = Monday.\n\n* `0` - Sunday\n* `1` - Monday'
             ),
@@ -2166,9 +2136,9 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .nullish()
             .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
-        extra_settings: zod.unknown().nullish(),
-        modifiers: zod.unknown().nullish(),
-        has_completed_onboarding_for: zod.unknown().nullish(),
+        extra_settings: zod.unknown().optional(),
+        modifiers: zod.unknown().optional(),
+        has_completed_onboarding_for: zod.unknown().optional(),
         surveys_opt_in: zod
             .boolean()
             .nullish()
@@ -2183,9 +2153,9 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .union([
                 zod.enum(['b2b', 'b2c', 'other']).describe('* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.\n\n* `b2b` - B2B\n* `b2c` - B2C\n* `other` - Other'
             ),
@@ -2193,8 +2163,8 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
             .boolean()
             .nullish()
             .describe('Enables the customer conversations / live chat product for this project.'),
-        conversations_settings: zod.unknown().nullish(),
-        logs_settings: zod.unknown().nullish(),
+        conversations_settings: zod.unknown().optional(),
+        logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
     .describe(
@@ -2214,10 +2184,10 @@ export const dashboardTemplatesUpdateBodyAvailabilityContextsItemMax = 255
 export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
     template_name: zod.string().max(dashboardTemplatesUpdateBodyTemplateNameMax).nullish(),
     dashboard_description: zod.string().max(dashboardTemplatesUpdateBodyDashboardDescriptionMax).nullish(),
-    dashboard_filters: zod.unknown().nullish(),
+    dashboard_filters: zod.unknown().optional(),
     tags: zod.array(zod.string().max(dashboardTemplatesUpdateBodyTagsItemMax)).nullish(),
-    tiles: zod.unknown().nullish(),
-    variables: zod.unknown().nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
     image_url: zod.string().max(dashboardTemplatesUpdateBodyImageUrlMax).nullish(),
     scope: zod
@@ -2226,9 +2196,9 @@ export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                 .enum(['team', 'global', 'feature_flag'])
                 .describe('* `team` - Only team\n* `global` - Global\n* `feature_flag` - Feature Flag'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     availability_contexts: zod
         .array(zod.string().max(dashboardTemplatesUpdateBodyAvailabilityContextsItemMax))
         .nullish(),
@@ -2248,10 +2218,10 @@ export const dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax = 25
 export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     template_name: zod.string().max(dashboardTemplatesPartialUpdateBodyTemplateNameMax).nullish(),
     dashboard_description: zod.string().max(dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax).nullish(),
-    dashboard_filters: zod.unknown().nullish(),
+    dashboard_filters: zod.unknown().optional(),
     tags: zod.array(zod.string().max(dashboardTemplatesPartialUpdateBodyTagsItemMax)).nullish(),
-    tiles: zod.unknown().nullish(),
-    variables: zod.unknown().nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
     deleted: zod.boolean().nullish(),
     image_url: zod.string().max(dashboardTemplatesPartialUpdateBodyImageUrlMax).nullish(),
     scope: zod
@@ -2260,9 +2230,9 @@ export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .enum(['team', 'global', 'feature_flag'])
                 .describe('* `team` - Only team\n* `global` - Global\n* `feature_flag` - Feature Flag'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     availability_contexts: zod
         .array(zod.string().max(dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax))
         .nullish(),
@@ -2287,7 +2257,7 @@ export const ExportsCreateBody = /* @__PURE__ */ zod
             .describe(
                 '* `image/png` - image/png\n* `application/pdf` - application/pdf\n* `text/csv` - text/csv\n* `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\n* `video/webm` - video/webm\n* `video/mp4` - video/mp4\n* `image/gif` - image/gif\n* `application/json` - application/json'
             ),
-        export_context: zod.unknown().nullish(),
+        export_context: zod.unknown().optional(),
     })
     .describe("Standard ExportedAsset serializer that doesn't return content.")
 
@@ -2300,7 +2270,7 @@ export const FileSystemCreateBody = /* @__PURE__ */ zod.object({
     type: zod.string().max(fileSystemCreateBodyTypeMax).optional(),
     ref: zod.string().max(fileSystemCreateBodyRefMax).nullish(),
     href: zod.string().nullish(),
-    meta: zod.unknown().nullish(),
+    meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
 })
 
@@ -2313,7 +2283,7 @@ export const FileSystemUpdateBody = /* @__PURE__ */ zod.object({
     type: zod.string().max(fileSystemUpdateBodyTypeMax).optional(),
     ref: zod.string().max(fileSystemUpdateBodyRefMax).nullish(),
     href: zod.string().nullish(),
-    meta: zod.unknown().nullish(),
+    meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
 })
 
@@ -2326,7 +2296,7 @@ export const FileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
     type: zod.string().max(fileSystemPartialUpdateBodyTypeMax).optional(),
     ref: zod.string().max(fileSystemPartialUpdateBodyRefMax).nullish(),
     href: zod.string().nullish(),
-    meta: zod.unknown().nullish(),
+    meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
 })
 
@@ -2342,7 +2312,7 @@ export const FileSystemCountCreateBody = /* @__PURE__ */ zod.object({
     type: zod.string().max(fileSystemCountCreateBodyTypeMax).optional(),
     ref: zod.string().max(fileSystemCountCreateBodyRefMax).nullish(),
     href: zod.string().nullish(),
-    meta: zod.unknown().nullish(),
+    meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
 })
 
@@ -2355,7 +2325,7 @@ export const FileSystemLinkCreateBody = /* @__PURE__ */ zod.object({
     type: zod.string().max(fileSystemLinkCreateBodyTypeMax).optional(),
     ref: zod.string().max(fileSystemLinkCreateBodyRefMax).nullish(),
     href: zod.string().nullish(),
-    meta: zod.unknown().nullish(),
+    meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
 })
 
@@ -2368,7 +2338,7 @@ export const FileSystemMoveCreateBody = /* @__PURE__ */ zod.object({
     type: zod.string().max(fileSystemMoveCreateBodyTypeMax).optional(),
     ref: zod.string().max(fileSystemMoveCreateBodyRefMax).nullish(),
     href: zod.string().nullish(),
-    meta: zod.unknown().nullish(),
+    meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
 })
 
@@ -2384,7 +2354,7 @@ export const FileSystemCountByPathCreateBody = /* @__PURE__ */ zod.object({
     type: zod.string().max(fileSystemCountByPathCreateBodyTypeMax).optional(),
     ref: zod.string().max(fileSystemCountByPathCreateBodyRefMax).nullish(),
     href: zod.string().nullish(),
-    meta: zod.unknown().nullish(),
+    meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
 })
 
@@ -2397,7 +2367,7 @@ export const FileSystemLogViewCreateBody = /* @__PURE__ */ zod.object({
     type: zod.string().max(fileSystemLogViewCreateBodyTypeMax).optional(),
     ref: zod.string().max(fileSystemLogViewCreateBodyRefMax).nullish(),
     href: zod.string().nullish(),
-    meta: zod.unknown().nullish(),
+    meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
 })
 
@@ -2410,7 +2380,7 @@ export const FileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
     type: zod.string().max(fileSystemUndoDeleteCreateBodyTypeMax).optional(),
     ref: zod.string().max(fileSystemUndoDeleteCreateBodyRefMax).nullish(),
     href: zod.string().nullish(),
-    meta: zod.unknown().nullish(),
+    meta: zod.unknown().optional(),
     shortcut: zod.boolean().nullish(),
 })
 
@@ -2419,13 +2389,13 @@ export const FileSystemUndoDeleteCreateBody = /* @__PURE__ */ zod.object({
  */
 export const InsightsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
-    settings: zod.unknown().nullish(),
+    settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
 
 export const InsightsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
-    settings: zod.unknown().nullish(),
+    settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
 
@@ -2462,9 +2432,9 @@ export const PropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
                         '* `DateTime` - DateTime\n* `String` - String\n* `Numeric` - Numeric\n* `Boolean` - Boolean\n* `Duration` - Duration'
                     ),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish(),
+            .optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
     })
@@ -2482,9 +2452,9 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
                         '* `DateTime` - DateTime\n* `String` - String\n* `Numeric` - Numeric\n* `Boolean` - Boolean\n* `Duration` - Duration'
                     ),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish(),
+            .optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
     })
@@ -2522,13 +2492,13 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
  */
 export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
-    settings: zod.unknown().nullish(),
+    settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
 
 export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
-    settings: zod.unknown().nullish(),
+    settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
 })
 
@@ -2883,9 +2853,9 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -2897,15 +2867,15 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -2913,9 +2883,9 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -2960,9 +2930,9 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -2974,15 +2944,15 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -2990,9 +2960,9 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -3034,9 +3004,9 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -3048,15 +3018,15 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -3064,9 +3034,9 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -3137,9 +3107,9 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -3151,15 +3121,15 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -3167,9 +3137,9 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -3214,9 +3184,9 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -3228,15 +3198,15 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -3244,9 +3214,9 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -3291,9 +3261,9 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -3305,15 +3275,15 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -3321,9 +3291,9 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -3365,9 +3335,9 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -3379,15 +3349,15 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -3395,9 +3365,9 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -3439,9 +3409,9 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -3453,15 +3423,15 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -3469,9 +3439,9 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -3513,9 +3483,9 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -3527,15 +3497,15 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -3543,9 +3513,9 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -3587,9 +3557,9 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -3601,15 +3571,15 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -3617,9 +3587,9 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()
@@ -3661,9 +3631,9 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.enum(['disabled', 'toolbar']).describe('* `disabled` - disabled\n* `toolbar` - toolbar'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     is_staff: zod.boolean().optional().describe('Designates whether the user can log into this admin site.'),
     set_current_organization: zod.string().optional(),
     set_current_team: zod.string().optional(),
@@ -3675,15 +3645,15 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
             "The user's current password. Required when changing `password` if the user already has a usable password set."
         ),
     events_column_config: zod.unknown().optional(),
-    has_seen_product_intro_for: zod.unknown().nullish(),
+    has_seen_product_intro_for: zod.unknown().optional(),
     theme_mode: zod
         .union([
             zod.enum(['light', 'dark', 'system']).describe('* `light` - Light\n* `dark` - Dark\n* `system` - System'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
-    hedgehog_config: zod.unknown().nullish(),
+        .optional(),
+    hedgehog_config: zod.unknown().optional(),
     allow_sidebar_suggestions: zod.boolean().nullish(),
     shortcut_position: zod
         .union([
@@ -3691,9 +3661,9 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
                 .enum(['above', 'below', 'hidden'])
                 .describe('* `above` - Above\n* `below` - Below\n* `hidden` - Hidden'),
             zod.enum(['']),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish(),
+        .optional(),
     role_at_organization: zod
         .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
         .optional()

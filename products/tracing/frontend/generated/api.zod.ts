@@ -77,7 +77,7 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -168,7 +168,7 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),

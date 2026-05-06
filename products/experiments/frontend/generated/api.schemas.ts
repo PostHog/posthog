@@ -36,10 +36,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface ExperimentHoldoutApi {
@@ -83,9 +79,7 @@ export interface ExperimentHoldoutApi {
 
 export interface PaginatedExperimentHoldoutListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ExperimentHoldoutApi[]
 }
@@ -131,9 +125,7 @@ export interface ExperimentSavedMetricApi {
 
 export interface PaginatedExperimentSavedMetricListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ExperimentSavedMetricApi[]
 }
@@ -165,35 +157,19 @@ export interface PatchedExperimentSavedMetricApi {
 export interface ExperimentVariantApi {
     /** Variant key, e.g. 'control', 'test', 'variant_a'. */
     key: string
-    /**
-     * Human-readable variant name.
-     * @nullable
-     */
+    /** Human-readable variant name. */
     name?: string | null
-    /** @nullable */
     rollout_percentage?: number | null
-    /**
-     * Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.
-     * @nullable
-     */
+    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided. */
     split_percent?: number | null
 }
 
 export interface ExperimentParametersApi {
-    /**
-     * Experiment variants. If not specified, defaults to a 50/50 control/test split.
-     * @nullable
-     */
+    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
     feature_flag_variants?: ExperimentVariantApi[] | null
-    /**
-     * Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.
-     * @nullable
-     */
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number | null
-    /**
-     * Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.
-     * @nullable
-     */
+    /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
     rollout_percentage?: number | null
 }
 
@@ -216,13 +192,6 @@ export type ExperimentTypeEnumApi = (typeof ExperimentTypeEnumApi)[keyof typeof 
 export const ExperimentTypeEnumApi = {
     Web: 'web',
     Product: 'product',
-} as const
-
-export type ExperimentApiExposureConfigApiKind =
-    (typeof ExperimentApiExposureConfigApiKind)[keyof typeof ExperimentApiExposureConfigApiKind]
-
-export const ExperimentApiExposureConfigApiKind = {
-    ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
 } as const
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
@@ -264,36 +233,25 @@ export const PropertyOperatorApi = {
     NotIcontainsMulti: 'not_icontains_multi',
 } as const
 
-/**
- * Event properties
- */
-export type EventPropertyFilterApiType = (typeof EventPropertyFilterApiType)[keyof typeof EventPropertyFilterApiType]
-
-export const EventPropertyFilterApiType = {
-    Event: 'event',
-} as const
-
 export interface EventPropertyFilterApi {
     key: string
-    /** @nullable */
     label?: string | null
     operator?: PropertyOperatorApi | null
     /** Event properties */
-    type?: EventPropertyFilterApiType
+    type?: 'event'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
 export interface ExperimentApiExposureConfigApi {
     /** Custom exposure event name. */
     event: string
-    kind?: ExperimentApiExposureConfigApiKind
+    kind?: 'ExperimentEventExposureConfig'
     /** Event property filters. Pass an empty array if no filters needed. */
     properties: EventPropertyFilterApi[]
 }
 
 export interface ExperimentApiExposureCriteriaApi {
     exposure_config?: ExperimentApiExposureConfigApi | null
-    /** @nullable */
     filterTestAccounts?: boolean | null
 }
 
@@ -305,21 +263,12 @@ export const KindApi = {
 } as const
 
 export interface ExperimentApiEventSourceApi {
-    /**
-     * Event name, e.g. '$pageview'. Required for EventsNode.
-     * @nullable
-     */
+    /** Event name, e.g. '$pageview'. Required for EventsNode. */
     event?: string | null
-    /**
-     * Action ID. Required for ActionsNode.
-     * @nullable
-     */
+    /** Action ID. Required for ActionsNode. */
     id?: number | null
     kind: KindApi
-    /**
-     * Event property filters to narrow which events are counted.
-     * @nullable
-     */
+    /** Event property filters to narrow which events are counted. */
     properties?: EventPropertyFilterApi[] | null
 }
 
@@ -328,12 +277,6 @@ export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typ
 export const ExperimentMetricGoalApi = {
     Increase: 'increase',
     Decrease: 'decrease',
-} as const
-
-export type ExperimentApiMetricApiKind = (typeof ExperimentApiMetricApiKind)[keyof typeof ExperimentApiMetricApiKind]
-
-export const ExperimentApiMetricApiKind = {
-    ExperimentMetric: 'ExperimentMetric',
 } as const
 
 export type ExperimentMetricTypeApi = (typeof ExperimentMetricTypeApi)[keyof typeof ExperimentMetricTypeApi]
@@ -367,43 +310,29 @@ export const StartHandlingApi = {
 export interface ExperimentApiMetricApi {
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null
-    /**
-     * Conversion window duration.
-     * @nullable
-     */
+    /** Conversion window duration. */
     conversion_window?: number | null
     /** For ratio metrics: denominator source. */
     denominator?: ExperimentApiEventSourceApi | null
     /** Whether higher or lower values indicate success. */
     goal?: ExperimentMetricGoalApi | null
-    kind?: ExperimentApiMetricApiKind
+    kind?: 'ExperimentMetric'
     metric_type: ExperimentMetricTypeApi
-    /**
-     * Human-readable metric name.
-     * @nullable
-     */
+    /** Human-readable metric name. */
     name?: string | null
     /** For ratio metrics: numerator source. */
     numerator?: ExperimentApiEventSourceApi | null
-    /** @nullable */
     retention_window_end?: number | null
-    /** @nullable */
     retention_window_start?: number | null
     retention_window_unit?: FunnelConversionWindowTimeUnitApi | null
-    /**
-     * For funnel metrics: array of EventsNode/ActionsNode steps.
-     * @nullable
-     */
+    /** For funnel metrics: array of EventsNode/ActionsNode steps. */
     series?: ExperimentApiEventSourceApi[] | null
     /** For mean metrics: event source. */
     source?: ExperimentApiEventSourceApi | null
     /** For retention metrics: start event. */
     start_event?: ExperimentApiEventSourceApi | null
     start_handling?: StartHandlingApi | null
-    /**
-     * Unique identifier. Auto-generated if omitted.
-     * @nullable
-     */
+    /** Unique identifier. Auto-generated if omitted. */
     uuid?: string | null
 }
 
@@ -473,7 +402,7 @@ export interface ExperimentApi {
     readonly exposure_cohort: number | null
     /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
     parameters?: ExperimentParametersApi | null
-    secondary_metrics?: unknown | null
+    secondary_metrics?: unknown
     readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
     /**
      * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
@@ -492,15 +421,15 @@ export interface ExperimentApi {
 
 * `web` - web
 * `product` - product */
-    type?: ExperimentTypeEnumApi | NullEnumApi | null
+    type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
     /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
-    stats_config?: unknown | null
-    scheduling_config?: unknown | null
+    stats_config?: unknown
+    scheduling_config?: unknown
     allow_unknown_events?: boolean
     _create_in_folder?: string
     /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
@@ -510,14 +439,14 @@ export interface ExperimentApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: ConclusionEnumApi | NullEnumApi | null
+    conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
      * @nullable
      */
     conclusion_comment?: string | null
-    primary_metrics_ordered_uuids?: unknown | null
-    secondary_metrics_ordered_uuids?: unknown | null
+    primary_metrics_ordered_uuids?: unknown
+    secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
     /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
     update_feature_flag_params?: boolean
@@ -532,9 +461,7 @@ export interface ExperimentApi {
 
 export interface PaginatedExperimentListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ExperimentApi[]
 }
@@ -574,7 +501,7 @@ export interface PatchedExperimentApi {
     readonly exposure_cohort?: number | null
     /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
     parameters?: ExperimentParametersApi | null
-    secondary_metrics?: unknown | null
+    secondary_metrics?: unknown
     readonly saved_metrics?: readonly ExperimentToSavedMetricApi[]
     /**
      * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
@@ -593,15 +520,15 @@ export interface PatchedExperimentApi {
 
 * `web` - web
 * `product` - product */
-    type?: ExperimentTypeEnumApi | NullEnumApi | null
+    type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
     /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
-    stats_config?: unknown | null
-    scheduling_config?: unknown | null
+    stats_config?: unknown
+    scheduling_config?: unknown
     allow_unknown_events?: boolean
     _create_in_folder?: string
     /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
@@ -611,14 +538,14 @@ export interface PatchedExperimentApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: ConclusionEnumApi | NullEnumApi | null
+    conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
      * @nullable
      */
     conclusion_comment?: string | null
-    primary_metrics_ordered_uuids?: unknown | null
-    secondary_metrics_ordered_uuids?: unknown | null
+    primary_metrics_ordered_uuids?: unknown
+    secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
     /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
     update_feature_flag_params?: boolean
@@ -648,7 +575,7 @@ export interface EndExperimentApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: ConclusionEnumApi | NullEnumApi | null
+    conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
      * @nullable
@@ -664,7 +591,7 @@ export interface ShipVariantApi {
 * `inconclusive` - inconclusive
 * `stopped_early` - stopped_early
 * `invalid` - invalid */
-    conclusion?: ConclusionEnumApi | NullEnumApi | null
+    conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
      * @nullable

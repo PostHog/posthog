@@ -26,10 +26,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `S3` - S3
  * `Snowflake` - Snowflake
@@ -127,7 +123,7 @@ export interface AzureBlobDestinationConfigApi {
 * `lz4` - lz4
 * `snappy` - snappy
 * `zstd` - zstd */
-    compression?: CompressionEnumApi | NullEnumApi | null
+    compression?: CompressionEnumApi | null
     /** File format used for exported objects.
 
 * `JSONLines` - JSONLines
@@ -318,7 +314,7 @@ export interface BatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
+    model?: ModelEnumApi | BlankEnumApi | null
     /** Destination configuration (type, config, and optional integration). */
     destination: BatchExportDestinationApi
     /** How often the batch export should run.
@@ -355,8 +351,8 @@ export interface BatchExportApi {
     /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
     hogql_query?: string
     /** A schema of custom fields to select when exporting data. */
-    readonly schema: unknown | null
-    filters?: unknown | null
+    readonly schema: unknown
+    filters?: unknown
     /** IANA timezone name controlling daily and weekly interval boundaries. Defaults to UTC.
 
 * `Africa/Abidjan` - Africa/Abidjan
@@ -955,7 +951,7 @@ export interface BatchExportApi {
 * `W-SU` - W-SU
 * `WET` - WET
 * `Zulu` - Zulu */
-    timezone?: string | NullEnumApi | null
+    timezone?: string | null
     /**
      * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday). Only valid when interval is 'week'.
      * @minimum 0
@@ -974,9 +970,7 @@ export interface BatchExportApi {
 
 export interface PaginatedBatchExportListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: BatchExportApi[]
 }
@@ -1047,7 +1041,7 @@ export interface BatchExportRequestApi {
     paused?: boolean
     /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
     hogql_query?: string
-    filters?: unknown | null
+    filters?: unknown
     /**
      * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
      * @nullable
@@ -1099,11 +1093,8 @@ export const BatchExportBackfillStatusEnumApi = {
  * @nullable
  */
 export type BatchExportBackfillApiProgress = {
-    /** @nullable */
     readonly total_runs?: number | null
-    /** @nullable */
     readonly finished_runs?: number | null
-    /** @nullable */
     readonly progress?: number | null
 } | null | null
 
@@ -1161,17 +1152,13 @@ export interface BatchExportBackfillApi {
 }
 
 export interface PaginatedBatchExportBackfillListApi {
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: BatchExportBackfillApi[]
 }
 
 export interface PaginatedBatchExportRunListApi {
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: BatchExportRunApi[]
 }
@@ -1206,7 +1193,7 @@ export interface PatchedBatchExportRequestApi {
     paused?: boolean
     /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
     hogql_query?: string
-    filters?: unknown | null
+    filters?: unknown
     /**
      * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
      * @nullable

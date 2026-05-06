@@ -84,13 +84,13 @@ export const notebooksCreate = async (
     })
 }
 
-export const getNotebooksSharingListUrl = (projectId: string, notebookId: string) => {
+export const getNotebooksSharingListUrl = (projectId: string, notebookId: string | null) => {
     return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/`
 }
 
 export const notebooksSharingList = async (
     projectId: string,
-    notebookId: string,
+    notebookId: string | null,
     options?: RequestInit
 ): Promise<SharingConfigurationApi[]> => {
     return apiMutator<SharingConfigurationApi[]>(getNotebooksSharingListUrl(projectId, notebookId), {
@@ -102,13 +102,13 @@ export const notebooksSharingList = async (
 /**
  * Create a new password for the sharing configuration.
  */
-export const getNotebooksSharingPasswordsCreateUrl = (projectId: string, notebookId: string) => {
+export const getNotebooksSharingPasswordsCreateUrl = (projectId: string, notebookId: string | null) => {
     return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/passwords/`
 }
 
 export const notebooksSharingPasswordsCreate = async (
     projectId: string,
-    notebookId: string,
+    notebookId: string | null,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
@@ -123,13 +123,17 @@ export const notebooksSharingPasswordsCreate = async (
 /**
  * Delete a password from the sharing configuration.
  */
-export const getNotebooksSharingPasswordsDestroyUrl = (projectId: string, notebookId: string, passwordId: string) => {
+export const getNotebooksSharingPasswordsDestroyUrl = (
+    projectId: string,
+    notebookId: string | null,
+    passwordId: string
+) => {
     return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/passwords/${passwordId}/`
 }
 
 export const notebooksSharingPasswordsDestroy = async (
     projectId: string,
-    notebookId: string,
+    notebookId: string | null,
     passwordId: string,
     options?: RequestInit
 ): Promise<void> => {
@@ -139,13 +143,13 @@ export const notebooksSharingPasswordsDestroy = async (
     })
 }
 
-export const getNotebooksSharingRefreshCreateUrl = (projectId: string, notebookId: string) => {
+export const getNotebooksSharingRefreshCreateUrl = (projectId: string, notebookId: string | null) => {
     return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/refresh/`
 }
 
 export const notebooksSharingRefreshCreate = async (
     projectId: string,
-    notebookId: string,
+    notebookId: string | null,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {

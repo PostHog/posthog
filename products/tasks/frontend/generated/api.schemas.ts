@@ -69,10 +69,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -96,7 +92,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface SandboxEnvironmentListApi {
@@ -119,9 +115,7 @@ export interface SandboxEnvironmentListApi {
 
 export interface PaginatedSandboxEnvironmentListListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: SandboxEnvironmentListApi[]
 }
@@ -187,9 +181,7 @@ export interface TaskAutomationApi {
 
 export interface PaginatedTaskAutomationListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: TaskAutomationApi[]
 }
@@ -262,7 +254,7 @@ export interface TaskApi {
     signal_report?: string | null
     signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
     /** JSON schema for the task. This is used to validate the output of the task. */
-    json_schema?: unknown | null
+    json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
     internal?: boolean
     /**
@@ -282,9 +274,7 @@ export interface TaskApi {
 
 export interface PaginatedTaskListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: TaskApi[]
 }
@@ -324,7 +314,7 @@ export interface PatchedTaskApi {
     signal_report?: string | null
     signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
     /** JSON schema for the task. This is used to validate the output of the task. */
-    json_schema?: unknown | null
+    json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
     internal?: boolean
     /**
@@ -834,16 +824,16 @@ export interface TaskRunDetailApi {
 * `cloud` - Cloud */
     environment?: TaskRunEnvironmentEnumApi
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-    readonly runtime_adapter: RuntimeAdapterEnumApi | NullEnumApi | null
+    readonly runtime_adapter: RuntimeAdapterEnumApi | null
     /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
-    readonly provider: TaskRunDetailProviderEnumApi | NullEnumApi | null
+    readonly provider: TaskRunDetailProviderEnumApi | null
     /**
      * Configured LLM model identifier for this run.
      * @nullable
      */
     readonly model: string | null
     /** Configured reasoning effort for this run when the selected model supports it. */
-    readonly reasoning_effort: ReasoningEffortEnumApi | NullEnumApi | null
+    readonly reasoning_effort: ReasoningEffortEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
      * @nullable
@@ -855,7 +845,7 @@ export interface TaskRunDetailApi {
      */
     error_message?: string | null
     /** Run output data (e.g., PR URL, commit SHA, etc.) */
-    output?: unknown | null
+    output?: unknown
     /** Run state data for resuming or tracking execution state */
     state?: unknown
     readonly artifacts: readonly TaskRunArtifactResponseApi[]
@@ -867,9 +857,7 @@ export interface TaskRunDetailApi {
 
 export interface PaginatedTaskRunDetailListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: TaskRunDetailApi[]
 }
@@ -1021,7 +1009,7 @@ export interface PatchedTaskRunUpdateApi {
      */
     stage?: string | null
     /** Output from the run */
-    output?: unknown | null
+    output?: unknown
     /** State of the run */
     state?: unknown
     /** State keys to remove atomically before applying any state updates. */
@@ -1432,8 +1420,8 @@ export interface TaskSummariesRequestApi {
 }
 
 export interface TaskRunSummaryApi {
-    status: TaskRunStatusEnumApi | NullEnumApi | null
-    environment: TaskRunEnvironmentEnumApi | NullEnumApi | null
+    status: TaskRunStatusEnumApi | null
+    environment: TaskRunEnvironmentEnumApi | null
 }
 
 export interface TaskSummaryApi {
@@ -1448,9 +1436,7 @@ export interface TaskSummaryApi {
 
 export interface PaginatedTaskSummaryListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: TaskSummaryApi[]
 }

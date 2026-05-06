@@ -28,9 +28,7 @@ export interface DataWarehouseSavedQueryDraftApi {
 
 export interface PaginatedDataWarehouseSavedQueryDraftListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DataWarehouseSavedQueryDraftApi[]
 }
@@ -92,9 +90,7 @@ export interface DataModelingJobApi {
 }
 
 export interface PaginatedDataModelingJobListApi {
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DataModelingJobApi[]
 }
@@ -170,10 +166,6 @@ export const SyncTypeEnumApi = {
     Webhook: 'webhook',
     Cdc: 'cdc',
 } as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
 
 /**
  * * `integer` - integer
@@ -266,7 +258,7 @@ export interface ExternalDataSchemaApi {
 * `append` - append
 * `webhook` - webhook
 * `cdc` - cdc */
-    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+    sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -280,7 +272,7 @@ export interface ExternalDataSchemaApi {
 * `date` - date
 * `timestamp` - timestamp
 * `objectid` - objectid */
-    incremental_field_type?: IncrementalFieldTypeEnumApi | NullEnumApi | null
+    incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
 
 * `never` - never
@@ -294,7 +286,7 @@ export interface ExternalDataSchemaApi {
 * `24hour` - 24hour
 * `7day` - 7day
 * `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | NullEnumApi | null
+    sync_frequency?: SyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -312,14 +304,12 @@ export interface ExternalDataSchemaApi {
 * `consolidated` - consolidated
 * `cdc_only` - cdc_only
 * `both` - both */
-    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+    cdc_table_mode?: CdcTableModeEnumApi | null
 }
 
 export interface PaginatedExternalDataSchemaListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ExternalDataSchemaApi[]
 }
@@ -354,7 +344,7 @@ export interface PatchedExternalDataSchemaApi {
 * `append` - append
 * `webhook` - webhook
 * `cdc` - cdc */
-    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+    sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -368,7 +358,7 @@ export interface PatchedExternalDataSchemaApi {
 * `date` - date
 * `timestamp` - timestamp
 * `objectid` - objectid */
-    incremental_field_type?: IncrementalFieldTypeEnumApi | NullEnumApi | null
+    incremental_field_type?: IncrementalFieldTypeEnumApi | null
     /** How often to sync.
 
 * `never` - never
@@ -382,7 +372,7 @@ export interface PatchedExternalDataSchemaApi {
 * `24hour` - 24hour
 * `7day` - 7day
 * `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | NullEnumApi | null
+    sync_frequency?: SyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -400,7 +390,7 @@ export interface PatchedExternalDataSchemaApi {
 * `consolidated` - consolidated
 * `cdc_only` - cdc_only
 * `both` - both */
-    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+    cdc_table_mode?: CdcTableModeEnumApi | null
 }
 
 /**
@@ -776,11 +766,11 @@ export interface ExternalDataSourceSerializersApi {
 
 * `duckdb` - duckdb
 * `postgres` - postgres */
-    readonly engine: EngineEnumApi | NullEnumApi | null
+    readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     readonly schemas: readonly ExternalDataSourceSerializersApiSchemasItem[]
-    job_inputs?: unknown | null
+    job_inputs?: unknown
     readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
      * The effective access level the user has for this object
@@ -792,9 +782,7 @@ export interface ExternalDataSourceSerializersApi {
 
 export interface PaginatedExternalDataSourceSerializersListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ExternalDataSourceSerializersApi[]
 }
@@ -1016,11 +1004,11 @@ export interface PatchedExternalDataSourceSerializersApi {
 
 * `duckdb` - duckdb
 * `postgres` - postgres */
-    readonly engine?: EngineEnumApi | NullEnumApi | null
+    readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     readonly schemas?: readonly PatchedExternalDataSourceSerializersApiSchemasItem[]
-    job_inputs?: unknown | null
+    job_inputs?: unknown
     readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
     /**
      * The effective access level the user has for this object
@@ -1042,7 +1030,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
 * `append` - append
 * `webhook` - webhook
 * `cdc` - cdc */
-    sync_type?: SyncTypeEnumApi | NullEnumApi | null
+    sync_type?: SyncTypeEnumApi | null
     /**
      * Incremental cursor field for incremental or append syncs.
      * @nullable
@@ -1068,7 +1056,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
 * `consolidated` - consolidated
 * `cdc_only` - cdc_only
 * `both` - both */
-    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+    cdc_table_mode?: CdcTableModeEnumApi | null
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -1084,14 +1072,12 @@ export interface ExternalDataSourceConnectionOptionApi {
 
 * `duckdb` - duckdb
 * `postgres` - postgres */
-    readonly engine: EngineEnumApi | NullEnumApi | null
+    readonly engine: EngineEnumApi | null
 }
 
 export interface PaginatedExternalDataSourceConnectionOptionListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ExternalDataSourceConnectionOptionApi[]
 }
@@ -1287,7 +1273,7 @@ export interface InsightVariableApi {
 * `Date` - Date */
     type: InsightVariableTypeEnumApi
     /** Default value used when a query references this variable. */
-    default_value?: unknown | null
+    default_value?: unknown
     /**
      * ID of the user who created the SQL variable.
      * @nullable
@@ -1301,14 +1287,12 @@ export interface InsightVariableApi {
      */
     readonly code_name: string | null
     /** Allowed values for List variables. Null for other variable types. */
-    values?: unknown | null
+    values?: unknown
 }
 
 export interface PaginatedInsightVariableListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: InsightVariableApi[]
 }
@@ -1330,7 +1314,7 @@ export interface PatchedInsightVariableApi {
 * `Date` - Date */
     type?: InsightVariableTypeEnumApi
     /** Default value used when a query references this variable. */
-    default_value?: unknown | null
+    default_value?: unknown
     /**
      * ID of the user who created the SQL variable.
      * @nullable
@@ -1344,7 +1328,7 @@ export interface PatchedInsightVariableApi {
      */
     readonly code_name?: string | null
     /** Allowed values for List variables. Null for other variable types. */
-    values?: unknown | null
+    values?: unknown
 }
 
 export interface QueryTabStateApi {
@@ -1355,14 +1339,12 @@ export interface QueryTabStateApi {
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
             for a user.
              */
-    state?: unknown | null
+    state?: unknown
 }
 
 export interface PaginatedQueryTabStateListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: QueryTabStateApi[]
 }
@@ -1375,7 +1357,7 @@ export interface PatchedQueryTabStateApi {
             ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
             for a user.
              */
-    state?: unknown | null
+    state?: unknown
 }
 
 /**
@@ -1430,7 +1412,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface DataWarehouseModelPathApi {
@@ -1449,9 +1431,7 @@ export interface DataWarehouseModelPathApi {
 
 export interface PaginatedDataWarehouseModelPathListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DataWarehouseModelPathApi[]
 }
@@ -1508,7 +1488,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
+    readonly status: SavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1526,7 +1506,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi | null
+    readonly origin: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     readonly is_test: boolean
     /**
@@ -1543,9 +1523,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DataWarehouseSavedQueryMinimalApi[]
 }
@@ -1567,7 +1545,7 @@ export interface DataWarehouseSavedQueryApi {
      */
     name: string
     /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-    query?: unknown | null
+    query?: unknown
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** @nullable */
@@ -1580,7 +1558,7 @@ export interface DataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
+    readonly status: SavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1621,7 +1599,7 @@ export interface DataWarehouseSavedQueryApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin: OriginEnumApi | NullEnumApi | null
+    readonly origin: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1653,7 +1631,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      */
     name?: string
     /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-    query?: unknown | null
+    query?: unknown
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */
@@ -1666,7 +1644,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status?: SavedQueryStatusEnumApi | NullEnumApi | null
+    readonly status?: SavedQueryStatusEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     /** @nullable */
@@ -1707,7 +1685,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `data_warehouse` - Data Warehouse
 * `endpoint` - Endpoint
 * `managed_viewset` - Managed Viewset */
-    readonly origin?: OriginEnumApi | NullEnumApi | null
+    readonly origin?: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
     is_test?: boolean
     /**
@@ -1838,9 +1816,7 @@ export interface TableApi {
 
 export interface PaginatedTableListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: TableApi[]
 }
@@ -1861,14 +1837,12 @@ export interface ViewLinkApi {
     joining_table_key: string
     /** @maxLength 400 */
     field_name: string
-    configuration?: unknown | null
+    configuration?: unknown
 }
 
 export interface PaginatedViewLinkListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ViewLinkApi[]
 }

@@ -21,11 +21,11 @@ export interface HogFunctionMappingTemplateApi {
      */
     use_all_events_by_default?: boolean | null
     /** Event filters specific to this mapping. */
-    filters?: unknown | null
+    filters?: unknown
     /** Input values specific to this mapping. */
-    inputs?: unknown | null
+    inputs?: unknown
     /** Additional input schema fields specific to this mapping. */
-    inputs_schema?: unknown | null
+    inputs_schema?: unknown
 }
 
 export interface HogFunctionTemplateApi {
@@ -70,9 +70,9 @@ export interface HogFunctionTemplateApi {
      */
     icon_url?: string | null
     /** Default event filters. */
-    filters?: unknown | null
+    filters?: unknown
     /** Default PII masking configuration. */
-    masking?: unknown | null
+    masking?: unknown
     /**
      * Pre-defined mapping configurations for destination templates.
      * @nullable
@@ -82,9 +82,7 @@ export interface HogFunctionTemplateApi {
 
 export interface PaginatedHogFunctionTemplateListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: HogFunctionTemplateApi[]
 }
@@ -118,10 +116,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -145,7 +139,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -185,7 +179,7 @@ export interface HogFunctionMinimalApi {
     readonly updated_at: string
     readonly enabled: boolean
     readonly hog: string
-    readonly filters: unknown | null
+    readonly filters: unknown
     /** @nullable */
     readonly icon_url: string | null
     readonly template: HogFunctionTemplateApi
@@ -196,9 +190,7 @@ export interface HogFunctionMinimalApi {
 
 export interface PaginatedHogFunctionMinimalListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: HogFunctionMinimalApi[]
 }
@@ -330,7 +322,7 @@ export interface HogFunctionFiltersApi {
     events?: HogFunctionFiltersApiEventsItem[]
     data_warehouse?: HogFunctionFiltersApiDataWarehouseItem[]
     properties?: HogFunctionFiltersApiPropertiesItem[]
-    bytecode?: unknown | null
+    bytecode?: unknown
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
@@ -351,7 +343,7 @@ export interface HogFunctionMaskingApi {
     /** Hog expression used to compute the masking hash. */
     hash: string
     /** Compiled bytecode for the hash expression. Auto-generated. */
-    bytecode?: unknown | null
+    bytecode?: unknown
 }
 
 export type MappingsApiInputs = { [key: string]: InputsItemApi }
@@ -374,7 +366,7 @@ export interface HogFunctionApi {
 * `warehouse_source_webhook` - Warehouse Source Webhook
 * `site_app` - Site App
 * `transformation` - Transformation */
-    type?: HogFunctionTypeEnumApi | NullEnumApi | null
+    type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
      * @maxLength 400
@@ -392,7 +384,7 @@ export interface HogFunctionApi {
     deleted?: boolean
     /** Source code. Hog language for most types; TypeScript for site_destination and site_app. */
     hog?: string
-    readonly bytecode: unknown | null
+    readonly bytecode: unknown
     /** @nullable */
     readonly transpiled: string | null
     /** Schema defining the configurable input parameters for this function. */
@@ -449,7 +441,7 @@ export interface PatchedHogFunctionApi {
 * `warehouse_source_webhook` - Warehouse Source Webhook
 * `site_app` - Site App
 * `transformation` - Transformation */
-    type?: HogFunctionTypeEnumApi | NullEnumApi | null
+    type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
      * @maxLength 400
@@ -467,7 +459,7 @@ export interface PatchedHogFunctionApi {
     deleted?: boolean
     /** Source code. Hog language for most types; TypeScript for site_destination and site_app. */
     hog?: string
-    readonly bytecode?: unknown | null
+    readonly bytecode?: unknown
     /** @nullable */
     readonly transpiled?: string | null
     /** Schema defining the configurable input parameters for this function. */

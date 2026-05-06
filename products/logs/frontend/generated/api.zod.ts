@@ -433,7 +433,7 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -534,7 +534,7 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -629,7 +629,7 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -890,7 +890,7 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),
@@ -979,7 +979,7 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .unknown()
-                            .nullish()
+                            .optional()
                             .describe(
                                 'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
                             ),

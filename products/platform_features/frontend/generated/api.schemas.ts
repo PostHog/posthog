@@ -36,10 +36,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface ApprovalPolicyApi {
@@ -86,9 +82,7 @@ export interface ApprovalPolicyApi {
 
 export interface PaginatedApprovalPolicyListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ApprovalPolicyApi[]
 }
@@ -158,7 +152,7 @@ export interface ChangeRequestApi {
     readonly intent_display: unknown
     readonly policy_snapshot: unknown
     readonly validation_status: ValidationStatusEnumApi
-    readonly validation_errors: unknown | null
+    readonly validation_errors: unknown
     /** @nullable */
     readonly validated_at: string | null
     readonly state: ChangeRequestStateEnumApi
@@ -171,7 +165,7 @@ export interface ChangeRequestApi {
     /** @nullable */
     readonly applied_at: string | null
     readonly apply_error: string
-    readonly result_data: unknown | null
+    readonly result_data: unknown
     readonly approvals: readonly ChangeRequestApiApprovalsItem[]
     /** Check if current user can approve this change request. */
     readonly can_approve: boolean
@@ -187,9 +181,7 @@ export interface ChangeRequestApi {
 
 export interface PaginatedChangeRequestListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ChangeRequestApi[]
 }
@@ -246,7 +238,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -270,7 +262,7 @@ export interface OrganizationApi {
 
 * `bayesian` - Bayesian
 * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -297,9 +289,7 @@ export interface OrganizationApi {
 
 export interface PaginatedOrganizationListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: OrganizationApi[]
 }
@@ -320,7 +310,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level?: EffectiveMembershipLevelEnumApi
     readonly plugins_access_level?: PluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -344,7 +334,7 @@ export interface PatchedOrganizationApi {
 
 * `bayesian` - Bayesian
 * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -396,9 +386,7 @@ export interface OrganizationMemberApi {
 
 export interface PaginatedOrganizationMemberListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: OrganizationMemberApi[]
 }
@@ -429,9 +417,7 @@ export interface RoleApi {
 
 export interface PaginatedRoleListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: RoleApi[]
 }
@@ -461,9 +447,7 @@ export interface RoleMembershipApi {
 
 export interface PaginatedRoleMembershipListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: RoleMembershipApi[]
 }
@@ -559,15 +543,13 @@ export interface ActivityLogApi {
     item_id?: string | null
     /** @maxLength 79 */
     scope: string
-    detail?: unknown | null
+    detail?: unknown
     created_at?: string
 }
 
 export interface PaginatedActivityLogListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ActivityLogApi[]
 }
@@ -616,7 +598,7 @@ export interface CommentApi {
     readonly completed_by: UserBasicApi | null
     /** @nullable */
     content?: string | null
-    rich_content?: unknown | null
+    rich_content?: unknown
     readonly version: number
     readonly created_at: string
     /**
@@ -624,7 +606,7 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown | null
+    item_context?: unknown
     /** @maxLength 79 */
     scope: string
     /**
@@ -637,9 +619,7 @@ export interface CommentApi {
 }
 
 export interface PaginatedCommentListApi {
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: CommentApi[]
 }
@@ -657,7 +637,7 @@ export interface PatchedCommentApi {
     readonly completed_by?: UserBasicApi | null
     /** @nullable */
     content?: string | null
-    rich_content?: unknown | null
+    rich_content?: unknown
     readonly version?: number
     readonly created_at?: string
     /**
@@ -665,7 +645,7 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown | null
+    item_context?: unknown
     /** @maxLength 79 */
     scope?: string
     /**

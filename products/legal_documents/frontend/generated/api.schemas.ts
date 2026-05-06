@@ -27,9 +27,7 @@ export interface LegalDocumentDTOApi {
 
 export interface PaginatedLegalDocumentDTOListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: LegalDocumentDTOApi[]
 }

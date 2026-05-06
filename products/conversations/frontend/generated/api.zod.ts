@@ -47,7 +47,7 @@ export const ConversationsCreateBody = /* @__PURE__ */ zod
                 '* `product_analytics` - product_analytics\n* `sql` - sql\n* `session_replay` - session_replay\n* `error_tracking` - error_tracking\n* `plan` - plan\n* `execution` - execution\n* `survey` - survey\n* `research` - research\n* `flags` - flags\n* `llm_analytics` - llm_analytics\n* `sandbox` - sandbox'
             ),
         is_sandbox: zod.boolean().default(conversationsCreateBodyIsSandboxDefault),
-        resume_payload: zod.unknown().nullish(),
+        resume_payload: zod.unknown().optional(),
     })
     .describe('Serializer for appending a message to an existing conversation without triggering AI processing.')
 
@@ -99,9 +99,9 @@ export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
             ),
@@ -132,9 +132,9 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
             ),
@@ -162,9 +162,9 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
             ),

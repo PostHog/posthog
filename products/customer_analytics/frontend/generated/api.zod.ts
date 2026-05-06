@@ -23,8 +23,8 @@ export const CustomerProfileConfigsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             '* `person` - Person\n* `group_0` - Group 0\n* `group_1` - Group 1\n* `group_2` - Group 2\n* `group_3` - Group 3\n* `group_4` - Group 4'
         ),
-    content: zod.unknown().nullish(),
-    sidebar: zod.unknown().nullish(),
+    content: zod.unknown().optional(),
+    sidebar: zod.unknown().optional(),
 })
 
 export const groupsTypesMetricsCreateBodyNameMax = 255

@@ -36,10 +36,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface NotebookMinimalApi {
@@ -92,9 +88,7 @@ export interface NotebookMinimalApi {
 
 export interface PaginatedNotebookMinimalListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: NotebookMinimalApi[]
 }
@@ -111,7 +105,7 @@ export interface NotebookApi {
      */
     title?: string | null
     /** Notebook content as a ProseMirror JSON document structure. */
-    content?: unknown | null
+    content?: unknown
     /**
      * Plain text representation of the notebook content for search.
      * @nullable
@@ -154,7 +148,7 @@ export interface SharingConfigurationApi {
     enabled?: boolean
     /** @nullable */
     readonly access_token: string | null
-    settings?: unknown | null
+    settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
 }
@@ -171,7 +165,7 @@ export interface PatchedNotebookApi {
      */
     title?: string | null
     /** Notebook content as a ProseMirror JSON document structure. */
-    content?: unknown | null
+    content?: unknown
     /**
      * Plain text representation of the notebook content for search.
      * @nullable

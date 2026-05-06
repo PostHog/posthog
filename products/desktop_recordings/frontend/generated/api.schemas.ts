@@ -139,9 +139,7 @@ export interface DesktopRecordingApi {
 
 export interface PaginatedDesktopRecordingListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DesktopRecordingApi[]
 }

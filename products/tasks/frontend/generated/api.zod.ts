@@ -116,7 +116,7 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .optional(),
     json_schema: zod
         .unknown()
-        .nullish()
+        .optional()
         .describe('JSON schema for the task. This is used to validate the output of the task.'),
     internal: zod
         .boolean()
@@ -164,7 +164,7 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
         .optional(),
     json_schema: zod
         .unknown()
-        .nullish()
+        .optional()
         .describe('JSON schema for the task. This is used to validate the output of the task.'),
     internal: zod
         .boolean()
@@ -212,7 +212,7 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional(),
     json_schema: zod
         .unknown()
-        .nullish()
+        .optional()
         .describe('JSON schema for the task. This is used to validate the output of the task.'),
     internal: zod
         .boolean()
@@ -643,7 +643,7 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     branch: zod.string().nullish().describe('Git branch name to associate with the task'),
     stage: zod.string().nullish().describe('Current stage of the run (e.g. research, plan, build)'),
-    output: zod.unknown().nullish().describe('Output from the run'),
+    output: zod.unknown().optional().describe('Output from the run'),
     state: zod.unknown().optional().describe('State of the run'),
     state_remove_keys: zod
         .array(zod.string())

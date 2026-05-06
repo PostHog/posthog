@@ -244,13 +244,13 @@ export const dashboardsCollaboratorsDestroy = async (
     })
 }
 
-export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
+export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number | null) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/`
 }
 
 export const dashboardsSharingList = async (
     projectId: string,
-    dashboardId: number,
+    dashboardId: number | null,
     options?: RequestInit
 ): Promise<SharingConfigurationApi[]> => {
     return apiMutator<SharingConfigurationApi[]>(getDashboardsSharingListUrl(projectId, dashboardId), {
@@ -262,13 +262,13 @@ export const dashboardsSharingList = async (
 /**
  * Create a new password for the sharing configuration.
  */
-export const getDashboardsSharingPasswordsCreateUrl = (projectId: string, dashboardId: number) => {
+export const getDashboardsSharingPasswordsCreateUrl = (projectId: string, dashboardId: number | null) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/`
 }
 
 export const dashboardsSharingPasswordsCreate = async (
     projectId: string,
-    dashboardId: number,
+    dashboardId: number | null,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
@@ -283,13 +283,17 @@ export const dashboardsSharingPasswordsCreate = async (
 /**
  * Delete a password from the sharing configuration.
  */
-export const getDashboardsSharingPasswordsDestroyUrl = (projectId: string, dashboardId: number, passwordId: string) => {
+export const getDashboardsSharingPasswordsDestroyUrl = (
+    projectId: string,
+    dashboardId: number | null,
+    passwordId: string
+) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/${passwordId}/`
 }
 
 export const dashboardsSharingPasswordsDestroy = async (
     projectId: string,
-    dashboardId: number,
+    dashboardId: number | null,
     passwordId: string,
     options?: RequestInit
 ): Promise<void> => {
@@ -299,13 +303,13 @@ export const dashboardsSharingPasswordsDestroy = async (
     })
 }
 
-export const getDashboardsSharingRefreshCreateUrl = (projectId: string, dashboardId: number) => {
+export const getDashboardsSharingRefreshCreateUrl = (projectId: string, dashboardId: number | null) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/refresh/`
 }
 
 export const dashboardsSharingRefreshCreate = async (
     projectId: string,
-    dashboardId: number,
+    dashboardId: number | null,
     sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {

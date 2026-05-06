@@ -49,10 +49,6 @@ export const StatusReasonEnumApi = {
     ProviderKeyDeleted: 'provider_key_deleted',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `llm_judge` - LLM as a judge
  * `hog` - Hog
@@ -159,7 +155,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -201,7 +197,7 @@ export interface EvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
-    readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
+    readonly status_reason: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
 * `llm_judge` - LLM as a judge
@@ -227,9 +223,7 @@ export interface EvaluationApi {
 
 export interface PaginatedEvaluationListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: EvaluationApi[]
 }
@@ -273,7 +267,7 @@ export interface PatchedEvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
-    readonly status_reason?: StatusReasonEnumApi | NullEnumApi | null
+    readonly status_reason?: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
 * `llm_judge` - LLM as a judge
@@ -379,9 +373,7 @@ export interface ClusteringJobApi {
 
 export interface PaginatedClusteringJobListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ClusteringJobApi[]
 }
@@ -677,9 +669,7 @@ export interface EvaluationReportApi {
 
 export interface PaginatedEvaluationReportListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: EvaluationReportApi[]
 }
@@ -789,9 +779,7 @@ export interface EvaluationReportRunApi {
 
 export interface PaginatedEvaluationReportRunListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: EvaluationReportRunApi[]
 }
@@ -870,9 +858,7 @@ export interface LLMModelsListResponseApi {
 
 export interface PaginatedLLMProviderKeyListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: LLMProviderKeyApi[]
 }
@@ -929,9 +915,7 @@ export interface ReviewQueueItemApi {
 
 export interface PaginatedReviewQueueItemListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ReviewQueueItemApi[]
 }
@@ -967,9 +951,7 @@ export interface ReviewQueueApi {
 
 export interface PaginatedReviewQueueListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ReviewQueueApi[]
 }
@@ -1099,9 +1081,7 @@ export interface ScoreDefinitionApi {
 
 export interface PaginatedScoreDefinitionListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: ScoreDefinitionApi[]
 }
@@ -1468,9 +1448,7 @@ export interface TraceReviewApi {
 
 export interface PaginatedTraceReviewListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: TraceReviewApi[]
 }
@@ -1588,9 +1566,7 @@ export interface LLMPromptListApi {
 
 export interface PaginatedLLMPromptListListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: LLMPromptListApi[]
 }
@@ -1736,9 +1712,7 @@ export interface LLMSkillListApi {
 
 export interface PaginatedLLMSkillListListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: LLMSkillListApi[]
 }
@@ -2051,9 +2025,7 @@ export interface TaggerApi {
 
 export interface PaginatedTaggerListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: TaggerApi[]
 }
@@ -2061,9 +2033,9 @@ export interface PaginatedTaggerListApi {
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
-    input?: unknown | null
-    output?: unknown | null
-    metadata?: unknown | null
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
     /**
      * @maxLength 255
      * @nullable
@@ -2087,9 +2059,7 @@ export interface DatasetItemApi {
 
 export interface PaginatedDatasetItemListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DatasetItemApi[]
 }
@@ -2097,9 +2067,9 @@ export interface PaginatedDatasetItemListApi {
 export interface PatchedDatasetItemApi {
     readonly id?: string
     dataset?: string
-    input?: unknown | null
-    output?: unknown | null
-    metadata?: unknown | null
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
     /**
      * @maxLength 255
      * @nullable
@@ -2127,7 +2097,7 @@ export interface DatasetApi {
     name: string
     /** @nullable */
     description?: string | null
-    metadata?: unknown | null
+    metadata?: unknown
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -2139,9 +2109,7 @@ export interface DatasetApi {
 
 export interface PaginatedDatasetListApi {
     count: number
-    /** @nullable */
     next?: string | null
-    /** @nullable */
     previous?: string | null
     results: DatasetApi[]
 }
@@ -2152,7 +2120,7 @@ export interface PatchedDatasetApi {
     name?: string
     /** @nullable */
     description?: string | null
-    metadata?: unknown | null
+    metadata?: unknown
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null

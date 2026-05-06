@@ -125,13 +125,16 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
         .object({
             templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
             email: zod
-                .object({
-                    subject: zod.string().optional(),
-                    text: zod.string().optional(),
-                    html: zod.string().optional(),
-                    design: zod.unknown().optional(),
-                })
-                .nullish(),
+                .union([
+                    zod.object({
+                        subject: zod.string().optional(),
+                        text: zod.string().optional(),
+                        html: zod.string().optional(),
+                        design: zod.unknown().optional(),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
         })
         .optional(),
     type: zod.string().max(messagingTemplatesCreateBodyTypeMax).optional(),

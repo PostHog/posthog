@@ -129,9 +129,9 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .union([
                 zod.enum(['low', 'medium', 'high']).describe('* `low` - Low\n* `medium` - Medium\n* `high` - High'),
                 zod.enum(['']),
-                zod.literal(null),
+                zod.null(),
             ])
-            .nullish()
+            .optional()
             .describe(
                 'Ticket priority: low, medium, or high. Null if unset.\n\n* `low` - Low\n* `medium` - Medium\n* `high` - High'
             ),
