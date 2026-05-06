@@ -94,8 +94,8 @@ test.describe('Shared dashboard (unauthenticated)', () => {
             await unauthPage.goto(`/shared/${sharingData.access_token}`)
 
             await expect(unauthPage.locator('body.ExporterBody')).toBeVisible()
-            await expect(unauthPage.locator(`text=${dashboardName}`)).toBeVisible({ timeout: 30000 })
-            await expect(unauthPage.locator(`text=${insightName}`)).toBeVisible({ timeout: 30000 })
+            await expect(unauthPage.getByTestId('dashboard-item-title')).toHaveText(dashboardName, { timeout: 30000 })
+            await expect(unauthPage.getByText(insightName, { exact: true })).toBeVisible({ timeout: 30000 })
             await expect(unauthPage.locator('[data-attr="insights-graph"]').first()).toBeVisible({ timeout: 30000 })
 
             expect(pageErrors).toEqual([])
