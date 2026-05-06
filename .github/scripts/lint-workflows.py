@@ -26,20 +26,10 @@ the four scripts it replaces.
 from __future__ import annotations
 
 import sys
-import types
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-HOGLI_COMMANDS_DIR = REPO_ROOT / "tools" / "hogli-commands" / "hogli_commands"
-
-# Stub the ``hogli_commands`` parent package so that importing
-# ``hogli_commands.workflow_lint`` does not trigger the real package's
-# ``__init__.py`` (which transitively imports posthog deps we don't have in
-# the minimal CI venv). The synthetic package's ``__path__`` points at the
-# directory so submodule resolution still works.
-_stub = types.ModuleType("hogli_commands")
-_stub.__path__ = [str(HOGLI_COMMANDS_DIR)]  # type: ignore[attr-defined]
-sys.modules.setdefault("hogli_commands", _stub)
+sys.path.insert(0, str(REPO_ROOT / "tools" / "hogli-commands"))
 
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows  # noqa: E402
 

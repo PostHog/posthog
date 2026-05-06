@@ -2,12 +2,12 @@
 
 This module is importable from two contexts:
 
-1. **Local dev via hogli** — ``bin/hogli lint:workflows``. We register
-   ``cmd_lint_workflows`` with hogli's ``cli`` group at import time, but only
-   if the framework is importable (i.e. running inside a synced venv).
+1. **Local dev via hogli** — ``bin/hogli lint:workflows``. The lazy loader
+   resolves ``cmd_lint_workflows`` from the ``click:`` manifest entry in
+   ``hogli.yaml`` only when the command actually runs.
 2. **CI via standalone script** — ``.github/scripts/lint-workflows.py`` runs
-   ``cmd_lint_workflows.main(prog_name="lint:workflows")`` directly. No
-   hogli framework needed; pyyaml + click are the only deps.
+   ``cmd_lint_workflows.main(prog_name="lint:workflows")`` directly. No hogli
+   framework needed; pyyaml + click are the only deps.
 
 Keeping hogli optional avoids forcing every CI job that runs this lint into a
 full ``uv sync``.
