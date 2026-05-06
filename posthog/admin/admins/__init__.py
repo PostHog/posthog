@@ -1,3 +1,5 @@
+from products.links.backend.admin import LinkAdmin
+
 from .async_deletion_admin import AsyncDeletionAdmin
 from .batch_imports import BatchImportAdmin
 from .cohort_admin import CohortAdmin
@@ -60,6 +62,7 @@ __all__ = [
     "IntegrationAdmin",
     "OrganizationIntegrationAdmin",
     "UserIntegrationAdmin",
+    "LinkAdmin",
     "OAuthApplicationAdmin",
     "OrganizationAdmin",
     "OrganizationDomainAdmin",

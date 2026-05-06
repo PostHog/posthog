@@ -17,7 +17,6 @@ class SignalReportArtefactInline(admin.TabularInline):
         return (obj.content[:200] + "...") if len(obj.content) > 200 else obj.content
 
 
-@admin.register(SignalReport)
 class SignalReportAdmin(admin.ModelAdmin):
     list_display = (
         "id",

@@ -69,7 +69,6 @@ class EndpointVersionInline(admin.TabularInline):
         return "—"
 
 
-@admin.register(Endpoint)
 class EndpointAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -150,7 +149,6 @@ class EndpointAdmin(admin.ModelAdmin):
         return obj.endpoint_path
 
 
-@admin.register(EndpointVersion)
 class EndpointVersionAdmin(admin.ModelAdmin):
     list_display = (
         "id",

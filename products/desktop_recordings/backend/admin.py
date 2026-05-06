@@ -5,7 +5,6 @@ from django.utils.html import format_html
 from products.desktop_recordings.backend.models import DesktopRecording
 
 
-@admin.register(DesktopRecording)
 class DesktopRecordingAdmin(admin.ModelAdmin):
     list_display = (
         "id",

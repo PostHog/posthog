@@ -1,9 +1,8 @@
 from django.contrib import admin
 
-from .models import CodeInvite, CodeInviteRedemption, SandboxSnapshot, Task, TaskRun
+from .models import CodeInviteRedemption
 
 
-@admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
     list_display = ("slug", "title", "origin_product", "team", "created_by", "created_at", "deleted")
     list_filter = ("origin_product", "deleted", "created_at")
@@ -21,7 +20,6 @@ class TaskAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(TaskRun)
 class TaskRunAdmin(admin.ModelAdmin):
     list_display = ("id", "task", "status", "environment", "stage", "created_at")
     list_filter = ("status", "environment", "created_at")
@@ -37,7 +35,6 @@ class TaskRunAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(SandboxSnapshot)
 class SandboxSnapshotAdmin(admin.ModelAdmin):
     list_display = ("external_id", "status", "created_at", "updated_at")
     list_filter = ("status", "created_at")
@@ -59,7 +56,6 @@ class CodeInviteRedemptionInline(admin.TabularInline):
     readonly_fields = ("id", "user", "organization", "redeemed_at")
 
 
-@admin.register(CodeInvite)
 class CodeInviteAdmin(admin.ModelAdmin):
     list_display = (
         "code",
@@ -100,7 +96,6 @@ class CodeInviteAdmin(admin.ModelAdmin):
         return [CodeInviteRedemptionInline]
 
 
-@admin.register(CodeInviteRedemption)
 class CodeInviteRedemptionAdmin(admin.ModelAdmin):
     list_display = ("invite_code", "user", "organization", "redeemed_at")
     list_filter = ("redeemed_at",)
