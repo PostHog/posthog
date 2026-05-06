@@ -134,13 +134,12 @@ export function createExecTool(
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
                     const tool = findTool(allTools, infoArgs)
-                    const useJson = forceJson
                     const fullSchema = z.toJSONSchema(tool.schema)
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
                     const serialize = (payload: Record<string, unknown>, schema: unknown): string => {
-                        if (useJson) {
+                        if (forceJson) {
                             return JSON.stringify({ ...payload, inputSchema: schema })
                         }
                         return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })

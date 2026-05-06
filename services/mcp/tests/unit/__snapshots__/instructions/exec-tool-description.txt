@@ -22,7 +22,7 @@ posthog:exec({ "command": "info <tool_name>" })
 # 3. Drill into complex fields — REQUIRED for any field with a `hint`
 posthog:exec({ "command": "schema <tool_name> <field_path>" })
 
-# 4. Call the tool. Pass arguments as inline JSON in `command`:
+# 4. Call the tool
 posthog:exec({ "command": "call <tool_name> <json_input>" })
 posthog:exec({ "command": "call --json <tool_name> <json_input>" })
 ```
