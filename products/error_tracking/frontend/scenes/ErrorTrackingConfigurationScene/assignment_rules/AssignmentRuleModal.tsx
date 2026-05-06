@@ -22,7 +22,10 @@ export function AssignmentRuleModal(): JSX.Element {
             ruleLabel="assignment"
             description="Matching exceptions will be automatically assigned to the chosen user or role."
             pageKey="assignment-rule-modal"
-            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+            taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.ErrorTrackingProperties,
+                TaxonomicFilterGroupType.EventProperties,
+            ]}
             saveDisabledReason={saveDisabledReason}
             suffix={(issuesLink, dateRangeLabel) => (
                 <>

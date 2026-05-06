@@ -11,7 +11,10 @@ export function GroupingRules(): JSX.Element {
             ruleType={ErrorTrackingRuleType.Grouping}
             modalLogic={groupingRuleModalLogic}
             modal={<GroupingRuleModal />}
-            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+            taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.ErrorTrackingProperties,
+                TaxonomicFilterGroupType.EventProperties,
+            ]}
             pageKeyPrefix="grouping-rule"
             description={
                 <p>
