@@ -271,7 +271,16 @@ impl Error {
         headers.insert(header::ACCEPT, ACCEPT_JSON);
         headers.insert(header::ACCEPT_ENCODING, ACCEPT_ENCODING_ALL);
 
-        if let Self::RateLimited(_) = self {
+        // 402 (BillingLimitExceeded) is intentionally non-retryable per RFC, so no Retry-After.
+        if matches!(
+            self,
+            Self::RateLimited(_)
+                | Self::RequestTimeout
+                | Self::BodyReadTimeout(_)
+                | Self::InternalError(_)
+                | Self::ServiceUnavailable(_)
+                | Self::GatewayTimeout
+        ) {
             headers.insert(header::RETRY_AFTER, DEFAULT_RETRY_AFTER_SECS);
         }
 
@@ -366,6 +375,7 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use axum::http::header::RETRY_AFTER;
+    use rstest::rstest;
 
     async fn response_body(resp: Response) -> serde_json::Value {
         let bytes = to_bytes(resp.into_body(), 65_536).await.unwrap();
@@ -383,14 +393,6 @@ mod tests {
         assert_eq!(body["error"], expected_tag);
         assert!(body["error_description"].is_string());
         assert!(body["error_uri"].is_string());
-    }
-
-    #[tokio::test]
-    async fn rate_limited_includes_retry_after() {
-        let err = Error::RateLimited("too many requests".into());
-        let resp = err.into_response();
-        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
-        assert!(resp.headers().contains_key(RETRY_AFTER));
     }
 
     #[tokio::test]
@@ -423,5 +425,42 @@ mod tests {
         let err = Error::GatewayTimeout;
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+
+    #[rstest]
+    #[case::rate_limited(Error::RateLimited("too many".into()), StatusCode::TOO_MANY_REQUESTS)]
+    #[case::request_timeout(Error::RequestTimeout, StatusCode::REQUEST_TIMEOUT)]
+    #[case::body_read_timeout(Error::BodyReadTimeout(1024), StatusCode::REQUEST_TIMEOUT)]
+    #[case::internal_error(Error::InternalError("boom".into()), StatusCode::INTERNAL_SERVER_ERROR)]
+    #[case::service_unavailable(Error::ServiceUnavailable("nope".into()), StatusCode::SERVICE_UNAVAILABLE)]
+    #[case::gateway_timeout(Error::GatewayTimeout, StatusCode::GATEWAY_TIMEOUT)]
+    #[tokio::test]
+    async fn retryable_errors_emit_retry_after_one_second(
+        #[case] err: Error,
+        #[case] expected_status: StatusCode,
+    ) {
+        let resp = err.into_response();
+        assert_eq!(resp.status(), expected_status);
+        let value = resp
+            .headers()
+            .get(RETRY_AFTER)
+            .expect("Retry-After header must be present on retryable errors");
+        assert_eq!(value.to_str().unwrap(), "1");
+    }
+
+    #[rstest]
+    #[case::billing_limit(Error::BillingLimitExceeded)]
+    #[case::invalid_api_token(Error::InvalidApiToken("bad".into()))]
+    #[case::empty_batch(Error::EmptyBatch)]
+    #[case::payload_too_large(Error::PayloadTooLarge("big".into()))]
+    #[case::unsupported_content_type(Error::UnsupportedContentType("text/plain".into()))]
+    #[tokio::test]
+    async fn non_retryable_errors_omit_retry_after(#[case] err: Error) {
+        let resp = err.into_response();
+        assert!(
+            !resp.headers().contains_key(RETRY_AFTER),
+            "Retry-After must NOT be present on non-retryable errors (status {})",
+            resp.status()
+        );
     }
 }
