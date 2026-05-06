@@ -284,9 +284,12 @@ If automatic creation failed due to a permissions error and you're using a restr
         if not config.auth_method.stripe_integration_id:
             return None
         integration = self.get_oauth_integration(config.auth_method.stripe_integration_id, team_id)
+        old_token = integration.access_token
         oauth_integration = OauthIntegration(integration)
         oauth_integration.refresh_access_token()
         integration.refresh_from_db()
+        if integration.errors or integration.access_token == old_token:
+            return None
         return integration.access_token
 
     def validate_credentials(

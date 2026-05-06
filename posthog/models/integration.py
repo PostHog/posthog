@@ -1085,10 +1085,11 @@ class OauthIntegration:
             if config.get("refresh_token"):
                 self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
 
-            # Handle case where Salesforce doesn't provide expires_in in refresh response
+            # Handle case where Salesforce/Stripe doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
             if not expires_in and self.integration.kind == "salesforce":
-                # Default to 1 hour for Salesforce if not provided (conservative)
+                expires_in = 3600
+            if not expires_in and self.integration.kind == "stripe":
                 expires_in = 3600
 
             self.integration.config["expires_in"] = expires_in
