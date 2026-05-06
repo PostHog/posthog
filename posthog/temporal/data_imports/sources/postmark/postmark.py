@@ -29,6 +29,11 @@ from posthog.temporal.data_imports.sources.postmark.settings import (
 #     default for new accounts). Being off by a few hours on an initial 30-day backfill is benign.
 POSTMARK_API_TIMEZONE_FALLBACK = ZoneInfo("America/New_York")
 
+# Postmark documents `count + offset <= 10,000` for paginated message search endpoints. Past that
+# the API returns ErrorCode 700 ("The combination of count and offset is too large"). We rotate
+# the search window via `todate` instead of incrementing offset past this boundary.
+POSTMARK_PAGINATION_CAP = 10_000
+
 MESSAGE_STREAMS_PATH = "/message-streams"
 
 
@@ -103,6 +108,7 @@ def _build_params(
     offset: int,
     fromdate: Optional[datetime],
     todate: Optional[datetime] = None,
+    extra_params: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if config.is_paginated:
@@ -112,6 +118,8 @@ def _build_params(
         params["fromdate"] = _format_postmark_datetime(fromdate)
     if todate is not None:
         params["todate"] = _format_postmark_datetime(todate)
+    if extra_params:
+        params.update(extra_params)
     return params
 
 
@@ -144,29 +152,65 @@ def _paginate(
     logger: FilteringBoundLogger,
     fromdate: Optional[datetime],
     todate: Optional[datetime],
+    extra_params: Optional[dict[str, Any]] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     if not config.is_paginated:
-        payload = _request(session, url, _build_params(config, offset=0, fromdate=fromdate, todate=todate), logger)
+        payload = _request(
+            session,
+            url,
+            _build_params(config, offset=0, fromdate=fromdate, todate=todate, extra_params=extra_params),
+            logger,
+        )
         items = payload.get(config.data_key, []) or []
         if items:
             yield items
         return
 
-    offset = 0
+    cursor_field = config.incremental_field_api_name
     while True:
-        params = _build_params(config, offset=offset, fromdate=fromdate, todate=todate)
-        payload = _request(session, url, params, logger)
-        items = payload.get(config.data_key, []) or []
-        total_count = payload.get("TotalCount")
+        offset = 0
+        page_oldest_cursor: Optional[str] = None
+        capped = False
+        while True:
+            # Postmark rejects requests where offset + count exceeds POSTMARK_PAGINATION_CAP.
+            if offset + POSTMARK_PAGE_SIZE > POSTMARK_PAGINATION_CAP:
+                capped = True
+                break
 
-        if items:
-            yield items
+            params = _build_params(config, offset=offset, fromdate=fromdate, todate=todate, extra_params=extra_params)
+            payload = _request(session, url, params, logger)
+            items = payload.get(config.data_key, []) or []
+            total_count = payload.get("TotalCount")
 
-        offset += len(items)
-        if not items or len(items) < POSTMARK_PAGE_SIZE:
-            break
-        if total_count is not None and offset >= total_count:
-            break
+            if items:
+                yield items
+                if cursor_field:
+                    # Postmark sorts DESC by the cursor field, so the last item in the page has
+                    # the lowest value seen so far in this window.
+                    page_oldest_cursor = items[-1].get(cursor_field) or page_oldest_cursor
+
+            offset += len(items)
+            if not items or len(items) < POSTMARK_PAGE_SIZE:
+                return
+            if total_count is not None and offset >= total_count:
+                return
+
+        # We hit the offset+count cap inside this window. Rotate the upper bound to the oldest
+        # cursor we saw in this window and reset offset. PK-merge handles boundary re-fetches in
+        # incremental mode; append accepts the duplicates as it does for normal boundary overlap.
+        if not capped or cursor_field is None or page_oldest_cursor is None:
+            logger.warning(
+                f"Postmark: hit {POSTMARK_PAGINATION_CAP}-row pagination cap on {url} without a cursor to rotate; "
+                f"truncating remaining rows. Re-run after the watermark advances."
+            )
+            return
+        new_todate = parser.parse(page_oldest_cursor)
+        if todate is not None and new_todate >= todate:
+            logger.warning(
+                f"Postmark: pagination window rotation on {url} not advancing past {todate.isoformat()}; truncating."
+            )
+            return
+        todate = new_todate
 
 
 def _list_message_stream_ids(session: requests.Session, logger: FilteringBoundLogger) -> list[str]:
@@ -174,19 +218,78 @@ def _list_message_stream_ids(session: requests.Session, logger: FilteringBoundLo
     return [s["ID"] for s in payload.get("MessageStreams", []) if "ID" in s]
 
 
-def _fan_out_streams(
+def _fan_out_targets(
+    config: PostmarkEndpointConfig, stream_ids: list[str]
+) -> Iterator[tuple[str, str, dict[str, Any], bool]]:
+    """Yield (stream_id, url, extra_params, enrich) tuples for fan-out endpoints.
+
+    Two fan-out modes:
+      - path substitution (`{stream_id}` in path) — used by `suppressions`. The dump endpoint's
+        rows don't include the stream id, so we enrich each row with `MessageStreamID`.
+      - query-param (`?messagestream=`) — used by outbound message search endpoints. Their
+        responses already include a `MessageStream` field, so no enrichment is needed.
+    """
+    for stream_id in stream_ids:
+        if "{stream_id}" in config.path:
+            yield stream_id, f"{POSTMARK_BASE_URL}{config.path.format(stream_id=stream_id)}", {}, True
+        else:
+            yield stream_id, f"{POSTMARK_BASE_URL}{config.path}", {"messagestream": stream_id}, False
+
+
+def _yield_for_target(
     session: requests.Session,
     config: PostmarkEndpointConfig,
     logger: FilteringBoundLogger,
+    url: str,
+    extra_params: dict[str, Any],
+    stream_id: Optional[str],
+    enrich: bool,
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    db_incremental_field_last_value: Any,
+    db_incremental_field_earliest_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
-    stream_ids = _list_message_stream_ids(session, logger)
-    if not stream_ids:
-        logger.debug(f"Postmark: no message streams found, skipping {config.path}")
+    """Run the full-refresh or two-phase incremental flow for one (url, extra_params) pair."""
+
+    def emit(chunk: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if enrich and stream_id is not None:
+            return [{**row, "MessageStreamID": stream_id} for row in chunk]
+        return chunk
+
+    api_field_name = incremental_field or config.incremental_field_api_name
+    if not should_use_incremental_field or api_field_name is None:
+        for chunk in _paginate(session, url, config, logger, fromdate=None, todate=None, extra_params=extra_params):
+            yield emit(chunk)
         return
-    for stream_id in stream_ids:
-        url = f"{POSTMARK_BASE_URL}{config.path.format(stream_id=stream_id)}"
-        for chunk in _paginate(session, url, config, logger, fromdate=None, todate=None):
-            yield [{**row, "MessageStreamID": stream_id} for row in chunk]
+
+    # Postmark list endpoints return rows DESC by their time column with no `sorting=` param to
+    # flip that, so SourceResponse.sort_mode is "desc". Mirror Stripe's two-phase incremental:
+    # backfill rows older than the earliest watermark first, then catch up rows newer than the
+    # last watermark.
+    now = datetime.now(UTC)
+    earliest = _parse_incremental_value(db_incremental_field_earliest_value)
+    if earliest is not None:
+        window_floor = now - timedelta(days=config.max_window_days) if config.max_window_days is not None else None
+        if window_floor is not None and earliest <= window_floor:
+            logger.debug(
+                f"Postmark: skipping backfill for {config.path}; earliest watermark {earliest.isoformat()} "
+                f"is at or before the {config.max_window_days}-day search window"
+            )
+        else:
+            for chunk in _paginate(
+                session, url, config, logger, fromdate=None, todate=earliest, extra_params=extra_params
+            ):
+                yield emit(chunk)
+
+    fromdate = _resolve_fromdate(
+        config,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+        logger=logger,
+        now=now,
+    )
+    for chunk in _paginate(session, url, config, logger, fromdate=fromdate, todate=None, extra_params=extra_params):
+        yield emit(chunk)
 
 
 def get_rows(
@@ -205,43 +308,39 @@ def get_rows(
     session = make_tracked_session(headers=_get_headers(server_token))
     try:
         if config.fan_out_streams:
-            yield from _fan_out_streams(session, config, logger)
-            return
-
-        # Honor the user's selected incremental field; fall back to the configured default if absent.
-        # Each Postmark list endpoint maps `fromdate`/`todate` to a single underlying time column,
-        # so the user's choice is expected to match config.incremental_field_api_name today.
-        api_field_name = incremental_field or config.incremental_field_api_name
-        url = f"{POSTMARK_BASE_URL}{config.path}"
-
-        if not should_use_incremental_field or api_field_name is None:
-            yield from _paginate(session, url, config, logger, fromdate=None, todate=None)
-            return
-
-        # Postmark list endpoints return rows DESC by their time column with no `sorting=` param
-        # to flip that, so SourceResponse.sort_mode is "desc". Mirror Stripe's two-phase incremental:
-        # backfill rows older than the earliest watermark first, then catch up rows newer than the
-        # last watermark.
-        now = datetime.now(UTC)
-        earliest = _parse_incremental_value(db_incremental_field_earliest_value)
-        if earliest is not None:
-            window_floor = now - timedelta(days=config.max_window_days) if config.max_window_days is not None else None
-            if window_floor is not None and earliest <= window_floor:
-                logger.debug(
-                    f"Postmark: skipping backfill for {config.path}; earliest watermark {earliest.isoformat()} "
-                    f"is at or before the {config.max_window_days}-day search window"
+            stream_ids = _list_message_stream_ids(session, logger)
+            if not stream_ids:
+                logger.debug(f"Postmark: no message streams found, skipping {config.path}")
+                return
+            for stream_id, url, extra_params, enrich in _fan_out_targets(config, stream_ids):
+                yield from _yield_for_target(
+                    session,
+                    config,
+                    logger,
+                    url=url,
+                    extra_params=extra_params,
+                    stream_id=stream_id,
+                    enrich=enrich,
+                    should_use_incremental_field=should_use_incremental_field,
+                    incremental_field=incremental_field,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                    db_incremental_field_earliest_value=db_incremental_field_earliest_value,
                 )
-            else:
-                yield from _paginate(session, url, config, logger, fromdate=None, todate=earliest)
+            return
 
-        fromdate = _resolve_fromdate(
+        yield from _yield_for_target(
+            session,
             config,
-            should_use_incremental_field=True,
+            logger,
+            url=f"{POSTMARK_BASE_URL}{config.path}",
+            extra_params={},
+            stream_id=None,
+            enrich=False,
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            logger=logger,
-            now=now,
+            db_incremental_field_earliest_value=db_incremental_field_earliest_value,
         )
-        yield from _paginate(session, url, config, logger, fromdate=fromdate, todate=None)
     finally:
         session.close()
 

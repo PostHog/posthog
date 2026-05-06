@@ -47,6 +47,9 @@ class PostmarkEndpointConfig:
 
 
 POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
+    # /messages/outbound (and /opens, /clicks) default to filtering by the "outbound" transactional
+    # stream unless `messagestream=` is supplied. Fan out across the account's message streams
+    # so we don't silently miss broadcast or custom-stream activity.
     "outbound_messages": PostmarkEndpointConfig(
         path="/messages/outbound",
         data_key="Messages",
@@ -56,6 +59,7 @@ POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
         partition_keys=["ReceivedAt"],
         partition_format="month",
         max_window_days=POSTMARK_OUTBOUND_MAX_WINDOW_DAYS,
+        fan_out_streams=True,
     ),
     "outbound_opens": PostmarkEndpointConfig(
         path="/messages/outbound/opens",
@@ -65,6 +69,7 @@ POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
         incremental_field_api_name="ReceivedAt",
         partition_keys=["ReceivedAt"],
         partition_format="day",
+        fan_out_streams=True,
     ),
     "outbound_clicks": PostmarkEndpointConfig(
         path="/messages/outbound/clicks",
@@ -74,6 +79,7 @@ POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
         incremental_field_api_name="ReceivedAt",
         partition_keys=["ReceivedAt"],
         partition_format="day",
+        fan_out_streams=True,
     ),
     "bounces": PostmarkEndpointConfig(
         path="/bounces",

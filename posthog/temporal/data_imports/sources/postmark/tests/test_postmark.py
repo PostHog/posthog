@@ -291,10 +291,12 @@ class TestGetRows:
         assert "todate" not in catchup_call.kwargs["params"]
 
     def test_incremental_skips_backfill_at_window_edge(self) -> None:
-        """outbound_messages has a 45-day search window. If the earliest watermark is older than
-        the window floor, backfill would 422 — skip it and only run the catch-up phase."""
+        """outbound_messages has a 45-day retention window. If the earliest watermark is older
+        than the window floor, the backfill leg would do nothing useful — skip it and run only
+        the catch-up phase per stream. outbound_messages fans out across message streams."""
+        streams_page = {"MessageStreams": [{"ID": "outbound"}]}
         catchup_page = {"TotalCount": 0, "Messages": []}
-        session = self._build_session_mock([catchup_page])
+        session = self._build_session_mock([streams_page, catchup_page])
         earliest_at_edge = datetime.now(UTC) - timedelta(days=POSTMARK_OUTBOUND_MAX_WINDOW_DAYS + 5)
 
         with mock.patch(
@@ -312,10 +314,12 @@ class TestGetRows:
                 )
             )
 
-        assert session.get.call_count == 1
-        only_call = session.get.call_args_list[0]
-        assert "todate" not in only_call.kwargs["params"]
-        assert "fromdate" in only_call.kwargs["params"]
+        # 1 streams list + 1 catch-up call (backfill skipped at window edge).
+        assert session.get.call_count == 2
+        catchup_call = session.get.call_args_list[1]
+        assert "todate" not in catchup_call.kwargs["params"]
+        assert "fromdate" in catchup_call.kwargs["params"]
+        assert catchup_call.kwargs["params"]["messagestream"] == "outbound"
 
     def test_incremental_field_overrides_config_default(self) -> None:
         """When `inputs.incremental_field` is set, honor it instead of always reaching for the
@@ -489,6 +493,87 @@ class TestGetRows:
                 "MessageStreamID": "broadcast",
             }
         ]
+
+    def test_outbound_messages_fans_out_via_messagestream_param(self) -> None:
+        """outbound_messages/opens/clicks default to filtering by the 'outbound' transactional
+        stream unless `messagestream=` is supplied. We list /message-streams and call the endpoint
+        once per stream, passing `messagestream=<id>` and *not* enriching rows (the API already
+        includes a `MessageStream` field on each row)."""
+        streams_page = {"MessageStreams": [{"ID": "outbound"}, {"ID": "broadcast"}]}
+        outbound_msgs = {"TotalCount": 1, "Messages": [{"MessageID": "m1", "MessageStream": "outbound"}]}
+        broadcast_msgs = {"TotalCount": 1, "Messages": [{"MessageID": "m2", "MessageStream": "broadcast"}]}
+        session = self._build_session_mock([streams_page, outbound_msgs, broadcast_msgs])
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            chunks = list(get_rows(server_token="t", endpoint_name="outbound_messages", logger=mock.MagicMock()))
+
+        # Rows are not enriched with MessageStreamID (the response already carries MessageStream).
+        flat = [row for chunk in chunks for row in chunk]
+        assert flat == [
+            {"MessageID": "m1", "MessageStream": "outbound"},
+            {"MessageID": "m2", "MessageStream": "broadcast"},
+        ]
+        # 1 streams list + 1 search per stream.
+        assert session.get.call_count == 3
+        per_stream_calls = session.get.call_args_list[1:]
+        assert per_stream_calls[0].kwargs["params"]["messagestream"] == "outbound"
+        assert per_stream_calls[1].kwargs["params"]["messagestream"] == "broadcast"
+        # Path stays the same — no `{stream_id}` substitution for query-param fan-out.
+        assert all(call.args[0].endswith("/messages/outbound") for call in per_stream_calls)
+
+    def test_pagination_rotates_window_at_offset_cap(self) -> None:
+        """Postmark rejects `count + offset > 10000`. When we hit the cap on a window with more
+        rows still to fetch, rotate `todate` to the oldest cursor we saw and reset offset.
+        Patches POSTMARK_PAGE_SIZE to 5000 so the cap is reachable in 2 pages."""
+        # Two full pages of 5000 each fills the 10k window. The third page would exceed the cap
+        # at offset=10000; the loop should instead rotate todate to the oldest received_at seen
+        # in the previous window and start fresh at offset=0.
+        page_size = 5000
+        page_1 = {
+            "TotalCount": 12000,
+            "Bounces": [
+                {"ID": i, "BouncedAt": f"2026-05-06T{12 - (i // 1000):02d}:00:00-04:00"} for i in range(page_size)
+            ],
+        }
+        page_2 = {
+            "TotalCount": 12000,
+            "Bounces": [
+                {"ID": page_size + i, "BouncedAt": f"2026-05-05T{12 - (i // 1000):02d}:00:00-04:00"}
+                for i in range(page_size)
+            ],
+        }
+        # After rotation: tighter window, partial page → terminate.
+        rotated_page = {
+            "TotalCount": 100,
+            "Bounces": [{"ID": 99999, "BouncedAt": "2026-05-04T12:00:00-04:00"}],
+        }
+        session = self._build_session_mock([page_1, page_2, rotated_page])
+
+        with (
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+                return_value=session,
+            ),
+            mock.patch("posthog.temporal.data_imports.sources.postmark.postmark.POSTMARK_PAGE_SIZE", page_size),
+        ):
+            chunks = list(get_rows(server_token="t", endpoint_name="bounces", logger=mock.MagicMock()))
+
+        # All three pages were yielded.
+        all_rows = [row for chunk in chunks for row in chunk]
+        assert len(all_rows) == page_size * 2 + 1
+
+        # Three calls total: two within the original window, one after rotation.
+        assert session.get.call_count == 3
+        first, second, third = session.get.call_args_list
+        # Pages 1 + 2: original window (no todate yet since this is full-refresh path).
+        assert first.kwargs["params"]["offset"] == 0
+        assert second.kwargs["params"]["offset"] == page_size
+        # Page 3: window rotated. offset reset to 0; todate set to oldest BouncedAt from page 2.
+        assert third.kwargs["params"]["offset"] == 0
+        assert "todate" in third.kwargs["params"]
 
     def test_incremental_skipped_when_no_field_configured(self) -> None:
         """templates has no incremental_field_api_name — even if the pipeline asks for incremental,
