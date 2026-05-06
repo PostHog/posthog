@@ -27,44 +27,6 @@ import {
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const LogsAlertsAttachDestinationSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true }).extend(
-    LogsAlertsDestinationsCreateBody.shape
-)
-
-const logsAlertsAttachDestination = (): ToolBase<
-    typeof LogsAlertsAttachDestinationSchema,
-    Schemas.LogsAlertDestinationResponse
-> => ({
-    name: 'logs-alerts-attach-destination',
-    schema: LogsAlertsAttachDestinationSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsAttachDestinationSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.slack_workspace_id !== undefined) {
-            body['slack_workspace_id'] = params.slack_workspace_id
-        }
-        if (params.slack_channel_id !== undefined) {
-            body['slack_channel_id'] = params.slack_channel_id
-        }
-        if (params.slack_channel_name !== undefined) {
-            body['slack_channel_name'] = params.slack_channel_name
-        }
-        if (params.webhook_url !== undefined) {
-            body['webhook_url'] = params.webhook_url
-        }
-        const result = await context.api.request<Schemas.LogsAlertDestinationResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/destinations/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, ['hog_function_ids']) as typeof result
-        return filtered
-    },
-})
-
 const LogsAlertsCreateSchema = LogsAlertsCreateBody
 
 const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.LogsAlertConfiguration> => ({
@@ -134,6 +96,66 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
     },
 })
 
+const LogsAlertsDestinationsCreateSchema = LogsAlertsDestinationsCreateParams.omit({ project_id: true }).extend(
+    LogsAlertsDestinationsCreateBody.shape
+)
+
+const logsAlertsDestinationsCreate = (): ToolBase<
+    typeof LogsAlertsDestinationsCreateSchema,
+    Schemas.LogsAlertDestinationResponse
+> => ({
+    name: 'logs-alerts-destinations-create',
+    schema: LogsAlertsDestinationsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsAlertsDestinationsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.slack_workspace_id !== undefined) {
+            body['slack_workspace_id'] = params.slack_workspace_id
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_channel_name !== undefined) {
+            body['slack_channel_name'] = params.slack_channel_name
+        }
+        if (params.webhook_url !== undefined) {
+            body['webhook_url'] = params.webhook_url
+        }
+        const result = await context.api.request<Schemas.LogsAlertDestinationResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/destinations/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['hog_function_ids']) as typeof result
+        return filtered
+    },
+})
+
+const LogsAlertsDestinationsDeleteCreateSchema = LogsAlertsDestinationsDeleteCreateParams.omit({
+    project_id: true,
+}).extend(LogsAlertsDestinationsDeleteCreateBody.shape)
+
+const logsAlertsDestinationsDeleteCreate = (): ToolBase<typeof LogsAlertsDestinationsDeleteCreateSchema, unknown> => ({
+    name: 'logs-alerts-destinations-delete-create',
+    schema: LogsAlertsDestinationsDeleteCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsAlertsDestinationsDeleteCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.hog_function_ids !== undefined) {
+            body['hog_function_ids'] = params.hog_function_ids
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/destinations/delete/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LogsAlertsDestroySchema = LogsAlertsDestroyParams.omit({ project_id: true })
 
 const logsAlertsDestroy = (): ToolBase<typeof LogsAlertsDestroySchema, unknown> => ({
@@ -144,28 +166,6 @@ const logsAlertsDestroy = (): ToolBase<typeof LogsAlertsDestroySchema, unknown> 
         const result = await context.api.request<unknown>({
             method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const LogsAlertsDetachDestinationSchema = LogsAlertsDestinationsDeleteCreateParams.omit({ project_id: true }).extend(
-    LogsAlertsDestinationsDeleteCreateBody.shape
-)
-
-const logsAlertsDetachDestination = (): ToolBase<typeof LogsAlertsDetachDestinationSchema, unknown> => ({
-    name: 'logs-alerts-detach-destination',
-    schema: LogsAlertsDetachDestinationSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsDetachDestinationSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.hog_function_ids !== undefined) {
-            body['hog_function_ids'] = params.hog_function_ids
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/destinations/delete/`,
-            body,
         })
         return result
     },
@@ -357,12 +357,15 @@ const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas
     },
 })
 
-const LogsAlertsSimulateSchema = LogsAlertsSimulateCreateBody
+const LogsAlertsSimulateCreateSchema = LogsAlertsSimulateCreateBody
 
-const logsAlertsSimulate = (): ToolBase<typeof LogsAlertsSimulateSchema, Schemas.LogsAlertSimulateResponse> => ({
-    name: 'logs-alerts-simulate',
-    schema: LogsAlertsSimulateSchema,
-    handler: async (context: Context, params: z.infer<typeof LogsAlertsSimulateSchema>) => {
+const logsAlertsSimulateCreate = (): ToolBase<
+    typeof LogsAlertsSimulateCreateSchema,
+    Schemas.LogsAlertSimulateResponse
+> => ({
+    name: 'logs-alerts-simulate-create',
+    schema: LogsAlertsSimulateCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsAlertsSimulateCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.filters !== undefined) {
@@ -565,15 +568,15 @@ const queryLogs = (): ToolBase<typeof QueryLogsSchema, Schemas._LogsQueryRespons
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'logs-alerts-attach-destination': logsAlertsAttachDestination,
     'logs-alerts-create': logsAlertsCreate,
+    'logs-alerts-destinations-create': logsAlertsDestinationsCreate,
+    'logs-alerts-destinations-delete-create': logsAlertsDestinationsDeleteCreate,
     'logs-alerts-destroy': logsAlertsDestroy,
-    'logs-alerts-detach-destination': logsAlertsDetachDestination,
     'logs-alerts-events-list': logsAlertsEventsList,
     'logs-alerts-list': logsAlertsList,
     'logs-alerts-partial-update': logsAlertsPartialUpdate,
     'logs-alerts-retrieve': logsAlertsRetrieve,
-    'logs-alerts-simulate': logsAlertsSimulate,
+    'logs-alerts-simulate-create': logsAlertsSimulateCreate,
     'logs-attribute-values-list': logsAttributeValuesList,
     'logs-attributes-list': logsAttributesList,
     'logs-count': logsCount,
