@@ -115,6 +115,11 @@ def test_create_s3_family_batch_export_validates_missing_required_inputs(
     """Missing required fields are rejected for every S3-family destination."""
     client.force_login(user)
     config = {**_S3_FAMILY_BASE_CONFIG}
+    if destination_type == "S3Compatible":
+        # S3Compatible requires `endpoint_url` to be present; include it in the
+        # base so only `missing_field` is missing after the pop below.
+        config["endpoint_url"] = "https://localhost:9000"
+
     config.pop(missing_field, None)
 
     response = create_batch_export(

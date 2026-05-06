@@ -5,6 +5,7 @@ import typing as t
 import asyncio
 import datetime as dt
 import operator
+import dataclasses
 
 from django.conf import settings
 from django.test import override_settings
@@ -363,7 +364,7 @@ async def run_s3_batch_export_workflow(
 
     workflow_id = str(uuid.uuid4())
     inputs_cls = _INPUTS_BY_DESTINATION_TYPE[destination_type]
-    inputs = inputs_cls(
+    per_destination_inputs = inputs_cls(
         team_id=ateam.pk,
         batch_export_id=batch_export_id,
         data_interval_end=data_interval_end.isoformat(),
@@ -373,6 +374,7 @@ async def run_s3_batch_export_workflow(
         backfill_details=backfill_details,
         **s3_destination_config,
     )
+    workflow_inputs = S3BatchExportInputs(**dataclasses.asdict(per_destination_inputs))
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -389,7 +391,7 @@ async def run_s3_batch_export_workflow(
         ):
             await activity_environment.client.execute_workflow(
                 S3BatchExportWorkflow.run,
-                inputs,
+                workflow_inputs,
                 id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
