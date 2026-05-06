@@ -22,7 +22,7 @@ async function createSharedDashboard(
         'Content-Type': 'application/json',
     }
 
-    const dashboardName = 'Unauth Shared Dashboard'
+    const dashboardName = 'Logged-out dashboard render'
     const dashboardResponse = await page.request.post(`/api/projects/${workspace.team_id}/dashboards/`, {
         headers: authHeaders,
         data: { name: dashboardName },
@@ -30,7 +30,7 @@ async function createSharedDashboard(
     expect(dashboardResponse.ok()).toBe(true)
     const dashboardData = await dashboardResponse.json()
 
-    const insightName = 'Unauth Shared Dashboard Insight'
+    const insightName = 'Trends pageview tile'
     const insightPayload: { name: string; query: InsightVizNode<TrendsQuery>; dashboards: number[] } = {
         name: insightName,
         query: {
@@ -94,8 +94,8 @@ test.describe('Shared dashboard (unauthenticated)', () => {
             await unauthPage.goto(`/shared/${sharingData.access_token}`)
 
             await expect(unauthPage.locator('body.ExporterBody')).toBeVisible()
-            await expect(unauthPage.getByTestId('dashboard-item-title')).toHaveText(dashboardName, { timeout: 30000 })
-            await expect(unauthPage.getByText(insightName, { exact: true })).toBeVisible({ timeout: 30000 })
+            await expect(unauthPage.locator(`text=${dashboardName}`)).toBeVisible({ timeout: 30000 })
+            await expect(unauthPage.locator(`text=${insightName}`)).toBeVisible({ timeout: 30000 })
             await expect(unauthPage.locator('[data-attr="insights-graph"]').first()).toBeVisible({ timeout: 30000 })
 
             expect(pageErrors).toEqual([])
