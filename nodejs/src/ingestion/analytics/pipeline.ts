@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
@@ -16,6 +15,7 @@ import {
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
+import { addTeamToContext, getTokenAndDistinctId } from '../common/subpipelines/helpers'
 import {
     PostTeamPreprocessingSubpipelineConfig,
     createPostTeamPreprocessingSubpipeline,
@@ -27,7 +27,6 @@ import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stor
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/tophog'
-import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import {
@@ -38,11 +37,7 @@ import {
     PersonDistinctIdsOutput,
     PersonsOutput,
 } from './outputs'
-import {
-    PerDistinctIdPipelineConfig,
-    PerDistinctIdPipelineInput,
-    createPerDistinctIdPipeline,
-} from './per-distinct-id-pipeline'
+import { PerDistinctIdPipelineConfig, createPerDistinctIdPipeline } from './per-distinct-id-pipeline'
 
 export interface AnalyticsPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
@@ -89,24 +84,6 @@ export interface AnalyticsPipelineInput {
 
 export interface AnalyticsPipelineContext {
     message: Message
-}
-
-function addTeamToContext<T extends { team: Team }, C>(
-    element: OkResultWithContext<T, C>
-): OkResultWithContext<T, C & { team: Team }> {
-    return {
-        result: element.result,
-        context: {
-            ...element.context,
-            team: element.result.value.team,
-        },
-    }
-}
-
-function getTokenAndDistinctId(input: PerDistinctIdPipelineInput): string {
-    const token = input.headers.token ?? ''
-    const distinctId = input.event.distinct_id ?? ''
-    return `${token}:${distinctId}`
 }
 
 export function createAnalyticsPipeline<
