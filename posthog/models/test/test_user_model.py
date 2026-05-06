@@ -145,3 +145,42 @@ class TestUser(BaseTest):
 
         self.assertFalse(loaded._original_is_active)
         self.assertEqual(loaded._original_is_active, loaded.is_active)
+
+    def test_get_by_natural_key_exact_match(self):
+        user = User.objects.create(email="alice@example.com")
+        self.assertEqual(User.objects.get_by_natural_key("alice@example.com"), user)
+
+    def test_get_by_natural_key_is_case_insensitive(self):
+        user = User.objects.create(email="Alastair.Pharo@example.com")
+
+        self.assertEqual(User.objects.get_by_natural_key("alastair.pharo@example.com"), user)
+        self.assertEqual(User.objects.get_by_natural_key("ALASTAIR.PHARO@example.com"), user)
+        self.assertEqual(User.objects.get_by_natural_key("Alastair.Pharo@example.com"), user)
+
+    def test_get_by_natural_key_raises_does_not_exist_when_missing(self):
+        with self.assertRaises(User.DoesNotExist):
+            User.objects.get_by_natural_key("nobody@example.com")
+
+    def test_get_by_natural_key_finds_inactive_user(self):
+        # Active-state filtering is the responsibility of ModelBackend.user_can_authenticate, not
+        # this lookup. Mirror Django's default get_by_natural_key, which doesn't filter by is_active.
+        user = User.objects.create(email="inactive@example.com", is_active=False)
+        self.assertEqual(User.objects.get_by_natural_key("inactive@example.com"), user)
+
+    def test_get_by_natural_key_with_multiple_case_variants_picks_most_recent_login(self):
+        import datetime
+
+        older = User.objects.create(email="dup@example.com")
+        older.last_login = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+        older.save(update_fields=["last_login"])
+
+        newer = User.objects.create(email="Dup@example.com")
+        newer.last_login = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
+        newer.save(update_fields=["last_login"])
+
+        # Exact match wins over case-insensitive fallback when a row matches the typed casing.
+        self.assertEqual(User.objects.get_by_natural_key("dup@example.com"), older)
+        self.assertEqual(User.objects.get_by_natural_key("Dup@example.com"), newer)
+
+        # When the typed casing matches no row exactly, fallback picks the most recent login.
+        self.assertEqual(User.objects.get_by_natural_key("DUP@example.com"), newer)

@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailNormalizer
+from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
@@ -89,6 +89,14 @@ class UserManager(BaseUserManager):
         return super().get_queryset().defer(*DEFERED_ATTRS)
 
     use_in_migrations = True
+
+    def get_by_natural_key(self, username: str | None) -> "User":
+        # Case-insensitive lookup, ModelBackend.authenticate calls this method,
+        # is_active filtering happens later in ModelBackend.user_can_authenticate, so we don't filter on it here.
+        user = EmailLookupHandler.get_user_by_email(username, is_active=None) if username else None
+        if user is None:
+            raise User.DoesNotExist("User with that email does not exist.")
+        return user
 
     def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
