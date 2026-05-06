@@ -20,6 +20,16 @@ export class EventFilterManager {
         })
     }
 
+    start(): Promise<void> {
+        // No startup work — the refresher is initialized in the constructor.
+        return Promise.resolve()
+    }
+
+    stop(): Promise<void> {
+        // No shutdown work — the refresher is GC'd with the instance.
+        return Promise.resolve()
+    }
+
     /** Returns the filter for a team, or null if disabled or has no conditions. Non-blocking. */
     getFilter(teamId: number): EventFilterRule | null {
         const filter = this.refresher.tryGet()?.get(teamId) ?? null
