@@ -4597,9 +4597,6 @@ export interface Experiment {
             lookback_days?: number
         }
     }
-    scheduling_config?: {
-        timeseries?: boolean
-    }
     only_count_matured_users?: boolean
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
@@ -5026,6 +5023,9 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
+// TODO: migrate to SubscriptionApi from frontend/src/generated/core/api.schemas.ts.
+// This hand-written interface predates the generated type and now requires
+// dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
     insight?: number
@@ -5048,6 +5048,7 @@ export interface SubscriptionType {
     created_by?: UserBasicType | null
     created_at: string
     deleted?: boolean
+    enabled?: boolean
     summary_enabled?: boolean
     summary_prompt_guide?: string
 }
@@ -5551,6 +5552,9 @@ export type CommentType = {
     item_context: Record<string, any> | null
     /** only on the type to support patching for soft delete */
     deleted?: boolean
+    is_task: boolean
+    completed_at: string | null
+    completed_by: UserBasicType | null
 }
 
 export type CommentCreationParams = { mentions?: number[]; slug?: string }

@@ -119,7 +119,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     if (isPercent) {
         return out
     }
-    const visible = series.filter((s) => !s.visibility?.excluded && !s.visibility?.fromValueLabels)
+    const visible = series.filter((s) => !s.visibility?.excluded && s.visibility?.valueLabel !== false)
     if (visible.length === 0) {
         return out
     }
@@ -159,7 +159,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
-        if (s.visibility?.excluded || s.visibility?.fromValueLabels) {
+        if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
             continue
         }
         const yScale = resolveYScale(s, scales)
@@ -293,8 +293,9 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue, axisOrientation, isPercent } = useChartLayout()
-    const isHorizontal = axisOrientation === 'horizontal'
+    const { series, scales, labels, theme, resolveValue, axis } = useChartLayout()
+    const isHorizontal = axis.orientation === 'horizontal'
+    const isPercent = axis.isPercent
 
     const formatter = valueFormatter ?? defaultLocaleFormatter
 

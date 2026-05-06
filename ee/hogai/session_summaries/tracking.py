@@ -6,7 +6,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.models import Team, User
 
-SummarySource = Literal["chat", "api", "dock"]
+SummarySource = Literal["chat", "api", "dock", "mcp"]
 SummaryType = Literal["single", "group"]
 
 

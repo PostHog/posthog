@@ -791,8 +791,8 @@ def verify_team_flag_definitions(
         if flag_key in cached_flags_by_key:
             db_flag = db_flags_by_key[flag_key]
             cached_flag = cached_flags_by_key[flag_key]
-            if db_flag != cached_flag:
-                field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            if field_diffs:
                 diff: dict = {
                     "type": "FIELD_MISMATCH",
                     "flag_key": flag_key,

@@ -27,12 +27,20 @@ jobs:
             # every file NOT at that path — effectively matching ALL changes
             # including backend files. Instead we use two positive filters and
             # compare counts to exclude generated-only PRs.
+            #
+            # Additionally skip when a bot commits only frontend/snapshots.yml on
+            # a PR — that file is updated automatically after human review and CI
+            # approval, so re-running the full storybook suite is pure waste.
             frontend: >-
                 ${{
                     github.event_name == 'push'
                     || (steps.filter.outputs.frontend == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
-                           > fromJSON(steps.filter.outputs.frontend_generated_count || '0'))
+                           > fromJSON(steps.filter.outputs.frontend_generated_count || '0')
+                        && !(github.event_name == 'pull_request'
+                             && (contains(github.actor, '[bot]') || github.actor == 'posthog-bot')
+                             && fromJSON(steps.filter.outputs.snapshots_count || '0')
+                                == fromJSON(steps.filter.outputs.frontend_count || '0')))
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
@@ -61,6 +69,8 @@ jobs:
                       frontend_generated:
                         - 'frontend/src/generated/**'
                         - 'products/**/frontend/generated/**'
+                      snapshots:
+                        - 'frontend/snapshots.yml'
 
             # Build the visual-regression matrix.
             # On PRs, only run chromium shards — no story currently opts into webkit snapshots
