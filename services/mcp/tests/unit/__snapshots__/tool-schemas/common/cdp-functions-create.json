@@ -12,7 +12,7 @@
         "execution_order": {
             "anyOf": [
                 {
-                    "maximum": 32767,
+                    "maximum": 2147483647,
                     "minimum": 0,
                     "type": "number"
                 },
