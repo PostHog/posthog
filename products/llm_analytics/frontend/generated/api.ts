@@ -759,9 +759,6 @@ export const llmAnalyticsModelsRetrieve = async (
     })
 }
 
-/**
- * Fetch experiment items for a given experiment_id, with heavy input/output.
- */
 export const getLlmAnalyticsOfflineEvaluationsExperimentItemsCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/offline_evaluations/experiment_items/`
 }
