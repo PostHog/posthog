@@ -66,11 +66,12 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Run on master push, and on internal-repo PRs. Skip the entire workflow when
-        # the only thing that changed is some other label (avoids noisy runs on every
-        # label add/remove unrelated to Playwright).
+        # Run on master push, manual dispatch, and on internal-repo PRs. Skip the
+        # entire workflow when the only thing that changed is some other label (avoids
+        # noisy runs on every label add/remove unrelated to Playwright).
         if: |
             github.event_name == 'push' ||
+            github.event_name == 'workflow_dispatch' ||
             (
               github.event.pull_request.head.repo.full_name == github.repository &&
               (github.event.action != 'labeled' || github.event.label.name == 'run-playwright')
@@ -133,10 +134,11 @@ jobs:
               id: decide
               env:
                   IS_PUSH: ${{ github.event_name == 'push' }}
+                  IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
                   HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-playwright') }}
                   MUST_RUN: ${{ steps.changes.outputs.mustRun }}
               run: |
-                  if [[ "$IS_PUSH" == "true" || "$HAS_LABEL" == "true" || "$MUST_RUN" == "true" ]]; then
+                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$HAS_LABEL" == "true" || "$MUST_RUN" == "true" ]]; then
                       echo "shouldRun=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
@@ -484,8 +486,9 @@ jobs:
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
               # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db, restores the
               # schema, and runs ensure_migration_defaults to seed RunPython data that's
-              # missing from a schema-only dump.
-              id: prime-schema
+              # missing from a schema-only dump. The migrate step below still runs and
+              # layers any PR-added migrations on top — the cache just skips the bulk of
+              # the historical migration work.
               if: steps.schema-cache.outputs.cache-hit == 'true'
               env:
                   TARGET_DB: posthog_e2e_test
@@ -493,17 +496,14 @@ jobs:
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-schema-fresh
-                  echo "primed=true" >> "$GITHUB_OUTPUT"
 
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
-                  if [ "${{ steps.prime-schema.outputs.primed }}" = "true" ]; then
-                      echo "Schema restored from cache — skipping python manage.py migrate"
-                  else
-                      # Postgres migrations must run first — ClickHouse migration 0026
-                      # depends on the posthog_instancesetting table in Postgres
-                      python manage.py migrate --noinput
-                  fi
+                  # Postgres migrations must run first — ClickHouse migration 0026
+                  # depends on the posthog_instancesetting table in Postgres.
+                  # On cache hit this is near no-op; on cache miss it's a full migrate.
+                  # Either way, any PR-added migrations get applied here.
+                  python manage.py migrate --noinput
 
                   # Run Rust migrations for persons e2e test database
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"

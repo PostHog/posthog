@@ -540,6 +540,16 @@ db:
         cmd: |
             set -e
             TARGET_DB="${TARGET_DB:-test_posthog}"
+            # Validate before interpolating into psql -c. Postgres unquoted identifiers
+            # must start with a letter or underscore, contain only [A-Za-z0-9_], and
+            # fit in NAMEDATALEN-1 (63 chars). Reject anything else outright rather
+            # than trying to escape — callers always pass static names like
+            # `test_posthog` or `posthog_e2e_test`. POSIX-only (no bash `[[ =~ ]]`)
+            # since hogli runs cmd blocks via /bin/sh.
+            if ! printf '%s' "$TARGET_DB" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]{0,62}$'; then
+                echo "❌ TARGET_DB must be a simple SQL identifier (got: $TARGET_DB)"
+                exit 1
+            fi
             if [ ! -f .postgres-backups/schema-latest.sql.gz ]; then
                 echo "❌ No schema at .postgres-backups/schema-latest.sql.gz — run db:download-schema first"
                 exit 1
