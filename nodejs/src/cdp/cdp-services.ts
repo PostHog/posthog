@@ -1,4 +1,5 @@
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { getRedisHost } from '~/utils/db/redis'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
@@ -6,6 +7,7 @@ import { AppMetricsOutput, LogEntriesOutput } from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { PostgresRouter } from '../utils/db/postgres'
+import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
 import type { CdpConfig } from './config'
@@ -79,6 +81,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_REDIS_HOST'
         | 'CDP_REDIS_PORT'
         | 'CDP_REDIS_PASSWORD'
+        | 'CDP_REDIS_READER_HOST'
+        | 'CDP_REDIS_READER_PORT'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -127,6 +131,59 @@ export interface CdpCoreServicesDeps {
     internalCaptureService: InternalCaptureService
 }
 
+/**
+ * Creates a Redis reader pool, using a dedicated reader host if configured,
+ * otherwise falling back to the writer pool.
+ */
+export function createCdpReaderRedisPool(
+    config: Pick<
+        CdpCoreServicesConfig,
+        | 'CDP_REDIS_HOST'
+        | 'CDP_REDIS_PORT'
+        | 'CDP_REDIS_PASSWORD'
+        | 'CDP_REDIS_READER_HOST'
+        | 'CDP_REDIS_READER_PORT'
+        | 'REDIS_URL'
+        | 'REDIS_POOL_MIN_SIZE'
+        | 'REDIS_POOL_MAX_SIZE'
+    >,
+    writerPool: RedisV2,
+    name: string
+): RedisV2 {
+    if (config.CDP_REDIS_READER_HOST) {
+        logger.info(
+            '🔌',
+            `[${name}] writer=${config.CDP_REDIS_HOST}:${config.CDP_REDIS_PORT} reader=${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT}`
+        )
+        const readerPool = createRedisV2PoolFromConfig({
+            connection: {
+                url: config.CDP_REDIS_READER_HOST,
+                options: { port: config.CDP_REDIS_READER_PORT, password: config.CDP_REDIS_PASSWORD },
+                name: `${name}-reader`,
+            },
+            poolMinSize: config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        })
+
+        // Non-blocking startup health check — surfaces misconfig immediately in logs
+        void readerPool
+            .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
+            .catch((err) => {
+                logger.error(
+                    '🔌',
+                    `[${name}] reader at ${config.CDP_REDIS_READER_HOST}:${config.CDP_REDIS_READER_PORT} failed startup health check — reads will fall back to writer`,
+                    { err }
+                )
+            })
+
+        return readerPool
+    }
+
+    const sanitizedWriter = config.CDP_REDIS_HOST || getRedisHost(config.REDIS_URL)
+    logger.info('🔌', `[${name}] writer=${sanitizedWriter}:${config.CDP_REDIS_PORT} reader=<falling back to writer>`)
+    return writerPool
+}
+
 export function createCdpCoreServices(
     config: CdpCoreServicesConfig,
     deps: CdpCoreServicesDeps,
@@ -143,6 +200,8 @@ export function createCdpCoreServices(
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
+
+    const redisReader = createCdpReaderRedisPool(config, redis, redisName)
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub)
@@ -166,7 +225,8 @@ export function createCdpCoreServices(
             observeResultsBufferTimeMs: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
             observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
         },
-        redis
+        redis,
+        redisReader
     )
 
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)

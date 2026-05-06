@@ -1,5 +1,10 @@
 import type { Series } from '../../../core/types'
-import { buildConfidenceIntervalSeries, buildMovingAverageSeries } from './derived-series'
+import {
+    applyComparisonDimming,
+    buildConfidenceIntervalSeries,
+    buildMovingAverageSeries,
+    buildTrendLineSeries,
+} from './derived-series'
 
 const SOURCE: Series = {
     key: 'visits',
@@ -62,5 +67,56 @@ describe('buildMovingAverageSeries', () => {
     it('uses an explicit label when provided', () => {
         const ma = buildMovingAverageSeries({ sourceSeries: SOURCE, window: 3, label: 'Smoothed' })
         expect(ma.label).toBe('Smoothed')
+    })
+})
+
+describe('buildTrendLineSeries', () => {
+    it('keys, labels, and styles a dotted dimmed overlay', () => {
+        const tl = buildTrendLineSeries({ sourceSeries: SOURCE, kind: 'linear' })
+        expect(tl.key).toBe('visits__trendline')
+        expect(tl.label).toBe('Visits')
+        expect(tl.color).toMatch(/^rgba\(/)
+        expect(tl.stroke?.pattern).toEqual([1, 3])
+        expect(tl.visibility?.fromStack).toBe(true)
+    })
+
+    it.each([
+        ['linear', [10, 12, 14, 16, 18, 20, 22], 'linear', undefined, 10, 22],
+        ['exponential, all positive (y=2^x)', [1, 2, 4, 8, 16, 32, 64], 'exponential', undefined, 1, 64],
+        ['exponential, non-positive falls back to linear y=x-1', [-1, 0, 1, 2], 'exponential', undefined, -1, 2],
+        ['exponential, zero in tail with fitUpTo skipping it', [1, 2, 4, 8, 0], 'exponential', 4, 1, 16],
+    ] as const)('fits %s', (_label, data, kind, fitUpTo, expectedFirst, expectedLast) => {
+        const tl = buildTrendLineSeries({ sourceSeries: { ...SOURCE, data: [...data] }, kind, fitUpTo })
+        expect(tl.data).toHaveLength(data.length)
+        expect(tl.data.every(Number.isFinite)).toBe(true)
+        expect(tl.data[0]).toBeCloseTo(expectedFirst, 2)
+        expect(tl.data[data.length - 1]).toBeCloseTo(expectedLast, 2)
+    })
+})
+
+describe('applyComparisonDimming', () => {
+    const A: Series = { key: 'a', label: 'A', data: [1, 2], color: '#112233' }
+    const A_PREV: Series = { key: 'a-prev', label: 'A (prev)', data: [1, 2], color: '#112233' }
+    const B: Series = { key: 'b', label: 'B', data: [3, 4], color: '#445566' }
+
+    it.each([
+        ['undefined', undefined],
+        ['empty', {}],
+    ] as const)('returns the same reference when comparisonOf is %s', (_label, comparisonOf) => {
+        const series = [A, B]
+        expect(applyComparisonDimming(series, comparisonOf)).toBe(series)
+    })
+
+    it('rewrites comparison series to a dimmed rgba colour, leaves primaries alone', () => {
+        const result = applyComparisonDimming([A, A_PREV, B], { 'a-prev': 'a' })
+        expect(result[0]).toBe(A)
+        expect(result[2]).toBe(B)
+        expect(result[1].color).toMatch(/^rgba\([^)]*,\s*0\.5\)$/)
+    })
+
+    it('leaves non-hex colours untouched (no double-wrapping)', () => {
+        const rgbaSource: Series = { key: 'a-prev', label: '', data: [], color: 'rgba(0,0,0,1)' }
+        const result = applyComparisonDimming([rgbaSource], { 'a-prev': 'a' })
+        expect(result[0].color).toBe('rgba(0,0,0,1)')
     })
 })

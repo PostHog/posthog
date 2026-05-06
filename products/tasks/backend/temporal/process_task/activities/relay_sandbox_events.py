@@ -283,9 +283,11 @@ async def _relay_loop(
                                 )
                                 continue
 
+                            if _is_keepalive_event(event_data):
+                                continue
+
                             await redis_stream.write_event(event_data)
-                            if not _is_keepalive_event(event_data):
-                                reconnect_count = 0
+                            reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
                             if _is_end_of_turn(event_data):

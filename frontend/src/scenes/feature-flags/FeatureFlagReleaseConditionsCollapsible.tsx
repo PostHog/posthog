@@ -16,9 +16,10 @@ import React, { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import {
-    IconBalance,
+    IconBrackets,
     IconCollapse,
     IconCopy,
+    IconEllipsis,
     IconExpand,
     IconInfo,
     IconLaptop,
@@ -28,7 +29,16 @@ import {
     IconTrash,
     IconCheckCircle,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonLabel,
+    LemonMenu,
+    LemonSelect,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -79,6 +89,18 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     evaluationRuntime?: FeatureFlagEvaluationRuntime
     /** When true, hides the "Match by" User/Group selector. Use when the aggregation type is inherited from the parent flag. */
     hideMatchOptions?: boolean
+}
+
+const PERSON = 'person' as const
+type AggregationValue = number | typeof PERSON
+
+type MatchByOption = {
+    value: string
+    icon: JSX.Element
+    label: string
+    description: string
+    badge?: { type: 'warning' | 'highlight'; text: string }
+    learnMoreUrl?: string
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -171,28 +193,33 @@ function ConditionHeader({
                     ({rollout}%{group.variant && ` · ${group.variant}`}
                     {countSummary !== null && ` · ${countSummary}`})
                 </span>
-                <LemonButton
-                    icon={<IconCopy />}
-                    size="xsmall"
-                    noPadding
-                    tooltip="Duplicate condition set"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onDuplicate()
-                    }}
-                />
-                {totalGroups > 1 && (
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Duplicate condition set',
+                            icon: <IconCopy />,
+                            onClick: onDuplicate,
+                        },
+                        ...(totalGroups > 1
+                            ? [
+                                  {
+                                      label: 'Remove condition set',
+                                      icon: <IconTrash />,
+                                      onClick: onRemove,
+                                      status: 'danger' as const,
+                                  },
+                              ]
+                            : []),
+                    ]}
+                >
                     <LemonButton
-                        icon={<IconTrash />}
+                        icon={<IconEllipsis />}
                         size="xsmall"
                         noPadding
-                        tooltip="Remove condition set"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onRemove()
-                        }}
+                        aria-label="Condition set actions"
+                        onClick={(e) => e.stopPropagation()}
                     />
-                )}
+                </LemonMenu>
             </div>
         </div>
     )
@@ -285,8 +312,8 @@ interface ConditionProps {
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
-    isMixedTargetingEnabled: boolean
-    mixedGroupTypeIndex: number
+    isTargetingV2Enabled: boolean
+    isDeviceTargeting: boolean
     onMoveUp: () => void
     onMoveDown: () => void
     onDuplicate: () => void
@@ -354,8 +381,8 @@ const ConditionContent = ({
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
-    isMixedTargetingEnabled,
-    mixedGroupTypeIndex,
+    isTargetingV2Enabled,
+    isDeviceTargeting,
     onMoveUp,
     onMoveDown,
     onDuplicate,
@@ -502,39 +529,46 @@ const ConditionContent = ({
                                         />
                                     </div>
 
-                                    {isMixedTargetingEnabled && groupTypes.size > 0 && (
+                                    {isTargetingV2Enabled && groupTypes.size > 0 && !isDeviceTargeting && (
                                         <div>
-                                            <LemonLabel className="mb-1">Targeting criteria</LemonLabel>
-                                            <LemonSelect
+                                            <LemonLabel className="mb-1">Target by</LemonLabel>
+                                            <LemonSelect<AggregationValue>
                                                 size="small"
                                                 data-attr={`condition-set-${index}-aggregation`}
-                                                value={group.aggregation_group_type_index != null ? 'group' : 'person'}
+                                                value={
+                                                    group.aggregation_group_type_index ??
+                                                    releaseFilters.aggregation_group_type_index ??
+                                                    PERSON
+                                                }
                                                 onChange={(value) => {
-                                                    setConditionAggregation(
-                                                        index,
-                                                        value === 'person' ? null : mixedGroupTypeIndex
-                                                    )
+                                                    setConditionAggregation(index, value === PERSON ? null : value)
                                                 }}
-                                                options={(() => {
-                                                    const gt = groupTypes.get(mixedGroupTypeIndex as GroupTypeIndex)
-                                                    const groupLabel = gt
-                                                        ? gt.name_plural ||
-                                                          gt.group_type.charAt(0).toUpperCase() +
-                                                              gt.group_type.slice(1) +
-                                                              's'
-                                                        : 'Groups'
-                                                    return [
-                                                        { value: 'person' as const, label: 'Users' },
-                                                        {
-                                                            value: 'group' as const,
-                                                            label: groupLabel,
-                                                        },
-                                                    ]
-                                                })()}
+                                                options={[
+                                                    {
+                                                        options: [
+                                                            {
+                                                                value: PERSON,
+                                                                label: 'Users',
+                                                                icon: <IconPerson />,
+                                                            },
+                                                        ],
+                                                    },
+                                                    {
+                                                        title: 'Group types',
+                                                        options: Array.from(groupTypes.values()).map((gt) => ({
+                                                            value: gt.group_type_index as number,
+                                                            label:
+                                                                gt.name_plural ||
+                                                                gt.group_type.charAt(0).toUpperCase() +
+                                                                    gt.group_type.slice(1) +
+                                                                    's',
+                                                            icon: <IconPeople />,
+                                                        })),
+                                                    },
+                                                ]}
                                             />
                                         </div>
                                     )}
-
                                     <div>
                                         <LemonLabel className="mb-1">Match filters</LemonLabel>
                                         <PropertyFilters
@@ -775,14 +809,15 @@ export function FeatureFlagReleaseConditionsCollapsible({
         openConditions,
         properties,
         isMixedTargeting,
-        mixedGroupTypeIndex,
         isAnyItemDragging,
         draggedGroup,
     } = useValues(releaseConditionsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
-    const isMixedTargetingEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
+    // The mixed-targeting flag now gates the unified v2 UI (Properties / Device with full per-condition group-type selector).
+    // The legacy 4-card path is reached only when the flag is off.
+    const isTargetingV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
     // Ref map for focus management
     const optionRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -802,7 +837,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setOpenConditions,
         setIsMixedTargeting,
         switchToMixedTargeting,
-        setMixedGroupTypeIndex,
         setIsAnyItemDragging,
         setDraggedGroup,
     } = useActions(releaseConditionsLogic)
@@ -899,18 +933,90 @@ export function FeatureFlagReleaseConditionsCollapsible({
     }
 
     const showGroupsOptions = groupTypes.size > 0
+    const isDeviceTargeting = bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+
+    const v2MatchByOptions = [
+        {
+            value: 'properties',
+            icon: <IconBrackets className="text-base shrink-0" />,
+            label: 'Properties',
+            description: showGroupsOptions
+                ? 'Target by user or group property filters. Each condition picks its own targeting type.'
+                : 'Target by user property filters.',
+        },
+        ...(onBucketingIdentifierChange
+            ? [
+                  {
+                      value: 'device',
+                      icon: <IconLaptop className="text-base shrink-0" />,
+                      label: 'Device',
+                      description: 'Stable assignment per device. Good fit for experiments on anonymous users.',
+                      badge: { type: 'warning' as const, text: 'BETA' },
+                      learnMoreUrl: 'https://posthog.com/docs/feature-flags/device-bucketing',
+                  },
+              ]
+            : []),
+    ] satisfies MatchByOption[]
+
+    const legacyMatchByOptions = [
+        {
+            value: 'user',
+            icon: <IconPerson className="text-base shrink-0" />,
+            label: 'User',
+            description: 'Stable assignment for logged-in users based on their distinct ID.',
+        },
+        ...(onBucketingIdentifierChange
+            ? [
+                  {
+                      value: 'device',
+                      icon: <IconLaptop className="text-base shrink-0" />,
+                      label: 'Device',
+                      description: 'Stable assignment per device. Good fit for experiments on anonymous users.',
+                      badge: { type: 'warning' as const, text: 'BETA' },
+                      learnMoreUrl: 'https://posthog.com/docs/feature-flags/device-bucketing',
+                  },
+              ]
+            : []),
+        ...(showGroupsOptions
+            ? [
+                  {
+                      value: 'group',
+                      icon: <IconPeople className="text-base shrink-0" />,
+                      label: 'Group',
+                      description:
+                          'Stable assignment for everyone in an organization, company, or other custom group type.',
+                  },
+              ]
+            : []),
+    ] satisfies MatchByOption[]
+
+    const matchByOptions: MatchByOption[] = isTargetingV2Enabled ? v2MatchByOptions : legacyMatchByOptions
 
     // Compute current selected option (shared between keyboard navigation and selection rendering)
-    const currentSelected = isMixedTargeting
-        ? 'mixed'
+    const currentSelected = isTargetingV2Enabled
+        ? isDeviceTargeting && onBucketingIdentifierChange
+            ? 'device'
+            : 'properties'
         : releaseFilters.aggregation_group_type_index != null
           ? 'group'
-          : bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+          : isDeviceTargeting
             ? 'device'
             : 'user'
 
     // Handler for option selection logic (shared by click and keyboard events)
     const selectMatchByOption = (value: string): void => {
+        if (isTargetingV2Enabled) {
+            // v2: Properties subsumes User / Group / User & Group; only bucketing_identifier differs
+            if (value === 'properties') {
+                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+            } else if (value === 'device') {
+                // Device mode forces Users-scoped conditions. setAggregationGroupTypeIndex(null)
+                // clears any group-scoped conditions and preserves person-scoped properties.
+                setAggregationGroupTypeIndex(null)
+                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
+            }
+            return
+        }
         if (value === 'user') {
             setIsMixedTargeting(false)
             setAggregationGroupTypeIndex(null)
@@ -949,11 +1055,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 </LemonBanner>
             )}
 
-            <FeatureFlagConditionWarning
-                properties={properties}
-                filterGroups={filterGroups}
-                evaluationRuntime={evaluationRuntime}
-            />
+            <FeatureFlagConditionWarning properties={properties} evaluationRuntime={evaluationRuntime} />
 
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 
@@ -975,12 +1077,13 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             // Handle arrow key navigation for radio group
                             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
                                 e.preventDefault()
-                                const options = [
-                                    'user',
-                                    ...(onBucketingIdentifierChange ? ['device'] : []),
-                                    ...(showGroupsOptions ? ['group'] : []),
-                                    ...(showGroupsOptions && isMixedTargetingEnabled ? ['mixed'] : []),
-                                ]
+                                const options = isTargetingV2Enabled
+                                    ? ['properties', ...(onBucketingIdentifierChange ? ['device'] : [])]
+                                    : [
+                                          'user',
+                                          ...(onBucketingIdentifierChange ? ['device'] : []),
+                                          ...(showGroupsOptions ? ['group'] : []),
+                                      ]
 
                                 const currentIndex = options.indexOf(currentSelected)
                                 let nextIndex = currentIndex
@@ -998,49 +1101,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             }
                         }}
                     >
-                        {[
-                            {
-                                value: 'user',
-                                icon: <IconPerson className="text-base shrink-0" />,
-                                label: 'User',
-                                description: 'Stable assignment for logged-in users based on their distinct ID.',
-                            },
-                            ...(onBucketingIdentifierChange
-                                ? [
-                                      {
-                                          value: 'device',
-                                          icon: <IconLaptop className="text-base shrink-0" />,
-                                          label: 'Device',
-                                          description:
-                                              'Stable assignment per device. Good fit for experiments on anonymous users.',
-                                          learnMoreUrl: 'https://posthog.com/docs/feature-flags/device-bucketing',
-                                      },
-                                  ]
-                                : []),
-                            ...(showGroupsOptions
-                                ? [
-                                      {
-                                          value: 'group',
-                                          icon: <IconPeople className="text-base shrink-0" />,
-                                          label: 'Group',
-                                          description:
-                                              'Stable assignment for everyone in an organization, company, or other custom group type.',
-                                      },
-                                  ]
-                                : []),
-                            ...(showGroupsOptions && isMixedTargetingEnabled
-                                ? [
-                                      {
-                                          value: 'mixed',
-                                          icon: <IconBalance className="text-base shrink-0" />,
-                                          label: 'User & Group',
-                                          description:
-                                              'Mix user and group targeting across condition sets. Each condition set picks its own targeting type.',
-                                          badge: { type: 'highlight' as const, text: 'NEW' },
-                                      },
-                                  ]
-                                : []),
-                        ].map((option) => {
+                        {matchByOptions.map((option) => {
                             const isSelected = option.value === currentSelected
 
                             return (
@@ -1122,29 +1183,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                     {groupTypeValues[0]?.group_type}
                                                 </span>
                                             ))}
-                                        {/* Mixed group type selector */}
-                                        {option.value === 'mixed' &&
-                                            isSelected &&
-                                            isMixedTargeting &&
-                                            groupTypeValues.length > 1 && (
-                                                <div onClick={(e) => e.stopPropagation()}>
-                                                    <LemonSelect
-                                                        size="xsmall"
-                                                        dropdownMatchSelectWidth={false}
-                                                        data-attr="feature-flag-mixed-group-type-select"
-                                                        value={mixedGroupTypeIndex}
-                                                        onChange={(value) => {
-                                                            if (value != null) {
-                                                                setMixedGroupTypeIndex(value)
-                                                            }
-                                                        }}
-                                                        options={groupTypeValues.map((groupType) => ({
-                                                            value: groupType.group_type_index,
-                                                            label: groupType.group_type,
-                                                        }))}
-                                                    />
-                                                </div>
-                                            )}
                                     </div>
                                 </div>
                             )
@@ -1223,8 +1261,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                                 groupTypes={groupTypes}
                                                 setConditionAggregation={setConditionAggregation}
-                                                isMixedTargetingEnabled={isMixedTargeting}
-                                                mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                                isTargetingV2Enabled={isTargetingV2Enabled}
+                                                isDeviceTargeting={isDeviceTargeting}
                                                 onMoveUp={() => moveConditionSetUp(index)}
                                                 onMoveDown={() => moveConditionSetDown(index)}
                                                 onDuplicate={() => duplicateConditionSet(index)}
@@ -1297,8 +1335,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
-                                        isMixedTargetingEnabled={isMixedTargeting}
-                                        mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                        isTargetingV2Enabled={isTargetingV2Enabled}
+                                        isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
                                         onDuplicate={() => duplicateConditionSet(index)}
@@ -1347,8 +1385,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
-                                        isMixedTargetingEnabled={isMixedTargeting}
-                                        mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                        isTargetingV2Enabled={isTargetingV2Enabled}
+                                        isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
                                         onDuplicate={() => duplicateConditionSet(index)}
@@ -1379,8 +1417,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}
-                                isMixedTargetingEnabled={isMixedTargeting}
-                                mixedGroupTypeIndex={mixedGroupTypeIndex}
+                                isTargetingV2Enabled={isTargetingV2Enabled}
+                                isDeviceTargeting={isDeviceTargeting}
                                 onMoveUp={() => moveConditionSetUp(index)}
                                 onMoveDown={() => moveConditionSetDown(index)}
                                 onDuplicate={() => duplicateConditionSet(index)}
