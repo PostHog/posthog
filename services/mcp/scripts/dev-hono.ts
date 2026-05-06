@@ -1,27 +1,16 @@
-// Dev runner for the Hono MCP server. esbuild rebuilds on file change and
-// respawns the Node process so the dev loop matches the production bundle:
-//   - the same `cloudflare:workers` shim plugin (no `tsx` divergence)
-//   - the same `.html`/`.md` text loaders (template imports just work)
-//   - the same single-mjs output that ships in production
-//
-// Trade-off vs `tsx --watch`: an extra ~1–2s per change for the bundle step,
-// but zero behaviour drift — what runs locally is what runs in the container.
+// esbuild watch + node respawn — same bundling pipeline as build-hono.ts so
+// dev and prod behave identically. tsx isn't used directly because it can't
+// load the `.md` template imports or stub the `cloudflare:workers` builtin.
 import { context } from 'esbuild'
 import { resolve } from 'path'
 import { existsSync } from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
 
-// Load `.env` (gitignored) before spawning so the child Node process inherits
-// the dev config (PostHog base URLs, ports, etc.). Wrangler's `.dev.vars` is
-// CF-runtime-specific; the Hono dev server reads the same env via `process.env`.
 if (existsSync(resolve(process.cwd(), '.env'))) {
     process.loadEnvFile(resolve(process.cwd(), '.env'))
 }
 
-// Bridge flox's `SSL_CERT_FILE` (used by Node-the-CLI as a CA bundle) to
-// `NODE_EXTRA_CA_CERTS` (read by Node's TLS layer at startup). Without it, the
-// child process can't reach `https://us.posthog.com` from inside flox. `.env`
-// wins if the user set NODE_EXTRA_CA_CERTS explicitly.
+// flox sets SSL_CERT_FILE; Node's TLS layer only reads NODE_EXTRA_CA_CERTS.
 if (!process.env.NODE_EXTRA_CA_CERTS && process.env.SSL_CERT_FILE) {
     process.env.NODE_EXTRA_CA_CERTS = process.env.SSL_CERT_FILE
 }

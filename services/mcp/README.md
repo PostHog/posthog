@@ -319,6 +319,18 @@ pnpm run dev
 
 And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
 
+### Hono runtime (Node)
+
+Alongside the Cloudflare Workers entry point, the same MCP code runs on Node via Hono — this is what ships to our k8s clusters. Useful locally when you want a CF-runtime-free debugger, fewer Wrangler quirks, or to repro a k8s-only bug.
+
+```bash
+pnpm run dev:hono
+```
+
+Defaults to port **3030**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects Redis at `redis://localhost:6379` (used in place of Durable Objects for session state). Same routes as the CF server — point your client at `http://localhost:3030/mcp`.
+
+`bin/start-mcp-server` runs the Wrangler/CF version by default; set `MCP_RUNTIME=hono` to start the Hono runtime instead.
+
 ### Developing with local resources
 
 To develop with warm loading for MCP resources (workflows, prompts, examples):
