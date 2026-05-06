@@ -2,6 +2,18 @@ import { createContext, useContext } from 'react'
 
 import type { ChartDimensions, ChartScales, ChartTheme, ResolvedSeries, ResolveValueFn } from './types'
 
+/** Axis-related state exposed to overlays. */
+export interface ChartAxisContextValue {
+    /** `horizontal` swaps which axis carries the value scale (`scales.y` returns x-pixels). */
+    orientation: 'vertical' | 'horizontal'
+    /** Resolved x-axis tick formatter (the same one `<AxisLabels>` uses). Overlays that
+     *  need to align with the visible tick set should read this rather than recompute. */
+    xTickFormatter: ((value: string, index: number) => string | null) | undefined
+    /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Overlays
+     *  that format values can use this to default to a percent formatter. */
+    isPercent: boolean
+}
+
 /** Layout-stable values exposed to overlays. Identity does NOT change on hover —
  *  consumers reading from {@link useChartLayout} won't re-render on mousemove. */
 export interface ChartLayoutContextValue<Meta = unknown> {
@@ -24,10 +36,8 @@ export interface ChartLayoutContextValue<Meta = unknown> {
      *  This is a getter (not a value) because DOMRect changes on scroll. Useful for
      *  custom overlays that portal positioned content outside the chart wrapper. */
     canvasBounds: () => DOMRect | null
-    /** `horizontal` swaps which axis carries the value scale (`scales.y` returns x-pixels). */
-    axisOrientation: 'vertical' | 'horizontal'
-    /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. */
-    isPercent: boolean
+    /** Axis-related state (orientation, x-axis formatter, value-scale flags). */
+    axis: ChartAxisContextValue
 }
 
 /** Hover state isolated from layout so mousemoves don't invalidate every overlay.
