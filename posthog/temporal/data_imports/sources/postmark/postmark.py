@@ -16,6 +16,8 @@ from posthog.temporal.data_imports.sources.postmark.settings import (
     PostmarkEndpointConfig,
 )
 
+MESSAGE_STREAMS_PATH = "/message-streams"
+
 
 class PostmarkRetryableError(Exception):
     pass
@@ -144,6 +146,26 @@ def _paginate(
             break
 
 
+def _list_message_stream_ids(session: requests.Session, logger: FilteringBoundLogger) -> list[str]:
+    payload = _request(session, f"{POSTMARK_BASE_URL}{MESSAGE_STREAMS_PATH}", {}, logger)
+    return [s["ID"] for s in payload.get("MessageStreams", []) if "ID" in s]
+
+
+def _fan_out_streams(
+    session: requests.Session,
+    config: PostmarkEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    stream_ids = _list_message_stream_ids(session, logger)
+    if not stream_ids:
+        logger.debug(f"Postmark: no message streams found, skipping {config.path}")
+        return
+    for stream_id in stream_ids:
+        url = f"{POSTMARK_BASE_URL}{config.path.format(stream_id=stream_id)}"
+        for chunk in _paginate(session, url, config, logger, fromdate=None, todate=None):
+            yield [{**row, "MessageStreamID": stream_id} for row in chunk]
+
+
 def get_rows(
     server_token: str,
     endpoint_name: str,
@@ -157,14 +179,18 @@ def get_rows(
     if config is None:
         raise ValueError(f"Unknown Postmark endpoint: {endpoint_name}")
 
-    # Honor the user's selected incremental field; fall back to the configured default if absent.
-    # Each Postmark list endpoint maps `fromdate`/`todate` to a single underlying time column,
-    # so the user's choice is expected to match config.incremental_field_api_name today.
-    api_field_name = incremental_field or config.incremental_field_api_name
-    url = f"{POSTMARK_BASE_URL}{config.path}"
-
     session = make_tracked_session(headers=_get_headers(server_token))
     try:
+        if config.fan_out_streams:
+            yield from _fan_out_streams(session, config, logger)
+            return
+
+        # Honor the user's selected incremental field; fall back to the configured default if absent.
+        # Each Postmark list endpoint maps `fromdate`/`todate` to a single underlying time column,
+        # so the user's choice is expected to match config.incremental_field_api_name today.
+        api_field_name = incremental_field or config.incremental_field_api_name
+        url = f"{POSTMARK_BASE_URL}{config.path}"
+
         if not should_use_incremental_field or api_field_name is None:
             yield from _paginate(session, url, config, logger, fromdate=None, todate=None)
             return

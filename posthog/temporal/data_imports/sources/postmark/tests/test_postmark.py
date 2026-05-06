@@ -334,6 +334,155 @@ class TestGetRows:
 
         assert session.get.call_count == 1
 
+    def test_delivery_stats_yields_bounce_rows(self) -> None:
+        """/deliverystats returns a single object with a Bounces[] rollup; we yield the rollup
+        rows. InactiveMails (a scalar) is intentionally dropped — derive it from the raw bounces
+        table if needed."""
+        page = {
+            "InactiveMails": 7,
+            "Bounces": [
+                {"Name": "All", "Count": 100},
+                {"Name": "HardBounce", "Count": 12},
+                {"Name": "SoftBounce", "Count": 4, "Type": "SoftBounce"},
+            ],
+        }
+        session = self._build_session_mock([page])
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            chunks = list(get_rows(server_token="t", endpoint_name="delivery_stats", logger=mock.MagicMock()))
+
+        assert chunks == [page["Bounces"]]
+        assert session.get.call_count == 1
+        assert "fromdate" not in session.get.call_args_list[0].kwargs["params"]
+
+    def test_delivery_stats_empty(self) -> None:
+        """An empty Bounces array yields nothing — caller iterates a 0-chunk generator."""
+        page = {"InactiveMails": 0, "Bounces": []}
+        session = self._build_session_mock([page])
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            chunks = list(get_rows(server_token="t", endpoint_name="delivery_stats", logger=mock.MagicMock()))
+
+        assert chunks == []
+
+    def test_suppressions_fans_out_over_streams(self) -> None:
+        """Suppressions are per-stream. We list /message-streams first, then call
+        /message-streams/{id}/suppressions/dump per stream, enriching each row with MessageStreamID."""
+        streams_page = {
+            "MessageStreams": [
+                {"ID": "outbound", "Name": "Default Transactional"},
+                {"ID": "broadcast", "Name": "Default Broadcast"},
+            ]
+        }
+        outbound_dump = {
+            "Suppressions": [
+                {
+                    "EmailAddress": "a@example.com",
+                    "SuppressionReason": "HardBounce",
+                    "Origin": "Recipient",
+                    "CreatedAt": "2026-04-01T12:00:00Z",
+                },
+            ]
+        }
+        broadcast_dump = {
+            "Suppressions": [
+                {
+                    "EmailAddress": "b@example.com",
+                    "SuppressionReason": "ManualSuppression",
+                    "Origin": "Customer",
+                    "CreatedAt": "2026-04-02T12:00:00Z",
+                },
+            ]
+        }
+        session = self._build_session_mock([streams_page, outbound_dump, broadcast_dump])
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            chunks = list(get_rows(server_token="t", endpoint_name="suppressions", logger=mock.MagicMock()))
+
+        flat = [row for chunk in chunks for row in chunk]
+        assert flat == [
+            {
+                "EmailAddress": "a@example.com",
+                "SuppressionReason": "HardBounce",
+                "Origin": "Recipient",
+                "CreatedAt": "2026-04-01T12:00:00Z",
+                "MessageStreamID": "outbound",
+            },
+            {
+                "EmailAddress": "b@example.com",
+                "SuppressionReason": "ManualSuppression",
+                "Origin": "Customer",
+                "CreatedAt": "2026-04-02T12:00:00Z",
+                "MessageStreamID": "broadcast",
+            },
+        ]
+        # 1 list + 1 dump per stream
+        assert session.get.call_count == 3
+        called_paths = [c.args[0] for c in session.get.call_args_list]
+        assert called_paths[0].endswith("/message-streams")
+        assert called_paths[1].endswith("/message-streams/outbound/suppressions/dump")
+        assert called_paths[2].endswith("/message-streams/broadcast/suppressions/dump")
+
+    def test_suppressions_no_streams(self) -> None:
+        """Account with no message streams (degenerate case) yields nothing and never calls
+        the dump endpoint."""
+        session = self._build_session_mock([{"MessageStreams": []}])
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            chunks = list(get_rows(server_token="t", endpoint_name="suppressions", logger=mock.MagicMock()))
+
+        assert chunks == []
+        assert session.get.call_count == 1
+
+    def test_suppressions_skips_empty_per_stream_dumps(self) -> None:
+        """Streams with no suppressions yield zero chunks for that stream; other streams still
+        produce rows."""
+        session = self._build_session_mock(
+            [
+                {"MessageStreams": [{"ID": "outbound"}, {"ID": "broadcast"}]},
+                {"Suppressions": []},
+                {
+                    "Suppressions": [
+                        {
+                            "EmailAddress": "x@example.com",
+                            "SuppressionReason": "HardBounce",
+                            "Origin": "Recipient",
+                            "CreatedAt": "2026-04-02T12:00:00Z",
+                        }
+                    ]
+                },
+            ]
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postmark.postmark.make_tracked_session",
+            return_value=session,
+        ):
+            chunks = list(get_rows(server_token="t", endpoint_name="suppressions", logger=mock.MagicMock()))
+
+        flat = [row for chunk in chunks for row in chunk]
+        assert flat == [
+            {
+                "EmailAddress": "x@example.com",
+                "SuppressionReason": "HardBounce",
+                "Origin": "Recipient",
+                "CreatedAt": "2026-04-02T12:00:00Z",
+                "MessageStreamID": "broadcast",
+            }
+        ]
+
     def test_incremental_skipped_when_no_field_configured(self) -> None:
         """templates has no incremental_field_api_name — even if the pipeline asks for incremental,
         the source falls back to a single full-refresh page with no fromdate."""
@@ -460,6 +609,8 @@ class TestPostmarkSource:
         assert by_name["templates"].supports_incremental is False
         assert by_name["templates"].supports_append is False
         assert by_name["message_streams"].supports_incremental is False
+        assert by_name["delivery_stats"].supports_incremental is False
+        assert by_name["suppressions"].supports_incremental is False
         assert by_name["bounces"].supports_incremental is True
         assert by_name["bounces"].supports_append is True
         assert by_name["outbound_messages"].supports_incremental is True
@@ -546,6 +697,8 @@ class TestPostmarkSource:
             ("inbound_messages", "desc"),
             ("templates", "asc"),
             ("message_streams", "asc"),
+            ("delivery_stats", "asc"),
+            ("suppressions", "asc"),
         ]
     )
     def test_postmark_source_sort_mode(self, endpoint: str, expected_sort_mode: str) -> None:

@@ -37,8 +37,13 @@ class PostmarkEndpointConfig:
     partition_size: int = 1
     default_lookback_days: int = POSTMARK_DEFAULT_LOOKBACK_DAYS
     is_paginated: bool = True
-    # Some endpoints cap the search window; clamp `fromdate` to (now - max_window_days) to avoid 422s.
+    # Some endpoints cap how far back data is retained; we clamp `fromdate` to (now - max_window_days)
+    # to avoid pretending we'll backfill older rows that Postmark won't actually return.
     max_window_days: Optional[int] = None
+    # Endpoint requires fan-out over message streams (`/message-streams/{id}/...`). When True,
+    # `path` is treated as a Python format string with a single `{stream_id}` placeholder; each
+    # row yielded is enriched with a `MessageStreamID` field.
+    fan_out_streams: bool = False
 
 
 POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
@@ -104,6 +109,31 @@ POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
         partition_format=None,
         partition_keys=None,
         is_paginated=False,
+    ),
+    # /deliverystats returns a single object with a Bounces[] rollup of bounce-type counts.
+    # We yield the Bounces entries as rows; the surrounding `InactiveMails` scalar is dropped
+    # for now (derive from the raw `bounces` table if needed).
+    "delivery_stats": PostmarkEndpointConfig(
+        path="/deliverystats",
+        data_key="Bounces",
+        primary_key=["Name"],
+        partition_mode=None,
+        partition_format=None,
+        partition_keys=None,
+        is_paginated=False,
+    ),
+    # Per-stream suppression dump. The pipeline iterates message-streams and pulls
+    # /message-streams/{id}/suppressions/dump for each; rows are enriched with `MessageStreamID`.
+    # Postmark's dump endpoint has no server-side incremental filter, so this is full-refresh.
+    "suppressions": PostmarkEndpointConfig(
+        path="/message-streams/{stream_id}/suppressions/dump",
+        data_key="Suppressions",
+        primary_key=["MessageStreamID", "EmailAddress"],
+        partition_mode=None,
+        partition_format=None,
+        partition_keys=None,
+        is_paginated=False,
+        fan_out_streams=True,
     ),
 }
 
