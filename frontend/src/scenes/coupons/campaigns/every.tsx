@@ -31,7 +31,7 @@ export const everyCampaign: CampaignConfig = {
             description: 'Get 5x the standard monthly free allowance for PostHog AI after redeeming your code.',
         },
         {
-            title: '$2K credits to spend across any product',
+            title: '$2K credits to spend across PostHog products*',
             description: `Organizations without paid invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} also receive $2K in PostHog credits.`,
         },
         {
@@ -45,5 +45,5 @@ export const everyCampaign: CampaignConfig = {
         'Active paid subscription to PostHog',
         `Organizations already paying before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} receive the PostHog AI benefit only`,
     ],
-    footerNote: `Credits and campaign plan benefits expire 12 months from redemption. The $2K credit grant applies only to eligible organizations without paid invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF}.`,
+    footerNote: `*Excludes PostHog Code. Credits and campaign plan benefits expire 12 months from redemption. The $2K credit grant applies only to eligible organizations without paid invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF}.`,
 }
