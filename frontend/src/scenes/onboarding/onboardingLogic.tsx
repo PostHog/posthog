@@ -730,9 +730,20 @@ export const onboardingLogic = kea<onboardingLogicType>([
             void _secondary
             void _success
             void _upgraded
+            // Drop the stepId from the URL if it's not resolvable in the current flow.
+            // Without this, the self-correcting `setStepId('')` from the listener races
+            // with the OUTER `actionToUrl` for the bogus stepId — kea fires the outer
+            // actionToUrl AFTER the listener completes, which re-pushes the bogus URL
+            // through urlToAction and re-dispatches setStepId(bogus), looping
+            // indefinitely. Stripping unresolvable stepIds here keeps the URL
+            // self-consistent with the reducer state.
+            const stepResolves =
+                !stepId ||
+                values.flow.length === 0 ||
+                !!values.flow.find((s) => s.id === stepId || s.stepKey === stepId)
             const url = urls.onboarding({
                 productKey: values.productKey ?? undefined,
-                step: stepId || undefined,
+                step: stepResolves ? stepId || undefined : undefined,
                 withProducts: values.secondaryProductKeys.length ? values.secondaryProductKeys : undefined,
             })
             // Use `replace` so the user doesn't accumulate one history entry per onboarding
