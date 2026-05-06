@@ -562,6 +562,13 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 20
+        # checks: write is needed so the "Publish Migration risk check" step
+        # can POST to /repos/.../check-runs. Workflow-level perms only grant
+        # contents:read + pull-requests:write.
+        permissions:
+            contents: read
+            pull-requests: write
+            checks: write
 
         name: Validate migrations and OpenAPI types
         runs-on: depot-ubuntu-latest
