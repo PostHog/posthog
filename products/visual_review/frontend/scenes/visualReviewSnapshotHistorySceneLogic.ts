@@ -221,6 +221,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                 const count = identifiers.length
                 lemonToast.success(`${count} identifier${count > 1 ? 's' : ''} quarantined`)
                 actions.loadQuarantineEntry()
+                actions.loadSiblingQuarantineEntry()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to quarantine')
             }
