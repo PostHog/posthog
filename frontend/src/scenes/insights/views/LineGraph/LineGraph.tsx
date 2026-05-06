@@ -365,6 +365,13 @@ export function LineGraph_({
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
     const hasMultipleSeries = new Set(_datasets.map((d) => d.action?.order).filter((o) => o !== undefined)).size > 1
     const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
+    const visibleAnnotationDatasets = !isHorizontal
+        ? datasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
+        : datasets
+    const currentPeriodDatasetIndex = visibleAnnotationDatasets.findIndex(
+        (dataset) => dataset.compare && dataset.compare_label === 'current'
+    )
+    const annotationDatasetIndex = isBar && currentPeriodDatasetIndex >= 0 ? currentPeriodDatasetIndex : 0
     const zoomPluginOptions = useChartZoom({
         datasets,
         onDateRangeZoom: effectiveZoomCallback,
@@ -1308,6 +1315,7 @@ export function LineGraph_({
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
                     insightNumericId={insight.id || 'new'}
+                    datasetIndex={annotationDatasetIndex}
                 />
             ) : null}
         </div>
