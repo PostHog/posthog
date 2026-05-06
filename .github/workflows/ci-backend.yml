@@ -813,9 +813,24 @@ jobs:
                   # Get risk analysis for all unapplied migrations (including third-party).
                   # --output-json gives downstream consumers (the check-run step
                   # below, and any other tool) a stable structured shape to read.
+                  #
+                  # Backwards-compat: PRs whose base predates the introduction
+                  # of --output-json have an analyzer that doesn't recognize
+                  # the flag — argparse exits 2 and no JSON is written. Probe
+                  # the artifact (rather than parsing --help text) and fall
+                  # back to the legacy invocation so stale PRs aren't blocked
+                  # from merging until they rebase.
+                  #
+                  # TODO: remove the fallback once stale PRs have rebased or
+                  # closed (target: 2026-06-15).
                   set +e  # Don't exit immediately on error
-                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json 2>/dev/null)
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json)
                   EXIT_CODE=$?
+                  if [ $EXIT_CODE -eq 2 ] && [ ! -f migration_analysis.json ]; then
+                    echo "::warning::PR analyzer pre-dates --output-json. Rebase onto master to publish a Migration risk check."
+                    RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked)
+                    EXIT_CODE=$?
+                  fi
                   set -e  # Re-enable exit on error
 
                   # Save analysis to file for artifact upload
@@ -881,12 +896,13 @@ jobs:
               # parsing the comment. The check is a CI feature; consumers and
               # the analyzer are decoupled.
               #
-              # Always published — even with zero migrations to analyze, or
-              # when the analyzer crashed — so every PR ends up with a
-              # definitive verdict on its head SHA. Consumers can then treat
-              # "no completed check yet" purely as "CI hasn't finished" and
-              # don't need a fallback heuristic.
-              if: always() && github.event_name == 'pull_request'
+              # Skipped when migration_analysis.json is absent — that happens
+              # for PRs whose base predates the introduction of --output-json
+              # (the previous step falls back to the legacy invocation, which
+              # doesn't write JSON). Consumers should treat "no Migration
+              # risk check on a green check-migrations job" as "PR base is
+              # stale; rebase to enable."
+              if: always() && github.event_name == 'pull_request' && hashFiles('migration_analysis.json') != ''
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
