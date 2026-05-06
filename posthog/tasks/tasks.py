@@ -611,12 +611,12 @@ def capture_task_run_state_metrics() -> None:
             open_runs = TaskRun.objects.filter(status__in=_TASKS_RUN_AGE_STATUSES).values(
                 "status", "environment", "task__origin_product", "created_at"
             )
-            for row in open_runs:
-                age_seconds = (now - row["created_at"]).total_seconds()
+            for open_run in open_runs:
+                age_seconds = (now - open_run["created_at"]).total_seconds()
                 open_run_age_histogram.labels(
-                    status=row["status"],
-                    origin_product=row["task__origin_product"] or "unknown",
-                    run_environment=row["environment"],
+                    status=open_run["status"],
+                    origin_product=open_run["task__origin_product"] or "unknown",
+                    run_environment=open_run["environment"],
                 ).observe(age_seconds)
 
             created_1h = (
