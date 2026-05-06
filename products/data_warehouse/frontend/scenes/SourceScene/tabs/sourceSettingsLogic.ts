@@ -119,7 +119,7 @@ function buildSchemaUpdatePayload(
     | 'sync_frequency'
     | 'sync_time_of_day'
     | 'cdc_table_mode'
-    | 'synced_columns'
+    | 'enabled_columns'
 > {
     return {
         id: schema.id,
@@ -130,7 +130,7 @@ function buildSchemaUpdatePayload(
         sync_frequency: schema.sync_frequency,
         sync_time_of_day: schema.sync_time_of_day,
         cdc_table_mode: schema.cdc_table_mode,
-        synced_columns: schema.synced_columns ?? null,
+        enabled_columns: schema.enabled_columns ?? null,
     }
 }
 

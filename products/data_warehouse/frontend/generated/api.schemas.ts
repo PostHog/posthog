@@ -305,10 +305,24 @@ export interface ExternalDataSchemaApi {
     primary_key_columns?: string[] | null
     /** For CDC syncs: consolidated, cdc_only, or both.
 
+<<<<<<< HEAD
   * `consolidated` - consolidated
   * `cdc_only` - cdc_only
   * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+=======
+* `consolidated` - consolidated
+* `cdc_only` - cdc_only
+* `both` - both */
+    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+    /**
+     * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
+    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
+>>>>>>> 8a1c05df7f8 (refactor(data-warehouse): rename synced_columns to enabled_columns and trim noisy comments)
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -393,10 +407,24 @@ export interface PatchedExternalDataSchemaApi {
     primary_key_columns?: string[] | null
     /** For CDC syncs: consolidated, cdc_only, or both.
 
+<<<<<<< HEAD
   * `consolidated` - consolidated
   * `cdc_only` - cdc_only
   * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+=======
+* `consolidated` - consolidated
+* `cdc_only` - cdc_only
+* `both` - both */
+    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+    /**
+     * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
+    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
+>>>>>>> 8a1c05df7f8 (refactor(data-warehouse): rename synced_columns to enabled_columns and trim noisy comments)
 }
 
 /**
@@ -1061,10 +1089,22 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
     sync_time_of_day?: string | null
     /** How CDC-backed tables should be exposed.
 
+<<<<<<< HEAD
   * `consolidated` - consolidated
   * `cdc_only` - cdc_only
   * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+=======
+* `consolidated` - consolidated
+* `cdc_only` - cdc_only
+* `both` - both */
+    cdc_table_mode?: CdcTableModeEnumApi | NullEnumApi | null
+    /**
+     * Columns to sync. Null means sync all columns.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
+>>>>>>> 8a1c05df7f8 (refactor(data-warehouse): rename synced_columns to enabled_columns and trim noisy comments)
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {

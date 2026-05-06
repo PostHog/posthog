@@ -108,8 +108,8 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
-        if (params.synced_columns !== undefined) {
-            body['synced_columns'] = params.synced_columns
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -172,8 +172,8 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
-        if (params.synced_columns !== undefined) {
-            body['synced_columns'] = params.synced_columns
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -244,8 +244,8 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
-        if (params.synced_columns !== undefined) {
-            body['synced_columns'] = params.synced_columns
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
@@ -290,8 +290,8 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
-        if (params.synced_columns !== undefined) {
-            body['synced_columns'] = params.synced_columns
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -336,8 +336,8 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
-        if (params.synced_columns !== undefined) {
-            body['synced_columns'] = params.synced_columns
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',

@@ -101,10 +101,8 @@ class CDCExtractActivity:
         self.cdc_schemas: list[ExternalDataSchema] = []
         self.schema_by_name: dict[str, ExternalDataSchema] = {}
         self.pk_columns_by_table: dict[str, list[str]] = {}
-        # Per-table column projection. Keyed by `table_name` (matches `ChangeEvent.table_name`).
-        # Empty/missing entry = sync all columns. Populated alongside `pk_columns_by_table` in
-        # `_load_pk_columns`. PK columns are always retained regardless of `synced_columns`.
-        self.synced_columns_by_table: dict[str, set[str]] = {}
+        # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
+        self.enabled_columns_by_table: dict[str, set[str]] = {}
         self.write_trackers: dict[str, _WriteTracker] = {}
         self.created_jobs: list[ExternalDataJob] = []
         self.adapter: typing.Any = None
@@ -541,24 +539,19 @@ class CDCExtractActivity:
         self.log.info("pk_columns_loaded", tables=list(self.pk_columns_by_table.keys()))
 
         for schema in self.cdc_schemas:
-            synced = schema.synced_columns
-            if isinstance(synced, list) and synced:
-                retained: set[str] = {str(c) for c in synced}
-                # PK columns are always retained — merges break without them.
+            enabled = schema.enabled_columns
+            if isinstance(enabled, list) and enabled:
+                retained: set[str] = {str(c) for c in enabled}
+                # PKs must stay even if the user dropped them from enabled_columns — merges break otherwise.
                 for pk in self.pk_columns_by_table.get(schema.name, []):
                     retained.add(pk)
-                # CDC schemas can also carry `incremental_field` (rare, but supported on the model).
                 inc = schema.incremental_field
                 if isinstance(inc, str) and inc:
                     retained.add(inc)
-                self.synced_columns_by_table[schema.name] = retained
+                self.enabled_columns_by_table[schema.name] = retained
 
     def _project_event_columns(self, event: ChangeEvent) -> ChangeEvent:
-        """Project `event.columns` down to the per-table `synced_columns` set if one is configured.
-
-        No-op when the table has no projection configured. PK + incremental field already merged
-        into the retained set in `_load_pk_columns`."""
-        retained = self.synced_columns_by_table.get(event.table_name)
+        retained = self.enabled_columns_by_table.get(event.table_name)
         if retained is None:
             return event
         filtered = {name: value for name, value in event.columns.items() if name in retained}

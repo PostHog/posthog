@@ -514,14 +514,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             team_id=inputs.team_id,
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
-            synced_columns=schema.synced_columns,
+            enabled_columns=schema.enabled_columns,
         )
-        # Force the resource name to follow the user-facing `ExternalDataSchema.name` rather than
-        # the source-side table name. Downstream `validate_schema_and_update_table` derives the
-        # `DataWarehouseTable.url_pattern` from `normalize(schema.name)`, so the Delta write path
-        # (driven by `SourceResponse.name`) must use the same input or HogQL queries the wrong
-        # location and returns no rows. This shows up immediately for multi-schema warehouse rows
-        # like `public.auth_group`, where source-side table name (`auth_group`) and schema name
-        # diverge after `rename_postgres_schemas_to_match_source_schemas`.
+        # `DataWarehouseTable.url_pattern` is derived from `normalize(schema.name)`, so the Delta
+        # write path (driven by `SourceResponse.name`) must match — otherwise HogQL reads from the
+        # wrong location and returns no rows for multi-schema rows like `public.auth_group`.
         response.name = NamingConvention.normalize_identifier(inputs.schema_name)
         return response

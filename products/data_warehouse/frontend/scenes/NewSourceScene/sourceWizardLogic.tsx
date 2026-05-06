@@ -322,9 +322,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             schemas,
         }),
         toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
-        setSchemaSyncedColumns: (schema: ExternalDataSourceSyncSchema, syncedColumns: string[] | null) => ({
+        setSchemaSyncedColumns: (schema: ExternalDataSourceSyncSchema, enabledColumns: string[] | null) => ({
             schema,
-            syncedColumns,
+            enabledColumns,
         }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
@@ -462,10 +462,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         should_sync: s.table === schema.table ? shouldSync : s.should_sync,
                     }))
                 },
-                setSchemaSyncedColumns: (state, { schema, syncedColumns }) => {
+                setSchemaSyncedColumns: (state, { schema, enabledColumns }) => {
                     return state.map((s) => ({
                         ...s,
-                        synced_columns: s.table === schema.table ? syncedColumns : s.synced_columns,
+                        enabled_columns: s.table === schema.table ? enabledColumns : s.enabled_columns,
                     }))
                 },
                 updateSchemaSyncType: (
@@ -1186,7 +1186,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         incremental_field_type: schema.incremental_field_type,
                                         sync_time_of_day: schema.sync_time_of_day,
                                         primary_key_columns: schema.primary_key_columns,
-                                        synced_columns: schema.synced_columns ?? null,
+                                        enabled_columns: schema.enabled_columns ?? null,
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }
                                             : {}),

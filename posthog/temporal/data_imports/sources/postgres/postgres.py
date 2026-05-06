@@ -760,18 +760,15 @@ class SafeDateLoader(Loader):
 
 
 def _build_select_clause(
-    synced_columns: Optional[list[str]],
+    enabled_columns: Optional[list[str]],
     primary_keys: Optional[list[str]],
     incremental_field: Optional[str],
 ) -> sql.Composable:
-    """Build the column list for SELECT. None `synced_columns` returns `*` (all columns).
-    An empty list means sync only required columns (PKs + incremental). Otherwise emit
-    `col1, col2, ...` with PK columns and the incremental field always retained, source order
-    preserved."""
-    if synced_columns is None:
+    # `None` and `[]` are distinct: `None` means sync all (`SELECT *`), `[]` means PKs + incremental only.
+    if enabled_columns is None:
         return sql.SQL("*")
 
-    retained: set[str] = set(synced_columns)
+    retained: set[str] = set(enabled_columns)
     for pk in primary_keys or []:
         retained.add(pk)
     if incremental_field:
@@ -779,8 +776,7 @@ def _build_select_clause(
 
     seen: set[str] = set()
     ordered: list[str] = []
-    # Honor `synced_columns` order, then append any auto-included identifiers that weren't listed.
-    for column in synced_columns:
+    for column in enabled_columns:
         if column in retained and column not in seen:
             seen.add(column)
             ordered.append(column)
@@ -805,10 +801,10 @@ def _build_query(
     add_sampling: Optional[bool] = False,
     *,
     upper_bound_inclusive: Optional[Any] = None,
-    synced_columns: Optional[list[str]] = None,
+    enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
-    select_clause = _build_select_clause(synced_columns, primary_keys, incremental_field)
+    select_clause = _build_select_clause(enabled_columns, primary_keys, incremental_field)
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -1523,7 +1519,7 @@ def postgres_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     require_ssl: bool = False,
     is_initial_sync: bool = False,
-    synced_columns: Optional[list[str]] = None,
+    enabled_columns: Optional[list[str]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -1585,12 +1581,11 @@ def postgres_source(
                 if primary_keys:
                     logger.debug(f"Found primary keys: {primary_keys}")
 
-                # Compute the retained column list once: user-selected `synced_columns` + PKs + the
-                # active incremental field. Project the schema and SELECT clauses so the Arrow
-                # schema matches the columns the cursor returns.
+                # Project both the Arrow schema and the SELECT clause so the cursor's row shape
+                # matches what downstream consumers expect.
                 retained_columns: list[str] | None = None
-                if synced_columns is not None:
-                    retained_set: set[str] = set(synced_columns)
+                if enabled_columns is not None:
+                    retained_set: set[str] = set(enabled_columns)
                     for pk in primary_keys or []:
                         retained_set.add(pk)
                     if incremental_field:
@@ -1609,7 +1604,7 @@ def postgres_source(
                     incremental_field_type,
                     db_incremental_field_last_value,
                     add_sampling=True,
-                    synced_columns=synced_columns,
+                    enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
                 )
 
@@ -1796,7 +1791,7 @@ def postgres_source(
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
-                    synced_columns=synced_columns,
+                    enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
                 )
 
@@ -1869,7 +1864,7 @@ def postgres_source(
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
-                        synced_columns=synced_columns,
+                        enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
                     )
 
@@ -1900,7 +1895,7 @@ def postgres_source(
                         incremental_field_type,
                         lo,
                         upper_bound_inclusive=hi,
-                        synced_columns=synced_columns,
+                        enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
                     )
 
@@ -1932,7 +1927,7 @@ def postgres_source(
                             incremental_field,
                             incremental_field_type,
                             db_incremental_field_last_value,
-                            synced_columns=synced_columns,
+                            enabled_columns=enabled_columns,
                             primary_keys=primary_keys,
                         )
                         logger.debug(f"Postgres query: {query.as_string()}")

@@ -45,9 +45,8 @@ import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
 import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
 import { SchemaConfigurationSection } from './schemaSceneLogic'
 
-// Returns columns that will be synced under `next` but were not under `prev`.
-// Treats null as "all available" so adding `null` after an explicit list flags
-// every previously-excluded column.
+// null means "all columns" on either side, so switching to null after a partial list flags
+// every previously-excluded column as added.
 function getAddedColumns(prev: string[] | null, next: string[] | null, available: { name: string }[]): string[] {
     const allColumns = available.map((c) => c.name)
     const prevSet = new Set(prev ?? allColumns)
@@ -424,7 +423,7 @@ function ColumnsSection({
 }): JSX.Element {
     const isPostgres = source?.source_type === 'Postgres'
     const available = schema.available_columns ?? []
-    const synced = schema.synced_columns
+    const synced = schema.enabled_columns
 
     const alwaysRetained = new Set<string>([
         ...(schema.primary_key_columns ?? []),
@@ -440,14 +439,14 @@ function ColumnsSection({
         const requiresPrompt =
             !!schema.last_synced_at &&
             (syncType === 'incremental' || syncType === 'append' || syncType === 'cdc') &&
-            getAddedColumns(schema.synced_columns ?? null, nextSyncedColumns, available).length > 0
+            getAddedColumns(schema.enabled_columns ?? null, nextSyncedColumns, available).length > 0
 
         if (!requiresPrompt) {
-            updateSchema({ ...schema, synced_columns: nextSyncedColumns })
+            updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
             return
         }
 
-        const added = getAddedColumns(schema.synced_columns ?? null, nextSyncedColumns, available)
+        const added = getAddedColumns(schema.enabled_columns ?? null, nextSyncedColumns, available)
         LemonDialog.open({
             title: 'New columns added to a partial-sync table',
             description: (
@@ -465,14 +464,14 @@ function ColumnsSection({
             primaryButton: {
                 children: 'Full resync now',
                 onClick: () => {
-                    updateSchema({ ...schema, synced_columns: nextSyncedColumns })
-                    resyncSchema({ ...schema, synced_columns: nextSyncedColumns })
+                    updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                    resyncSchema({ ...schema, enabled_columns: nextSyncedColumns })
                 },
             },
             secondaryButton: {
                 children: 'Sync forward only',
                 onClick: () => {
-                    updateSchema({ ...schema, synced_columns: nextSyncedColumns })
+                    updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
                 },
             },
         })

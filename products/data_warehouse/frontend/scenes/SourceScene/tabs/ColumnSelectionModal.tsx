@@ -4,16 +4,12 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonModal, Tooltip } from '@po
 
 import { ExternalDataSourceSchema } from '~/types'
 
-/**
- * Minimal shape needed to render the column picker. Both `ExternalDataSourceSchema` (existing
- * source) and `ExternalDataSourceSyncSchema` (wizard pre-creation) satisfy this — the picker
- * only needs identity, the column inventory, and the always-retained columns.
- */
+// Unifies the existing-source schema and the wizard's pre-creation sync schema so
+// both can drive the picker without coupling it to either concrete type.
 export interface ColumnSelectionTarget {
-    /** Stable identity used to reset internal state when the user switches between rows. */
     id: string
     name?: string
-    synced_columns?: string[] | null
+    enabled_columns?: string[] | null
     primary_key_columns?: string[] | null
     incremental_field?: string | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
@@ -21,11 +17,8 @@ export interface ColumnSelectionTarget {
 
 interface ColumnSelectionPickerProps {
     schema: ColumnSelectionTarget | null
-    /** When provided, "Save" is enabled and clicking it calls this with the user's selection. */
-    onSave: (syncedColumns: string[] | null) => void
-    /** Optional secondary button shown next to "Save". */
+    onSave: (enabledColumns: string[] | null) => void
     onCancel?: () => void
-    /** Hide the action buttons — useful when the embedding scene supplies its own save controls. */
     hideActions?: boolean
 }
 
@@ -33,7 +26,7 @@ interface ColumnSelectionModalProps {
     isOpen: boolean
     schema: ExternalDataSourceSchema | null
     onClose: () => void
-    onSave: (syncedColumns: string[] | null) => void
+    onSave: (enabledColumns: string[] | null) => void
 }
 
 interface UseColumnSelectionResult {
@@ -60,19 +53,13 @@ function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSele
     const [filter, setFilter] = useState('')
 
     useEffect(() => {
-        const currentSynced = schema?.synced_columns
-        if (Array.isArray(currentSynced)) {
-            // Empty array means "sync only required columns" — keep selected as an empty Set,
-            // not null (null is reserved for "sync all").
-            setSelected(new Set(currentSynced))
-        } else {
-            setSelected(null)
-        }
+        const current = schema?.enabled_columns
+        setSelected(Array.isArray(current) ? new Set(current) : null)
         setFilter('')
-        // Use a stable serialized key — the array reference changes on every poll even when
-        // the contents are identical, which would reset user edits mid-interaction.
+        // Stable serialized key: the array ref changes on every poll even with identical contents,
+        // which would otherwise wipe out in-progress edits.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [schema?.id, schema?.synced_columns?.join('\0') ?? null])
+    }, [schema?.id, schema?.enabled_columns?.join('\0') ?? null])
 
     const isAlwaysRetained = (name: string): boolean => primaryKeys.has(name) || name === incrementalField
 
@@ -116,9 +103,8 @@ function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSele
         if (selected === null) {
             return null
         }
-        // Always include PKs + incremental field so the persisted list reads naturally
-        // (e.g. ["id"] = sync only the PK, not "" / "no columns"). null is reserved for
-        // "sync all columns".
+        // PKs + incremental are always synced — including them explicitly keeps the persisted
+        // list legible (e.g. ["id"] reads as "PK only" rather than the ambiguous []).
         const result = new Set(selected)
         primaryKeys.forEach((pk) => result.add(pk))
         if (incrementalField) {

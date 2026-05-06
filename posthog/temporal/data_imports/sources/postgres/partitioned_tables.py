@@ -498,7 +498,7 @@ def build_partition_query(
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
     *,
-    synced_columns: Optional[list[str]] = None,
+    enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
     """Build a SELECT against one child partition.
@@ -511,8 +511,8 @@ def build_partition_query(
     data loss on restart; the non-incremental branch returns a bare SELECT *.
     """
     select_clause: sql.Composable
-    if synced_columns is not None:
-        retained: set[str] = set(synced_columns)
+    if enabled_columns is not None:
+        retained: set[str] = set(enabled_columns)
         for pk in primary_keys or []:
             retained.add(pk)
         if incremental_field:
@@ -520,7 +520,7 @@ def build_partition_query(
         # Preserve user-specified order, then append PK + incremental field.
         seen: set[str] = set()
         ordered: list[str] = []
-        for column in synced_columns:
+        for column in enabled_columns:
             if column in retained and column not in seen:
                 seen.add(column)
                 ordered.append(column)

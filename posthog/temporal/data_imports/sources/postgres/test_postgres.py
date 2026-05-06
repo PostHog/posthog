@@ -495,7 +495,7 @@ class TestBuildQuery:
         assert '"id"' in rendered
         assert "LIMIT 1000" in rendered
 
-    def test_synced_columns_emits_explicit_select_list(self):
+    def test_enabled_columns_emits_explicit_select_list(self):
         query = _build_query(
             "public",
             "users",
@@ -504,7 +504,7 @@ class TestBuildQuery:
             None,
             None,
             None,
-            synced_columns=["email", "name"],
+            enabled_columns=["email", "name"],
             primary_keys=["id"],
         )
         rendered = self._render(query)
@@ -514,7 +514,7 @@ class TestBuildQuery:
         assert '"id"' in rendered
         assert "SELECT *" not in rendered
 
-    def test_synced_columns_preserves_user_order(self):
+    def test_enabled_columns_preserves_user_order(self):
         query = _build_query(
             "public",
             "users",
@@ -523,7 +523,7 @@ class TestBuildQuery:
             None,
             None,
             None,
-            synced_columns=["zeta", "alpha"],
+            enabled_columns=["zeta", "alpha"],
             primary_keys=["id"],
         )
         rendered = self._render(query)
@@ -533,7 +533,7 @@ class TestBuildQuery:
         id_pos = rendered.index('"id"')
         assert zeta_pos < alpha_pos < id_pos
 
-    def test_synced_columns_includes_incremental_field(self):
+    def test_enabled_columns_includes_incremental_field(self):
         query = _build_query(
             "public",
             "events",
@@ -542,7 +542,7 @@ class TestBuildQuery:
             "updated_at",
             IncrementalFieldType.Timestamp,
             "2024-01-01",
-            synced_columns=["payload"],
+            enabled_columns=["payload"],
             primary_keys=["id"],
         )
         rendered = self._render(query)
@@ -551,7 +551,7 @@ class TestBuildQuery:
         assert '"updated_at"' in rendered
         assert '"id"' in rendered
 
-    def test_synced_columns_none_is_select_star(self):
+    def test_enabled_columns_none_is_select_star(self):
         query = _build_query(
             "public",
             "users",
@@ -560,13 +560,13 @@ class TestBuildQuery:
             None,
             None,
             None,
-            synced_columns=None,
+            enabled_columns=None,
             primary_keys=["id"],
         )
         rendered = self._render(query)
         assert "SELECT *" in rendered
 
-    def test_synced_columns_empty_list_is_select_star(self):
+    def test_enabled_columns_empty_list_is_select_star(self):
         query = _build_query(
             "public",
             "users",
@@ -575,7 +575,7 @@ class TestBuildQuery:
             None,
             None,
             None,
-            synced_columns=[],
+            enabled_columns=[],
             primary_keys=["id"],
         )
         rendered = self._render(query)

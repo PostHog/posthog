@@ -478,7 +478,7 @@ export default function SchemaForm(): JSX.Element {
                                         if (schema.available_columns.length === 0) {
                                             return <span className="text-xs text-muted-foreground">—</span>
                                         }
-                                        const synced = schema.synced_columns
+                                        const synced = schema.enabled_columns
                                         const alwaysRetained = new Set<string>([
                                             ...(schema.primary_key_columns ?? []),
                                             ...(schema.incremental_field ? [schema.incremental_field] : []),
@@ -528,7 +528,7 @@ export default function SchemaForm(): JSX.Element {
                                 ? {
                                       id: columnSelectionSchema.table,
                                       name: columnSelectionSchema.table,
-                                      synced_columns: columnSelectionSchema.synced_columns,
+                                      enabled_columns: columnSelectionSchema.enabled_columns,
                                       primary_key_columns: columnSelectionSchema.primary_key_columns,
                                       incremental_field: columnSelectionSchema.incremental_field,
                                       available_columns: columnSelectionSchema.available_columns.map((c) => ({
@@ -539,9 +539,9 @@ export default function SchemaForm(): JSX.Element {
                                   }
                                 : null
                         }
-                        onSave={(syncedColumns) => {
+                        onSave={(enabledColumns) => {
                             if (columnSelectionSchema) {
-                                setSchemaSyncedColumns(columnSelectionSchema, syncedColumns)
+                                setSchemaSyncedColumns(columnSelectionSchema, enabledColumns)
                             }
                             setColumnSelectionSchema(null)
                         }}

@@ -34,7 +34,7 @@ from products.data_warehouse.backend.data_load.service import (
     unpause_external_data_schedule,
 )
 from products.data_warehouse.backend.direct_postgres import (
-    filter_dwh_columns_by_synced_columns as _filter_dwh_columns_by_synced_columns,
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_direct_postgres_location,
     hide_direct_postgres_table,
     postgres_schema_metadata_to_dwh_columns,
@@ -107,7 +107,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
-    synced_columns = serializers.ListField(
+    enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
         allow_null=True,
@@ -144,7 +144,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "description",
             "primary_key_columns",
             "cdc_table_mode",
-            "synced_columns",
+            "enabled_columns",
             "available_columns",
         ]
 
@@ -252,11 +252,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
 
-        if "synced_columns" in validated_data:
-            synced_columns = validated_data["synced_columns"]
-            if synced_columns is not None:
-                if not isinstance(synced_columns, list) or not all(isinstance(c, str) for c in synced_columns):
-                    raise ValidationError("synced_columns must be a list of column-name strings or null.")
+        if "enabled_columns" in validated_data:
+            enabled_columns = validated_data["enabled_columns"]
+            if enabled_columns is not None:
+                if not isinstance(enabled_columns, list) or not all(isinstance(c, str) for c in enabled_columns):
+                    raise ValidationError("enabled_columns must be a list of column-name strings or null.")
                 metadata = instance.schema_metadata or {}
                 metadata_columns = metadata.get("columns") if isinstance(metadata, dict) else None
                 known = (
@@ -265,10 +265,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     else set()
                 )
                 if known:
-                    unknown = [c for c in synced_columns if c not in known]
+                    unknown = [c for c in enabled_columns if c not in known]
                     if unknown:
                         raise ValidationError(
-                            f"Unknown columns in synced_columns: {sorted(unknown)}. "
+                            f"Unknown columns in enabled_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
 
@@ -399,8 +399,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             trigger_refresh = True
 
         if source.is_direct_postgres:
-            synced_columns_changed = "synced_columns" in validated_data and (
-                validated_data["synced_columns"] != instance.synced_columns
+            enabled_columns_changed = "enabled_columns" in validated_data and (
+                validated_data["enabled_columns"] != instance.enabled_columns
             )
             # We use "should_sync" to determine if the table should be exposed or hidden.
             if should_sync is True and instance.should_sync is False:
@@ -413,9 +413,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     instance.table,
                     schema_name=instance.name,
                     source=source,
-                    columns=_filter_dwh_columns_by_synced_columns(
+                    columns=_filter_dwh_columns_by_enabled_columns(
                         postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
-                        validated_data.get("synced_columns", instance.synced_columns),
+                        validated_data.get("enabled_columns", instance.enabled_columns),
                         instance.primary_key_columns,
                     ),
                     source_catalog=source_catalog,
@@ -423,7 +423,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     source_table_name=source_table_name,
                 )
 
-            elif synced_columns_changed and instance.table is not None and instance.should_sync:
+            elif enabled_columns_changed and instance.table is not None and instance.should_sync:
                 # Re-project the live-query DataWarehouseTable so HogQL sees the new column subset
                 # immediately (no re-sync needed for direct mode).
                 source_catalog, source_schema, source_table_name = get_direct_postgres_location(
@@ -435,9 +435,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     instance.table,
                     schema_name=instance.name,
                     source=source,
-                    columns=_filter_dwh_columns_by_synced_columns(
+                    columns=_filter_dwh_columns_by_enabled_columns(
                         postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
-                        validated_data["synced_columns"],
+                        validated_data["enabled_columns"],
                         instance.primary_key_columns,
                     ),
                     source_catalog=source_catalog,

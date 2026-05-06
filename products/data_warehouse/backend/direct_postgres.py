@@ -225,39 +225,33 @@ def rename_direct_postgres_join_references(*, team_id: int, old_name: str, new_n
     DataWarehouseJoin.objects.filter(team_id=team_id, joining_table_name=old_name).update(joining_table_name=new_name)
 
 
-def filter_dwh_columns_by_synced_columns(
+def filter_dwh_columns_by_enabled_columns(
     columns: DirectPostgresColumns,
-    synced_columns: list[str] | None,
+    enabled_columns: list[str] | None,
     primary_keys: list[str] | None,
 ) -> DirectPostgresColumns:
-    """Project a `DataWarehouseTable.columns` dict down to user-selected `synced_columns` plus PKs.
-
-    `None` means sync all (return dict unchanged). Empty list means retain only PKs."""
-    if synced_columns is None:
+    # `None` and `[]` are distinct: `None` means sync all, `[]` means retain only PKs.
+    if enabled_columns is None:
         return columns
 
-    retained: set[str] = set(synced_columns)
+    retained: set[str] = set(enabled_columns)
     for pk in primary_keys or []:
         retained.add(pk)
 
     return {name: column for name, column in columns.items() if name in retained}
 
 
-def filter_columns_by_synced_columns(
+def filter_columns_by_enabled_columns(
     columns: list[tuple[str, str, bool]],
-    synced_columns: list[str] | None,
+    enabled_columns: list[str] | None,
     primary_keys: list[str] | None,
     incremental_field: str | None = None,
 ) -> list[tuple[str, str, bool]]:
-    """Project `columns` down to user-selected `synced_columns` plus always-retained PK + incremental field.
-
-    `None` means no projection (return all). Empty list means retain only PKs + incremental field.
-    Always preserves source ordering.
-    """
-    if synced_columns is None:
+    # `None` and `[]` are distinct: `None` means sync all, `[]` means retain only PKs + incremental.
+    if enabled_columns is None:
         return columns
 
-    retained: set[str] = set(synced_columns)
+    retained: set[str] = set(enabled_columns)
     for pk in primary_keys or []:
         retained.add(pk)
     if incremental_field:
@@ -302,7 +296,7 @@ def reconcile_postgres_schemas(
             default_schema=(source.job_inputs or {}).get("schema"),
         )
         # `schema_metadata` carries the FULL column list so the column-picker UI can re-add
-        # excluded columns later. Per-row column projection lives on `synced_columns` separately.
+        # excluded columns later. Per-row column projection lives on `enabled_columns` separately.
         schema_metadata = postgres_schema_metadata(
             source_schema.columns,
             source_schema.foreign_keys,
@@ -321,9 +315,9 @@ def reconcile_postgres_schemas(
             hide_direct_postgres_table(schema_model.table)
             continue
 
-        projected_columns = filter_columns_by_synced_columns(
+        projected_columns = filter_columns_by_enabled_columns(
             source_schema.columns,
-            schema_model.synced_columns,
+            schema_model.enabled_columns,
             source_schema.detected_primary_keys,
         )
         table_model = upsert_direct_postgres_table(

@@ -119,7 +119,7 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
-    synced_columns: zod
+    enabled_columns: zod
         .array(zod.string())
         .nullish()
         .describe(
@@ -203,7 +203,7 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
-    synced_columns: zod
+    enabled_columns: zod
         .array(zod.string())
         .nullish()
         .describe(
@@ -296,7 +296,7 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
-    synced_columns: zod
+    enabled_columns: zod
         .array(zod.string())
         .nullish()
         .describe(
@@ -380,7 +380,7 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
-    synced_columns: zod
+    enabled_columns: zod
         .array(zod.string())
         .nullish()
         .describe(
@@ -464,7 +464,7 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
-    synced_columns: zod
+    enabled_columns: zod
         .array(zod.string())
         .nullish()
         .describe(

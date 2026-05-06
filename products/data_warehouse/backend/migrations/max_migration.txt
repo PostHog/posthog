@@ -1,1 +1,1 @@
-0051_externaldataschema_synced_columns
+0051_externaldataschema_enabled_columns

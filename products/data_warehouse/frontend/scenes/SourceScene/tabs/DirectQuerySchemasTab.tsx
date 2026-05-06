@@ -129,9 +129,9 @@ export function DirectQuerySchemasTab({ id }: DirectQuerySchemasTabProps): JSX.E
                 isOpen={columnModalSchema !== null}
                 schema={columnModalSchema}
                 onClose={() => setColumnModalSchema(null)}
-                onSave={(syncedColumns) => {
+                onSave={(enabledColumns) => {
                     if (columnModalSchema) {
-                        updateSchema({ ...columnModalSchema, synced_columns: syncedColumns })
+                        updateSchema({ ...columnModalSchema, enabled_columns: enabledColumns })
                     }
                     setColumnModalSchema(null)
                 }}

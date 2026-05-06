@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="externaldataschema",
-            name="synced_columns",
+            name="enabled_columns",
             field=models.JSONField(blank=True, default=None, null=True),
         ),
     ]
