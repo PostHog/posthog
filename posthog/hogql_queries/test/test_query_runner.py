@@ -325,6 +325,34 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_f67778c870f29df1c38c85726fd6f2b319b920f6f3414acf2de1927271503977"
 
+    def test_cache_key_diverges_when_persons_on_events_flag_resolves_differently(self):
+        # Reproduces the dashboard-tile cache fragmentation bug observed in production:
+        # `posthoganalytics.feature_enabled` is consulted via `team.person_on_events_mode_flag_based_default`
+        # to fill `modifiers.personsOnEventsMode` when the insight does not preset it. Different web pods
+        # have different local feature-flag cache hydration states, so the SAME team can resolve to
+        # different `personsOnEventsMode` values across pods. That value is part of `get_cache_payload`,
+        # so the cache_key fragments per-pod and refreshes never update the entry the dashboard reads.
+        #
+        # The flag is only consulted on PostHog Cloud and only when the env override is unset, so we
+        # patch both to drive the runner through the flag-evaluating code path.
+        from django.test import override_settings
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(pk=42, organization=self.organization)
+
+        keys: list[str] = []
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=None, PERSON_ON_EVENTS_V2_OVERRIDE=None):
+            with mock.patch("posthog.models.team.team.is_cloud", return_value=True):
+                for flag_value in (True, False, None):
+                    with mock.patch("posthoganalytics.feature_enabled", return_value=flag_value):
+                        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+                        keys.append(runner.get_cache_key())
+
+        assert len(set(keys)) == 1, (
+            f"cache_key must not depend on `posthoganalytics.feature_enabled` results "
+            f"(observed {len(set(keys))} distinct keys for flag values True/False/None: {keys})"
+        )
+
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()

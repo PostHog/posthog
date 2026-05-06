@@ -11,6 +11,7 @@ from posthog.schema import (
     InlineCohortCalculation,
     MaterializationMode,
     PersonsArgMaxVersion,
+    PersonsOnEventsMode,
     PropertyGroupsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
@@ -77,8 +78,15 @@ def create_default_modifiers_for_team(
 
 
 def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
+    # `personsOnEventsMode` deliberately does NOT consult `team.person_on_events_mode_flag_based_default`
+    # here, even when the team has no value persisted. That property evaluates a feature flag locally,
+    # which can return different values across web pods depending on the SDK's local flag-cache state.
+    # The result feeds into `get_cache_payload` and would fragment the query cache per-pod for the
+    # same team. Teams should have `team.modifiers["personsOnEventsMode"]` persisted (see the
+    # `backfill_persons_on_events_mode_job` Dagster job); brand-new or unbackfilled teams fall through
+    # to a stable hardcoded default below.
     if modifiers.personsOnEventsMode is None:
-        modifiers.personsOnEventsMode = team.person_on_events_mode_flag_based_default
+        modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.AUTO

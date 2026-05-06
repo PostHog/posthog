@@ -59,12 +59,21 @@ class TestModifiers(BaseTest):
         "posthog.models.team.Team._person_on_events_person_id_override_properties_on_events",
         True,
     )
-    def test_modifiers_persons_on_events_default_is_based_on_team_property(self):
+    def test_modifiers_persons_on_events_default_does_not_consult_team_flag(self):
+        # The runner intentionally does NOT consult `team.person_on_events_mode_flag_based_default`
+        # for the modifier default — that property evaluates a feature flag locally, which can
+        # return different values across web pods and would fragment `cache_key` per-pod.
+        # Teams that need a non-default mode have it persisted in `team.modifiers["personsOnEventsMode"]`
+        # (populated by the `backfill_persons_on_events_mode_job` Dagster job). When the team has
+        # no value persisted, the runner falls back to a stable hardcoded default below.
         assert self.team.modifiers is None
         modifiers = create_default_modifiers_for_team(self.team)
+        # `team.person_on_events_mode` still walks the flag chain, so this asserts the value that
+        # WOULD have leaked into the cache_key under the old behavior:
         assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        # …but the modifier default is now the stable hardcoded fallback, regardless of the flag:
         assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
-        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"
