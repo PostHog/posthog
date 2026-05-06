@@ -226,6 +226,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 query={query}
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
+                embedded={props.embedded}
             />
         )
     } else if (
