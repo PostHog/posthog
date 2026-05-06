@@ -323,7 +323,7 @@ class DatabricksDestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["Databricks"])
     integration_id = serializers.IntegerField(
-        help_text="ID of a databricks-kind Integration. Use integrations-list to find one.",
+        help_text="ID of a databricks-kind Integration. Use the integrations-list MCP tool to find one.",
     )
     config = DatabricksDestinationConfigSerializer()
 
@@ -333,7 +333,7 @@ class AzureBlobDestinationRequestSerializer(serializers.Serializer):
 
     type = serializers.ChoiceField(choices=["AzureBlob"])
     integration_id = serializers.IntegerField(
-        help_text="ID of an azure-blob-kind Integration. Use integrations-list to find one.",
+        help_text="ID of an azure-blob-kind Integration. Use the integrations-list MCP tool to find one.",
     )
     config = AzureBlobDestinationConfigSerializer()
 
@@ -383,26 +383,15 @@ class BatchExportRequestSerializer(serializers.Serializer):
         help_text="How often the batch export should run.",
     )
     paused = serializers.BooleanField(required=False, help_text="Whether the batch export is paused.")
-    start_at = serializers.DateTimeField(
-        required=False,
-        allow_null=True,
-        help_text="Time before which no runs will be triggered.",
-    )
-    end_at = serializers.DateTimeField(
-        required=False,
-        allow_null=True,
-        help_text="Time after which no runs will be triggered.",
-    )
     hogql_query = serializers.CharField(
         required=False,
-        help_text="Optional HogQL SELECT defining a custom per-record shape when `schema` is set.",
+        help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
     )
     filters = serializers.JSONField(required=False, allow_null=True)
-    timezone = serializers.ChoiceField(
-        choices=TIMEZONES,
+    timezone = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="IANA timezone name controlling daily and weekly interval boundaries.",
+        help_text="IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.",
     )
     offset_day = serializers.IntegerField(
         required=False,
@@ -705,7 +694,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
     )
     hogql_query = HogQLSelectQueryField(
         required=False,
-        help_text="Optional HogQL SELECT query used when `schema` is set; defines the custom shape of each exported record.",
+        help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
     )
     timezone = serializers.ChoiceField(
         choices=TIMEZONES,

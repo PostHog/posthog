@@ -394,7 +394,7 @@
         }
     },
     "batch-export-delete": {
-        "description": "Permanently delete a batch export. Stops all future scheduled runs. Historic run records remain but are orphaned from the deleted export.",
+        "description": "Soft-delete a batch export. Stops all future scheduled runs and hides the export from list and get operations. Historic run records remain attached to the deleted export in the database.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Delete batch export",

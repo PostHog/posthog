@@ -36,18 +36,6 @@ const batchExportCreate = (): ToolBase<typeof BatchExportCreateSchema, Schemas.B
         if (params.paused !== undefined) {
             body['paused'] = params.paused
         }
-        if (params.start_at !== undefined) {
-            body['start_at'] = params.start_at
-        }
-        if (params.end_at !== undefined) {
-            body['end_at'] = params.end_at
-        }
-        if (params.hogql_query !== undefined) {
-            body['hogql_query'] = params.hogql_query
-        }
-        if (params.filters !== undefined) {
-            body['filters'] = params.filters
-        }
         if (params.timezone !== undefined) {
             body['timezone'] = params.timezone
         }
@@ -120,18 +108,6 @@ const batchExportUpdate = (): ToolBase<typeof BatchExportUpdateSchema, Schemas.B
         }
         if (params.paused !== undefined) {
             body['paused'] = params.paused
-        }
-        if (params.start_at !== undefined) {
-            body['start_at'] = params.start_at
-        }
-        if (params.end_at !== undefined) {
-            body['end_at'] = params.end_at
-        }
-        if (params.hogql_query !== undefined) {
-            body['hogql_query'] = params.hogql_query
-        }
-        if (params.filters !== undefined) {
-            body['filters'] = params.filters
         }
         if (params.timezone !== undefined) {
             body['timezone'] = params.timezone

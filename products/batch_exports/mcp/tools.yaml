@@ -32,6 +32,10 @@ tools:
             - last_updated_at
             - last_paused_at
             - latest_runs
+            - filters
+            - hogql_query
+            - start_at
+            - end_at
     batch-export-delete:
         operation: batch_exports_destroy
         enabled: true
@@ -43,8 +47,9 @@ tools:
             idempotent: true
         title: Delete batch export
         description: >
-            Permanently delete a batch export. Stops all future scheduled runs. Historic run records remain but are
-            orphaned from the deleted export.
+            Soft-delete a batch export. Stops all future scheduled runs and hides the export from
+            list and get operations. Historic run records remain attached to the deleted export in
+            the database.
     batch-export-get:
         operation: batch_exports_retrieve
         enabled: true
@@ -80,6 +85,8 @@ tools:
             - last_updated_at
             - last_paused_at
             - latest_runs
+            - filters
+            - hogql_query
     batch-exports-backfills-cancel-create:
         operation: batch_exports_backfills_cancel_create
         enabled: false
