@@ -50,7 +50,8 @@ export function LegacyPageHeader(): JSX.Element {
             onDelete: () => router.actions.push(urls.experiments()),
         })
 
-    const isExperimentRunning = experiment.status === ExperimentStatus.Running
+    const isExperimentRunning =
+        experiment.status === ExperimentStatus.Running || experiment.status === ExperimentStatus.Paused
     const isExperimentStopped = experiment.status === ExperimentStatus.Stopped
 
     return (

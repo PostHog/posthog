@@ -6,6 +6,12 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
+# Profile guidance:
+#   New optional services should declare `profiles:` directly on the service
+#   here (see capture, plugins, ingestion-* for examples).
+#   docker-compose.profiles.yml is a legacy overlay that retroactively gates
+#   older services; do not add new entries there.
+#
 
 services:
     proxy:

@@ -223,10 +223,14 @@ export function ProjectTree({
                 type: 'category',
                 displayName: (
                     <div className={cn('border border-primary text-xs font-normal rounded-xs p-2 -mx-1')}>
-                        Starred items are added by pressing{' '}
-                        <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                        side-clicking a panel item, then "Add to starred", or inside an app's resources file menu click{' '}
-                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.{' '}
+                        Add a starred item by clicking{' '}
+                        <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> next to
+                        an item in the Files sidebar, then selecting "
+                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add to
+                        starred". You can also add a starred item by opening a resource, clicking its project name in
+                        the side panel, and selecting "
+                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add to
+                        starred".{' '}
                         {fullFileSystemFiltered.length > 0 && (
                             <span className="cursor-pointer underline" onClick={() => setShortcutHelperDismissed(true)}>
                                 Dismiss.

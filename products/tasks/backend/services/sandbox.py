@@ -60,7 +60,10 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
-SANDBOX_TTL_SECONDS = 60 * 120  # 2 hours (safety net; workflow inactivity timeout handles cleanup)
+# Production: 6 hours (safety net; workflow inactivity timeout handles cleanup).
+# Tests: 15 min so any sandbox orphaned by a crashed test auto-destroys quickly
+# instead of burning Modal capacity for hours.
+SANDBOX_TTL_SECONDS = 15 * 60 if settings.TEST else 6 * 60 * 60
 
 
 class SandboxConfig(BaseModel):

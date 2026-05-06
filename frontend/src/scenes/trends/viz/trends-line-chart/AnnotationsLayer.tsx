@@ -2,16 +2,13 @@ import React, { useMemo } from 'react'
 
 import { Chart } from 'lib/Chart'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { computeVisibleXLabels, useChart } from 'lib/hog-charts'
+import { computeVisibleXLabels, useChartLayout } from 'lib/hog-charts'
 
 interface AnnotationsLayerProps {
     /** Numeric insight id used by the annotations logic. Pass `'new'` for unsaved insights. */
     insightNumericId: number | 'new'
     /** Per-data-point date strings; used for grouping annotations. */
     dates: string[]
-    /** Custom x-axis tick formatter — must match the one passed to the chart so the
-     *  computed tick set lines up with what the user sees. */
-    xTickFormatter?: (value: string, index: number) => string | null
 }
 
 const WRAPPER_STYLE: React.CSSProperties = {
@@ -20,12 +17,14 @@ const WRAPPER_STYLE: React.CSSProperties = {
     pointerEvents: 'auto',
 }
 
-export function AnnotationsLayer({
-    insightNumericId,
-    dates,
-    xTickFormatter,
-}: AnnotationsLayerProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChart()
+// Annotation badges must not drive the chart's crosshair or onPointClick.
+const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
+    e.stopPropagation()
+}
+
+export function AnnotationsLayer({ insightNumericId, dates }: AnnotationsLayerProps): React.ReactElement | null {
+    const { scales, dimensions, labels, axis } = useChartLayout()
+    const xTickFormatter = axis.xTickFormatter
 
     const chartLike = useMemo(() => {
         const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)
@@ -48,7 +47,13 @@ export function AnnotationsLayer({
     }
 
     return (
-        <div style={WRAPPER_STYLE}>
+        <div
+            className="HogChartsAnnotationsLayer"
+            style={WRAPPER_STYLE}
+            onClick={stopPointerPropagation}
+            onMouseMove={stopPointerPropagation}
+            onMouseDown={stopPointerPropagation}
+        >
             <AnnotationsOverlay
                 chart={chartLike as unknown as Chart}
                 dates={dates}

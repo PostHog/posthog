@@ -245,6 +245,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     is_active: true,
     is_not_active_reason: null,
     is_pending_deletion: false,
+    is_ai_data_processing_approved: true,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {

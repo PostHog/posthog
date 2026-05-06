@@ -70,8 +70,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     protected outputs: CdpOutputs
     protected abstract name: string
 
-    protected heartbeat = () => {}
-
     constructor(
         protected config: TConfig,
         protected deps: CdpConsumerBaseDeps
@@ -107,15 +105,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
             onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy(),
         }
-    }
-
-    protected async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the thread, killing the consumer
-        const res = await func()
-        this.heartbeat()
-        await new Promise((resolve) => process.nextTick(resolve))
-
-        return res
     }
 
     public async start(): Promise<void> {

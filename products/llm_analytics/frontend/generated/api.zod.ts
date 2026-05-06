@@ -446,6 +446,17 @@ export const LlmAnalyticsClusteringRunsCreateBody = /* @__PURE__ */ zod
     .describe('Serializer for clustering workflow request parameters.')
 
 /**
+ * Set the active provider key for evaluations
+ */
+export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ */ zod.object({
+    key_id: zod
+        .uuid()
+        .describe(
+            "UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide."
+        ),
+})
+
+/**
  * CRUD for evaluation report configurations + report run history.
  */
 export const llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax = 64
@@ -1068,7 +1079,7 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .min(1)
         .max(llmAnalyticsSentimentCreateBodyIdsMax)
-        .describe('Trace IDs or generation IDs to classify, depending on analysis_level.'),
+        .describe('Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).'),
     analysis_level: zod
         .enum(['trace', 'generation'])
         .describe('* `trace` - trace\n* `generation` - generation')
@@ -1086,6 +1097,23 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
         .describe("Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."),
     date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
 })
+
+/**
+ * Fetch the recent $ai_generation events for the sentiment tab.
+
+Backed by `_SENTIMENT_GENERATIONS_SQL` reading `posthog.ai_events` through
+`execute_with_ai_events_fallback`, so heavy `input` values survive the
+post-cutover strip on `events.properties.$ai_input`. Frontend callers
+pass the same `HogQLFilters` payload they previously passed to
+`api.query({kind: HogQLQuery, filters: ...})`.
+ */
+export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        filters: zod.unknown().optional(),
+    })
+    .describe(
+        'Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.\n\n`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL\npath used (dateRange, filterTestAccounts, properties), so the migration is\nbehaviour-preserving for callers that pass a request unchanged.'
+    )
 
 /**
  * 
@@ -1282,7 +1310,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(llmAnalyticsTraceReviewsCreateBodyTraceIdMax)
         .describe('Trace ID for the review. Only one active review can exist per trace and team.'),
-    comment: zod.string().nullish().describe('Optional human comment or reasoning for the review.'),
+    comment: zod.string().nullish().describe('Optional comment or reasoning for the review.'),
     scores: zod
         .array(
             zod.object({
@@ -1328,7 +1356,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .max(llmAnalyticsTraceReviewsPartialUpdateBodyTraceIdMax)
         .optional()
         .describe('Trace ID for the review. Only one active review can exist per trace and team.'),
-    comment: zod.string().nullish().describe('Optional human comment or reasoning for the review.'),
+    comment: zod.string().nullish().describe('Optional comment or reasoning for the review.'),
     scores: zod
         .array(
             zod.object({
@@ -1639,6 +1667,123 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
+})
+
+export const taggersCreateBodyNameMax = 400
+
+export const taggersCreateBodyTaggerTypeDefault = `llm`
+export const taggersCreateBodyConditionsItemIdMax = 100
+
+export const taggersCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const taggersCreateBodyConditionsItemRolloutPercentageMin = 0
+export const taggersCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const taggersCreateBodyModelConfigurationOneModelMax = 100
+
+export const TaggersCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taggersCreateBodyNameMax),
+    description: zod.string().optional(),
+    enabled: zod.boolean().optional(),
+    tagger_type: zod
+        .enum(['llm', 'hog'])
+        .describe('* `llm` - LLM\n* `hog` - Hog')
+        .default(taggersCreateBodyTaggerTypeDefault),
+    tagger_config: zod.unknown().describe('Tagger configuration (varies by tagger_type)'),
+    conditions: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(taggersCreateBodyConditionsItemIdMax)
+                    .describe('Stable identifier for this condition'),
+                rollout_percentage: zod
+                    .number()
+                    .min(taggersCreateBodyConditionsItemRolloutPercentageMin)
+                    .max(taggersCreateBodyConditionsItemRolloutPercentageMax)
+                    .default(taggersCreateBodyConditionsItemRolloutPercentageDefault)
+                    .describe('Percentage of matching events to apply this condition to'),
+                properties: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe('Property filters that scope when this condition fires'),
+            })
+        )
+        .optional()
+        .describe('Conditions that scope when the tagger runs'),
+    model_configuration: zod
+        .object({
+            provider: zod
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                .describe(
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                ),
+            model: zod.string().max(taggersCreateBodyModelConfigurationOneModelMax),
+            provider_key_id: zod.uuid().nullish(),
+            provider_key_name: zod.string().nullable(),
+        })
+        .describe('Nested serializer for model configuration.')
+        .nullish(),
+    deleted: zod.boolean().optional(),
+})
+
+/**
+ * Test Hog tagger code against sample events without saving.
+ */
+export const taggersTestHogCreateBodyNameMax = 400
+
+export const taggersTestHogCreateBodyTaggerTypeDefault = `llm`
+export const taggersTestHogCreateBodyConditionsItemIdMax = 100
+
+export const taggersTestHogCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const taggersTestHogCreateBodyConditionsItemRolloutPercentageMin = 0
+export const taggersTestHogCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const taggersTestHogCreateBodyModelConfigurationOneModelMax = 100
+
+export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taggersTestHogCreateBodyNameMax),
+    description: zod.string().optional(),
+    enabled: zod.boolean().optional(),
+    tagger_type: zod
+        .enum(['llm', 'hog'])
+        .describe('* `llm` - LLM\n* `hog` - Hog')
+        .default(taggersTestHogCreateBodyTaggerTypeDefault),
+    tagger_config: zod.unknown().describe('Tagger configuration (varies by tagger_type)'),
+    conditions: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(taggersTestHogCreateBodyConditionsItemIdMax)
+                    .describe('Stable identifier for this condition'),
+                rollout_percentage: zod
+                    .number()
+                    .min(taggersTestHogCreateBodyConditionsItemRolloutPercentageMin)
+                    .max(taggersTestHogCreateBodyConditionsItemRolloutPercentageMax)
+                    .default(taggersTestHogCreateBodyConditionsItemRolloutPercentageDefault)
+                    .describe('Percentage of matching events to apply this condition to'),
+                properties: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe('Property filters that scope when this condition fires'),
+            })
+        )
+        .optional()
+        .describe('Conditions that scope when the tagger runs'),
+    model_configuration: zod
+        .object({
+            provider: zod
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                .describe(
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                ),
+            model: zod.string().max(taggersTestHogCreateBodyModelConfigurationOneModelMax),
+            provider_key_id: zod.uuid().nullish(),
+            provider_key_name: zod.string().nullable(),
+        })
+        .describe('Nested serializer for model configuration.')
+        .nullish(),
+    deleted: zod.boolean().optional(),
 })
 
 export const datasetItemsCreateBodyRefTraceIdMax = 255

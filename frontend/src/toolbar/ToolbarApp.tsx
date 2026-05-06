@@ -8,6 +8,8 @@ import { useSecondRender } from 'lib/hooks/useSecondRender'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
 import { TOOLBAR_ID } from './utils'
@@ -55,6 +57,20 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   }
 
                   styleLink.onload = () => setDidLoadStyles(true)
+                  // Without onerror the toolbar silently stays invisible when the
+                  // CSS 404s (didLoadStyles never flips to true). That masks
+                  // misconfigured apiHost / rejected URLs. Surface the failure
+                  // via logger + telemetry and render the toolbar anyway —
+                  // missing styles is a worse UX than nothing.
+                  styleLink.onerror = () => {
+                      toolbarLogger.error('config', 'Failed to load toolbar.css', { href: styleLink.href })
+                      captureToolbarException(
+                          new Error(`Failed to load toolbar.css from ${styleLink.href}`),
+                          'toolbar_css_load'
+                      )
+                      toolbarPosthogJS.capture('toolbar css load failed', { href: styleLink.href })
+                      setDidLoadStyles(true)
+                  }
                   const shadowRoot =
                       shadowRef.current?.shadowRoot || window.document.getElementById(TOOLBAR_ID)?.shadowRoot
                   shadowRoot?.getElementById('posthog-toolbar-styles')?.appendChild(styleLink)

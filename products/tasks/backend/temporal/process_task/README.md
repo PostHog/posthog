@@ -29,7 +29,7 @@ User ─────────────────────────
                               │     _repository            │
                               │  3. start_agent_server     │
                               │  4. wait_condition         │
-                              │     (5 min inactivity      │
+                              │     (2 hr inactivity       │
                               │      timeout, heartbeat-   │
                               │      extended)             │
                               │  5. cleanup_sandbox        │
@@ -61,7 +61,7 @@ User ─────────────────────────
 1. **get_task_processing_context** — Loads the TaskRun, validates GitHub integration and repository, builds a `TaskProcessingContext` with IDs and credentials
 2. **get_sandbox_for_repository** — Creates an OAuth token, provisions a sandbox (with snapshot if available), clones the repo, stores `sandbox_id`/`sandbox_url`/`sandbox_connect_token` in TaskRun.state
 3. **start_agent_server** — Runs `npx agent-server` inside the sandbox, waits for health check
-4. **wait_condition** — Blocks with a 5-minute inactivity timeout. The agent sends `heartbeat` signals to keep the workflow alive; each heartbeat resets the timer. The workflow exits when it receives a `complete_task` signal or when no heartbeat arrives within 5 minutes
+4. **wait_condition** — Blocks with a 2-hour inactivity timeout. The agent sends `heartbeat` signals to keep the workflow alive; each heartbeat resets the timer. The workflow exits when it receives a `complete_task` signal or when no heartbeat arrives within 2 hours
 5. **cleanup_sandbox** — Destroys the sandbox container (always runs via `finally`)
 
 ### Temporal client
@@ -97,7 +97,7 @@ Environment variables consumed inside the sandbox:
 4. **update_task_run_status** — Sets status to IN_PROGRESS
 5. **get_sandbox_for_repository** — Gets GitHub token from integration, creates OAuth access token, provisions sandbox, clones repo (unless snapshot used), stores sandbox credentials in TaskRun.state
 6. **start_agent_server** — Starts `npx agent-server` in sandbox, polls `/health` until ready
-7. **wait_condition** — Workflow blocks with a 5-minute inactivity timeout, extended by `heartbeat` signals from the agent. PostHog Code or the agent server signals completion via the API
+7. **wait_condition** — Workflow blocks with a 2-hour inactivity timeout, extended by `heartbeat` signals from the agent. PostHog Code or the agent server signals completion via the API
 8. Agent server calls `PATCH /api/projects/{team_id}/task_runs/{run_id}/` with terminal status
 9. API handler sends `complete_task(status, error_message)` signal to the Temporal workflow
 10. **cleanup_sandbox** — Sandbox destroyed
