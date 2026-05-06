@@ -76,6 +76,7 @@ import {
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
+import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
 import { SavedFilters } from './SavedFilters'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -513,8 +514,12 @@ function RecordingsUniversalFilterAddFilterPopover({
         taxonomicGroupTypes,
     }
 
+    // Only render the category pill while the taxonomic filter is open. Without this,
+    // clicking the pill from a closed state opens its menu AND focuses the input (which
+    // opens the surrounding popover); the popover portal mounts last and ends up
+    // visually on top of the menu.
     const suffix =
-        categoryDropdownVariant === 'control' ? undefined : (
+        categoryDropdownVariant === 'control' || !isPopoverVisible ? undefined : (
             <CategoryDropdown variant={categoryDropdownVariant} onAfterChange={focusInput} />
         )
 
@@ -569,7 +574,9 @@ function RecordingsUniversalFilterAddFilterPopover({
         </Popover>
     )
 
-    return suffix ? (
+    // Bind the logic whenever the pill variant is in play so the suffix can mount/unmount
+    // alongside popover visibility without remounting the popover itself.
+    return categoryDropdownVariant !== 'control' ? (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             {popover}
         </BindLogic>
@@ -670,6 +677,7 @@ const ReplayFiltersTab = ({
 
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
+            <ProductAnalyticsOverLimitBanner />
             {appliedSavedFilter && (
                 <div className="border-b px-2 py-3 flex flex-wrap items-center gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1 basis-3/5">

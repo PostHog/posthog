@@ -66,10 +66,10 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     filters = models.JSONField(default=dict)
 
     # Threshold
-    threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)], default=100)
     threshold_operator = models.CharField(
         max_length=10,
-        choices=ThresholdOperator.choices,
+        choices=ThresholdOperator,
         default=ThresholdOperator.ABOVE,
     )
 
@@ -80,7 +80,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     # State
     state = models.CharField(
         max_length=20,
-        choices=State.choices,
+        choices=State,
         default=State.NOT_FIRING,
     )
 
@@ -98,6 +98,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    first_enabled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "logs_logsalertconfiguration"
@@ -118,8 +119,14 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         self.next_check_at = None
         return ["next_check_at"]
 
-    def to_snapshot(self) -> AlertSnapshot:
-        """Capture the fields the state machine reads for a transition decision."""
+    def to_snapshot(self, recent_events_breached: tuple[bool, ...] | None = None) -> AlertSnapshot:
+        """Capture the fields the state machine reads for a transition decision.
+
+        `recent_events_breached` lets the caller pass in the M-of-N window directly
+        (e.g. derived from a single bucketed CH query). When omitted, falls back to
+        reading historical CHECK rows via `get_recent_breaches` — kept for back-compat
+        with code paths that haven't switched to the bucketed eval yet.
+        """
         from products.logs.backend.alert_state_machine import AlertSnapshot, AlertState
 
         return AlertSnapshot(
@@ -130,7 +137,9 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
             last_notified_at=self.last_notified_at,
             snooze_until=self.snooze_until,
             consecutive_failures=self.consecutive_failures,
-            recent_events_breached=self.get_recent_breaches(),
+            recent_events_breached=recent_events_breached
+            if recent_events_breached is not None
+            else self.get_recent_breaches(),
         )
 
     def get_recent_breaches(self) -> tuple[bool, ...]:
@@ -231,3 +240,35 @@ class LogsAlertEvent(UUIDModel):
         oldest = datetime.now(UTC) - timedelta(days=cls.EVENT_RETENTION_DAYS)
         count, _ = cls.objects.filter(created_at__lt=oldest).delete()
         return count
+
+
+class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules to drop or exclude log lines before storage (evaluated in ingestion when enabled)."""
+
+    class RuleType(models.TextChoices):
+        SEVERITY_SAMPLING = "severity_sampling", "Severity-based reduction"
+        PATH_DROP = "path_drop", "Path exclusion"
+        RATE_LIMIT = "rate_limit", "Rate limit"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    rule_type = models.CharField(max_length=32, choices=RuleType.choices)
+    scope_service = models.CharField(max_length=512, null=True, blank=True)
+    scope_path_pattern = models.CharField(max_length=1024, null=True, blank=True)
+    scope_attribute_filters = models.JSONField(default=list)
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsexclusionrule"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_exclusion_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"

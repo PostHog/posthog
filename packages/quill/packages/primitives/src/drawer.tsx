@@ -23,6 +23,8 @@ function DrawerClose({ ...props }: DrawerPrimitive.Close.Props): React.ReactElem
 function DrawerBackdrop({ className, ...props }: DrawerPrimitive.Backdrop.Props): React.ReactElement {
     return (
         <DrawerPrimitive.Backdrop
+            data-quill
+            data-quill-portal="drawer-backdrop"
             data-slot="drawer-backdrop"
             className={cn('quill-drawer__backdrop', className)}
             {...props}
@@ -38,7 +40,12 @@ function DrawerContent({
     return (
         <DrawerPortal>
             <DrawerBackdrop />
-            <DrawerPrimitive.Viewport data-slot="drawer-viewport" className="quill-drawer__viewport">
+            <DrawerPrimitive.Viewport
+                data-quill
+                data-quill-portal="drawer-viewport"
+                data-slot="drawer-viewport"
+                className="quill-drawer__viewport"
+            >
                 <DrawerPrimitive.Popup
                     data-quill
                     data-slot="drawer-content"

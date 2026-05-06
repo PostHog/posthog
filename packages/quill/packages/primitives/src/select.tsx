@@ -60,24 +60,22 @@ function SelectContent({
         <SelectPrimitive.Portal>
             <SelectPrimitive.Positioner
                 data-quill
+                data-quill-portal="popover"
                 side={side}
                 sideOffset={sideOffset}
                 align={align}
                 alignOffset={alignOffset}
                 alignItemWithTrigger={alignItemWithTrigger}
-                className="isolate z-50"
+                className="isolate"
             >
                 <SelectPrimitive.Popup
                     data-slot="select-content"
                     data-align-trigger={alignItemWithTrigger}
-                    className={cn(
-                        'quill-select__content',
-                        className
-                    )}
+                    className={cn('quill-select__content', className)}
                     {...props}
                 >
-                    <SelectScrollUpButton />
-                    <SelectPrimitive.List>{children}</SelectPrimitive.List>
+                    <SelectScrollUpButton className="quill-select__scroll-button flex items-center justify-center" />
+                    <SelectPrimitive.List className="scroll-mask-y-4 scroll-py-4">{children}</SelectPrimitive.List>
                     <SelectScrollDownButton />
                 </SelectPrimitive.Popup>
             </SelectPrimitive.Positioner>
@@ -122,7 +120,8 @@ function SelectScrollUpButton({
     return (
         <SelectPrimitive.ScrollUpArrow
             data-slot="select-scroll-up-button"
-            className={cn('quill-select__scroll-button flex items-center justify-center', className)}
+            className={cn('quill-select__scroll-button quill-select__scroll-button--up', className)}
+            render={<Button variant="outline" size="icon-sm"/>}
             {...props}
         >
             <ChevronUpIcon />
@@ -137,7 +136,8 @@ function SelectScrollDownButton({
     return (
         <SelectPrimitive.ScrollDownArrow
             data-slot="select-scroll-down-button"
-            className={cn('quill-select__scroll-button quill-select__scroll-button--down flex items-center justify-center', className)}
+            className={cn('quill-select__scroll-button quill-select__scroll-button--down', className)}
+            render={<Button variant="outline" size="icon-sm"/>}
             {...props}
         >
             <ChevronDownIcon />

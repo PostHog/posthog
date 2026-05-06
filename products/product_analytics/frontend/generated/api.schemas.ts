@@ -178,15 +178,16 @@ export const BreakdownTypeApi = {
 export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
 
 export const MultipleBreakdownTypeApi = {
-    Cohort: 'cohort',
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    Cohort: 'cohort',
     RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
 } as const
 
 export interface BreakdownApi {
@@ -460,6 +461,11 @@ export interface HogQLQueryModifiersApi {
      * @nullable
      */
     sessionIdPushdown?: boolean | null
+    /**
+     * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
+     * @nullable
+     */
+    sessionPropertyPreAggregation?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     /** @nullable */
@@ -4593,6 +4599,7 @@ export const IntegrationKindApi = {
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
     Snapchat: 'snapchat',
+    Stripe: 'stripe',
     Intercom: 'intercom',
     Email: 'email',
     Twilio: 'twilio',
@@ -4855,6 +4862,7 @@ export const AIEventTypeApi = {
     AiMetric: '$ai_metric',
     AiFeedback: '$ai_feedback',
     AiEvaluation: '$ai_evaluation',
+    AiTag: '$ai_tag',
     AiTraceSummary: '$ai_trace_summary',
     AiGenerationSummary: '$ai_generation_summary',
     AiTraceClusters: '$ai_trace_clusters',
@@ -6066,6 +6074,12 @@ export const ExperimentStatsValidationFailureApi = {
 
 export interface ExperimentStatsBaseValidatedApi {
     /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
+    /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
@@ -6097,6 +6111,12 @@ export interface ExperimentVariantResultFrequentistApi {
      * @nullable
      */
     confidence_interval?: number[] | null
+    /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
     /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
@@ -6130,6 +6150,12 @@ export const ExperimentVariantResultBayesianApiMethod = {
 export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     chance_to_win?: number | null
+    /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
     /**
      * @minItems 2
      * @maxItems 2
@@ -9231,6 +9257,8 @@ export const ScaleApi = {
 } as const
 
 export interface YAxisSettingsApi {
+    /** @nullable */
+    label?: string | null
     scale?: ScaleApi | null
     /** @nullable */
     showGridLines?: boolean | null
@@ -9329,6 +9357,8 @@ export interface ChartSettingsApi {
      */
     stackBars100?: boolean | null
     xAxis?: ChartAxisApi | null
+    /** @nullable */
+    xAxisLabel?: string | null
     /** @nullable */
     yAxis?: ChartAxisApi[] | null
     /**
@@ -9798,7 +9828,47 @@ export type InsightsListParams = {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean
     format?: InsightsListFormat
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: InsightsListInsight
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string
     /**
      * Number of results to return per page.
      */
@@ -9819,7 +9889,23 @@ Whether to refresh the retrieved insights, how aggressively, and if sync or asyn
 Background calculation can be tracked using the `query_status` response field.
  */
     refresh?: InsightsListRefresh
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string
     short_id?: string
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean
 }
 
 export type InsightsListFormat = (typeof InsightsListFormat)[keyof typeof InsightsListFormat]
@@ -9827,6 +9913,19 @@ export type InsightsListFormat = (typeof InsightsListFormat)[keyof typeof Insigh
 export const InsightsListFormat = {
     Csv: 'csv',
     Json: 'json',
+} as const
+
+export type InsightsListInsight = (typeof InsightsListInsight)[keyof typeof InsightsListInsight]
+
+export const InsightsListInsight = {
+    Funnels: 'FUNNELS',
+    Json: 'JSON',
+    Lifecycle: 'LIFECYCLE',
+    Paths: 'PATHS',
+    Retention: 'RETENTION',
+    Sql: 'SQL',
+    Stickiness: 'STICKINESS',
+    Trends: 'TRENDS',
 } as const
 
 export type InsightsListRefresh = (typeof InsightsListRefresh)[keyof typeof InsightsListRefresh]
@@ -9853,6 +9952,10 @@ export const InsightsCreateFormat = {
 } as const
 
 export type InsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: InsightsRetrieveFormat
     /**
  * 
@@ -9872,6 +9975,10 @@ Whether to refresh the insight, how aggresively, and if sync or async:
 Background calculation can be tracked using the `query_status` response field.
  */
     refresh?: InsightsRetrieveRefresh
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type InsightsRetrieveFormat = (typeof InsightsRetrieveFormat)[keyof typeof InsightsRetrieveFormat]

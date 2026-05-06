@@ -46,7 +46,8 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.monitoring import Feature
 from posthog.api.query import _infer_query_tags
 from posthog.api.services.query import process_query_dict, process_query_model
-from posthog.clickhouse.query_tagging import QueryTags
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.models import Project
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import OrganizationMembership
@@ -420,6 +421,29 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
                 response["detail"],
             )
+
+    def test_hogql_error_is_enriched_with_metadata(self):
+        query = {"kind": "HogQLQuery", "query": "SELECT user_id FROM events LIMIT 1"}
+
+        response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = response_post.json()
+        self.assertEqual(response["type"], "validation_error")
+
+        self.assertIn("Tables referenced: events", response["detail"])
+
+        self.assertIn("extra", response)
+        self.assertIn("hogql_metadata", response["extra"])
+        metadata = response["extra"]["hogql_metadata"]
+        self.assertFalse(metadata["isValid"])
+        self.assertEqual(metadata["table_names"], ["events"])
+        self.assertTrue(len(metadata["errors"]) > 0)
+        first_error = metadata["errors"][0]
+        self.assertIn("user_id", first_error["message"])
+        self.assertIsNotNone(first_error.get("start"))
+        self.assertIsNotNone(first_error.get("end"))
+        self.assertIn("Did you mean", first_error["message"])
 
     @patch(
         "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", QueryTags())
@@ -1424,6 +1448,85 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertIn("results", data)
         self.assertNotIn("formatted_results", data)
+
+
+class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
+    """End-to-end tests that an MCP request to the /query endpoint ends up tagged as
+    product=mcp in `system.query_log` — *unless* a more specific product was set somewhere
+    along the way, in which case MCP must not override it."""
+
+    ENDPOINT = "query"
+
+    def _get_log_comment_for_team(self) -> dict:
+        """Return the log_comment of the most recent QueryFinish entry for this team."""
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            "SELECT log_comment FROM system.query_log "
+            "WHERE JSONExtractInt(log_comment, 'team_id') = %(team_id)s "
+            "AND type = 'QueryFinish' "
+            "ORDER BY event_time DESC LIMIT 1",
+            {"team_id": self.team.pk},
+        )
+        assert rows, f"No query_log entry found for team {self.team.pk}"
+        return json.loads(rows[0][0])
+
+    def test_mcp_request_falls_back_to_mcp_when_kind_and_scene_unmapped(self):
+        # Raw HogQLQuery has query_type="hogql_query" (not a NodeKind value) and no scene,
+        # so the fallback chain reaches the source=mcp branch and tags product=mcp.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.MCP.value)
+
+    def test_mcp_request_with_kind_uses_kind_product_not_mcp(self):
+        # EventsQuery → product_analytics via kind_fallback_tags. The mcp source fallback
+        # must not override the kind-based attribution.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "EventsQuery", "select": ["event"]}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.PRODUCT_ANALYTICS.value)
+
+    def test_mcp_request_with_inferred_product_keeps_inferred_product(self):
+        # `tags.scene="SQLEditor"` → product=warehouse via SCENE_TO_TAGS.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT 1",
+                    "tags": {"scene": "SQLEditor"},
+                }
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.WAREHOUSE.value)
+
+    def test_non_mcp_request_does_not_set_product_to_mcp(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertNotEqual(comment.get("source"), "mcp")
+        self.assertNotEqual(comment.get("product"), Product.MCP.value)
 
 
 class TestInferQueryTags(APIBaseTest):

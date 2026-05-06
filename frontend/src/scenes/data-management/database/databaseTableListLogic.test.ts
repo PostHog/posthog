@@ -1,5 +1,5 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
+
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
@@ -14,7 +14,6 @@ describe('databaseTableListLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
         ;(performQuery as jest.Mock).mockResolvedValue({
             tables: {},
             joins: [],
@@ -28,9 +27,6 @@ describe('databaseTableListLogic', () => {
     })
 
     it('does not read sql editor connection hashes or auto-load on mount', () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-            [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-        })
         window.history.replaceState({}, '', `${urls.sqlEditor()}#c=conn-123`)
 
         logic = databaseTableListLogic()
@@ -41,9 +37,6 @@ describe('databaseTableListLogic', () => {
     })
 
     it('does not auto-load on mount without a connection hash', () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-            [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-        })
         window.history.replaceState({}, '', urls.sqlEditor())
 
         logic = databaseTableListLogic()
@@ -53,10 +46,6 @@ describe('databaseTableListLogic', () => {
     })
 
     it('deduplicates in-flight schema loads for the same connection', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-            [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-        })
-
         let resolveQuery: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
         ;(performQuery as jest.Mock).mockImplementation(
             () =>
@@ -80,11 +69,32 @@ describe('databaseTableListLogic', () => {
         expect(performQuery).toHaveBeenCalledTimes(1)
     })
 
-    it('does not let a stale schema response overwrite the selected connection schema', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-            [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-        })
+    it.each([
+        { name: 'main path', concurrentLoads: 1 },
+        { name: 'dedup branch', concurrentLoads: 2 },
+    ])('does not crash when unmounted mid-load ($name)', async ({ concurrentLoads }) => {
+        let resolveQuery: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
+        ;(performQuery as jest.Mock).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveQuery = resolve
+                })
+        )
 
+        const localLogic = databaseTableListLogic()
+        localLogic.mount()
+
+        const requests = Array.from({ length: concurrentLoads }, () => localLogic.asyncActions.loadDatabase())
+        expect(performQuery).toHaveBeenCalledTimes(1)
+
+        localLogic.unmount()
+        resolveQuery?.({ tables: {}, joins: [] })
+        await Promise.all(requests)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    it('does not let a stale schema response overwrite the selected connection schema', async () => {
         let resolvePosthogQuery:
             | ((value: { tables: Record<string, { name: string; type: 'posthog' }>; joins: never[] }) => void)
             | undefined

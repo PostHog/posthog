@@ -55,7 +55,11 @@ export const OrganizationsProjectsRetrieveParams = /* @__PURE__ */ zod.object({
         .min(organizationsProjectsRetrievePathIdMin)
         .max(organizationsProjectsRetrievePathIdMax)
         .describe('A unique value identifying this project.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 /**
@@ -70,7 +74,11 @@ export const OrganizationsProjectsPartialUpdateParams = /* @__PURE__ */ zod.obje
         .min(organizationsProjectsPartialUpdatePathIdMin)
         .max(organizationsProjectsPartialUpdatePathIdMax)
         .describe('A unique value identifying this project.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const organizationsProjectsPartialUpdateBodyNameMax = 200
@@ -385,6 +393,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
         title: zod
             .string()
             .max(subscriptionsCreateBodyTitleMax)
@@ -506,6 +520,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
         title: zod
             .string()
             .max(subscriptionsPartialUpdateBodyTitleMax)

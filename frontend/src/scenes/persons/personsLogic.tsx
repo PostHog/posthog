@@ -1,6 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
@@ -8,6 +8,8 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -17,8 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { hogqlQuery } from '~/queries/query'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -30,6 +31,8 @@ import {
     PersonType,
     PersonsTabType,
 } from '~/types'
+
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 
 import {
     asDisplay,
@@ -45,6 +48,7 @@ export interface PersonsLogicProps {
     syncWithUrl?: boolean
     urlId?: string
     fixedProperties?: PersonPropertyFilter[]
+    tabId?: string
 }
 
 export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
@@ -102,8 +106,10 @@ function createInitialSurveyResponsesPayload(personId: string): DataTableNode {
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
+        const tabKey = props.tabId ? `tab_${props.tabId}_` : ''
+
         if (props.urlId) {
-            return `url_${props.urlId}`
+            return `${tabKey}url_${props.urlId}`
         }
 
         if (props.fixedProperties) {
@@ -194,7 +200,15 @@ export const personsLogic = kea<personsLogicType>([
                     return person
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
-                    const response = await hogqlQuery(getHogqlQueryStringForPersonId(), { id: uuid }, 'blocking')
+                    const response = await api.query<HogQLQuery>(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: getHogqlQueryStringForPersonId(),
+                            values: { id: uuid },
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        },
+                        { refresh: 'blocking' }
+                    )
                     const row = response?.results?.[0]
                     if (row) {
                         const person = parsePersonFromHogQLRow(row)
@@ -451,7 +465,7 @@ export const personsLogic = kea<personsLogicType>([
             router.actions.push(urls.cohort(cohort.id))
         },
     })),
-    actionToUrl(({ values, props }) => ({
+    tabAwareActionToUrl(({ values, props }) => ({
         setListFilters: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/persons') > -1) {
                 return ['/persons', values.listFilters, undefined, { replace: true }]
@@ -481,7 +495,7 @@ export const personsLogic = kea<personsLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values, props }) => ({
+    tabAwareUrlToAction(({ actions, values, props }) => ({
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {

@@ -9,12 +9,6 @@ export const getProjectsHandler: ToolBase<typeof schema, Schemas.ProjectBackward
 ) => {
     const orgId = await context.stateManager.getOrgID()
 
-    if (!orgId) {
-        throw new Error(
-            'API key does not have access to any organizations. This is likely because the API key is scoped to a project, and not an organization.'
-        )
-    }
-
     const projectsResult = await context.api.organizations().projects({ orgId }).list()
 
     if (!projectsResult.success) {

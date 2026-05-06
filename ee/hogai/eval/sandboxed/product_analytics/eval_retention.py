@@ -23,7 +23,7 @@ from ee.hogai.eval.sandboxed.product_analytics.scorers import (
     RetentionSchemaAlignment,
     RetentionTimeRangeRelevancy,
 )
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
+from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall
 
 
 def _retention_case(
@@ -42,7 +42,7 @@ def _retention_case(
 
 
 @pytest.mark.django_db
-async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client):
+async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         _retention_case(
             name="retention_pageview_default",
@@ -127,11 +127,12 @@ async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client):
     ]
 
     await SandboxedPublicEval(
-        experiment_name="sandboxed-retention",
+        experiment_name=f"sandboxed-retention-{mcp_mode}",
         cases=cases,
         scorers=[
             ExitCodeZero(),
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
+            LastToolCallNot(forbidden="execute-sql", name="last_call_not_execute_sql"),
             RetentionSchemaAlignment(),
             RetentionTimeRangeRelevancy(),
         ],

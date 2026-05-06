@@ -66,6 +66,7 @@ class BatchExportDestination(UUIDTModel):
         WORKFLOWS = "Workflows"
         HTTP = "HTTP"
         NOOP = "NoOp"
+        FILE_DOWNLOAD = "FileDownload"
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
@@ -78,10 +79,11 @@ class BatchExportDestination(UUIDTModel):
         "HTTP": {"token"},
         "NoOp": set(),
         "Workflows": set(),
+        "FileDownload": set(),
     }
 
     type = models.CharField(
-        choices=Destination.choices,
+        choices=Destination,
         max_length=64,
         help_text="A choice of supported BatchExportDestination types.",
     )
@@ -135,7 +137,7 @@ class BatchExportRun(UUIDTModel):
         on_delete=models.CASCADE,
         help_text="The BatchExport this run belongs to.",
     )
-    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this run.")
+    status = models.CharField(choices=Status, max_length=64, help_text="The status of this run.")
     records_completed = models.IntegerField(null=True, help_text="The number of records that have been exported.")
     records_failed = models.IntegerField(
         null=True,
@@ -259,7 +261,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         max_length=64,
         null=True,
         blank=True,
-        choices=Model.choices,
+        choices=Model,
         default=Model.EVENTS,
         help_text="Which model this BatchExport is exporting.",
     )
@@ -392,7 +394,7 @@ class BatchExportBackfill(UUIDTModel):
     )
     start_at = models.DateTimeField(help_text="The start of the data interval.", null=True)
     end_at = models.DateTimeField(help_text="The end of the data interval.", null=True)
-    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this backfill.")
+    status = models.CharField(choices=Status, max_length=64, help_text="The status of this backfill.")
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="The timestamp at which this BatchExportBackfill was created.",
@@ -469,3 +471,58 @@ class BatchExportBackfill(UUIDTModel):
                 BatchExportRun.Status.FAILED,
             ],
         ).count()
+
+
+class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
+    """Represents a file made available to download by a batch export.
+
+    When creating a "file-download" batch export, the output is a row in this table
+    containing pre-signed URLs to access the data exported.
+    """
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "key"], name="team_key_idx"),
+        ]
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    batch_export_run = models.ForeignKey(
+        "BatchExportRun",
+        on_delete=models.CASCADE,
+        help_text="The batch export run that generated this file downloads.",
+    )
+    key = models.TextField(help_text="The S3 key containing the file to download.")
+    expires_at = models.DateTimeField(null=True, help_text="When will this key expire, if available.")
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="The timestamp at which this was created.",
+    )
+    last_updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="The timestamp at which this was last updated.",
+    )
+
+    def is_expired(self) -> bool:
+        """Return whether this file download is expired.
+
+        If expired, then the file download should not be used to generate download URLs anymore.
+        """
+        if self.expires_at is None:
+            raise ValueError("Cannot determine if object is expired: `expires_at` missing.")
+
+        return dt.datetime.now(dt.UTC) > self.expires_at
+
+    def is_expired_or_close(self, threshold: dt.timedelta | int = dt.timedelta(hours=1)) -> bool:
+        """Return whether this file download is expired, or close to expiring."""
+        if self.is_expired():
+            return True
+
+        delta = self.expires_at - dt.datetime.now(dt.UTC)  # type: ignore
+
+        if isinstance(threshold, int):
+            threshold_delta = dt.timedelta(seconds=threshold)
+        else:
+            threshold_delta = threshold
+
+        return threshold_delta > delta

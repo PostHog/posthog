@@ -78,7 +78,7 @@ class TestAdvanceNextCheckAt(TestCase):
                 datetime(2026, 3, 19, 12, 15, tzinfo=UTC),
             ),
             (
-                # Drifted NCA from a first-run that landed at :30 of a minute.
+                # Drifted next_check_at from a first-run that landed at :30 of a minute.
                 # Floor-snap pulls it back onto the canonical 5-min grid (12:10),
                 # not forward to 12:11 — alert lives on :00/:05/:10/... going forward.
                 "drifted_nca_self_heals_to_canonical_grid",
@@ -88,10 +88,10 @@ class TestAdvanceNextCheckAt(TestCase):
                 datetime(2026, 3, 19, 12, 10, tzinfo=UTC),
             ),
             (
-                # User changes cadence from 5min to 1min mid-flight. NCA was
-                # drifted at :30 — floor lands on the canonical 1-min grid
+                # User changes cadence from 5min to 1min mid-flight. next_check_at
+                # was drifted at :30 — floor lands on the canonical 1-min grid
                 # but at 12:16:00, which equals `now`. Bump by one interval
-                # (1 min) to ensure strict-future NCA → 12:17.
+                # (1 min) to ensure strict-future next_check_at → 12:17.
                 "cadence_change_self_heals",
                 datetime(2026, 3, 19, 12, 15, 30, tzinfo=UTC),
                 1,
@@ -180,8 +180,9 @@ class TestAdvanceNextCheckAtProperties(TestCase):
     def test_result_is_minute_aligned_and_strictly_future(
         self, cadence: int, drift: timedelta, lag_seconds: int
     ) -> None:
-        # For any drifted NCA + any lag, the returned NCA must be on a whole
-        # minute boundary AND strictly > now (no tight-loop re-pickup).
+        # For any drifted next_check_at + any lag, the returned next_check_at
+        # must be on a whole minute boundary AND strictly > now (no tight-loop
+        # re-pickup).
         current = _anchor + drift
         now = current + timedelta(seconds=lag_seconds)
         result = advance_next_check_at(current, cadence, now)
@@ -207,9 +208,9 @@ class TestAdvanceNextCheckAtProperties(TestCase):
         self, cadence: int, lag_a_seconds: int, lag_b_seconds: int
     ) -> None:
         # Once an alert is on the canonical grid (steady state), eval-time
-        # jitter within the same sub-minute window must produce the same NCA.
-        # If this property fails, scheduler lag would accumulate and push
-        # subsequent evals further out each cycle.
+        # jitter within the same sub-minute window must produce the same
+        # next_check_at. If this property fails, scheduler lag would accumulate
+        # and push subsequent evals further out each cycle.
         #
         # Note: this is the production-realistic case — cron pickup constrains
         # `now` to minute-boundary + epsilon, and steady-state alerts are
@@ -223,7 +224,7 @@ class TestAdvanceNextCheckAtProperties(TestCase):
         result_a = advance_next_check_at(current, cadence, now_a)
         result_b = advance_next_check_at(current, cadence, now_b)
         assert result_a == result_b, (
-            f"cadence={cadence}: sub-minute lag jitter shifted NCA: "
+            f"cadence={cadence}: sub-minute lag jitter shifted next_check_at: "
             f"lag_a={lag_a_seconds}s → {result_a}, lag_b={lag_b_seconds}s → {result_b}"
         )
 
@@ -242,12 +243,12 @@ class TestAdvanceNextCheckAtProperties(TestCase):
         current = advance_next_check_at(current, cadence, current + timedelta(seconds=1))
         # Run forward and assert constant gap.
         for _ in range(15):
-            next_nca = advance_next_check_at(current, cadence, current)
-            gap = next_nca - current
+            next_check = advance_next_check_at(current, cadence, current)
+            gap = next_check - current
             assert gap == timedelta(minutes=cadence), (
-                f"cadence={cadence}: gap {gap} drifted from configured {cadence}min at NCA {current}"
+                f"cadence={cadence}: gap {gap} drifted from configured {cadence}min at next_check_at {current}"
             )
-            current = next_nca
+            current = next_check
 
     @given(
         cadence=st.sampled_from([1, 2, 3, 5, 6, 10, 12, 15, 20, 30, 60]),  # divisors of 60
@@ -259,16 +260,16 @@ class TestAdvanceNextCheckAtProperties(TestCase):
         self, cadence: int, starting_minute: int, drift: timedelta
     ) -> None:
         # For cadences that divide 60, the canonical grid is well-defined
-        # (e.g. 5-min alerts → :00, :05, :10). After one heal cycle, NCA's
-        # minute-of-hour must be a multiple of cadence — REGARDLESS of the
-        # starting minute. (Earlier version of this test used a fixed anchor
-        # at minute 0, which trivially satisfies `0 % cadence == 0` and missed
-        # the minute-level-drift case entirely.)
+        # (e.g. 5-min alerts → :00, :05, :10). After one heal cycle,
+        # next_check_at's minute-of-hour must be a multiple of cadence —
+        # REGARDLESS of the starting minute. (Earlier version of this test
+        # used a fixed anchor at minute 0, which trivially satisfies
+        # `0 % cadence == 0` and missed the minute-level-drift case entirely.)
         current = _anchor.replace(minute=starting_minute) + drift
         result = advance_next_check_at(current, cadence, current + timedelta(seconds=1))
         assert result.minute % cadence == 0, (
             f"cadence={cadence} (divisor of 60) starting_minute={starting_minute} drift={drift} "
-            f"produced off-grid NCA {result} (minute={result.minute}, mod={result.minute % cadence})"
+            f"produced off-grid next_check_at {result} (minute={result.minute}, mod={result.minute % cadence})"
         )
 
     @given(
@@ -281,15 +282,16 @@ class TestAdvanceNextCheckAtProperties(TestCase):
         self, cadence: int, drift: timedelta, downtime_minutes: int
     ) -> None:
         # After arbitrary downtime, the catch-up arithmetic must not produce
-        # an NCA wildly in the future or far in the past — it should land in
-        # (now, now + cadence + 1 minute] (the +1 minute is the snap-bump
-        # ceiling). This guards the skip-forward math against off-by-N bugs.
+        # a next_check_at wildly in the future or far in the past — it should
+        # land in (now, now + cadence + 1 minute] (the +1 minute is the snap-
+        # bump ceiling). This guards the skip-forward math against off-by-N
+        # bugs.
         current = _anchor + drift
         now = current + timedelta(minutes=downtime_minutes)
         result = advance_next_check_at(current, cadence, now)
         assert now < result, f"result {result} <= now {now}"
         assert result <= now + timedelta(minutes=cadence + 1), (
-            f"cadence={cadence} downtime={downtime_minutes}min produced runaway NCA: "
+            f"cadence={cadence} downtime={downtime_minutes}min produced runaway next_check_at: "
             f"now={now}, result={result}, gap={result - now}"
         )
 

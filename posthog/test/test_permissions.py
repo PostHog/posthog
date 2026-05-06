@@ -605,7 +605,23 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.access_token.save()
         response = self._do_request(f"/api/projects/{self.team.id}/search")
         self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
+
+    def test_forbids_wildcard_scope_for_internal_viewset(self):
+        """`*` does not satisfy INTERNAL viewsets — explicit scope required."""
+        self.access_token.scope = "*"
+        self.access_token.save()
+        response = self._do_request("/api/query_performance_proxy/execute-test/", method="POST")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("clickhouse_test_cluster_perf:read", response.json()["detail"])
+
+    def test_allows_explicit_scope_for_internal_viewset(self):
+        self.access_token.scope = "clickhouse_test_cluster_perf:read"
+        self.access_token.save()
+        response = self._do_request(
+            "/api/query_performance_proxy/execute-test/", method="POST", data={"sql": "SELECT 1"}
+        )
+        self.assertEqual(response.status_code, 200)
 
     def test_allows_derived_scope_for_read(self):
         """OAuth token with feature_flag:read can read feature flags"""
@@ -1035,6 +1051,34 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         self.assertTrue(result)
         mock_ff.assert_called_once()
         self.assertEqual(mock_ff.call_args[0][0], "my-flag")
+        kwargs = mock_ff.call_args[1]
+        self.assertEqual(
+            kwargs["groups"],
+            {"organization": str(self.organization.id), "project": str(self.team.id)},
+        )
+        self.assertEqual(
+            kwargs["group_properties"],
+            {
+                "organization": {"id": str(self.organization.id)},
+                "project": {"id": str(self.team.id)},
+            },
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_feature_flag_evaluation_passes_organization_only_when_view_has_no_team(self, mock_ff):
+        class OrgOnlyView:
+            posthog_feature_flag = "my-flag"
+            action = "list"
+            organization = self.organization
+            organization_id = str(self.organization.id)
+
+        request = self._create_mock_request()
+        view = OrgOnlyView()
+
+        self.assertTrue(self.permission.has_permission(request, view))
+        kwargs = mock_ff.call_args[1]
+        self.assertEqual(kwargs["groups"], {"organization": str(self.organization.id)})
+        self.assertEqual(kwargs["group_properties"], {"organization": {"id": str(self.organization.id)}})
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_denies_when_flag_disabled(self, mock_ff):

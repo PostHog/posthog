@@ -61,6 +61,7 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="Enter your Attio API key",
+                        secret=True,
                     ),
                 ],
             ),

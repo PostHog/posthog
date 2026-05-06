@@ -6,6 +6,7 @@ import { memo, useMemo } from 'react'
 import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,11 +25,13 @@ import { Scene } from 'scenes/sceneTypes'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
 import { OutputPane } from './OutputPane'
+import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryTeamsToQueryToggle } from './QueryTeamsToQueryToggle'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
@@ -40,6 +43,13 @@ interface QueryWindowProps {
     mode?: SQLEditorMode
     showDatabaseTree: boolean
     onShowDatabaseTree: () => void
+    showQueryPanel?: boolean
+    showOutputPanel?: boolean
+    onRunQuery?: () => void
+    runQueryLoading?: boolean
+    runQueryDisabledReason?: string
+    runQueryTooltip?: string
+    onShareTab?: () => void
 }
 
 export function QueryWindow({
@@ -48,8 +58,16 @@ export function QueryWindow({
     mode,
     showDatabaseTree,
     onShowDatabaseTree,
+    showQueryPanel = true,
+    showOutputPanel = true,
+    onRunQuery,
+    runQueryLoading,
+    runQueryDisabledReason,
+    runQueryTooltip,
+    onShareTab,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
+    const logic = sqlEditorLogic({ tabId })
 
     const {
         queryInput,
@@ -61,7 +79,7 @@ export function QueryWindow({
         activeQueryOffset,
         selectedConnectionId,
         sendRawQueryEnabled,
-    } = useValues(sqlEditorLogic)
+    } = useValues(logic)
 
     const {
         setQueryInput,
@@ -72,9 +90,9 @@ export function QueryWindow({
         setMetadataLoading,
         setSendRawQuery,
         openMaterializationModal,
-    } = useActions(sqlEditorLogic)
+    } = useActions(logic)
 
-    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
+    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -138,119 +156,151 @@ export function QueryWindow({
 
     return (
         <div className="flex grow flex-col overflow-hidden">
-            <div
-                className={cn(
-                    'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
-                    isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
-                )}
-            >
-                <div className="flex items-center gap-2">
-                    <ExpandDatabaseTreeButton
-                        showDatabaseTree={showDatabaseTree}
-                        onShowDatabaseTree={onShowDatabaseTree}
-                    />
-                    <RunButton />
-                    <CollapsedConnectionSelector mode={mode} isDirectQueryEnabled={isDirectQueryEnabled} />
-                    <LemonDivider vertical />
-                    <QueryTeamsToQueryToggle
-                        disabledReason={editingView ? 'Cross-project querying is not allowed in views.' : undefined}
-                    />
-                    <QueryVariablesMenu
-                        disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
-                    />
-                    {editingView ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconDatabase />}
-                            onClick={() => openMaterializationModal(editingView)}
-                            data-attr="sql-editor-materialization-button"
-                        >
-                            Materialization
-                        </LemonButton>
-                    ) : null}
-                </div>
-
-                <div className="ml-auto flex items-center gap-2">
-                    <FixErrorButton type="secondary" size="small" source="action-bar" />
-                    {editorSettingsItems.length > 0 ? (
-                        <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
-                            <LemonButton
-                                icon={<IconGear />}
-                                type="secondary"
-                                size="small"
-                                tooltip="Editor settings"
-                                data-attr="sql-editor-settings-toggle"
-                            />
-                        </LemonMenu>
-                    ) : null}
-                    {mode === SQLEditorMode.Embedded && (
-                        <SceneTitlePanelButton
-                            buttonClassName="size-[26px]"
-                            maxToolProps={{
-                                identifier: 'execute_sql',
-                                context: {
-                                    current_query: queryInput,
-                                },
-                                contextDescription: {
-                                    text: 'Current query',
-                                    icon: iconForType('sql_editor'),
-                                },
-                                callback: (toolOutput: string) => {
-                                    setSuggestedQueryInput(toolOutput, 'max_ai')
-                                },
-                                suggestions: [],
-                                onMaxOpen: () => {
-                                    reportAIQueryPromptOpen()
-                                },
-                                introOverride: {
-                                    headline: 'What data do you want to analyze?',
-                                    description: 'Let me help you quickly write SQL, and tweak it.',
-                                },
-                            }}
-                        />
+            {showQueryPanel ? (
+                <div
+                    className={cn(
+                        'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
+                        isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
                     )}
+                >
+                    <div className="flex items-center gap-2">
+                        <ExpandDatabaseTreeButton
+                            showDatabaseTree={showDatabaseTree}
+                            onShowDatabaseTree={onShowDatabaseTree}
+                        />
+                        <RunButton
+                            onRunQuery={onRunQuery}
+                            runQueryLoading={runQueryLoading}
+                            runQueryDisabledReason={runQueryDisabledReason}
+                            runQueryTooltip={runQueryTooltip}
+                        />
+                        <CollapsedConnectionSelector
+                            tabId={tabId}
+                            mode={mode}
+                            isDirectQueryEnabled={isDirectQueryEnabled}
+                        />
+                        <LemonDivider vertical />
+                        <QueryTeamsToQueryToggle
+                            disabledReason={editingView ? 'Cross-project querying is not allowed in views.' : undefined}
+                        />
+                        <QueryVariablesMenu
+                            disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                        />
+                        <QueryFiltersMenu />
+                        {editingView ? (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.WarehouseObjects}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconDatabase />}
+                                    onClick={() => openMaterializationModal(editingView)}
+                                    data-attr="sql-editor-materialization-button"
+                                >
+                                    Materialization
+                                </LemonButton>
+                            </AccessControlAction>
+                        ) : null}
+                    </div>
+
+                    <div className="ml-auto flex items-center gap-2">
+                        <FixErrorButton type="secondary" size="small" source="action-bar" />
+                        {editorSettingsItems.length > 0 ? (
+                            <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
+                                <LemonButton
+                                    icon={<IconGear />}
+                                    type="secondary"
+                                    size="small"
+                                    tooltip="Editor settings"
+                                    data-attr="sql-editor-settings-toggle"
+                                />
+                            </LemonMenu>
+                        ) : null}
+                        {mode === SQLEditorMode.Embedded && (
+                            <SceneTitlePanelButton
+                                buttonClassName="size-[26px]"
+                                maxToolProps={{
+                                    identifier: 'execute_sql',
+                                    context: {
+                                        current_query: queryInput,
+                                    },
+                                    contextDescription: {
+                                        text: 'Current query',
+                                        icon: iconForType('sql_editor'),
+                                    },
+                                    callback: (toolOutput: string) => {
+                                        setSuggestedQueryInput(toolOutput, 'max_ai')
+                                    },
+                                    suggestions: [],
+                                    onMaxOpen: () => {
+                                        reportAIQueryPromptOpen()
+                                    },
+                                    introOverride: {
+                                        headline: 'What data do you want to analyze?',
+                                        description: 'Let me help you quickly write SQL, and tweak it.',
+                                    },
+                                }}
+                            />
+                        )}
+                    </div>
                 </div>
-            </div>
+            ) : null}
 
-            <QueryPane
-                originalValue={originalQueryInput ?? ''}
-                queryInput={(suggestedQueryInput || queryInput) ?? ''}
-                sourceQuery={sourceQuery.source}
-                promptError={null}
-                onRun={runQuery}
-                editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
-                codeEditorProps={{
-                    queryKey: codeEditorKey,
-                    metadataQuery: activeQueryText ?? undefined,
-                    metadataQueryOffset: activeQueryOffset,
-                    onChange: (v) => {
-                        setQueryInput(v ?? '')
-                    },
-                    onMount: (editor, monaco) => {
-                        onSetMonacoAndEditor(monaco, editor)
-                    },
-                    onPressCmdEnter: (value, selectionType) => {
-                        if (value && selectionType === 'selection') {
-                            runQuery(value)
-                        } else {
-                            runQuery()
-                        }
-                    },
-                    onPressCmdShiftEnter: runSubquery,
-                    onError: (error) => {
-                        setError(error)
-                    },
-                    onMetadata: (metadata) => {
-                        setMetadata(metadata)
-                    },
-                    onMetadataLoading: (loading) => {
-                        setMetadataLoading(loading)
-                    },
-                }}
-            />
+            {showQueryPanel ? (
+                <QueryPane
+                    originalValue={originalQueryInput ?? ''}
+                    queryInput={(suggestedQueryInput || queryInput) ?? ''}
+                    sourceQuery={sourceQuery.source}
+                    promptError={null}
+                    onRun={runQuery}
+                    editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
+                    constrainHeight={showOutputPanel}
+                    codeEditorProps={{
+                        queryKey: codeEditorKey,
+                        metadataQuery: activeQueryText ?? undefined,
+                        metadataQueryOffset: activeQueryOffset,
+                        onChange: (v) => {
+                            setQueryInput(v ?? '')
+                        },
+                        onMount: (editor, monaco) => {
+                            onSetMonacoAndEditor(monaco, editor)
+                        },
+                        onPressCmdEnter: (value, selectionType) => {
+                            if (onRunQuery) {
+                                if (!runQueryLoading) {
+                                    onRunQuery()
+                                }
+                                return
+                            }
+                            if (value && selectionType === 'selection') {
+                                runQuery(value)
+                            } else {
+                                runQuery()
+                            }
+                        },
+                        onPressCmdShiftEnter: onRunQuery
+                            ? () => {
+                                  if (!runQueryLoading) {
+                                      onRunQuery()
+                                  }
+                              }
+                            : runSubquery,
+                        onError: (error) => {
+                            setError(error)
+                        },
+                        onMetadata: (metadata) => {
+                            setMetadata(metadata)
+                        },
+                        onMetadataLoading: (loading) => {
+                            setMetadataLoading(loading)
+                        },
+                    }}
+                />
+            ) : null}
 
-            <InternalQueryWindow />
+            {showOutputPanel ? <InternalQueryWindow tabId={tabId} onShareTab={onShareTab} /> : null}
         </div>
     )
 }
@@ -286,15 +336,30 @@ function ExpandDatabaseTreeButton({
     )
 }
 
-function RunButton(): JSX.Element {
+function RunButton({
+    onRunQuery,
+    runQueryLoading,
+    runQueryDisabledReason,
+    runQueryTooltip,
+}: {
+    onRunQuery?: () => void
+    runQueryLoading?: boolean
+    runQueryDisabledReason?: string
+    runQueryTooltip?: string
+}): JSX.Element {
     const { runQuery, runSubquery } = useActions(sqlEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
     const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
+    const isRunning = onRunQuery ? !!runQueryLoading : responseLoading
 
     const [iconColor, tooltipContent] = useMemo(() => {
+        if (onRunQuery) {
+            return ['var(--success)', runQueryTooltip ?? 'Run query']
+        }
+
         if (isSourceQueryLastRun) {
             return ['var(--primary)', 'No changes to run']
         }
@@ -308,11 +373,11 @@ function RunButton(): JSX.Element {
             : undefined
 
         return ['var(--warning)', tooltip]
-    }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
+    }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun, onRunQuery, runQueryTooltip])
 
     const sideAction = useMemo(
         () =>
-            responseLoading
+            responseLoading || onRunQuery
                 ? undefined
                 : {
                       dropdown: {
@@ -337,52 +402,66 @@ function RunButton(): JSX.Element {
                           ),
                       },
                   },
-        [responseLoading, runQuery, runSubquery]
+        [onRunQuery, responseLoading, runQuery, runSubquery]
     )
 
     return (
         <AppShortcut
             name="SQLEditorRun"
             keybind={[keyBinds.run]}
-            intent={responseLoading ? 'Cancel query' : 'Run query'}
+            intent={isRunning && !onRunQuery ? 'Cancel query' : 'Run query'}
             interaction="click"
             scope={Scene.SQLEditor}
         >
             <LemonButton
                 data-attr="sql-editor-run-button"
                 onClick={() => {
-                    if (responseLoading) {
+                    if (onRunQuery) {
+                        if (!runQueryLoading) {
+                            onRunQuery()
+                        }
+                    } else if (responseLoading) {
                         cancelQuery()
                     } else {
                         runQuery()
                     }
                 }}
-                icon={responseLoading ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
+                icon={isRunning && !onRunQuery ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
                 type="primary"
                 size="small"
                 tooltip={tooltipContent}
                 sideAction={sideAction}
+                loading={isRunning && !!onRunQuery}
+                disabledReason={runQueryDisabledReason}
             >
-                {responseLoading ? 'Cancel' : 'Run'}
+                {isRunning && !onRunQuery ? 'Cancel' : 'Run'}
             </LemonButton>
         </AppShortcut>
     )
 }
 
-const InternalQueryWindow = memo(function InternalQueryWindow(): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow({
+    tabId,
+    onShareTab,
+}: {
+    tabId: string
+    onShareTab?: () => void
+}): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
 
     if (finishedLoading) {
         return null
     }
 
-    return <OutputPane />
+    return <OutputPane tabId={tabId} onShareTab={onShareTab} />
 })
 
 function CollapsedConnectionSelector({
+    tabId,
     mode,
     isDirectQueryEnabled,
 }: {
+    tabId: string
     mode?: SQLEditorMode
     isDirectQueryEnabled: boolean
 }): JSX.Element | null {
@@ -392,5 +471,5 @@ function CollapsedConnectionSelector({
         return null
     }
 
-    return <ConnectionSelector />
+    return <ConnectionSelector tabId={tabId} />
 }

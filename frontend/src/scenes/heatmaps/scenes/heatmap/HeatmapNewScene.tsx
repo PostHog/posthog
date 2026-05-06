@@ -23,8 +23,9 @@ import { heatmapLogic } from './heatmapLogic'
 
 export function HeatmapNewScene(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
-    const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl, isBrowserUrlAuthorized } = useValues(logic)
-    const { setDisplayUrl, setType, setName, createHeatmap, setDataUrl } = useActions(logic)
+    const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl, isBrowserUrlAuthorized, displayUrlIsPattern } =
+        useValues(logic)
+    const { setDisplayUrl, setType, setName, createHeatmap, setDataUrl, setDataUrlUserTouched } = useActions(logic)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
         setName(name)
@@ -57,7 +58,15 @@ export function HeatmapNewScene(): JSX.Element {
             />
             <SceneSection title="Page URL" description="URL to your website">
                 <LemonInput value={displayUrl || ''} onChange={setDisplayUrl} placeholder="https://www.example.com" />
-                {!isDisplayUrlValid ? <HeatmapsInvalidURL /> : null}
+                {displayUrl && !isDisplayUrlValid ? (
+                    displayUrlIsPattern ? (
+                        <LemonBanner type="error" className="mt-2">
+                            The page URL can't contain wildcards. Add wildcards to the heatmap data URL below instead.
+                        </LemonBanner>
+                    ) : (
+                        <HeatmapsInvalidURL />
+                    )
+                ) : null}
                 {!displayUrl && <HeatmapsUrlsList />}
             </SceneSection>
             <SceneDivider />
@@ -70,6 +79,7 @@ export function HeatmapNewScene(): JSX.Element {
                     placeholder="https://www.example.com/*"
                     value={dataUrl ?? ''}
                     onChange={(value) => {
+                        setDataUrlUserTouched(true)
                         setDataUrl(value || null)
                     }}
                     fullWidth={true}

@@ -1,0 +1,184 @@
+/*
+ * Quill ↔ PostHog integration bridge.
+ *
+ * Two scopes — read carefully before editing:
+ *
+ *   - `:root` block: maps Quill's portal z-index tokens (`--quill-z-*`) onto
+ *     PostHog's existing `--z-*` scale. Set globally so the vars cascade
+ *     into portal subtrees mounted at `<body>`. See base.scss for the
+ *     PostHog scale.
+ *
+ *   - `[data-quill]` block: rebinds colour vars inside Quill subtrees only.
+ *     Two reasons for the scoping:
+ *
+ *       1. TOKEN NAME COLLISION. Both `@posthog/tailwind` and `@posthog/quill`
+ *          compile a `bg-muted` utility class, but they reference different
+ *          CSS custom properties (`var(--muted-3000)` vs `var(--muted)`).
+ *          PostHog's compiled CSS wins globally because the class name is
+ *          identical. We can't change which `var(--xyz)` the class points
+ *          at, but we *can* redefine PostHog's `--xyz` value inside
+ *          `[data-quill]` to whatever quill expects. Inside the subtree the
+ *          class resolves to the quill colour; outside, it keeps PostHog's.
+ *
+ *       2. MISSING UTILITIES. Quill primitives use class names PostHog's
+ *          tailwind config never declared (`bg-popover`, `bg-card`,
+ *          `bg-background`, `text-foreground`, `text-muted-foreground`,
+ *          `border-border`, etc.). PostHog's pre-compiled bundle therefore
+ *          emits no rule for them and the elements render unstyled. We
+ *          register them as plain CSS rules pointing at quill's tokens.
+ *
+ * Long-term plan: rename quill's colour tokens to `--quill-*` so the
+ * `[data-quill]` colour rebindings become unnecessary. Tracked separately.
+ * Until then, this file is the single integration seam — every new colour
+ * utility quill introduces lands here.
+ */
+
+/*
+ * Z-index mapping: slot Quill's portal layers into PostHog's existing scale.
+ * Set on `:root` (not just `[data-quill]`) so the vars cascade into portal
+ * subtrees mounted at `<body>`. See base.scss for the PostHog `--z-*` scale.
+ */
+:root {
+    --quill-z-popover: var(--z-popover);
+    --quill-z-tooltip: var(--z-tooltip);
+    --quill-z-modal: var(--z-modal);
+    --quill-z-overlay: var(--z-modal);
+    --quill-z-toast: var(--z-bottom-notice);
+}
+
+[data-quill] {
+    /*
+     * Override #1: rebind PostHog vars that already-compiled `bg-*` /
+     * `text-*` classes resolve at runtime, so the same class flips meaning
+     * inside a quill subtree. Map LHS = PostHog name, RHS = quill name.
+     */
+    --muted-3000: var(--muted);
+
+    /*
+     * Inside `[data-quill]`, `bg-primary` means quill's BRAND colour, not
+     * PostHog's page surface — PostHog and quill happen to share the class
+     * name but use it for different semantics. We rebind PostHog's
+     * `--color-bg-primary` so the compiled `.bg-primary` rule resolves to
+     * quill's `--primary` here. Code outside `[data-quill]` is unaffected.
+     */
+    --color-bg-primary: var(--primary);
+    --color-bg-surface-primary: var(--background);
+    --color-bg-surface-secondary: var(--card);
+    --color-bg-surface-tertiary: var(--muted);
+    --color-text-primary: var(--foreground);
+    --color-text-secondary: var(--muted-foreground);
+    --color-border-primary: var(--border);
+    --color-border-secondary: var(--border);
+    --color-accent: var(--accent);
+    --color-accent-hover: var(--accent);
+    --color-accent-active: var(--accent);
+}
+
+/*
+ * Override #2: register the quill-only utilities PostHog's compiler skipped.
+ * Scoped to `[data-quill]` so they don't pollute the rest of the app.
+ * Specificity (0,2,0) beats Tailwind's plain class (0,1,0), so these always
+ * win inside the subtree even if PostHog later adds a same-named class.
+ */
+[data-quill] .bg-background {
+    background-color: var(--background);
+}
+
+[data-quill] .bg-card {
+    background-color: var(--card);
+}
+
+[data-quill] .bg-popover {
+    background-color: var(--popover);
+}
+
+[data-quill] .bg-input {
+    background-color: var(--input);
+}
+
+[data-quill] .bg-accent {
+    background-color: var(--accent);
+}
+
+[data-quill] .bg-fill-hover {
+    background-color: var(--fill-hover);
+}
+
+[data-quill] .bg-fill-selected {
+    background-color: var(--fill-selected);
+}
+
+[data-quill] .bg-fill-expanded {
+    background-color: var(--fill-expanded);
+}
+
+[data-quill] .text-foreground {
+    color: var(--foreground);
+}
+
+[data-quill] .text-muted-foreground {
+    color: var(--muted-foreground);
+}
+
+[data-quill] .text-card-foreground {
+    color: var(--card-foreground);
+}
+
+[data-quill] .text-popover-foreground {
+    color: var(--popover-foreground);
+}
+
+[data-quill] .text-primary-foreground {
+    color: var(--primary-foreground);
+}
+
+[data-quill] .text-destructive-foreground {
+    color: var(--destructive-foreground);
+}
+
+[data-quill] .text-accent-foreground {
+    color: var(--accent-foreground);
+}
+
+[data-quill] .border-border {
+    border-color: var(--border);
+}
+
+[data-quill] .border-input {
+    border-color: var(--input);
+}
+
+[data-quill] .border-ring {
+    border-color: var(--ring);
+}
+
+/*
+ * Tailwind ring utilities with quill colour names. `ring-1`, `ring-2`, etc.
+ * are structural (PostHog's compiled bundle has them) and read
+ * `--tw-ring-color` at runtime — we override that variable inside
+ * `[data-quill]` so the colour part (`ring-foreground`, `ring-ring`) lands
+ * even though PostHog's tailwind config never declared those names.
+ */
+[data-quill] .ring-foreground {
+    --tw-ring-color: var(--foreground);
+}
+
+[data-quill] .ring-foreground\/10 {
+    --tw-ring-color: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+
+[data-quill] .ring-foreground\/20 {
+    --tw-ring-color: color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+[data-quill] .ring-ring {
+    --tw-ring-color: var(--ring);
+}
+
+[data-quill] .ring-ring\/30 {
+    --tw-ring-color: color-mix(in oklab, var(--ring) 30%, transparent);
+}
+
+[data-quill] .ring-destructive\/20 {
+    --tw-ring-color: color-mix(in oklab, var(--destructive) 20%, transparent);
+}

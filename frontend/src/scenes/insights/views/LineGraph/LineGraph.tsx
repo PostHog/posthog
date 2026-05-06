@@ -28,11 +28,11 @@ import {
     TooltipOptions,
 } from 'lib/Chart'
 import { resolveVariableColor } from 'lib/charts/utils/color'
-import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnomalyPoint } from 'lib/components/Alerts/types'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { createXAxisTickCallback } from 'lib/hog-charts'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -1304,7 +1304,7 @@ export function LineGraph_({
             {showAnnotations && chartRef.current && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
                     chart={chartRef.current}
-                    dates={datasets[0]?.days || EMPTY_DATES}
+                    dates={currentPeriodResult?.days || datasets[0]?.days || EMPTY_DATES}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
                     insightNumericId={insight.id || 'new'}

@@ -65,6 +65,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Prometheus multiprocess mode: each prefork child writes metrics to this
+# shared directory; the HTTP endpoint aggregates across all children.
+# Without this, only one child (the one that binds port 8001) is scraped,
+# causing Prometheus to see ~1/N of actual task events.
+export PROMETHEUS_MULTIPROC_DIR="/tmp/posthog_celery_prometheus"
+
 if [ "$with_scheduler" == "true" ]; then
   ./bin/docker-worker-beat &
 fi

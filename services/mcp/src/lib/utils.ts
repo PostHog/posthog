@@ -13,7 +13,7 @@ export function formatPrompt(template: string, vars: Record<string, string>): st
     // e.g. `` `$` `` (common in PostHog docs that mention `$pageview`) would splice the
     // template prefix/suffix into the output and look like a double injection.
     return Object.entries(vars)
-        .reduce((result, [key, value]) => result.replaceAll(`{${key}}`, () => value), template)
+        .reduce((result, [key, value]) => result.replaceAll(`{${key}}`, () => value ?? ''), template)
         .trim()
 }
 
@@ -29,6 +29,17 @@ export function sanitizeHeaderValue(value?: string): string | undefined {
         .trim()
         .slice(0, MAX_HEADER_VALUE_LENGTH)
     return sanitised || undefined
+}
+
+export type McpMode = 'tools' | 'cli'
+
+// Caller-supplied selection between the tool-based MCP (each PostHog tool registered
+// individually) and the CLI-based MCP (a single `posthog` CLI-like tool that wraps
+// all tools). Anything other than `tools` or `cli` returns undefined and lets the
+// auto-detection in `MCP.init()` pick.
+export function parseMcpMode(raw: string | null | undefined): McpMode | undefined {
+    const value = raw?.trim().toLowerCase()
+    return value === 'tools' ? 'tools' : value === 'cli' ? 'cli' : undefined
 }
 
 export function getSearchParamsFromRecord(

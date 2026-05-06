@@ -367,29 +367,20 @@
             },
             "required": ["name", "feature_flag_key"]
         },
-        "ExperimentDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "experimentId": {
-                    "type": "number",
-                    "description": "The ID of the experiment to delete"
-                }
-            },
-            "required": ["experimentId"]
-        },
         "ExperimentResultsGetSchema": {
             "type": "object",
             "properties": {
-                "experimentId": {
+                "id": {
                     "type": "number",
                     "description": "The ID of the experiment to get comprehensive results for"
                 },
                 "refresh": {
-                    "type": "boolean",
-                    "description": "Force refresh of results instead of using cached values"
+                    "default": false,
+                    "description": "Force refresh of results instead of using cached values. Defaults to false.",
+                    "type": "boolean"
                 }
             },
-            "required": ["experimentId", "refresh"]
+            "required": ["id"]
         },
         "ExperimentUpdateInputSchema": {
             "type": "object",
@@ -833,6 +824,73 @@
             "type": "string",
             "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields."
         },
+        "FeedbackSubmitSchema": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "A one-sentence headline summarising your feedback (e.g. \"query-trends descriptions made it hard to choose between trends and funnels\")."
+                },
+                "sentiment": {
+                    "type": "string",
+                    "enum": ["positive", "negative", "mixed"],
+                    "description": "Your overall impression of the MCP server for this task. Use \"positive\" if it helped you, \"negative\" if it blocked you, \"mixed\" for a bit of both."
+                },
+                "category": {
+                    "type": "string",
+                    "enum": [
+                        "tool_correctness",
+                        "tool_description",
+                        "tool_input_schema",
+                        "tool_output_format",
+                        "missing_tool",
+                        "instructions_clarity",
+                        "performance",
+                        "error_message",
+                        "other"
+                    ],
+                    "description": "The single category that best describes the dominant theme of this feedback. Pick \"missing_tool\" if a capability was absent, \"tool_description\" if the tool docs were unclear, \"tool_input_schema\" if input args were confusing, \"tool_output_format\" if the response was hard to consume, \"instructions_clarity\" if these MCP instructions were unclear, \"tool_correctness\" if a tool returned wrong data, \"error_message\" if an error was unhelpful, \"performance\" if latency was the issue."
+                },
+                "task_completed": {
+                    "type": "boolean",
+                    "description": "Were you able to complete the user's task using PostHog MCP tools? Be honest — \"false\" is just as useful as \"true\"."
+                },
+                "tools_used": {
+                    "description": "The tool names you called while working on the user's task (e.g. [\"read-data-schema\", \"query-trends\"]). Helps us correlate feedback to specific tools.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "friction_points": {
+                    "description": "Concrete points of friction, confusion, or surprise — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text where possible.",
+                    "type": "string"
+                },
+                "suggested_improvement": {
+                    "description": "The single most impactful change you would make to the MCP server right now. Be specific (e.g. \"add a `filters` example to query-funnel's description\").",
+                    "type": "string"
+                },
+                "user_request": {
+                    "description": "A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.",
+                    "type": "string"
+                },
+                "details": {
+                    "description": "Any additional context that doesn't fit the other fields.",
+                    "type": "string"
+                }
+            },
+            "required": ["summary", "sentiment", "category", "task_completed"]
+        },
+        "HogQLSchemaInputSchema": {
+            "type": "object",
+            "properties": {
+                "connectionId": {
+                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "type": "string"
+                }
+            }
+        },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
             "properties": {
@@ -856,6 +914,36 @@
                     "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
                     "type": "string",
                     "enum": ["optimized", "json"]
+                },
+                "variables_override": {
+                    "description": "Object (or pre-encoded JSON string) to override the insight's HogQL variables for this run only (not persisted). Format: {\"<variable_id>\": {\"code_name\": \"<code_name>\", \"variableId\": \"<variable_id>\", \"value\": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response's query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "object",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "additionalProperties": {}
+                        }
+                    ]
+                },
+                "filters_override": {
+                    "description": "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "object",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "additionalProperties": {}
+                        }
+                    ]
                 }
             },
             "required": ["insightId"]
@@ -1425,9 +1513,12 @@
                                                                 "ActionsTable",
                                                                 "ActionsPie",
                                                                 "ActionsBar",
+                                                                "ActionsStackedBar",
+                                                                "ActionsAreaGraph",
                                                                 "ActionsBarValue",
                                                                 "WorldMap",
-                                                                "BoldNumber"
+                                                                "BoldNumber",
+                                                                "TwoDimensionalHeatmap"
                                                             ]
                                                         },
                                                         "showLegend": {
@@ -2499,9 +2590,227 @@
                                                     "type": "boolean"
                                                 }
                                             }
+                                        },
+                                        "connectionId": {
+                                            "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
+                                            "type": "string"
                                         }
                                     },
                                     "required": ["kind", "query"]
+                                },
+                                "display": {
+                                    "description": "Visualization type. Time series should usually use ActionsLineGraph or ActionsAreaGraph; use ActionsTable only when table rows are the intended output.",
+                                    "type": "string",
+                                    "enum": [
+                                        "ActionsLineGraph",
+                                        "ActionsTable",
+                                        "ActionsPie",
+                                        "ActionsBar",
+                                        "ActionsStackedBar",
+                                        "ActionsAreaGraph",
+                                        "ActionsBarValue",
+                                        "WorldMap",
+                                        "BoldNumber",
+                                        "TwoDimensionalHeatmap"
+                                    ]
+                                },
+                                "chartSettings": {
+                                    "type": "object",
+                                    "properties": {
+                                        "xAxis": {
+                                            "description": "Column used as the X axis, usually a time bucket or category.",
+                                            "type": "object",
+                                            "properties": {
+                                                "column": {
+                                                    "type": "string",
+                                                    "description": "Name of a column returned by the SQL query."
+                                                },
+                                                "settings": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "formatting": {
+                                                            "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "style": {
+                                                                    "type": "string",
+                                                                    "enum": ["none", "number", "short", "percent"]
+                                                                },
+                                                                "decimalPlaces": {
+                                                                    "type": "number"
+                                                                },
+                                                                "prefix": {
+                                                                    "type": "string"
+                                                                },
+                                                                "suffix": {
+                                                                    "type": "string"
+                                                                }
+                                                            }
+                                                        },
+                                                        "display": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "label": {
+                                                                    "type": "string"
+                                                                },
+                                                                "displayType": {
+                                                                    "type": "string",
+                                                                    "enum": ["auto", "line", "bar", "area"]
+                                                                },
+                                                                "yAxisPosition": {
+                                                                    "type": "string",
+                                                                    "enum": ["left", "right"]
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "required": ["column"]
+                                        },
+                                        "yAxis": {
+                                            "description": "Numeric columns plotted as Y series. Include only final metrics the user cares about, not helper columns such as numerators or denominators.",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "column": {
+                                                        "type": "string",
+                                                        "description": "Name of a column returned by the SQL query."
+                                                    },
+                                                    "settings": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "formatting": {
+                                                                "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "style": {
+                                                                        "type": "string",
+                                                                        "enum": ["none", "number", "short", "percent"]
+                                                                    },
+                                                                    "decimalPlaces": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "prefix": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "suffix": {
+                                                                        "type": "string"
+                                                                    }
+                                                                }
+                                                            },
+                                                            "display": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "label": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "displayType": {
+                                                                        "type": "string",
+                                                                        "enum": ["auto", "line", "bar", "area"]
+                                                                    },
+                                                                    "yAxisPosition": {
+                                                                        "type": "string",
+                                                                        "enum": ["left", "right"]
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "required": ["column"]
+                                            }
+                                        },
+                                        "seriesBreakdownColumn": {
+                                            "description": "Column that splits a single Y metric into multiple colored series.",
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "showLegend": {
+                                            "type": "boolean"
+                                        },
+                                        "showNullsAsZero": {
+                                            "type": "boolean"
+                                        },
+                                        "stackBars100": {
+                                            "type": "boolean"
+                                        }
+                                    }
+                                },
+                                "tableSettings": {
+                                    "type": "object",
+                                    "properties": {
+                                        "columns": {
+                                            "description": "Columns to display and their order.",
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "column": {
+                                                        "type": "string",
+                                                        "description": "Name of a column returned by the SQL query."
+                                                    },
+                                                    "settings": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "formatting": {
+                                                                "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "style": {
+                                                                        "type": "string",
+                                                                        "enum": ["none", "number", "short", "percent"]
+                                                                    },
+                                                                    "decimalPlaces": {
+                                                                        "type": "number"
+                                                                    },
+                                                                    "prefix": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "suffix": {
+                                                                        "type": "string"
+                                                                    }
+                                                                }
+                                                            },
+                                                            "display": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "label": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "displayType": {
+                                                                        "type": "string",
+                                                                        "enum": ["auto", "line", "bar", "area"]
+                                                                    },
+                                                                    "yAxisPosition": {
+                                                                        "type": "string",
+                                                                        "enum": ["left", "right"]
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "required": ["column"]
+                                            }
+                                        },
+                                        "pinnedColumns": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "transpose": {
+                                            "type": "boolean"
+                                        }
+                                    }
                                 }
                             },
                             "required": ["kind", "source"]
@@ -2659,11 +2968,36 @@
                                             "type": "boolean"
                                         }
                                     }
+                                },
+                                "connectionId": {
+                                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
+                                    "type": "string"
                                 }
                             },
                             "required": ["kind", "query"]
                         }
                     ]
+                }
+            },
+            "required": ["query"]
+        },
+        "QueryValidateInputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost."
+                },
+                "language": {
+                    "default": "hogQL",
+                    "description": "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source.",
+                    "type": "string",
+                    "enum": ["hogQL", "hogQLExpr", "hog", "hogTemplate"]
+                },
+                "connectionId": {
+                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "type": "string"
                 }
             },
             "required": ["query"]
@@ -2811,6 +3145,82 @@
         "SurveyResponseCountsSchema": {
             "type": "object",
             "properties": {}
+        },
+        "UsageMetricFiltersSchema": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "const": "data_warehouse"
+                        },
+                        "table_name": {
+                            "type": "string",
+                            "description": "Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables."
+                        },
+                        "timestamp_field": {
+                            "type": "string",
+                            "description": "Timestamp column or HogQL expression on the row (e.g. \"created\" or \"toDateTime(created_at)\"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns."
+                        },
+                        "key_field": {
+                            "type": "string",
+                            "description": "Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key."
+                        }
+                    },
+                    "required": ["source", "table_name", "timestamp_field", "key_field"],
+                    "description": "Data-warehouse-source filter shape."
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "events": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Event name (e.g. \"$pageview\")."
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "const": "events"
+                                    },
+                                    "order": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    },
+                                    "properties": {
+                                        "type": "array",
+                                        "items": {}
+                                    }
+                                },
+                                "required": ["id"]
+                            },
+                            "description": "Events to count or sum over."
+                        },
+                        "actions": {
+                            "type": "array",
+                            "items": {}
+                        },
+                        "properties": {
+                            "type": "array",
+                            "items": {}
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["events"],
+                    "description": "Events-source filter shape (default)."
+                }
+            ],
+            "description": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array)."
         }
     }
 }

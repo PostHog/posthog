@@ -34,6 +34,21 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a new password for the sharing configuration.
+ */
+export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().nullish(),
+    password_required: zod.boolean().optional(),
+})
+
+export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().nullish(),
+    password_required: zod.boolean().optional(),
+})
+
+/**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
 export const notebooksUpdateBodyTitleMax = 256
@@ -96,6 +111,7 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
         .default(notebooksCollabSaveCreateBodyTextContentDefault)
         .describe('Plain text for search indexing.'),
     title: zod.string().optional().describe('Updated notebook title.'),
+    cursor_head: zod.number().nullish().describe('ProseMirror cursor head position after applying steps.'),
 })
 
 /**

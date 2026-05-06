@@ -26,6 +26,7 @@ function ContextMenuContent({
     alignOffset = 4,
     side = 'inline-end',
     sideOffset = 0,
+    children,
     ...props
 }: ContextMenuPrimitive.Popup.Props &
     Pick<ContextMenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>): React.ReactElement {
@@ -33,7 +34,8 @@ function ContextMenuContent({
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.Positioner
                 data-quill
-                className="isolate z-50 outline-none"
+                data-quill-portal="popover"
+                className="isolate outline-none"
                 align={align}
                 alignOffset={alignOffset}
                 side={side}
@@ -41,12 +43,11 @@ function ContextMenuContent({
             >
                 <ContextMenuPrimitive.Popup
                     data-slot="context-menu-content"
-                    className={cn(
-                        'quill-menu__content',
-                        className
-                    )}
+                    className={cn('quill-menu__content', className)}
                     {...props}
-                />
+                >
+                    <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">{children}</div>
+                </ContextMenuPrimitive.Popup>
             </ContextMenuPrimitive.Positioner>
         </ContextMenuPrimitive.Portal>
     )

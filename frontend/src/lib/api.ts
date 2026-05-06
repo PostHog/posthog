@@ -18,7 +18,7 @@ import { RecordingComment } from 'scenes/session-recordings/player/inspector/pla
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
@@ -226,6 +226,7 @@ import type {
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
+    SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -246,6 +247,7 @@ import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/A
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
+    ErrorTrackingSettings,
     ErrorTrackingSpikeDetectionConfig,
     ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
@@ -622,6 +624,10 @@ export class ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent(id)
     }
 
+    public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystemShortcut(teamId).addPathComponent('reorder')
+    }
+
     // # Persisted folder
     public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('persisted_folder')
@@ -944,6 +950,22 @@ export class ApiRequest {
 
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
+    }
+
+    public notebookSharing(notebookShortId: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebook(notebookShortId, teamId).addPathComponent('sharing')
+    }
+
+    public notebookSharingPasswords(notebookShortId: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebookSharing(notebookShortId, teamId).addPathComponent('passwords')
+    }
+
+    public notebookSharingPassword(
+        notebookShortId: NotebookType['short_id'],
+        passwordId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.notebookSharingPasswords(notebookShortId, teamId).addPathComponent(passwordId)
     }
 
     public dashboardSharingPasswords(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1318,6 +1340,10 @@ export class ApiRequest {
 
     public errorTrackingSpikeDetectionConfig(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_detection_config')
+    }
+
+    public errorTrackingSettings(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('settings')
     }
 
     public errorTrackingSpikeEvents(teamId?: TeamType['id']): ApiRequest {
@@ -2463,6 +2489,9 @@ const api = {
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
         },
+        async reorder(orderedIds: NonNullable<FileSystemEntry['id']>[]): Promise<FileSystemEntry[]> {
+            return await new ApiRequest().fileSystemShortcutReorder().create({ data: { ordered_ids: orderedIds } })
+        },
     },
 
     persistedFolder: {
@@ -2709,6 +2738,20 @@ const api = {
         async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
         },
+
+        async complete(
+            id: CommentType['id'],
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).withAction('complete').create()
+        },
+
+        async reopen(
+            id: CommentType['id'],
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).withAction('reopen').create()
+        },
     },
 
     logs: {
@@ -2729,8 +2772,20 @@ const api = {
                 log_count: number
                 error_count: number
                 error_rate: number
+                volume_share_pct?: number
+                severity_breakdown?: {
+                    debug: number
+                    info: number
+                    warn: number
+                    error: number
+                }
+                active_rules?: { rule_id: string; rule_name: string; summary_string: string }[]
             }[]
             sparkline: { time: string; service_name: string; count: number }[]
+            summary?: {
+                top_services_count: number
+                top_services_volume_share_pct: number
+            }
         }> {
             return new ApiRequest().logsServices().create({ signal, data: { query } })
         },
@@ -2772,13 +2827,21 @@ const api = {
         },
         async getTrace(
             traceId: string,
-            dateRange?: { date_from?: string | null; date_to?: string | null }
+            query?: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            }
         ): Promise<{ results: Record<string, any>[] }> {
             return new ApiRequest()
                 .tracingSpans()
                 .withAction(`trace/${traceId}`)
                 .create({
-                    data: { dateRange: dateRange ?? { date_from: '-24h' } },
+                    data: {
+                        ...query,
+                        dateRange: query?.dateRange ?? { date_from: '-24h' },
+                    },
                 })
         },
         async sparkline(query: {
@@ -2909,6 +2972,14 @@ const api = {
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
+        },
+        async primaryProperties({
+            names,
+        }: {
+            names?: string[]
+        } = {}): Promise<{ primary_properties: Record<string, string> }> {
+            const params = names && names.length > 0 ? toParams({ names }, true) : ''
+            return new ApiRequest().eventDefinitions().withAction('primary_properties').withQueryString(params).get()
         },
         async getMetrics({
             eventDefinitionId,
@@ -3546,10 +3617,12 @@ const api = {
             dashboardId,
             insightId,
             recordingId,
+            notebookShortId,
         }: {
             dashboardId?: DashboardType['id']
             insightId?: QueryBasedInsightModel['id']
             recordingId?: SessionRecordingType['id']
+            notebookShortId?: NotebookType['short_id']
         }): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
@@ -3557,7 +3630,9 @@ const api = {
                   ? new ApiRequest().insightSharing(insightId).get()
                   : recordingId
                     ? new ApiRequest().recordingSharing(recordingId).get()
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharing(notebookShortId).get()
+                      : null
         },
 
         async update(
@@ -3565,10 +3640,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
@@ -3578,7 +3655,9 @@ const api = {
                   ? new ApiRequest().insightSharing(insightId).update({ data })
                   : recordingId
                     ? new ApiRequest().recordingSharing(recordingId).update({ data })
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharing(notebookShortId).update({ data })
+                      : null
         },
 
         async createPassword(
@@ -3586,10 +3665,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             data: { raw_password?: string; note?: string }
         ): Promise<SharingConfigurationType | null> {
@@ -3599,7 +3680,9 @@ const api = {
                   ? new ApiRequest().insightSharingPasswords(insightId).create({ data })
                   : recordingId
                     ? new ApiRequest().recordingSharingPasswords(recordingId).create({ data })
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharingPasswords(notebookShortId).create({ data })
+                      : null
         },
 
         async deletePassword(
@@ -3607,10 +3690,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: QueryBasedInsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             passwordId: string
         ): Promise<void> {
@@ -3620,7 +3705,9 @@ const api = {
                   ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
                   : recordingId
                     ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
-                    : null
+                    : notebookShortId
+                      ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
+                      : null
         },
     },
 
@@ -4025,8 +4112,15 @@ const api = {
             return await new ApiRequest().errorTrackingRecommendation(id).withAction('restore').create()
         },
 
-        async refreshRecommendation(id: string): Promise<ErrorTrackingRecommendation> {
-            return await new ApiRequest().errorTrackingRecommendation(id).withAction('refresh').create()
+        async refreshRecommendation(
+            id: string,
+            { force = true }: { force?: boolean } = {}
+        ): Promise<ErrorTrackingRecommendation> {
+            return await new ApiRequest()
+                .errorTrackingRecommendation(id)
+                .withAction('refresh')
+                .withQueryString({ force })
+                .create()
         },
 
         async createRule(
@@ -4083,6 +4177,14 @@ const api = {
                 .errorTrackingSpikeDetectionConfig()
                 .withAction('update_config')
                 .update({ data })
+        },
+
+        async getSettings(): Promise<ErrorTrackingSettings> {
+            return await new ApiRequest().errorTrackingSettings().withAction('retrieve_settings').get()
+        },
+
+        async updateSettings(data: Partial<ErrorTrackingSettings>): Promise<ErrorTrackingSettings> {
+            return await new ApiRequest().errorTrackingSettings().withAction('update_settings').update({ data })
         },
 
         async getSpikeEvents(params?: {
@@ -4204,15 +4306,20 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
+        async summarizeStream(
+            recordingId: SessionRecordingType['id'],
+            options?: ApiMethodOptions & { forceRestart?: boolean }
+        ): Promise<Response> {
+            const { forceRestart, ...apiOptions } = options ?? {}
             return await api.createResponse(
                 new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
-                // No data to provide except for the recording id.
-                // Could be extended later with the state of the filters to better understand the user's intent.
-                undefined,
-                // TODO: Understand if I need to provide any signal data here
-                {}
+                forceRestart ? { force_restart: true } : undefined,
+                apiOptions
             )
+        },
+
+        async cancelSummarize(recordingId: SessionRecordingType['id']): Promise<{ cancelled: boolean }> {
+            return await new ApiRequest().recording(recordingId).withAction('summarize/cancel').create()
         },
 
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
@@ -4223,11 +4330,18 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async batchCheckExists(sessionIds: string[]): Promise<{ results: Record<string, boolean> }> {
-            return await new ApiRequest()
-                .recordings()
-                .withAction('batch_check_exists')
-                .create({ data: { session_ids: sessionIds } })
+        async batchCheckExists(
+            sessionIds: string[],
+            options?: { includeOutcomes?: boolean }
+        ): Promise<{
+            results: Record<string, boolean>
+            outcomes?: Record<string, { description?: string | null }>
+        }> {
+            const data: Record<string, unknown> = { session_ids: sessionIds }
+            if (options?.includeOutcomes) {
+                data.include_outcomes = true
+            }
+            return await new ApiRequest().recordings().withAction('batch_check_exists').create({ data })
         },
 
         async createExternalReference(
@@ -4575,6 +4689,21 @@ const api = {
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
         },
+        async collabStream(
+            notebookId: NotebookType['short_id'],
+            {
+                onMessage,
+                onError,
+                signal,
+            }: {
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                signal?: AbortSignal
+            }
+        ): Promise<void> {
+            const url = new ApiRequest().notebook(notebookId).withAction('collab/stream').assembleFullUrl(true)
+            await api.stream(url, { method: 'GET', onMessage, onError, signal })
+        },
     },
 
     sessionGroupSummaries: {
@@ -4899,6 +5028,22 @@ const api = {
                 .withAction('summary_headline')
                 .create({ data: { force_refresh: forceRefresh } })
         },
+        async generateTranslations(
+            surveyId: Survey['id'],
+            data: {
+                target_language: string
+                source_language?: string
+                overwrite?: boolean
+                survey?: unknown
+            }
+        ): Promise<{
+            translations: Record<string, Record<string, string>>
+            questions: Array<{ id: string; translations: Record<string, Record<string, any>> }>
+            generated_field_paths: string[]
+            trace_id: string
+        }> {
+            return await new ApiRequest().survey(surveyId).withAction('generate_translations').create({ data })
+        },
         async getSurveyStats({
             surveyId,
             dateFrom = null,
@@ -4970,8 +5115,11 @@ const api = {
     },
 
     productTours: {
-        async list(): Promise<PaginatedResponse<ProductTour>> {
-            return await new ApiRequest().productTours().get()
+        async list({ search }: { search?: string } = {}): Promise<PaginatedResponse<ProductTour>> {
+            return await new ApiRequest()
+                .productTours()
+                .withQueryString(search ? { search } : {})
+                .get()
         },
         async get(tourId: ProductTour['id']): Promise<ProductTour> {
             return await new ApiRequest().productTour(tourId).get()
@@ -5238,7 +5386,7 @@ const api = {
         },
         async createWebhook(
             sourceId: ExternalDataSource['id']
-        ): Promise<{ success: boolean; webhook_url: string; error?: string }> {
+        ): Promise<{ success: boolean; webhook_url: string; error?: string; pending_inputs?: string[] }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('create_webhook').create()
         },
         async updateWebhookInputs(
@@ -5573,6 +5721,9 @@ const api = {
         async testDelivery(subscriptionId: SubscriptionType['id']): Promise<void> {
             await new ApiRequest().subscription(subscriptionId).withAction('test-delivery').create()
         },
+        async summaryQuota(): Promise<{ active_count: number; limit: number | null; at_limit: boolean }> {
+            return await new ApiRequest().subscriptions().withAction('summary_quota').get()
+        },
     },
 
     integrations: {
@@ -5588,7 +5739,7 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string }): string {
+        authorizeUrl(params: { kind: string; next?: string; is_sandbox?: boolean }): string {
             return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(
@@ -5620,6 +5771,25 @@ const api = {
             params?: { limit?: number; offset?: number }
         ): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
+        },
+        async githubLinkExisting(
+            data: {
+                source_team_id?: number
+                installation_id?: string | number
+            },
+            teamId?: TeamType['id']
+        ): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).withAction('github/link_existing').create({ data })
+        },
+        async githubOAuthAuthorize(
+            data: {
+                installation_id: string | number
+                next?: string
+                connect_from?: string
+            },
+            teamId?: TeamType['id']
+        ): Promise<{ oauth_url: string }> {
+            return await new ApiRequest().integrations(teamId).withAction('github/oauth_authorize').create({ data })
         },
         async jiraProjects(id: IntegrationType['id']): Promise<{ projects: JiraProjectType[] }> {
             return await new ApiRequest().integrationJiraProjects(id).get()
@@ -6004,6 +6174,39 @@ const api = {
         },
         async deleteHogFlowSchedule(hogFlowId: HogFlow['id'], scheduleId: string): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').withAction(scheduleId).delete()
+        },
+        async getBlockedRuns(
+            hogFlowId: HogFlow['id'],
+            limit = 100,
+            offset = 0
+        ): Promise<{
+            results: {
+                instance_id: string
+                timestamp: string
+                action_id: string | null
+                event_uuid: string | null
+                message: string
+            }[]
+            has_next: boolean
+            limit: number
+            offset: number
+        }> {
+            return await new ApiRequest()
+                .hogFlow(hogFlowId)
+                .withAction('blocked_runs')
+                .withQueryString(`limit=${limit}&offset=${offset}`)
+                .get()
+        },
+        async replayBlockedRun(
+            hogFlowId: HogFlow['id'],
+            data: { event_uuid: string; action_id: string; instance_id: string }
+        ): Promise<{ status: string }> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_blocked_run').create({ data })
+        },
+        async replayAllBlockedRuns(
+            hogFlowId: HogFlow['id']
+        ): Promise<{ succeeded: number; failed: number; skipped: number }> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_all_blocked_runs').create()
         },
     },
     hogFlowTemplates: {
@@ -6678,6 +6881,14 @@ const api = {
                 .withAction('create_session_summaries_individually')
                 .create({ data })
         },
+        config: {
+            async get(): Promise<SessionSummariesConfig> {
+                return await new ApiRequest().sessionSummary().withAction('config').get()
+            },
+            async update(data: Partial<SessionSummariesConfig>): Promise<SessionSummariesConfig> {
+                return await new ApiRequest().sessionSummary().withAction('config').update({ data })
+            },
+        },
     },
 
     dataWarehouseManagedViewsets: {
@@ -6708,6 +6919,8 @@ const api = {
     },
 } as const
 
+const warnedSharedViewLeaks = new Set<string>()
+
 async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -6731,6 +6944,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
     if (!response.ok) {
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
+        const inSharedView = isSharedView()
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
@@ -6739,7 +6953,15 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
                 method,
                 duration,
                 status: response.status,
+                is_shared_view: inSharedView,
             })
+        }
+        if (inSharedView && (response.status === 401 || response.status === 403)) {
+            const leakKey = `${method} ${pathname}`
+            if (!warnedSharedViewLeaks.has(leakKey)) {
+                warnedSharedViewLeaks.add(leakKey)
+                console.warn(`[shared-view] unexpected ${response.status} on ${leakKey}`)
+            }
         }
 
         const data = await getJSONOrNull(response)

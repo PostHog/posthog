@@ -22,12 +22,14 @@ function DialogPortal({ ...props }: DialogPrimitive.Portal.Props): React.ReactEl
 }
 
 function DialogClose({ ...props }: DialogPrimitive.Close.Props): React.ReactElement {
-    return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
+    return <DialogPrimitive.Close data-slot="dialog-close focus-visible:z-10" {...props} />
 }
 
 function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props): React.ReactElement {
     return (
         <DialogPrimitive.Backdrop
+            data-quill
+            data-quill-portal="modal-overlay"
             data-slot="dialog-overlay"
             className={cn('quill-dialog__overlay', className)}
             {...props}
@@ -50,6 +52,7 @@ function DialogContent({
             <DialogOverlay />
             <DialogPrimitive.Popup
                 data-quill
+                data-quill-portal="modal-content"
                 data-slot="dialog-content"
                 className={cn('quill-dialog__content grid gap-4', className)}
                 {...props}

@@ -9,12 +9,17 @@
 import * as zod from 'zod'
 
 export const FeatureFlagsCopyFlagsCreateParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
+export const featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault = false
 
 export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
     feature_flag_key: zod.string().describe('Key of the feature flag to copy'),
@@ -27,6 +32,12 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(featureFlagsCopyFlagsCreateBodyCopyScheduleDefault)
         .describe('Whether to also copy scheduled changes for this flag'),
+    disable_copied_flag: zod
+        .boolean()
+        .default(featureFlagsCopyFlagsCreateBodyDisableCopiedFlagDefault)
+        .describe(
+            "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status"
+        ),
 })
 
 /**

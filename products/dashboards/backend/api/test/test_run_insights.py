@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
@@ -6,6 +8,7 @@ from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsFilter, 
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import Insight
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
@@ -151,3 +154,54 @@ class TestDashboardRunInsights(APIBaseTest):
 
         self.assertEqual([tile["insight"]["id"] for tile in body["results"]], [second_id, first_id])
         self.assertEqual([tile["order"] for tile in body["results"]], [0, 1])
+
+    def test_variables_override_query_param_applies_to_insight_results(self) -> None:
+        # Locks the contract documented by the VARIABLES_OVERRIDE_PARAM @extend_schema annotation:
+        # an MCP / API caller passing variables_override with the documented {code_name, variableId, value}
+        # shape gets results computed against the overridden value, not the persisted default.
+        # Without this test the override path through DashboardTileResultSerializer →
+        # InsightResultSerializer's inherited SerializerMethodField is fragile under future refactors.
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Threshold", code_name="threshold", default_value=10, type="Number"
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dash")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="threshold check",
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT {variables.threshold}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "display": "BoldNumber",
+            },
+        )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+
+        # Without override → default value.
+        baseline = self._run(dashboard.pk, output_format="json", refresh="blocking")
+        self.assertEqual(baseline["results"][0]["insight"]["result"][0][0], 10)
+
+        # With override → overridden value.
+        overridden = self._run(
+            dashboard.pk,
+            output_format="json",
+            refresh="blocking",
+            variables_override=json.dumps(
+                {
+                    str(variable.id): {
+                        "code_name": variable.code_name,
+                        "variableId": str(variable.id),
+                        "value": 99,
+                    }
+                }
+            ),
+        )
+        self.assertEqual(overridden["results"][0]["insight"]["result"][0][0], 99)

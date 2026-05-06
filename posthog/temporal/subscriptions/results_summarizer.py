@@ -3,9 +3,27 @@ from typing import Any
 
 from structlog import get_logger
 
+from posthog.temporal.subscriptions.prompt_sanitization import (
+    GENERIC_VALUE_MAX_LEN,
+    SERIES_LABEL_MAX_LEN,
+    sanitize_user_text,
+)
+
 LOGGER = get_logger(__name__)
 
 MAX_SUMMARY_LENGTH = 2000
+
+
+def _safe_label(value: Any, fallback: str) -> str:
+    if value is None:
+        return fallback
+    return sanitize_user_text(str(value), SERIES_LABEL_MAX_LEN) or fallback
+
+
+def _safe_value(value: Any) -> str:
+    if isinstance(value, (int, float)) or value is None:
+        return str(value)
+    return sanitize_user_text(str(value), GENERIC_VALUE_MAX_LEN)
 
 
 def build_results_summary(
@@ -32,7 +50,7 @@ def _summarize_trends(results: list[dict[str, Any]]) -> str:
 
     lines: list[str] = []
     for series in results:
-        label = series.get("label", "Unknown")
+        label = _safe_label(series.get("label"), "Unknown")
         data = series.get("data", [])
         aggregated_value = series.get("aggregated_value")
 
@@ -70,7 +88,7 @@ def _looks_like_boxplot_trend(results: list[dict[str, Any]]) -> bool:
 def _summarize_boxplot_trend(results: list[dict[str, Any]]) -> str:
     by_series: dict[str, list[dict[str, Any]]] = {}
     for row in results:
-        label = row.get("series_label") or row.get("label") or "Unknown"
+        label = _safe_label(row.get("series_label") or row.get("label"), "Unknown")
         by_series.setdefault(label, []).append(row)
 
     lines: list[str] = []
@@ -103,7 +121,7 @@ def _summarize_funnels(results: list[Any]) -> str:
         steps = results[0]
 
     for i, step in enumerate(steps):
-        name = step.get("name", step.get("custom_name", f"Step {i + 1}"))
+        name = _safe_label(step.get("name") or step.get("custom_name"), f"Step {i + 1}")
         count = step.get("count", 0)
         conversion = step.get("conversion_rate")
         if conversion is not None:
@@ -117,7 +135,7 @@ def _summarize_funnels(results: list[Any]) -> str:
 def _summarize_retention(results: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     for i, cohort in enumerate(results[:10]):
-        label = cohort.get("label", cohort.get("date", f"Cohort {i}"))
+        label = _safe_label(cohort.get("label") or cohort.get("date"), f"Cohort {i}")
         values = cohort.get("values", [])
         if values:
             initial = values[0].get("count", 0) if isinstance(values[0], dict) else values[0]
@@ -150,11 +168,11 @@ def _summarize_generic(results: list[Any], columns: list[str] | None = None) -> 
             for key, val in row.items():
                 if key in ("data", "values", "days", "labels", "timestamps"):
                     continue
-                parts.append(f"{key}={val}")
+                parts.append(f"{_safe_label(key, 'field')}={_safe_value(val)}")
         elif isinstance(row, (list, tuple)):
             for col_index, val in enumerate(row):
-                label = _column_label(columns, col_index)
-                parts.append(f"{label}={val}")
+                label = _safe_label(_column_label(columns, col_index), f"col{col_index}")
+                parts.append(f"{label}={_safe_value(val)}")
         else:
             # Emit a signal rather than silently producing an ok-ish summary — if a
             # new shape appears in practice we find out from logs, not from a user.
@@ -162,7 +180,7 @@ def _summarize_generic(results: list[Any], columns: list[str] | None = None) -> 
                 "subscription_summary.unexpected_row_shape",
                 row_type=type(row).__name__,
             )
-            parts.append(str(row))
+            parts.append(_safe_value(row))
         if parts:
             lines.append(f"- Row {i + 1}: {', '.join(parts)}")
     if len(results) > 20:

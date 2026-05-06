@@ -29,6 +29,12 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -223,7 +229,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND ("posthog_featureflag"."team_id" =
-                (SELECT U0."parent_team_id"
+                (SELECT U0."parent_team_id" AS "parent_team_id"
                  FROM "posthog_team" U0
                  WHERE U0."id" = 99999
                  LIMIT 1)
@@ -502,7 +508,7 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.20
   '''
-  SELECT "posthog_dashboardtile"."id"
+  SELECT "posthog_dashboardtile"."id" AS "pk"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -519,7 +525,7 @@
   FROM "posthog_tag"
   INNER JOIN "posthog_team" ON ("posthog_tag"."team_id" = "posthog_team"."id")
   WHERE (("posthog_tag"."team_id" =
-            (SELECT U0."parent_team_id"
+            (SELECT U0."parent_team_id" AS "parent_team_id"
              FROM "posthog_team" U0
              WHERE U0."id" = 99999
              LIMIT 1)
@@ -830,7 +836,7 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.31
   '''
-  SELECT "posthog_dashboardtile"."id"
+  SELECT "posthog_dashboardtile"."id" AS "pk"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -2866,6 +2872,7 @@
          "posthog_filesystemshortcut"."type",
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
+         "posthog_filesystemshortcut"."order",
          "posthog_filesystemshortcut"."created_at"
   FROM "posthog_filesystemshortcut"
   WHERE ("posthog_filesystemshortcut"."ref" = '0001'
@@ -2907,6 +2914,12 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -3397,7 +3410,7 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.85
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
@@ -3441,6 +3454,12 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -3588,7 +3607,7 @@
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.6
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   '''
@@ -3658,6 +3677,12 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -3696,6 +3721,12 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"

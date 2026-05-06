@@ -67,7 +67,11 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     })
 
                     if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
-                        return await inFlightDatabaseLoadPromise
+                        const result = await inFlightDatabaseLoadPromise
+                        if (!databaseTableListLogic.isMounted()) {
+                            return null
+                        }
+                        return result
                     }
 
                     const request = performQuery(
@@ -83,23 +87,28 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     inFlightDatabaseLoadKey = requestKey
                     inFlightDatabaseLoadPromise = request
 
+                    let database: Required<DatabaseSchemaQueryResponse> | null = null
                     try {
-                        const database = await request
-                        const currentConnectionId = isDirectQueryEnabled()
-                            ? (values.connectionId ?? undefined)
-                            : undefined
-
-                        if (currentConnectionId !== requestConnectionId) {
-                            return values.database
-                        }
-
-                        return database
+                        database = await request
                     } finally {
                         if (inFlightDatabaseLoadKey === requestKey) {
                             inFlightDatabaseLoadKey = null
                             inFlightDatabaseLoadPromise = null
                         }
                     }
+
+                    // Reading `values` post-unmount throws kea's path-not-found error.
+                    if (!databaseTableListLogic.isMounted()) {
+                        return null
+                    }
+
+                    const currentConnectionId = isDirectQueryEnabled() ? (values.connectionId ?? undefined) : undefined
+                    const currentTeamsToQuery = values.teamsToQuery
+                    if (currentConnectionId !== requestConnectionId || currentTeamsToQuery !== requestTeamsToQuery) {
+                        return values.database
+                    }
+
+                    return database
                 },
             },
         ],

@@ -154,7 +154,7 @@ function ToastViewport(): React.ReactElement {
 
     return (
         <Toast.Portal>
-            <Toast.Viewport data-quill className="fixed bottom-4 right-4 z-[100] w-[360px]">
+            <Toast.Viewport data-quill data-quill-portal="toast" className="fixed bottom-4 right-4 w-[360px]">
                 {manager.toasts.map((t) => {
                     const toastType = t.type as ToastType | undefined
 
@@ -206,7 +206,7 @@ function AnchoredToastViewport(): React.ReactElement {
 
     return (
         <Toast.Portal>
-            <Toast.Viewport data-quill className="fixed z-[100]">
+            <Toast.Viewport data-quill data-quill-portal="toast" className="fixed">
                 {manager.toasts.map((t) => {
                     return (
                         <Toast.Positioner key={t.id} toast={t} side="top" sideOffset={8}>
