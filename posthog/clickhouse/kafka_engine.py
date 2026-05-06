@@ -26,6 +26,7 @@ CONSUMER_GROUP_DISTINCT_ID_USAGE = "clickhouse_distinct_id_usage"
 CONSUMER_GROUP_TOPHOG = "clickhouse_tophog"
 CONSUMER_GROUP_AI_EVENTS = "clickhouse_ai_events" if _US else "group1"
 CONSUMER_GROUP_PROPERTY_VALUES = "clickhouse_property_values"
+CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG = "clickhouse_usage_report_events_preagg"
 
 # WarpStream consumer groups (separate from MSK so both can coexist)
 CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
@@ -53,6 +54,7 @@ CONSUMER_GROUP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS = (
     "clickhouse_error_tracking_issue_fingerprint_overrides_ws"
 )
 CONSUMER_GROUP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS = "clickhouse_error_tracking_fingerprint_issue_state_ws"
+CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG_WS = "clickhouse_usage_report_events_preagg_ws"
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
