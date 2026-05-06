@@ -40,7 +40,7 @@ from posthog.clickhouse.client.limit import get_events_list_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PropertyDefinition
+from posthog.models import Element, Filter, Person, PropertyDefinition, User
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -296,6 +296,9 @@ class EventViewSet(
                 list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
 
+            restricted_context = self._get_restricted_properties_context(request, team)
+            self._reject_restricted_property_references(filter, order_by, restricted_context)
+
             # Progressive time window optimization
             # Start with cached good_period or smallest window
             has_event_filter = bool(request.GET.get("event"))
@@ -389,7 +392,7 @@ class EventViewSet(
                 many=True,
                 context={
                     "people": self._get_people(query_result, team),
-                    **self._get_restricted_properties_context(request, team),
+                    **restricted_context,
                 },
             ).data
 
@@ -668,22 +671,53 @@ class EventViewSet(
         resp["Cache-Control"] = "max-age=10"
         return resp
 
+    def _reject_restricted_property_references(
+        self,
+        filter: Filter,
+        order_by: builtins.list[str],
+        restricted_context: dict,
+    ) -> None:
+        """
+        Raise a 400 if the request references a property the user can't read.
+        """
+        restricted_event = restricted_context.get("restricted_event_properties") or set()
+        restricted_person = restricted_context.get("restricted_person_properties") or set()
+        if not restricted_event and not restricted_person:
+            return
+
+        for prop in filter.property_groups.flat:
+            if prop.type == "event" and prop.key in restricted_event:
+                raise serializers.ValidationError("Filter references a restricted property")
+            if prop.type == "person" and prop.key in restricted_person:
+                raise serializers.ValidationError("Filter references a restricted property")
+
+        for entry in order_by:
+            if not isinstance(entry, str):
+                continue  # type: ignore
+            field = entry.lstrip("-")
+            # Accept both `properties.foo` (event) and `person.properties.foo` / `person_properties.foo`.
+            if field.startswith("properties."):
+                key = field.split(".", 1)[1]
+                if key in restricted_event:
+                    raise serializers.ValidationError("Order by references a restricted property")
+            elif field.startswith("person.properties.") or field.startswith("person_properties."):
+                key = field.split(".", 1)[1].split(".", 1)[-1]
+                if key in restricted_person:
+                    raise serializers.ValidationError("Order by references a restricted property")
+
     def _get_restricted_properties_context(self, request: request.Request, team: Team) -> dict:
         """Returns serializer context entries for field-level access control."""
-        from products.access_control.backend.property_access_control import get_restricted_property_names
+        from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
         user = request.user if request.user.is_authenticated else None
+
+        restricted = get_restricted_properties_for_team(team_id=team.pk, user=cast(User | None, user))
+        restricted_event_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.EVENT}
+        restricted_person_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.PERSON}
+
         return {
-            "restricted_event_properties": get_restricted_property_names(
-                team_id=team.pk,
-                user=user,
-                property_type=PropertyDefinition.Type.EVENT,
-            ),
-            "restricted_person_properties": get_restricted_property_names(
-                team_id=team.pk,
-                user=user,
-                property_type=PropertyDefinition.Type.PERSON,
-            ),
+            "restricted_event_properties": restricted_event_properties,
+            "restricted_person_properties": restricted_person_properties,
         }
 
     @tracer.start_as_current_span("events_api_is_property_hidden")

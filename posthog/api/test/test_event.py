@@ -97,7 +97,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
         # instance setting check, person and distinct id
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 

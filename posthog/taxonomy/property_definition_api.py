@@ -786,7 +786,14 @@ class PropertyDefinitionViewSet(
             else:
                 virtual_properties = self._BUILTIN_VIRTUAL_GROUP_PROPERTIES
 
-            matching_virtual_props = [p for p in virtual_properties if self._filter_virtual_property(p, query)]
+            restricted_virtual = (
+                self._get_restricted_property_names(event_type)
+                if query.validated_data.get("exclude_restricted", False)
+                else set()
+            )
+            matching_virtual_props = [
+                p for p in virtual_properties if self._filter_virtual_property(p, query, restricted_virtual)
+            ]
 
             db_count = response.data["count"]
             page_end_index = (paginator.offset or 0) + len(response.data["results"])
@@ -801,7 +808,12 @@ class PropertyDefinitionViewSet(
 
         return response
 
-    def _filter_virtual_property(self, prop: dict, q: PropertyDefinitionQuerySerializer) -> bool:
+    def _filter_virtual_property(
+        self,
+        prop: dict,
+        q: PropertyDefinitionQuerySerializer,
+        restricted: set[str] | None = None,
+    ) -> bool:
         # Reimplement filtering logic in python for virtual properties
         v = q.validated_data
 
@@ -844,10 +856,8 @@ class PropertyDefinitionViewSet(
             return False
 
         # field-level access control filter
-        if v.get("exclude_restricted", False):
-            restricted = self._get_restricted_property_names(v.get("type", "event"))
-            if prop["name"] in restricted:
-                return False
+        if v.get("exclude_restricted", False) and restricted and prop["name"] in restricted:
+            return False
 
         # verified filter — virtual properties don't participate in the
         # enterprise verification system, so exclude them whenever the

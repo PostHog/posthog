@@ -328,6 +328,16 @@ class ClickhouseEventSerializer(serializers.Serializer):
         restricted = self.context.get("restricted_event_properties")
         if restricted:
             props = {k: v for k, v in props.items() if k not in restricted}
+
+        restricted_person = self.context.get("restricted_person_properties")
+        if restricted_person:
+            for key in ("$set", "$set_once"):
+                nested = props.get(key)
+                if isinstance(nested, dict):
+                    props[key] = {k: v for k, v in nested.items() if k not in restricted_person}
+            unset = props.get("$unset")
+            if isinstance(unset, list):
+                props["$unset"] = [k for k in unset if k not in restricted_person]
         return props
 
     @extend_schema_field(serializers.CharField())

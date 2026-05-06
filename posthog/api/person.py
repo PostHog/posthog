@@ -522,6 +522,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         actor_ids = [row[0] for row in raw_paginated_result]
         serialized_actors = get_serialized_people(team, actor_ids)
+
+        restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
+        if restricted_person_properties:
+            for person_dict in serialized_actors:
+                properties = person_dict.get("properties")
+                if isinstance(properties, dict):
+                    person_dict["properties"] = {
+                        k: v for k, v in properties.items() if k not in restricted_person_properties
+                    }
+
         _should_paginate = len(actor_ids) >= filter.limit
 
         # If the undocumented include_total param is set to true, we'll return the total count of people

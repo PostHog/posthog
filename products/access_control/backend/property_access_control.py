@@ -140,9 +140,6 @@ def get_non_writable_property_names(
         .filter(property_definition__type=property_type)
     )
 
-    if not rules.exists():
-        return set()
-
     rules_by_property: dict[UUID, list[PropertyAccessControl]] = {}
     for rule in rules:
         prop_def_id = rule.property_definition_id
@@ -153,6 +150,9 @@ def get_non_writable_property_names(
         if prop_def_id not in rules_by_property:
             rules_by_property[prop_def_id] = []
         rules_by_property[prop_def_id].append(rule)
+
+    if len(rules_by_property) == 0:
+        return set()
 
     membership = None
     user_role_ids: set[int] = set()
