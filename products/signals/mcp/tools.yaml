@@ -123,7 +123,7 @@ tools:
         operation: signals_agent_memory_create
         enabled: true
         scopes:
-            - signal_agent:write
+            - signal_agent_internal:write
         annotations:
             readOnly: false
             destructive: false
@@ -138,7 +138,7 @@ tools:
         operation: signals_agent_memory_delete
         enabled: true
         scopes:
-            - signal_agent:write
+            - signal_agent_internal:write
         annotations:
             readOnly: false
             destructive: true
@@ -176,7 +176,7 @@ tools:
         operation: signals_agent_runs_findings_create
         enabled: true
         scopes:
-            - signal_agent:write
+            - signal_agent_internal:write
         annotations:
             readOnly: false
             destructive: false

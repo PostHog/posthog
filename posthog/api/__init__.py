@@ -1202,11 +1202,9 @@ projects_router.register(
 
 # Signals agent HTTP surface — exposed via MCP as `signals-agent-*` tools. Reads (runs,
 # memory) are public-grantable via `signal_agent:read`; writes (findings, memory
-# create/delete) are sandbox-scope only via `signal_agent:write`.
-from products.signals.backend.agent_harness.views import (  # noqa: E402
-    SignalAgentRunViewSet,
-    SignalMemoryViewSet,
-)
+# create/delete) are sandbox-scope only via `signal_agent_internal:write`, which lives
+# in `INTERNAL_API_SCOPE_OBJECTS` and so is not selectable in the personal-API-key UI.
+from products.signals.backend.agent_harness.views import SignalAgentRunViewSet, SignalMemoryViewSet  # noqa: E402
 
 projects_router.register(
     r"signals/agent/runs",

@@ -5,10 +5,15 @@ These wrap the sync Python tools in `agent_harness/tools/` so the headless agent
 tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
 `memory-create`, and `memory-delete` — over the standard PostHog MCP plumbing.
 
-Auth uses the dedicated `signal_agent:read` / `signal_agent:write` scopes. Read
-is user-grantable via the personal-API-key picker; write is sandbox-internal
-only (added to MCP tokens via `INTERNAL_SCOPES`). Every read filters on
-`team_id` first; the agent's MCP token is already pinned to the team.
+Auth uses two dedicated scope objects: `signal_agent:read` is user-grantable
+via the personal-API-key picker (so a team can introspect runs/memory from
+their own clients), while `signal_agent_internal:write` is in
+`INTERNAL_API_SCOPE_OBJECTS` and so can't be granted via PAK at all — the
+sandbox gets it only via `INTERNAL_SCOPES` when its OAuth token is minted.
+This blocks the prompt-injection vector where a user could mint a PAK,
+write to durable agent memory, and have the agent read it back verbatim
+on its next run. Every read filters on `team_id` first; the agent's MCP
+token is already pinned to the team.
 """
 
 from __future__ import annotations
@@ -129,7 +134,7 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="findings",
-        required_scopes=["signal_agent:write"],
+        required_scopes=["signal_agent_internal:write"],
         pagination_class=None,
     )
     def findings(self, request: Request, **kwargs) -> Response:
@@ -202,12 +207,28 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Durable agent memories (`SignalMemory`) — read, write, and delete."""
+    """Durable agent memories (`SignalMemory`) — read, write, and delete.
+
+    Reads (`list`) use the public `signal_agent:read` scope by inheriting the
+    viewset's `scope_object`. Writes (`create`, `delete`) elevate to the
+    internal-only `signal_agent_internal:write` scope — `delete` carries it
+    on its `@action`, and `create` (a built-in DRF method) gets it via the
+    `dangerously_get_required_scopes` hook below.
+    """
 
     serializer_class = MemoryEntrySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_agent"
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # `create` is a default DRF action so it has no `@action` decorator to set
+        # `required_scopes`; without this override the permission would resolve to
+        # `signal_agent:write` (user-grantable) and let any team member with a PAK
+        # write durable memories. Map it to the internal scope explicitly.
+        if getattr(view, "action", None) == "create":
+            return ["signal_agent_internal:write"]
+        return None
 
     @validated_request(
         query_serializer=SearchMemoryQuerySerializer,
@@ -294,7 +315,7 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         methods=["post"],
         url_path="delete",
-        required_scopes=["signal_agent:write"],
+        required_scopes=["signal_agent_internal:write"],
         pagination_class=None,
     )
     def delete(self, request: Request, **kwargs) -> Response:
@@ -304,4 +325,3 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except HumanConfirmedMemoryError as exc:
             raise exceptions.PermissionDenied(detail=str(exc))
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
-
