@@ -22,8 +22,16 @@ async function createSharedDashboard(
         'Content-Type': 'application/json',
     }
 
+    const dashboardName = 'Unauth Shared Dashboard'
+    const dashboardResponse = await page.request.post(`/api/projects/${workspace.team_id}/dashboards/`, {
+        headers: authHeaders,
+        data: { name: dashboardName },
+    })
+    expect(dashboardResponse.ok()).toBe(true)
+    const dashboardData = await dashboardResponse.json()
+
     const insightName = 'Unauth Shared Dashboard Insight'
-    const insightPayload: { name: string; query: InsightVizNode<TrendsQuery> } = {
+    const insightPayload: { name: string; query: InsightVizNode<TrendsQuery>; dashboards: number[] } = {
         name: insightName,
         query: {
             kind: NodeKind.InsightVizNode,
@@ -33,6 +41,7 @@ async function createSharedDashboard(
                 dateRange: { date_from: '2024-10-04', date_to: '2024-11-03', explicitDate: true },
             },
         },
+        dashboards: [dashboardData.id],
     }
 
     const insightResponse = await page.request.post(`/api/projects/${workspace.team_id}/insights/`, {
@@ -40,24 +49,6 @@ async function createSharedDashboard(
         data: insightPayload,
     })
     expect(insightResponse.ok()).toBe(true)
-    const insightData = await insightResponse.json()
-
-    const dashboardName = 'Unauth Shared Dashboard'
-    const dashboardResponse = await page.request.post(`/api/projects/${workspace.team_id}/dashboards/`, {
-        headers: authHeaders,
-        data: { name: dashboardName },
-    })
-    expect(dashboardResponse.ok()).toBe(true)
-    const dashboardData = await dashboardResponse.json()
-
-    const tileResponse = await page.request.patch(
-        `/api/projects/${workspace.team_id}/dashboards/${dashboardData.id}/`,
-        {
-            headers: authHeaders,
-            data: { tiles: [{ insight: { id: insightData.id } }] },
-        }
-    )
-    expect(tileResponse.ok()).toBe(true)
 
     const sharingResponse = await page.request.patch(
         `/api/projects/${workspace.team_id}/dashboards/${dashboardData.id}/sharing`,
