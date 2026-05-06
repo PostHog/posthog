@@ -74,8 +74,8 @@ type ChangeBadgeProps = {
  * Categorical chip describing the *kind* of change in a snapshot.
  *
  * The diff pipeline classifies into one of: `pixel` (a chunk of pixels
- * visibly differ), `structural` (SSIM caught a layout shift while pixel
- * diff was below threshold). Size-mismatch is *not* a kind — it composes
+ * visibly differ), `structural` (SSIM caught a perceptual change while
+ * pixel diff was below threshold). Size-mismatch is *not* a kind — it composes
  * with whichever kind the classifier picked, so when set it renders as
  * an additional chip next to the main one.
  *
@@ -97,16 +97,16 @@ export function SnapshotChangeBadge({ snapshot, size = 'default' }: ChangeBadgeP
     if (kind === 'structural') {
         const ssimText =
             snapshot.ssim_score != null
-                ? `SSIM ${snapshot.ssim_score.toFixed(3)} — structurally different despite few pixels changing.`
-                : 'Structural shift caught by SSIM despite few pixels changing.'
+                ? `SSIM ${snapshot.ssim_score.toFixed(3)} — perceptually different despite few pixels changing.`
+                : 'Perceptual change caught by SSIM despite few pixels changing.'
         kindChip = (
             <Tooltip
-                title={`Layout shift. ${ssimText} Pixel-diff percentage isn't shown because it's below the classifier threshold and would mislead.`}
+                title={`Subtle change. ${ssimText} Pixel-diff percentage isn't shown because it's below the classifier threshold and would mislead.`}
             >
                 <span
                     className={`shrink-0 inline-flex items-center bg-primary-highlight font-medium text-primary leading-none ${radiusClass} ${sizeClass}`}
                 >
-                    {isCompact ? 'Shift' : 'Layout shift'}
+                    {isCompact ? 'Subtle' : 'Subtle change'}
                 </span>
             </Tooltip>
         )
