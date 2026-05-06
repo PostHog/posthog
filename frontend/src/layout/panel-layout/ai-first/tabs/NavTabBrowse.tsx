@@ -33,12 +33,13 @@ import { urls } from 'scenes/urls'
 
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
-import { ActivityTab } from '~/types'
+import { ActivityTab, ReplayTabs } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
@@ -77,6 +78,15 @@ function getItemName(item: FileSystemEntry): string {
     const lastPart = pathSplit.pop()
     return unescapePath(lastPart ?? item.path)
 }
+
+const RECENTS_EMPTY_SUGGESTIONS: { label: string; href: string; iconType: FileSystemIconType }[] = [
+    { label: 'Product analytics', href: urls.savedInsights(), iconType: 'product_analytics' },
+    { label: 'Web analytics', href: urls.webAnalytics(), iconType: 'web_analytics' },
+    { label: 'Session replay', href: urls.replay(ReplayTabs.Home), iconType: 'session_replay' },
+    { label: 'Error tracking', href: urls.errorTracking(), iconType: 'error_tracking' },
+    { label: 'Feature flags', href: urls.featureFlags(), iconType: 'feature_flag' },
+    { label: 'Logs', href: urls.logs(), iconType: 'logs' },
+]
 
 function formatRelativeDate(dateStr: string | null | undefined): string {
     if (!dateStr) {
@@ -188,9 +198,14 @@ export function NavTabBrowse(): JSX.Element {
     const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
+    const { customProducts } = useValues(customProductsLogic)
     const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
     const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
+
     const currentPath = removeProjectIdIfPresent(pathname)
+
+    const enabledProductPaths = new Set(customProducts.filter((p) => p.enabled).map((p) => p.product_path))
+    const recentsSuggestion = RECENTS_EMPTY_SUGGESTIONS.find((s) => !enabledProductPaths.has(s.label))
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         const isOpening = activePanelIdentifier !== item
@@ -337,7 +352,26 @@ export function NavTabBrowse(): JSX.Element {
                                 <Spinner className="size-4" />
                             </div>
                         ) : recentItems.length === 0 ? (
-                            <span className="text-xs text-tertiary px-2 py-1">No recent items</span>
+                            <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 flex flex-col gap-2">
+                                <span>
+                                    Things you open will show up here, so you can quickly jump back to what you were
+                                    last working on.
+                                </span>
+                                {recentsSuggestion && (
+                                    <span className="text-tertiary">
+                                        Not sure where to start? Give{' '}
+                                        <Link
+                                            to={recentsSuggestion.href}
+                                            className="inline-flex items-center gap-1 align-middle [&_svg]:size-3.5"
+                                            data-attr={`nav-recents-suggestion-${recentsSuggestion.iconType}`}
+                                        >
+                                            {iconForType(recentsSuggestion.iconType)}
+                                            <span>{recentsSuggestion.label}</span>
+                                        </Link>{' '}
+                                        a try.
+                                    </span>
+                                )}
+                            </div>
                         ) : (
                             recentItems.map((item: FileSystemEntry) => {
                                 const name = getItemName(item)

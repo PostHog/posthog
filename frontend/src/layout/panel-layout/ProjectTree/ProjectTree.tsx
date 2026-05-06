@@ -41,6 +41,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { navRecentsLogic } from '~/layout/panel-layout/ai-first/tabs/navRecentsLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -170,7 +171,8 @@ export function ProjectTree({
     const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
-    const { mainContentRef } = useValues(panelLayoutLogic)
+    const { mainContentRef, expandedNavSections } = useValues(panelLayoutLogic)
+    const { recentItems } = useValues(navRecentsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
@@ -262,7 +264,11 @@ export function ProjectTree({
             })
         }
 
-        if (root === 'custom-products://') {
+        // The Recents nav section shows its own onboarding callout when there are no items
+        // Suppress this banner in that case to avoid stacking two callouts in the AI-first sidebar
+        const recentsCalloutVisible = (expandedNavSections.recents ?? false) && recentItems.length === 0
+
+        if (root === 'custom-products://' && !recentsCalloutVisible) {
             const hasRecommendedProducts = customProducts.some(
                 (item) =>
                     item.reason === UserProductListReason.USED_BY_COLLEAGUES ||
