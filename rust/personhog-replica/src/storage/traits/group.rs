@@ -5,6 +5,7 @@ use crate::storage::postgres::ConsistencyLevel;
 use crate::storage::types::{Group, GroupIdentifier, GroupKey, GroupTypeMapping};
 
 /// Group and group type mapping operations
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait GroupStorage: Send + Sync {
     // Group lookups

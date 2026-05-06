@@ -985,6 +985,21 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         Ok(Vec::new())
     }
 
+    async fn list_groups(
+        &self,
+        _team_id: i64,
+        _group_type_index: i32,
+        _group_key_contains: &str,
+        _search: &str,
+        _cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
+        _cursor_id: i64,
+        _limit: i32,
+        consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<(Vec<storage::Group>, bool)> {
+        self.record(consistency);
+        Ok((Vec::new(), false))
+    }
+
     async fn create_group(
         &self,
         team_id: i64,
