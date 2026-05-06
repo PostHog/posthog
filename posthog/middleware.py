@@ -697,15 +697,8 @@ class KnownLoginDeviceCookieMiddleware:
         # Gate on `BACKEND_SESSION_KEY` (set by `auth.login()`, removed by `auth.logout()`) rather than
         # `request.session.accessed` — the latter flips True whenever any upstream middleware reads the
         # session, which makes the gate dependent on middleware ordering and async/sync execution mode.
-        #
-        # Pre-gate on the session cookie's presence on the request: a Django session login *requires* the
-        # session cookie. No cookie ⇒ definitely not session auth, so we skip touching `request.session`
-        # entirely. This avoids (a) a cold `SessionStore.load()` on every token-auth request, and (b)
-        # flipping `request.session.accessed`, which would cause upstream `SessionMiddleware` to add
-        # `Vary: Cookie` to responses that have nothing to do with cookies — breaking downstream caching.
         if (
             isinstance(request.user, User)
-            and request.COOKIES.get(settings.SESSION_COOKIE_NAME)
             and BACKEND_SESSION_KEY in request.session
             and not is_impersonated_session(request)
         ):
