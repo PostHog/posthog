@@ -1626,6 +1626,5 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         running_runner = ExperimentExposuresQueryRunner(team=self.team, query=running_query)
         risk = running_runner._evaluate_bias_risk(total_exposures)
-        self.assertIsNotNone(risk)
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
