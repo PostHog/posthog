@@ -38,14 +38,11 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
 
         return "\n".join(formatted_parts)
 
-    # Handle single dict message. Unlike the list path, this returns body only
-    # (no `role:` prefix) — callers use it to unwrap a single message into raw
-    # text rather than to render a transcript.
+    # Handle single dict message — render it the same way as a one-element
+    # list so that role prefixes and tool_call_id correlation are surfaced
+    # consistently regardless of the wrapper shape.
     if isinstance(messages, dict):
-        content = messages.get("content", "")
-        text = _extract_content_text(content)
-        tool_calls_text = _format_tool_calls(messages.get("tool_calls"))
-        return " ".join(part for part in (text, tool_calls_text) if part)
+        return _render_message(messages) or ""
 
     return ""
 
@@ -173,11 +170,13 @@ def format_tool_definitions(tools: Any) -> str:
         return tools
 
     if isinstance(tools, dict):
-        # A bare dict is either a single tool spec (has `function` or `name`)
-        # or a `{tool_name: tool_spec, ...}` mapping — flatten the latter into
-        # a list of specs, carrying the mapping key over as the tool's name
-        # when the value itself doesn't declare one.
-        if "function" in tools or "name" in tools:
+        # A bare dict is either a single tool spec (carrying `function`,
+        # `name`, or Gemini's `functionDeclarations`) or a
+        # `{tool_name: tool_spec, ...}` mapping. Wrap a recognized spec in a
+        # one-element list; otherwise flatten the mapping into a list of
+        # specs, carrying the mapping key over as the tool's name when the
+        # value itself doesn't declare one.
+        if "function" in tools or "name" in tools or "functionDeclarations" in tools:
             tools = [tools]
         else:
             tools = [

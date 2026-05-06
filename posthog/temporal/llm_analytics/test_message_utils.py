@@ -83,10 +83,17 @@ class TestExtractTextFromMessages:
         assert "assistant:" in result
 
     def test_single_dict_message(self):
+        # Single-dict input renders symmetrically with the list path so the
+        # role prefix and tool_call_id correlation reach the judge regardless
+        # of whether the caller wraps the message in a list.
         message = {"role": "user", "content": "Hello"}
         result = extract_text_from_messages(message)
-        assert result == "Hello"
-        assert result != ""
+        assert result == "user: Hello"
+
+    def test_single_dict_tool_result_surfaces_call_id(self):
+        message = {"role": "tool", "tool_call_id": "call_42", "content": "done"}
+        result = extract_text_from_messages(message)
+        assert result == "tool[call_42]: done"
 
     @pytest.mark.parametrize(
         "messages,expected_substrings",
@@ -417,6 +424,22 @@ class TestFormatToolDefinitions:
         assert "(to?)" in result
         assert "(id?)" in result
 
+    def test_gemini_function_declarations_at_top_level(self):
+        # Some captures send Gemini's tool catalog as a bare dict rather than
+        # a list-wrapped one — `functionDeclarations` should be recognized as
+        # a tool spec carrier in either shape.
+        tools = {
+            "functionDeclarations": [
+                {"name": "send_email", "description": "Send an email."},
+                {"name": "lookup_user", "description": "Look up a user."},
+            ]
+        }
+        result = format_tool_definitions(tools)
+        lines = result.split("\n")
+        assert len(lines) == 2
+        assert lines[0].startswith("- send_email")
+        assert lines[1].startswith("- lookup_user")
+
     def test_openai_camel_case_input_schema_shape(self):
         tools = [
             {
@@ -455,6 +478,9 @@ class TestFormatToolDefinitions:
         # The full JSON schema (types, descriptions per property, etc.) must
         # not leak into the prompt — we only want parameter names, since
         # dumping a full schema for every tool can blow past the judge's context.
+        # Assert against JSON delimiters that can only come from a schema dump
+        # (rather than free-form words that could legitimately appear in a
+        # tool's name or description).
         tools = [
             {
                 "name": "do_thing",
@@ -470,13 +496,13 @@ class TestFormatToolDefinitions:
         ]
         result = format_tool_definitions(tools)
         assert "(a, b?)" in result
-        assert "long description" not in result
-        assert "minimum" not in result
-        assert "integer" not in result
+        assert '"type"' not in result
+        assert '"minimum"' not in result
+        assert '"description"' not in result
 
     def test_empty_parameters_dict_is_skipped(self):
-        # Locking current behavior: an explicitly-empty schema (`{}`) is
-        # treated as "no params" and the `(params: …)` suffix is omitted.
+        # An explicitly-empty schema (`{}`) is treated as "no params" and
+        # the `(...)` parameter suffix is omitted entirely.
         tools = [{"type": "function", "function": {"name": "noop", "description": "Does nothing", "parameters": {}}}]
         assert format_tool_definitions(tools) == "- noop: Does nothing"
 
