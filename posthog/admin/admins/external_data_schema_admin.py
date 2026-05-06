@@ -132,25 +132,41 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
 
 
 def _get_delta_fragmentation_stats(schema: ExternalDataSchema) -> dict | None:
-    """Build a minimal DeltaTableHelper for the schema's most recent job and
-    return file/partition stats. Returns None when no Delta target exists.
-    """
-    from asgiref.sync import async_to_sync
+    """Inspect the Delta target for one schema and return file/partition stats.
 
-    from posthog.temporal.common.logger import get_logger
+    Returns None when no Delta target exists.
+
+    Implemented synchronously (no `async_to_sync`) because the admin runs under
+    an ASGI server in dev — calling `async_to_sync` from inside the already-
+    running event loop raises `RuntimeError: You cannot use AsyncToSync in the
+    same thread as an async event loop` and Django renders the field as `-`.
+    The DeltaTableHelper internals only `await` two sync operations: the DB
+    folder_path lookup and the deltalake constructor. We replicate them inline.
+    """
+    from django.conf import settings
+
+    import deltalake
+
+    from posthog.temporal.data_imports.naming_convention import NamingConvention
     from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 
     job = ExternalDataJob.objects.filter(schema_id=schema.id, team_id=schema.team_id).order_by("-created_at").first()
     if job is None:
         return None
 
-    helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=get_logger(__name__))
+    # Build the URI exactly like DeltaTableHelper._get_delta_table_uri does.
+    normalized_resource_name = NamingConvention.normalize_identifier(schema.name)
+    folder_path = job.folder_path()
+    delta_uri = f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
 
-    delta_table = async_to_sync(helper.get_delta_table)()
-    if delta_table is None:
+    # Borrow DeltaTableHelper just for its credentials helper — that part is sync.
+    storage_options = DeltaTableHelper(resource_name=schema.name, job=job, logger=None)._get_credentials()
+
+    if not deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
         return None
 
-    file_uris = async_to_sync(helper.get_file_uris)()
+    delta_table = deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options)
+    file_uris = delta_table.file_uris()
     total_files = len(file_uris)
     partition_count = schema.partition_count or 1
 
