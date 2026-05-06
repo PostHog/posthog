@@ -53,6 +53,7 @@ const esmModules = [
     'ccount',
     'longest-streak',
     'markdown-table',
+    '@mathjax/src',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']
