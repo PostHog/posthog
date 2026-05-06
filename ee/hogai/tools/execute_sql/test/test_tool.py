@@ -13,6 +13,7 @@ from posthog.schema import (
 )
 
 from posthog.models import Insight
+from posthog.models.project import Project
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
@@ -68,6 +69,23 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(artifact_messages.messages[1], AssistantToolCallMessage)
         self.assertIn("test_event", artifact_messages.messages[1].content)
         self.assertIn("another_event", artifact_messages.messages[1].content)
+
+    async def test_tool_description_includes_org_scope_context(self):
+        _, other_team = await sync_to_async(Project.objects.create_with_team)(
+            organization=self.organization,
+            initiating_user=self.user,
+            name="Mobile app",
+        )
+        self.team.can_query_across_organization_projects = True
+        await sync_to_async(self.team.save)()
+
+        tool = await self._create_tool()
+
+        assert tool.description is not None
+        self.assertIn("Cross-project querying is enabled", tool.description)
+        self.assertIn(f"team_id={self.team.id}", tool.description)
+        self.assertIn(f"team_id={other_team.id}", tool.description)
+        self.assertIn("Use `team_id` only when the user explicitly asks", tool.description)
 
     async def test_successful_sql_execution_can_set_chart_axis_labels(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")

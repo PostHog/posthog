@@ -1,6 +1,9 @@
 EXECUTE_SQL_SYSTEM_PROMPT = """
 Use this tool to generate a HogQL query, which is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
 
+# Project scope
+{project_scope_context}
+
 # Important HogQL differences versus other SQL dialects
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).

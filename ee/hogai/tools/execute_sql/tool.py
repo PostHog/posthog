@@ -39,6 +39,7 @@ from .prompts import (
     EXECUTE_SQL_SYSTEM_PROMPT,
     EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT,
 )
+from .scope_context import format_execute_sql_project_scope_context
 
 
 class ExecuteSQLToolArgs(BaseModel):
@@ -75,8 +76,10 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
     ) -> Self:
+        project_scope_context = await format_execute_sql_project_scope_context(team)
         prompt = format_prompt_string(
             EXECUTE_SQL_SYSTEM_PROMPT,
+            project_scope_context=project_scope_context,
             sql_expressions_docs=SQL_EXPRESSIONS_DOCS,
             sql_supported_functions_docs=SQL_SUPPORTED_FUNCTIONS_DOCS,
             sql_supported_aggregations_docs=SQL_SUPPORTED_AGGREGATIONS_DOCS,

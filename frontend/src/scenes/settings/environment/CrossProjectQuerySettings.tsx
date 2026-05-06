@@ -19,7 +19,7 @@ export function CrossProjectQuerySettings(): JSX.Element {
         <div className="deprecated-space-y-2">
             <p className="flex items-center gap-1 mb-0">
                 Allow this project to query other projects in the same organization with HogQL.
-                <Tooltip title="When enabled, organization admins can run HogQL queries from this project across other projects in the organization. Every query still validates the requested project scope when it executes.">
+                <Tooltip title="When enabled, HogQL queries from this project can run across other projects in the organization. Every query still validates the requested project scope when it executes.">
                     <IconInfo className="text-lg" />
                 </Tooltip>
             </p>
@@ -28,7 +28,7 @@ export function CrossProjectQuerySettings(): JSX.Element {
                 checked={!!currentTeam?.can_query_across_organization_projects}
                 onChange={(checked) => updateCurrentTeam({ can_query_across_organization_projects: checked })}
                 disabledReason={restrictedReason || undefined}
-                label="Allow querying all projects in this organization"
+                label="Query across all projects in this organization"
                 bordered
             />
         </div>

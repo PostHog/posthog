@@ -274,7 +274,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'cross-project-querying',
                 title: 'Cross-project querying',
                 description:
-                    'Allow organization admins to run HogQL queries from this project across other projects in the same organization.',
+                    'Allow HogQL queries from this project to run across other projects in the same organization.',
                 component: <CrossProjectQuerySettings />,
                 allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['hogql', 'sql', 'projects', 'organization'],

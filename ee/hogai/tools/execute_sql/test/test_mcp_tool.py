@@ -47,6 +47,11 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         validated = self.tool.args_schema.model_validate({"query": "SELECT 1"})
         self.assertEqual(validated.query, "SELECT 1")
 
+        schema = self.tool.args_schema.model_json_schema()
+        query_description = schema["properties"]["query"]["description"]
+        self.assertIn("current project", query_description)
+        self.assertIn("team_id", query_description)
+
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     async def test_select_from_system_insights(self):
         await sync_to_async(Insight.objects.create)(
