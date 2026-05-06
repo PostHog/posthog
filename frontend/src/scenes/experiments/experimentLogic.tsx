@@ -1604,12 +1604,12 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         changeExperimentStartDate: async ({ startDate }) => {
-            actions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+            await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
             actions.refreshExperimentResults(true, 'config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
-            actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+            await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
             actions.refreshExperimentResults(true, 'config_change')
         },
@@ -1800,7 +1800,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateExperimentMetrics: async () => {
-            actions.updateExperiment({
+            await asyncActions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
