@@ -594,6 +594,13 @@ class PendoSourceConfig(config.Config):
 
 
 @config.config
+class PgAnalyzeSourceConfig(config.Config):
+    api_key: str
+    organization_slug: str
+    api_url: str | None = None
+
+
+@config.config
 class PinterestAdsSourceConfig(config.Config):
     ad_account_id: str
     pinterest_ads_integration_id: int = config.value(converter=config.str_to_int)
@@ -989,6 +996,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PARDOT: PardotSourceConfig,
         ExternalDataSourceType.PAYPAL: PayPalSourceConfig,
         ExternalDataSourceType.PENDO: PendoSourceConfig,
+        ExternalDataSourceType.PGANALYZE: PgAnalyzeSourceConfig,
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
         ExternalDataSourceType.PLAID: PlaidSourceConfig,

@@ -18701,7 +18701,8 @@
                 "Convex",
                 "ClickHouse",
                 "Plain",
-                "Resend"
+                "Resend",
+                "PgAnalyze"
             ],
             "type": "string"
         },
@@ -27124,6 +27125,80 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "PgAnalyzeIssueReference": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "queryText": {
+                    "type": ["string", "null"]
+                },
+                "url": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["kind", "name", "url", "queryText"],
+            "type": "object"
+        },
+        "PgAnalyzeIssueSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "database_id": {
+                    "type": ["string", "null"]
+                },
+                "references": {
+                    "items": {
+                        "$ref": "#/definitions/PgAnalyzeIssueReference"
+                    },
+                    "type": "array"
+                },
+                "server_human_id": {
+                    "type": ["string", "null"]
+                },
+                "server_name": {
+                    "type": ["string", "null"]
+                },
+                "severity": {
+                    "type": ["string", "null"]
+                },
+                "synced_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["severity", "references", "database_id", "server_human_id", "server_name", "synced_at"],
+            "type": "object"
+        },
+        "PgAnalyzeIssueSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/PgAnalyzeIssueSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "pganalyze",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
             "type": "object"
         },
         "PinterestAdsDefaultSources": {
@@ -35865,6 +35940,9 @@
                 },
                 {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/PgAnalyzeIssueSignalInput"
                 }
             ]
         },
@@ -35899,7 +35977,8 @@
                 "zendesk",
                 "conversations",
                 "error_tracking",
-                "endpoints"
+                "endpoints",
+                "pganalyze"
             ],
             "type": "string"
         },

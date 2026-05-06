@@ -112,6 +112,7 @@ def _register_all_emitters() -> None:
     from posthog.temporal.data_imports.signals.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
     from posthog.temporal.data_imports.signals.github_issues import GITHUB_ISSUES_CONFIG
     from posthog.temporal.data_imports.signals.linear_issues import LINEAR_ISSUES_CONFIG
+    from posthog.temporal.data_imports.signals.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
     from posthog.temporal.data_imports.signals.zendesk_tickets import ZENDESK_TICKETS_CONFIG
 
     from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -119,6 +120,7 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.LINEAR, "issues", LINEAR_ISSUES_CONFIG)
+    register_signal_source(ExternalDataSourceType.PGANALYZE, "issues", PGANALYZE_ISSUES_CONFIG)
     register_signal_source(InternalSourceType.CONVERSATIONS, "tickets", CONVERSATIONS_TICKETS_CONFIG)
 
 

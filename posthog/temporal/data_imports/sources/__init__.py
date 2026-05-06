@@ -93,6 +93,7 @@ from .pagerduty.source import PagerDutySource
 from .pardot.source import PardotSource
 from .paypal.source import PayPalSource
 from .pendo.source import PendoSource
+from .pganalyze.source import PgAnalyzeSource
 from .pinterest_ads.source import PinterestAdsSource
 from .pipedrive.source import PipedriveSource
 from .plaid.source import PlaidSource
@@ -239,6 +240,7 @@ __all__ = [
     "PardotSource",
     "PayPalSource",
     "PendoSource",
+    "PgAnalyzeSource",
     "PinterestAdsSource",
     "PipedriveSource",
     "PlaidSource",
