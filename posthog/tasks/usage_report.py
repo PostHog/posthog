@@ -41,6 +41,7 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
@@ -382,6 +383,7 @@ def get_ph_client(*args: Any, **kwargs: Any) -> PostHogClient:
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="5/s")
+@skip_team_scope_audit
 def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
@@ -1698,6 +1700,7 @@ def get_teams_with_logs_records_in_period(
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
+@skip_team_scope_audit
 def capture_report(
     *,
     organization_id: Optional[str] = None,

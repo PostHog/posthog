@@ -3349,6 +3349,38 @@
         },
         "feature_flag": "logs-alerting"
     },
+    "logs-alerts-destinations-create": {
+        "description": "Attach a notification destination (Slack channel or webhook) to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically — the returned hog_function_ids identify the destination group.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Attach alert destination",
+        "title": "Attach alert destination",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-destinations-delete-create": {
+        "description": "Remove a notification destination from a log alert by passing the hog_function_ids returned from logs-alerts-destinations-create. Destinations are deleted as one atomic group — partial deletion fails the call.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Detach alert destination",
+        "title": "Detach alert destination",
+        "required_scopes": ["logs:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
     "logs-alerts-destroy": {
         "description": "Permanently delete a log alert configuration by ID.",
         "category": "Logs",
@@ -3362,6 +3394,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-events-list": {
+        "description": "List historical events for a log alert — fires, resolves, errors, enable/disable toggles, threshold changes. Use to evaluate how an existing alert has behaved (firing cadence, error rate, flap pattern) before tuning thresholds. Quiet no-op check rows are filtered out server-side. Optional `kind` query param narrows to a single event kind.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "List alert events",
+        "title": "List alert events",
+        "required_scopes": ["logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "logs-alerting"
     },
@@ -3403,6 +3451,22 @@
         "feature": "logs",
         "summary": "Get log alert",
         "title": "Get log alert",
+        "required_scopes": ["logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-alerting"
+    },
+    "logs-alerts-simulate-create": {
+        "description": "Run a draft alert configuration against historical logs and return per-bucket results from the full state machine — count, threshold_breached, state, notification (none/fire/resolve), reason. Use to validate threshold + N-of-M settings before creating an alert. Read-only; no alert records are written. Aim for fire_count between 0 and 3 over a `-7d` lookback for a healthy threshold.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Simulate log alert",
+        "title": "Simulate log alert",
         "required_scopes": ["logs:read"],
         "new_mcp": true,
         "annotations": {
@@ -3464,6 +3528,21 @@
         "feature": "logs",
         "summary": "Count logs by time bucket",
         "title": "Count logs by time bucket",
+        "required_scopes": ["logs:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "logs-services-create": {
+        "description": "Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate, plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking attribute-values + per-service counts.",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "List services with stats",
+        "title": "List services with stats",
         "required_scopes": ["logs:read"],
         "new_mcp": true,
         "annotations": {
