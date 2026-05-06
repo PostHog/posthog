@@ -3,8 +3,8 @@ import { Message } from 'node-rdkafka'
 import { PluginEvent } from '~/plugin-scaffold'
 import { TeamManager } from '~/utils/team-manager'
 
-import { EventHeaders, Team } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventHeaders, Team } from '../../../types'
+import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restrictions'
 import {
     createApplyEventRestrictionsStep,
     createDropExceptionEventsStep,
@@ -14,8 +14,8 @@ import {
     createResolveTeamStep,
     createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
-} from '../event-preprocessing'
-import { StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+} from '../../event-preprocessing'
+import { StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
 
 export interface PreTeamPreprocessingSubpipelineInput {
     message: Message

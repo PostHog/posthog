@@ -18,7 +18,7 @@ export {
 export {
     createPreTeamPreprocessingSubpipeline,
     PreTeamPreprocessingSubpipelineConfig,
-} from './pre-team-preprocessing-subpipeline'
+} from '../common/subpipelines/pre-team-preprocessing'
 
 export {
     createAnalyticsPipeline,
