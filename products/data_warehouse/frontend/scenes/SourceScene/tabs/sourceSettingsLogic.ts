@@ -236,6 +236,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             payload,
         }),
         updateSchemaFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
+        pausePolling: true,
+        resumePolling: true,
     }),
     loaders(({ actions, values, cache }) => ({
         source: [
@@ -372,6 +374,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             {
                 setRefreshingSchemas: (_, { refreshing }) => refreshing,
                 refreshSchemas: () => true,
+            },
+        ],
+        pollPauseCount: [
+            0 as number,
+            {
+                pausePolling: (state) => state + 1,
+                resumePolling: (state) => Math.max(0, state - 1),
             },
         ],
         sourceConfigLoading: [
@@ -587,12 +596,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         ? values.source?.prefix || values.source?.source_type || 'Source'
                         : values.source?.source_type || 'Source'
 
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadSource()
-                    }, REFRESH_INTERVAL)
-                    return () => clearTimeout(timerId)
-                }, 'sourceRefreshTimeout')
+                if (values.pollPauseCount === 0) {
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(() => {
+                            actions.loadSource()
+                        }, REFRESH_INTERVAL)
+                        return () => clearTimeout(timerId)
+                    }, 'sourceRefreshTimeout')
+                }
 
                 const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
                 const sceneLogicInstance =
@@ -602,12 +613,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },
             loadSourceFailure: () => {
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => {
-                        actions.loadSource()
-                    }, REFRESH_INTERVAL)
-                    return () => clearTimeout(timerId)
-                }, 'sourceRefreshTimeout')
+                if (values.pollPauseCount === 0) {
+                    cache.disposables.add(() => {
+                        const timerId = setTimeout(() => {
+                            actions.loadSource()
+                        }, REFRESH_INTERVAL)
+                        return () => clearTimeout(timerId)
+                    }, 'sourceRefreshTimeout')
+                }
             },
             refreshSchemas: async () => {
                 try {

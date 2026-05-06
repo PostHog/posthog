@@ -764,10 +764,11 @@ def _build_select_clause(
     primary_keys: Optional[list[str]],
     incremental_field: Optional[str],
 ) -> sql.Composable:
-    """Build the column list for SELECT. Empty/None `synced_columns` returns `*`. Otherwise emit
+    """Build the column list for SELECT. None `synced_columns` returns `*` (all columns).
+    An empty list means sync only required columns (PKs + incremental). Otherwise emit
     `col1, col2, ...` with PK columns and the incremental field always retained, source order
     preserved."""
-    if not synced_columns:
+    if synced_columns is None:
         return sql.SQL("*")
 
     retained: set[str] = set(synced_columns)
@@ -1588,7 +1589,7 @@ def postgres_source(
                 # active incremental field. Project the schema and SELECT clauses so the Arrow
                 # schema matches the columns the cursor returns.
                 retained_columns: list[str] | None = None
-                if synced_columns:
+                if synced_columns is not None:
                     retained_set: set[str] = set(synced_columns)
                     for pk in primary_keys or []:
                         retained_set.add(pk)

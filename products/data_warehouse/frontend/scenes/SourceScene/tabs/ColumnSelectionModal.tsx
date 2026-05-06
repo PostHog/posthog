@@ -114,8 +114,9 @@ function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSele
         if (selected === null) {
             return null
         }
-        const persisted = Array.from(selected).filter((name) => !isAlwaysRetained(name))
-        return persisted.length > 0 ? persisted : null
+        // Return empty array when all optional columns are deselected — means "sync only required columns".
+        // null is reserved for "sync all columns" (user clicked Reset).
+        return Array.from(selected).filter((name) => !isAlwaysRetained(name))
     }
 
     return {

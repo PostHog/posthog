@@ -257,8 +257,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if synced_columns is not None:
                 if not isinstance(synced_columns, list) or not all(isinstance(c, str) for c in synced_columns):
                     raise ValidationError("synced_columns must be a list of column-name strings or null.")
-                if len(synced_columns) == 0:
-                    raise ValidationError("synced_columns must be null to sync all columns; empty list is invalid.")
                 metadata = instance.schema_metadata or {}
                 metadata_columns = metadata.get("columns") if isinstance(metadata, dict) else None
                 known = (

@@ -232,8 +232,8 @@ def filter_dwh_columns_by_synced_columns(
 ) -> DirectPostgresColumns:
     """Project a `DataWarehouseTable.columns` dict down to user-selected `synced_columns` plus PKs.
 
-    `None`/empty `synced_columns` returns the dict unchanged."""
-    if not synced_columns:
+    `None` means sync all (return dict unchanged). Empty list means retain only PKs."""
+    if synced_columns is None:
         return columns
 
     retained: set[str] = set(synced_columns)
@@ -251,9 +251,10 @@ def filter_columns_by_synced_columns(
 ) -> list[tuple[str, str, bool]]:
     """Project `columns` down to user-selected `synced_columns` plus always-retained PK + incremental field.
 
-    `None`/empty `synced_columns` means no projection (return all). Always preserves source ordering.
+    `None` means no projection (return all). Empty list means retain only PKs + incremental field.
+    Always preserves source ordering.
     """
-    if not synced_columns:
+    if synced_columns is None:
         return columns
 
     retained: set[str] = set(synced_columns)

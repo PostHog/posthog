@@ -511,7 +511,7 @@ def build_partition_query(
     data loss on restart; the non-incremental branch returns a bare SELECT *.
     """
     select_clause: sql.Composable
-    if synced_columns:
+    if synced_columns is not None:
         retained: set[str] = set(synced_columns)
         for pk in primary_keys or []:
             retained.add(pk)
