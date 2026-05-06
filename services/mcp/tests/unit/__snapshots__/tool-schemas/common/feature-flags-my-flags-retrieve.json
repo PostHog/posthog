@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "groups": {
+            "default": "{}",
+            "description": "Groups for feature flag evaluation (JSON object string)",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
