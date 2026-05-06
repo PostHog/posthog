@@ -45,14 +45,9 @@ def _gh_json(*args: str) -> list[dict] | dict:
 def _list_recent_master_runs(limit: int) -> list[dict]:
     """Return up to `limit` recent successful master runs of ci-backend.yml
     that actually executed tests (run duration > MIN_RUN_DURATION_SECONDS)."""
+    per_page = max(limit * 4, 20)
     payload = _gh_json(
-        f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs",
-        "-f",
-        "status=success",
-        "-f",
-        "branch=master",
-        "-f",
-        f"per_page={max(limit * 4, 20)}",
+        f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?status=success&branch=master&per_page={per_page}"
     )
     runs = payload["workflow_runs"] if isinstance(payload, dict) else []
     selected: list[dict] = []
