@@ -52,7 +52,6 @@ from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
-    ErrorResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
     SandboxEnvironmentListSerializer,
@@ -477,7 +476,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 response=TaskStagedArtifactsPrepareUploadResponseSerializer,
                 description="Prepared staged uploads for the requested artifacts",
             ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid artifact payload"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
             404: OpenApiResponse(description="Task not found"),
         },
         summary="Prepare staged direct uploads for task attachments",
@@ -508,7 +507,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             if not presigned_post:
                 return Response(
-                    ErrorResponseSerializer({"error": "Unable to generate upload URL"}).data,
+                    TaskRunErrorResponseSerializer({"error": "Unable to generate upload URL"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -539,7 +538,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 response=TaskStagedArtifactsFinalizeUploadResponseSerializer,
                 description="Finalized staged artifacts available for the next task run",
             ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid artifact payload"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
             404: OpenApiResponse(description="Task not found"),
         },
         summary="Finalize staged direct uploads for task attachments",
@@ -563,21 +562,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             storage_path = artifact["storage_path"]
             if not storage_path.startswith(artifact_prefix) or f"/{artifact_id}/" not in storage_path:
                 return Response(
-                    ErrorResponseSerializer({"error": "Artifact storage path is invalid for this task"}).data,
+                    TaskRunErrorResponseSerializer({"error": "Artifact storage path is invalid for this task"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
             s3_object = object_storage.head_object(storage_path)
             if not s3_object:
                 return Response(
-                    ErrorResponseSerializer({"error": "Artifact upload not found in object storage"}).data,
+                    TaskRunErrorResponseSerializer({"error": "Artifact upload not found in object storage"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
             content_length = s3_object.get("ContentLength")
             if not isinstance(content_length, int):
                 return Response(
-                    ErrorResponseSerializer({"error": "Artifact upload metadata is unavailable"}).data,
+                    TaskRunErrorResponseSerializer({"error": "Artifact upload metadata is unavailable"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -590,7 +589,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             if content_length > max_size_bytes:
                 return Response(
-                    ErrorResponseSerializer(
+                    TaskRunErrorResponseSerializer(
                         {"error": build_task_run_artifact_size_error(safe_name, max_size_bytes)}
                     ).data,
                     status=status.HTTP_400_BAD_REQUEST,
@@ -1025,7 +1024,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunStartRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid start payload"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid start payload"),
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Start task run",
@@ -1041,12 +1040,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if task_run.environment != TaskRun.Environment.CLOUD:
             return Response(
-                ErrorResponseSerializer({"error": "Only cloud runs can be started via this endpoint"}).data,
+                TaskRunErrorResponseSerializer({"error": "Only cloud runs can be started via this endpoint"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if task_run.status not in startable_statuses:
             return Response(
-                ErrorResponseSerializer(
+                TaskRunErrorResponseSerializer(
                     {
                         "error": f"Only queued or not_started cloud runs can be started (current status: {task_run.status})"
                     }
@@ -1099,7 +1098,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunUpdateSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Updated task run"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid update data"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid update data"),
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Update task run",
@@ -1113,7 +1112,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunUpdateSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Updated task run"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid update data"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid update data"),
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Update task run",
@@ -1391,7 +1390,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 jsonschema.validate(instance=output_data, schema=task.json_schema)
             except jsonschema.ValidationError as e:
                 return Response(
-                    ErrorResponseSerializer({"error": f"Output validation error: {e.message}"}).data,
+                    TaskRunErrorResponseSerializer({"error": f"Output validation error: {e.message}"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         task_run.output = output_data
@@ -1408,7 +1407,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunAppendLogRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid log entries"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid log entries"),
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Append log entries",
@@ -1481,7 +1480,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 extra={"run_id": str(task_run.id)},
             )
             return Response(
-                ErrorResponseSerializer({"error": "Failed to queue Slack relay"}).data,
+                TaskRunErrorResponseSerializer({"error": "Failed to queue Slack relay"}).data,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response({"status": "accepted", "relay_id": relay_id})
@@ -1493,7 +1492,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 response=TaskRunArtifactsUploadResponseSerializer,
                 description="Run with updated artifact manifest",
             ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid artifact payload"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Upload artifacts for a task run",
@@ -1567,7 +1566,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 response=TaskRunArtifactsPrepareUploadResponseSerializer,
                 description="Prepared uploads for the requested artifacts",
             ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid artifact payload"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Prepare direct uploads for task run artifacts",
@@ -1601,7 +1600,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             if not presigned_post:
                 return Response(
-                    ErrorResponseSerializer({"error": "Unable to generate upload URL"}).data,
+                    TaskRunErrorResponseSerializer({"error": "Unable to generate upload URL"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1632,7 +1631,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 response=TaskRunArtifactsFinalizeUploadResponseSerializer,
                 description="Run with updated artifact manifest",
             ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid artifact payload"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Finalize direct uploads for task run artifacts",
@@ -1659,7 +1658,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if not storage_path.startswith(artifact_prefix) or f"/{artifact_id[:8]}_" not in storage_path:
                 return Response(
-                    ErrorResponseSerializer({"error": "Artifact storage path is invalid for this run"}).data,
+                    TaskRunErrorResponseSerializer({"error": "Artifact storage path is invalid for this run"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1676,7 +1675,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             s3_object = object_storage.head_object(storage_path)
             if not s3_object:
                 return Response(
-                    ErrorResponseSerializer({"error": "Artifact upload not found in object storage"}).data,
+                    TaskRunErrorResponseSerializer({"error": "Artifact upload not found in object storage"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1685,7 +1684,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             content_length = s3_object.get("ContentLength")
             if not isinstance(content_length, int):
                 return Response(
-                    ErrorResponseSerializer({"error": "Artifact upload metadata is unavailable"}).data,
+                    TaskRunErrorResponseSerializer({"error": "Artifact upload metadata is unavailable"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1696,7 +1695,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             if content_length > max_size_bytes:
                 return Response(
-                    ErrorResponseSerializer(
+                    TaskRunErrorResponseSerializer(
                         {"error": build_task_run_artifact_size_error(safe_name, max_size_bytes)}
                     ).data,
                     status=status.HTTP_400_BAD_REQUEST,
@@ -1734,7 +1733,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 response=TaskRunArtifactPresignResponseSerializer,
                 description="Presigned URL for the requested artifact",
             ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid request"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid request"),
             404: OpenApiResponse(description="Artifact not found"),
         },
         summary="Generate presigned URL for an artifact",
@@ -1754,14 +1753,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if not any(artifact.get("storage_path") == storage_path for artifact in artifacts):
             return Response(
-                ErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                TaskRunErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
                 status=status.HTTP_404_NOT_FOUND,
             )
 
         url = object_storage.get_presigned_url(storage_path)
         if not url:
             return Response(
-                ErrorResponseSerializer({"error": "Unable to generate download URL"}).data,
+                TaskRunErrorResponseSerializer({"error": "Unable to generate download URL"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1775,7 +1774,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             200: OpenApiResponse(
                 description="Artifact content",
             ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid request"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid request"),
             404: OpenApiResponse(description="Artifact not found"),
         },
         summary="Download an artifact through the backend",
@@ -1799,7 +1798,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if artifact is None:
             return Response(
-                ErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
+                TaskRunErrorResponseSerializer({"error": "Artifact not found on this run"}).data,
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -1814,13 +1813,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
             )
             return Response(
-                ErrorResponseSerializer({"error": "Unable to read artifact"}).data,
+                TaskRunErrorResponseSerializer({"error": "Unable to read artifact"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if content is None:
             return Response(
-                ErrorResponseSerializer({"error": "Artifact content not found"}).data,
+                TaskRunErrorResponseSerializer({"error": "Artifact content not found"}).data,
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -1906,11 +1905,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description="Agent server response",
             ),
             400: OpenApiResponse(
-                response=ErrorResponseSerializer,
+                response=TaskRunErrorResponseSerializer,
                 description="Invalid command or no active sandbox",
             ),
             404: OpenApiResponse(description="Task run not found"),
-            502: OpenApiResponse(response=ErrorResponseSerializer, description="Agent server unreachable"),
+            502: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Agent server unreachable"),
         },
         summary="Send command to agent server",
         description="Forward a JSON-RPC command to the agent server running in the sandbox. "
@@ -1929,14 +1928,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if not run_state.sandbox_url:
             return Response(
-                ErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
+                TaskRunErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if not self._is_valid_sandbox_url(run_state.sandbox_url):
             logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
             return Response(
-                ErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
+                TaskRunErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1997,26 +1996,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 error_msg = error_body.get("error", f"Agent server returned {agent_response.status_code}")
 
             return Response(
-                ErrorResponseSerializer({"error": error_msg}).data,
+                TaskRunErrorResponseSerializer({"error": error_msg}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
         except http_requests.ConnectionError:
             logger.warning(f"Agent server unreachable for task run {task_run.id}")
             return Response(
-                ErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
+                TaskRunErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         except http_requests.Timeout:
             logger.warning(f"Agent server request timed out for task run {task_run.id}")
             return Response(
-                ErrorResponseSerializer({"error": "Agent server request timed out"}).data,
+                TaskRunErrorResponseSerializer({"error": "Agent server request timed out"}).data,
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
         except Exception:
             logger.exception(f"Failed to proxy command to agent server for task run {task_run.id}")
             return Response(
-                ErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
+                TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
@@ -2176,7 +2175,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run resumed in cloud"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Run already active or workflow failed"),
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Run already active or workflow failed"
+            ),
         },
         summary="Resume task run in cloud",
         description="Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.",
@@ -2216,7 +2217,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             if is_cloud_active:
                 return Response(
-                    ErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
+                    TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -2283,7 +2284,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             task_run.publish_stream_state_event()
             return Response(
-                ErrorResponseSerializer({"error": "Failed to start cloud workflow"}).data,
+                TaskRunErrorResponseSerializer({"error": "Failed to start cloud workflow"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
@@ -2420,7 +2421,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
         responses={
             200: OpenApiResponse(description="Invite code redeemed successfully"),
             400: OpenApiResponse(
-                response=ErrorResponseSerializer,
+                response=TaskRunErrorResponseSerializer,
                 description="Invalid or expired invite code",
             ),
         },
@@ -2435,7 +2436,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
             invite_code = CodeInvite.objects.get(code__iexact=code_str)
         except CodeInvite.DoesNotExist:
             return Response(
-                ErrorResponseSerializer({"error": "Invalid invite code"}).data,
+                TaskRunErrorResponseSerializer({"error": "Invalid invite code"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -2447,7 +2448,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
 
             if not invite_code.is_redeemable:
                 return Response(
-                    ErrorResponseSerializer({"error": "This invite code is no longer valid"}).data,
+                    TaskRunErrorResponseSerializer({"error": "This invite code is no longer valid"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 

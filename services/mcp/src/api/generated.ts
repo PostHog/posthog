@@ -18371,6 +18371,45 @@ export namespace Schemas {
       readonly is_used_in_replay_settings: boolean;
     }
 
+    export interface FeatureFlagConditionPropertyAnalysis {
+      /** Property key */
+      key: string;
+      /** Comparison operator */
+      operator: string;
+      /** Expected property value */
+      value: unknown;
+      /** Property type (person, group, etc.) */
+      type: string;
+      /** Actual property value from user */
+      actual_value: unknown | null;
+      /** Whether this property condition matched */
+      matched: boolean;
+      /** Human-readable explanation of the match result */
+      explanation: string;
+    }
+
+    export interface FeatureFlagConditionAnalysis {
+      /** Index of this condition in the feature flag */
+      index: number;
+      /** True when this condition was the one that determined the flag's outcome. Use this to find the winning condition — at most one condition per flag is True. */
+      matched: boolean;
+      /** True when every property in this condition evaluated to true, regardless of whether this condition was the eventual winner. */
+      properties_matched?: boolean;
+      /** Human-readable explanation of why this condition matched/didn't match */
+      explanation: string;
+      /** Rollout percentage for this condition (0.0-100.0) */
+      rollout_percentage: number;
+      /** Whether this condition matched properties but was excluded due to rollout */
+      rollout_excluded: boolean;
+      /**
+       * Variant associated with this condition
+       * @nullable
+       */
+      variant: string | null;
+      /** Analysis of each property in this condition */
+      properties: FeatureFlagConditionPropertyAnalysis[];
+    }
+
     /**
      * * `cohort` - cohort
     * `person` - person
@@ -18781,6 +18820,50 @@ export namespace Schemas {
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+    }
+
+    export interface FeatureFlagTestEvaluationRequest {
+      /** User distinct ID to test against (mutually exclusive with person_id) */
+      distinct_id?: string;
+      /** Person ID to test against (mutually exclusive with distinct_id) */
+      person_id?: string;
+      /**
+       * Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.
+       * @nullable
+       */
+      timestamp?: string | null;
+      /** Groups for feature flag evaluation (JSON object, defaults to empty dict) */
+      groups?: unknown;
+    }
+
+    /**
+     * Person properties at the time of evaluation (for historical evaluations)
+     */
+    export type FeatureFlagTestEvaluationResponsePersonProperties = { [key: string]: unknown };
+
+    export interface FeatureFlagTestEvaluationResponse {
+      /** Feature flag key */
+      flag_key: string;
+      /** The evaluated value of the feature flag (boolean or variant key string) */
+      result: unknown;
+      /** The reason for the evaluation result */
+      reason: string;
+      /**
+       * The index of the condition that matched, if applicable
+       * @nullable
+       */
+      condition_index: number | null;
+      /** Payload associated with the flag result, if any */
+      payload: unknown | null;
+      /** Person properties at the time of evaluation (for historical evaluations) */
+      person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
+      /**
+       * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
+       * @nullable
+       */
+      evaluation_distinct_id: string | null;
+      /** Detailed analysis of each condition in the feature flag */
+      conditions: FeatureFlagConditionAnalysis[];
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
@@ -32574,29 +32657,6 @@ export namespace Schemas {
     }
 
     /**
-     * The parameters passed to the query
-     */
-    export type PersonPropertiesAtTimeDebugParams = { [key: string]: unknown };
-
-    export type PersonPropertiesAtTimeDebugEventsItem = { [key: string]: unknown };
-
-    /**
-     * Serializer for the debug information (only available to staff users).
-     */
-    export interface PersonPropertiesAtTimeDebug {
-      /** The ClickHouse query that was executed */
-      query: string;
-      /** The parameters passed to the query */
-      params: PersonPropertiesAtTimeDebugParams;
-      /** Number of events found */
-      events_found: number;
-      /** Raw events that were used to build the properties */
-      events: PersonPropertiesAtTimeDebugEventsItem[];
-      /** Error message if debug query failed */
-      error?: string;
-    }
-
-    /**
      * Serializer for the point-in-time query metadata.
      */
     export interface PersonPropertiesAtTimeMetadata {
@@ -32650,8 +32710,6 @@ export namespace Schemas {
       last_seen_at: string | null;
       /** Metadata about the point-in-time query */
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
-      /** Debug information (only available when debug=true and DEBUG=True) */
-      debug?: PersonPropertiesAtTimeDebug;
     }
 
     export interface PersonUpdatePropertyRequest {
@@ -41366,10 +41424,6 @@ export namespace Schemas {
 
     export type EnvironmentsPersonsPropertiesAtTimeRetrieveParams = {
     /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean;
-    /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */
     distinct_id?: string;
@@ -46193,10 +46247,6 @@ export namespace Schemas {
     } as const;
 
     export type PersonsPropertiesAtTimeRetrieveParams = {
-    /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean;
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */
