@@ -9209,6 +9209,11 @@ export namespace Schemas {
       /** @maxLength 255 */
       name?: string;
       filters?: unknown;
+      /**
+       * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+       * @nullable
+       */
+      order_by?: string[] | null;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
@@ -27473,6 +27478,11 @@ export namespace Schemas {
       /** @maxLength 255 */
       name?: string;
       filters?: unknown;
+      /**
+       * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+       * @nullable
+       */
+      order_by?: string[] | null;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
