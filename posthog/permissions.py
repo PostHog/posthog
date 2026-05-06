@@ -7,6 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
 
 import posthoganalytics
+from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
@@ -268,8 +269,6 @@ class IsStaffUserOrImpersonating(BasePermission):
     message = "You are not a staff user, contact your instance admin."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        from loginas.utils import is_impersonated_session
-
         return bool(
             request.user
             and request.user.is_authenticated
@@ -304,6 +303,13 @@ class PremiumFeaturePermission(BasePermission):
             feature = cloud_only_feature
         else:
             feature = always_feature
+
+        if (
+            request.user
+            and request.user.is_authenticated
+            and (request.user.is_staff or is_impersonated_session(request))
+        ):
+            return True
 
         try:
             organization = get_organization_from_view(view)

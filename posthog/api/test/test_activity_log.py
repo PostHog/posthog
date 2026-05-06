@@ -4,6 +4,7 @@ from typing import Any, Optional
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory, TickingDateTimeFactory
 from posthog.test.base import APIBaseTest, QueryMatchingTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -225,3 +226,43 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
             res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
 
         assert res.status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
+    def test_endpoint_allowed_for_staff_user_without_audit_logs_feature(self, endpoint: str) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        self.user.is_staff = True
+        self.user.save()
+
+        with self.is_cloud(True):
+            res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
+    def test_endpoint_allowed_for_impersonated_session_without_audit_logs_feature(self, endpoint: str) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True), patch("posthog.permissions.is_impersonated_session", return_value=True):
+            res = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_available_filters_endpoint_allowed_for_impersonated_session(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True), patch("posthog.permissions.is_impersonated_session", return_value=True):
+            res = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/available_filters/")
+
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_available_filters_endpoint_blocked_without_audit_logs_feature(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        with self.is_cloud(True):
+            res = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/available_filters/")
+
+        assert res.status_code == status.HTTP_402_PAYMENT_REQUIRED
