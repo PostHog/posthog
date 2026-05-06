@@ -69,7 +69,7 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
+    const { setPlay } = useActions(sessionRecordingPlayerLogic)
 
     let content = null
     const pausedState =
@@ -122,7 +122,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 data-attr="replay-overlay-rewind"
                 onClick={(e) => {
                     e.stopPropagation()
-                    togglePlayPause()
+                    setPlay()
                 }}
             />
         ) : (
@@ -133,7 +133,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                     data-attr="replay-overlay-resume"
                     onClick={(e) => {
                         e.stopPropagation()
-                        togglePlayPause()
+                        setPlay()
                     }}
                 />
                 {showActionsOnOverlay && <PlayerFrameOverlayActions />}
