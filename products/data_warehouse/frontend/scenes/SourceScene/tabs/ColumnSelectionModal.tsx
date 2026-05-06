@@ -116,9 +116,15 @@ function useColumnSelection(schema: ColumnSelectionTarget | null): UseColumnSele
         if (selected === null) {
             return null
         }
-        // Return empty array when all optional columns are deselected — means "sync only required columns".
-        // null is reserved for "sync all columns" (user clicked Reset).
-        return Array.from(selected).filter((name) => !isAlwaysRetained(name))
+        // Always include PKs + incremental field so the persisted list reads naturally
+        // (e.g. ["id"] = sync only the PK, not "" / "no columns"). null is reserved for
+        // "sync all columns".
+        const result = new Set(selected)
+        primaryKeys.forEach((pk) => result.add(pk))
+        if (incrementalField) {
+            result.add(incrementalField)
+        }
+        return Array.from(result)
     }
 
     return {
