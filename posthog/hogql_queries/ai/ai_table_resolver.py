@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import posthoganalytics
 from prometheus_client import Counter, Histogram
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
     from posthog.clickhouse.client.connection import Workload
     from posthog.models import Team
+    from posthog.models.user import User
 
 
 def is_ai_events_enabled(team: Team) -> bool:
@@ -59,6 +60,7 @@ def execute_with_ai_events_fallback(
     limit_context: LimitContext | None = None,
     settings: HogQLGlobalSettings | None = None,
     workload: Workload | None = None,
+    user: Optional[User] = None,
 ) -> Any:
     """Execute a query written against ai_events, falling back to events if no results.
 
@@ -75,6 +77,8 @@ def execute_with_ai_events_fallback(
     rely on it implicitly.
     """
     kwargs: dict[str, Any] = {"query_type": query_type, "team": team}
+    if user is not None:
+        kwargs["user"] = user
     if timings is not None:
         kwargs["timings"] = timings
     if modifiers is not None:

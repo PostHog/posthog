@@ -144,7 +144,9 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             # :HACKY: posthog/hogql/transforms/property_types.py needs access to the group_id in order to know the property type
-            context=HogQLContext(team_id=self.team.pk, globals={"group_id": self.query.group_type_index}),
+            context=HogQLContext(
+                team_id=self.team.pk, globals={"group_id": self.query.group_type_index}, user=self.user
+            ),
         )
         results = response.results[: self.paginator.limit] if self.paginator.limit is not None else response.results
 

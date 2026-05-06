@@ -78,6 +78,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
 
         columns: list[str] = query_result.columns or []

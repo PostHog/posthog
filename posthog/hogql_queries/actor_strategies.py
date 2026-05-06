@@ -29,6 +29,7 @@ from posthog.personhog_client.metrics import (
 from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
     from posthog.personhog_client.client import PersonHogClient
 
 logger = structlog.get_logger(__name__)
@@ -47,7 +48,7 @@ class ActorStrategy:
         team: Team,
         query: ActorsQuery,
         paginator: HogQLHasMorePaginator,
-        user: User | None = None,
+        user: Optional[User] = None,
     ):
         self.team = team
         self.paginator = paginator

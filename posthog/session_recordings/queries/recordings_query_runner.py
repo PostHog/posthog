@@ -24,6 +24,7 @@ class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
             team=self.team,
             query=self.query,
             hogql_query_modifiers=self.modifiers,
+            user=self.user,
         )
         result = listing.run()
 
@@ -40,6 +41,7 @@ class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
             team=self.team,
             query=self.query,
             hogql_query_modifiers=self.modifiers,
+            user=self.user,
         )
         return listing.get_query()
 

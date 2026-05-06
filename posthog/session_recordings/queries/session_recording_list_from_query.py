@@ -1,5 +1,8 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 import structlog
 from opentelemetry import trace
@@ -123,6 +126,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         allow_event_property_expansion: bool = False,
         max_execution_time: int | None = None,
         extra_having_predicates: list[ast.Expr] | None = None,
+        user: Optional["User"] = None,
         **_,
     ):
         # TRICKY: we need to make sure we init test account filters only once,
@@ -184,6 +188,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._allow_event_property_expansion = allow_event_property_expansion
         self._max_execution_time = max_execution_time
         self._extra_having_predicates = extra_having_predicates or []
+        self._user = user
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -196,6 +201,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 team=self._team,
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
+                user=self._user,
                 settings=HogQLGlobalSettings(
                     **(
                         {"max_execution_time": self._max_execution_time} if self._max_execution_time is not None else {}

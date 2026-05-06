@@ -104,11 +104,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
     def determine_strategy(self) -> ActorStrategy:
         if self.group_type_index is not None:
             return GroupStrategy(
-                self.group_type_index,
-                team=self.team,
-                query=self.query,
-                paginator=self.paginator,
-                user=self.user,
+                self.group_type_index, team=self.team, query=self.query, paginator=self.paginator, user=self.user
             )
 
         if self.is_session_aggregation:

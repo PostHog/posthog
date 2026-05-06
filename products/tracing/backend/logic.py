@@ -351,6 +351,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             query=query,
             modifiers=self.modifiers,
             team=self.team,
+            user=self.user,
             workload=Workload.LOGS,
             timings=self.timings,
             filters=HogQLFilters(dateRange=self.query.dateRange),

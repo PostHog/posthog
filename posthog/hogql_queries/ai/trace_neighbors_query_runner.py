@@ -35,6 +35,7 @@ class TraceNeighborsQueryRunner(AnalyticsQueryRunner[TraceNeighborsQueryResponse
             query_type="TraceNeighborsQuery",
             timings=self.timings,
             modifiers=self.modifiers,
+            user=self.user,
         )
 
         older_trace_id, older_timestamp = None, None

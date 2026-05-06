@@ -35,6 +35,7 @@ class CountQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerM
             query=self.to_query(),
             modifiers=self.modifiers,
             team=self.team,
+            user=self.user,
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,

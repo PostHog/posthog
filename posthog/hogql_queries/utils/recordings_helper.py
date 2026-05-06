@@ -1,6 +1,7 @@
 from collections import defaultdict
 from collections.abc import Iterable
 from datetime import datetime
+from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -11,7 +12,7 @@ from posthog.models.user import User
 
 
 class RecordingsHelper:
-    def __init__(self, team: Team, user: User | None = None):
+    def __init__(self, team: Team, user: Optional[User] = None):
         self.team = team
         self.user = user
 

@@ -204,7 +204,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
                 ),
                 group_by=[ast.Field(chain=["properties", "$exception_fingerprint"])],
             )
-            results: HogQLQueryResponse = execute_hogql_query(query, team=self.team)
+            results: HogQLQueryResponse = execute_hogql_query(query, team=self.team, user=self.user)
             for row in results.results:
                 if row[0] in issues_by_fingerprint:
                     issues_by_fingerprint[row[0]].set_library(row[1])
@@ -271,7 +271,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
                 "max_target_timestamp": ast.Constant(value=max_timestamp),
             },
         )
-        result = execute_hogql_query(avg_embedding_query, team=self.team)
+        result = execute_hogql_query(avg_embedding_query, team=self.team, user=self.user)
         avg_embedding = result.results[0][0] if result.results else []
         if len(avg_embedding) == 0:
             raise ValidationError(

@@ -24,6 +24,7 @@ class HasLogsQueryRunner:
             query_type="HasLogsQuery",
             query=query,
             team=self.team,
+            user=self.user,
             workload=Workload.LOGS,
         )
 

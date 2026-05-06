@@ -100,6 +100,7 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
             query=self.to_query(),
             modifiers=self.modifiers,
             team=self.team,
+            user=self.user,
             workload=Workload.LOGS,
             timings=self.timings,
             settings=self.settings,
