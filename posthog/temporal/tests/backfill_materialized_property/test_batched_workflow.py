@@ -1,14 +1,6 @@
-"""Tests for the dmat batched workflows.
-
-Two workflows live here, exercised independently:
-
-* ``BackfillMaterializedPropertiesBatchWorkflow`` — PENDING-allocation only.
-* ``CompactMaterializedColumnsWorkflow`` — compaction-only, self-skips when not needed.
-
-Each test stubs every activity. The activity stubs are registered under the *name* of the
-real activity (``@activity.defn(name="...")``) so the workflow's ``execute_activity(real_fn,
-...)`` routes to them — that's the contract the workflow code depends on, and renaming the
-real activity therefore requires renaming the mock here too.
+"""Tests for the dmat batched workflows. Each test stubs every activity by registering
+mocks under the real activity's `@activity.defn(name=...)` — renaming a real activity
+therefore requires renaming its mock here too.
 """
 
 import uuid

@@ -1,21 +1,9 @@
 """Workflows for backfilling materialized property columns.
 
-Two workflows live here:
-
-* ``BackfillMaterializedPropertiesBatchWorkflow`` — the weekly batched PENDING-allocation
-  workflow described in the dynamic property materialization RFC. Picks up all PENDING slots,
-  assigns them column indexes, syncs the (team_id, column_index) → property_name mapping
-  to the ClickHouse-side dictionary source table, runs a single ``ALTER TABLE UPDATE`` whose
-  SET clauses dispatch via ``dictGet`` against that dictionary, polls until the mutation
-  completes on every shard, then transitions the slots to READY. Compaction is a separate
-  workflow — see below.
-
-* ``CompactMaterializedColumnsWorkflow`` — the weekly compaction workflow. Self-skips when
-  the column pool has plenty of capacity. When triggered, it allocates dense compaction
-  target columns for every existing READY slot, runs a single mutation that backfills the
-  new columns, then swaps each slot's ``slot_index`` to the new dense index. Splitting this
-  out from the PENDING workflow eliminates the deadlock where compaction targets and PENDING
-  allocations would compete for the same depleted free pool inside one transaction.
+Two workflows: ``BackfillMaterializedPropertiesBatchWorkflow`` materializes PENDING slots,
+``CompactMaterializedColumnsWorkflow`` repacks existing slots into a dense range when the
+free-column pool runs low. They're split so they can't compete for the same free columns
+inside a single transaction.
 """
 
 import json
@@ -65,11 +53,6 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
     """
     Weekly batched workflow that materializes all PENDING slots in one mutation.
 
-    Compaction lives in a separate workflow (``CompactMaterializedColumnsWorkflow``) so the
-    two paths never share a transaction or a free-column budget — splitting them removed a
-    deadlock where compaction targets and PENDING allocations could compete for the same
-    depleted free pool.
-
     Flow:
       1. Atomically assign each PENDING slot to a free column index for its team and
          transition it to BACKFILL.
@@ -100,17 +83,11 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BackfillMaterializedPropertiesBatchInputs) -> None:
         logger = structlog.get_logger("backfill_materialized_properties_batch")
-        # Use the per-execution run_id rather than workflow_id. The schedule reuses the same
-        # workflow_id every week, so workflow_id alone can't distinguish "this firing's commits"
-        # from "last week's firing's commits". run_id is unique per execution and stays constant
-        # across activity retries — exactly what we need to make the assign activity idempotent
-        # against a retry that hits a partially-committed PENDING→BACKFILL transition.
+        # run_id (not workflow_id) — the weekly schedule reuses one workflow_id, so run_id
+        # is what makes the assign activity idempotent across retries within one firing.
         run_id = workflow.info().run_id
-        # Embedded in the mutation's WHERE clause as `AND <int> = <int>` so the formatted SQL
-        # text differs across cycles. Without this, the dict-based mutation SQL would be
-        # byte-identical week-to-week and AlterTableMutationRunner would reattach to the
-        # previous cycle's already-completed mutation. Same hash across activity retries
-        # within one run, different across runs. See `compute_cycle_marker_int` for details.
+        # Mixed into the mutation's WHERE so SQL text differs across cycles — otherwise
+        # AlterTableMutationRunner's SQL-text dedup would reattach to last week's mutation.
         cycle_marker_int = compute_cycle_marker_int(run_id)
 
         assignment: AssignPendingColumnsResult = await workflow.execute_activity(
@@ -128,9 +105,6 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
             logger.info("Nothing to do — no PENDING slots", run_id=run_id)
             return
 
-        # Sync the (team_id, column_index) → property_name mapping from Postgres to the
-        # ClickHouse dict-source table on every host, then reload the dictionary cluster-
-        # wide. The mutation that runs after the cache-refresh sleep reads from this dict.
         await workflow.execute_activity(
             populate_slot_assignments,
             PopulateSlotAssignmentsInputs(),
@@ -158,9 +132,8 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
                         assignments=assignment.assignments,
                         cycle_marker_int=cycle_marker_int,
                     ),
-                    # Mutations on sharded_events can run for hours at production scale. The
-                    # activity polls system.mutations rather than blocking on a single client
-                    # connection, so this timeout bounds wall-clock duration, not connection life.
+                    # The activity polls system.mutations, so this bounds wall-clock duration,
+                    # not connection life — sharded_events mutations can run for hours.
                     start_to_close_timeout=dt.timedelta(hours=12),
                     heartbeat_timeout=dt.timedelta(minutes=5),
                     retry_policy=RetryPolicy(
@@ -215,9 +188,8 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
 class CompactMaterializedColumnsInputs:
     """Inputs for the weekly dmat compaction workflow."""
 
-    # See ``BackfillMaterializedPropertiesBatchInputs.cache_refresh_wait_seconds`` — same
-    # purpose, but here the wait gives plugin-server time to start dual-writing to the new
-    # compaction-target columns before the mutation backfills them. Tests can pass 0.
+    # Wait gives plugin-server time to start dual-writing to the new compaction-target
+    # columns before the mutation backfills them. Default 180s; tests can pass 0.
     cache_refresh_wait_seconds: int = 180
 
 
@@ -263,9 +235,6 @@ class CompactMaterializedColumnsWorkflow(PostHogWorkflow):
     async def run(self, inputs: CompactMaterializedColumnsInputs) -> None:
         logger = structlog.get_logger("compact_materialized_columns")
         run_id = workflow.info().run_id
-        # See the equivalent comment in BackfillMaterializedPropertiesBatchWorkflow.run —
-        # the marker distinguishes this cycle's mutation from prior cycles' mutations
-        # for AlterTableMutationRunner's SQL-text dedup.
         cycle_marker_int = compute_cycle_marker_int(run_id)
 
         assignment: AssignCompactionTargetsResult = await workflow.execute_activity(
@@ -283,10 +252,6 @@ class CompactMaterializedColumnsWorkflow(PostHogWorkflow):
             logger.info("Compaction not needed and no in-flight targets", run_id=run_id)
             return
 
-        # Sync the (team_id, column_index) → property_name mapping from Postgres to the
-        # ClickHouse dict-source table on every host, then reload the dictionary cluster-
-        # wide. Includes both `slot_index` and `compaction_target_slot_index` rows, so the
-        # mutation can backfill the new (target) column for every in-flight compaction.
         await workflow.execute_activity(
             populate_slot_assignments,
             PopulateSlotAssignmentsInputs(),
@@ -327,9 +292,8 @@ class CompactMaterializedColumnsWorkflow(PostHogWorkflow):
                 run_id=run_id,
             )
             try:
-                # Compacted slots stay READY on their original column — their data is
-                # untouched. Clearing `compaction_target_slot_index` frees the cancelled
-                # new column and lets the next workflow run pick fresh targets.
+                # Slots stay READY on the original column; clearing the target frees the
+                # cancelled new column for the next cycle.
                 await workflow.execute_activity(
                     clear_compaction_targets,
                     ClearCompactionTargetsInputs(slot_ids=assignment.compacted_slot_ids),

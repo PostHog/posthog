@@ -1,20 +1,10 @@
-"""End-to-end test for ``CompactMaterializedColumnsWorkflow``.
+"""End-to-end test for ``CompactMaterializedColumnsWorkflow`` against real Postgres +
+real ClickHouse with no activity stubs — the activity- and workflow-level tests mock
+each other's seam, so neither catches mismatches between the planned SQL and what
+ClickHouse actually executes.
 
-The activity-level tests in ``test_batched_activities.py`` mock ClickHouse and the
-workflow-level tests in ``test_batched_workflow.py`` mock every activity, so neither
-catches bugs at the seam between the two — e.g. SQL whose `formatQuerySingleLine`
-doesn't match what `system.mutations.command` stores, or a populated dict mapping that
-the mutation doesn't actually consume.
-
-This test runs the real workflow against real Postgres + real ClickHouse with no
-activity stubs, seeds two READY slots on sparse column indexes, inserts events with
-data in those columns, and asserts that after compaction the slots' indexes have been
-swapped to a dense range and the new columns hold the same data the old ones did.
-
-The threshold gate (`COMPACTION_FREE_COLUMN_THRESHOLD`) is patched to a high value so
-two slots are enough to trigger compaction — without the patch we'd need to seed 91+
-slots covering distinct column indexes just to fool the check, which is fixture sprawl
-without test value.
+The threshold gate is patched up so two seeded slots suffice to trigger compaction —
+otherwise we'd need 91+ slots just to fool the check.
 """
 
 import json
@@ -92,10 +82,8 @@ def _insert_test_events(cluster: ClickhouseCluster, team_id: int, count: int) ->
 def _fetch_dmat_columns_by_uuid(
     cluster: ClickhouseCluster, team_id: int, column_indexes: list[int]
 ) -> dict[str, dict[int, str | None]]:
-    """For every row in `sharded_events` matching `team_id`, return a mapping
-    {row_uuid: {column_index: stored_value, ...}}. Selects each `dmat_string_<idx>`
-    column dynamically so we can compare old-column values to new-column values after
-    compaction without hardcoding the old/new indexes."""
+    """Return `{row_uuid: {column_index: value}}` so old-vs-new column comparison can stay
+    decoupled from the dynamic post-compaction indexes."""
     cols = ", ".join(f"dmat_string_{i}" for i in column_indexes)
     table = EVENTS_DATA_TABLE()
     rows = cluster.any_host(Query(f"SELECT uuid, {cols} FROM {table} WHERE team_id = {int(team_id)}")).result()

@@ -72,10 +72,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 """
 
 
-# Per the dynamic property materialization RFC, the dmat pool is string-only —
-# HogQL casts to the property's logical type at query time using the same wrapper it
-# applies to normal `mat_*` columns. 100 columns gives ~19 weeks of runway at 5 cols/week
-# before compaction is needed.
+# 100 columns ≈ 19 weeks at 5 cols/week before compaction is needed.
 DMAT_STRING_COLUMN_COUNT = 100
 
 

@@ -78,10 +78,6 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         prop_info: dict[str, str | None] = {"type": prop_def.property_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:
-            # All dmat columns are `Nullable(String)` (per RFC: dynamic property
-            # materialization is string-only). HogQL applies the per-property-type wrapper
-            # — toFloat / toBool / toDateTime — at read time below, the same way it does
-            # for normal mat_* columns.
             prop_info["dmat"] = f"dmat_string_{slot.slot_index}"
 
         event_properties[prop_def.name] = prop_info
@@ -556,10 +552,9 @@ class PropertySwapper(CloningVisitor):
         # Add notice about the property type and materialization status
         self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
 
-        # The dmat column is a `Nullable(String)` (the printer rewrites `node` to
-        # `dmat_string_<idx>` when the property has a slot). Either way — dmat or JSON
-        # fallback — the wrapper below casts the underlying string to the property's
-        # logical type, matching what normal `mat_*` columns do.
+        # Both paths fall through to the wrapper: dmat columns are `Nullable(String)` (the
+        # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as
+        # the JSON fallback.
         return self._field_type_to_property_call(node, field_type)
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):

@@ -6,14 +6,9 @@ import { defaultConfig } from '../config/config'
 import { logger } from './logger'
 
 /**
- * Shared refresh constants for lazy loaders that need to stay in sync with the dmat
- * Temporal workflow's wait time. The weekly batched workflow sleeps 3 minutes between
- * "transition to BACKFILL" and "submit mutation" to give every plugin-server instance
- * a chance to refresh its slot cache and start writing to the new dmat columns. That
- * 3 minute window must exceed REFRESH_AGE_MS + REFRESH_JITTER_MS + buffer.
- *
- * Update `cache_refresh_wait_seconds` in
- * `posthog/temporal/backfill_materialized_property/workflows.py` if you change these.
+ * Refresh window for the team + dmat-slot caches. Must stay below the dmat workflow's
+ * `cache_refresh_wait_seconds` (180s) so plugin-server picks up new columns before the
+ * historical backfill mutation runs.
  */
 export const TEAM_AND_SLOTS_REFRESH_AGE_MS = 2 * 60 * 1000 // 2 minutes
 export const TEAM_AND_SLOTS_REFRESH_JITTER_MS = 30 * 1000 // 30 seconds

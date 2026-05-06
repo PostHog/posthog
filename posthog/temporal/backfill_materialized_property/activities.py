@@ -29,19 +29,12 @@ DMAT_STRING_COLUMN_NAME_PREFIX = "dmat_string_"
 
 
 def _generate_property_extraction_sql(property_name_param: str = "property_name") -> str:
-    """SQL fragment that pulls a single property out of `properties` as a string.
+    """SQL fragment that extracts one property out of `properties` as a string.
 
-    Byte-identical to the HogQL printer's JSON-fallback extraction
-    (`_unsafe_json_extract_trim_quotes` in posthog/hogql/printer/base.py) and to
-    `jsonExtractRawAndTrimQuotes` in plugin-server's `create-event.ts`. All three paths
-    must agree because the same row may be read by HogQL via the JSON fallback OR the dmat
-    column, depending on whether the slot is READY for that property — disagreement would
-    show up as different values for the same event before vs after backfill.
-
-    The batched-mutation path passes a per-slot param key (`prop_<uuid>`) so multiple
-    extractions can coexist in one mutation's params dict. The literal SQL around the
-    placeholder must stay identical to the HogQL JSON fallback — that's the parity
-    guarantee the dmat-vs-JSON consistency test pins.
+    Must stay byte-identical to the HogQL printer's JSON-fallback (`_unsafe_json_extract_trim_quotes`
+    in posthog/hogql/printer/base.py) and plugin-server's `jsonExtractRawAndTrimQuotes`
+    (create-event.ts) — all three paths read the same rows, so disagreement would show up
+    as values changing across backfill.
     """
     return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %({property_name_param})s), ''), 'null'), '^\"|\"$', '')"
 
@@ -51,7 +44,7 @@ class _ColumnAssignment:
     """Plan for a single dmat_string column: which (team_id, property_name) pairs land in it."""
 
     column_index: int
-    # List of (team_id, property_name, slot_id) — slot_id is the MaterializedColumnSlot UUID as a string.
+    # `slot_id` is the slot UUID stringified.
     branches: list[tuple[int, str, str]]
 
 
@@ -62,11 +55,7 @@ class AssignPendingColumnsInputs:
 
 @dataclasses.dataclass
 class AssignPendingColumnsResult:
-    # column_index → list of (team_id, property_name, slot_id_str) tuples for PENDING slots that
-    # were just transitioned to BACKFILL. The mutation phase backfills these columns from the
-    # JSON `properties` blob.
     assignments: list[_ColumnAssignment]
-    # All slot IDs that were transitioned PENDING → BACKFILL by this activity.
     assigned_slot_ids: list[str]
 
 
@@ -77,14 +66,9 @@ class AssignCompactionTargetsInputs:
 
 @dataclasses.dataclass
 class AssignCompactionTargetsResult:
-    # column_index → list of (team_id, property_name, slot_id_str) tuples for slots whose
-    # compaction_target_slot_index points at the column. The mutation phase backfills these new
-    # columns; finalize_compaction swaps slot_index ← compaction_target_slot_index afterwards.
     assignments: list[_ColumnAssignment]
-    # Slot IDs whose compaction_target_slot_index is set and need the mutation+finalize chain.
-    # Includes both newly planned targets (set by THIS activity invocation) and pre-existing
-    # in-flight targets from prior runs that crashed before finalize — the workflow re-drives
-    # those to completion (mutation runner is idempotent against already-applied mutations).
+    # Includes both newly planned targets and pre-existing in-flight targets from prior runs
+    # that crashed before finalize — the workflow re-drives them (mutation runner is idempotent).
     compacted_slot_ids: list[str]
 
 
@@ -184,37 +168,21 @@ def _plan_compaction_targets(
 
 @activity.defn
 def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingColumnsResult:
-    """
-    PENDING-only column allocation. Compaction is a separate activity / workflow — see
-    `assign_compaction_targets` and `CompactMaterializedColumnsWorkflow`.
+    """Atomically allocate columns for PENDING slots and transition them to BACKFILL.
 
-    Atomically:
-      1. Read all PENDING slots PLUS any BACKFILL slots already claimed by THIS workflow run
-         (their backfill_temporal_run_id == inputs.run_id). The latter happens when
-         the activity is retried after the DB transaction commits but before Temporal records
-         the activity completion — without this, those slots would be silently stranded in
-         BACKFILL forever and the next weekly run would never pick them up.
-      2. Compute column assignments for PENDING slots, avoiding per-team collisions with the
-         union of existing slot_index and compaction_target_slot_index across all slots.
-      3. Update each PENDING slot in-place: set slot_index, transition to BACKFILL, stamp
-         the run_id into `backfill_temporal_run_id`.
+    Also reclaims any BACKFILL slots already stamped with THIS run_id — they're a retry of
+    a previous attempt that committed the slot transition but didn't record activity
+    completion. Reclaimed slots keep their existing `slot_index` (re-packing would risk
+    re-running a finished mutation against a different column).
 
-    Returns the assignment plan (PENDING new columns) plus reclaimed in-progress slots so the
-    workflow can submit a single idempotent batched mutation. Reclaimed slots re-use their
-    existing `slot_index` (we do NOT re-pack them — that would risk repeating a successful
-    mutation against the wrong column).
-
-    Stranded BACKFILL slots from PRIOR runs (run_id != current) are NOT reclaimed by this
-    activity — they need operator intervention because we can't safely tell whether their
-    mutation completed. We log a warning and a metric so they're observable.
+    Stranded BACKFILL slots from OTHER runs are logged + alerted but not auto-recovered —
+    we can't tell if their mutation completed.
     """
     logger.info("Assigning pending slots to columns", run_id=inputs.run_id)
 
     with transaction.atomic():
-        # Lock all slot rows we may inspect for collision avoidance. Every dmat column is
-        # `Nullable(String)` regardless of the property's logical type — HogQL casts at
-        # read time using the same wrapper as `mat_*` — so a single shared pool covers
-        # all property types and there's no per-type filter to apply.
+        # Lock everything we'll inspect for collision avoidance — single shared pool, no
+        # per-type filter (all dmat columns are `Nullable(String)`, HogQL casts at read).
         all_string_slots = list(
             MaterializedColumnSlot.objects.select_for_update()
             .select_related("property_definition", "team")
@@ -261,10 +229,9 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
                 slot_ids=stranded_slot_ids,
                 stale_run_ids=stale_run_ids,
             )
-            # Surface to Sentry so oncall is alerted (the workflow itself does not fail —
-            # stranded slots are harmless to users because HogQL falls back to JSON for
-            # state != READY — but they need an operator to reset them to PENDING for the
-            # next cycle, otherwise they sit forever holding a column index hostage).
+            # Surface to Sentry — the workflow doesn't fail (HogQL falls back to JSON for
+            # state != READY) but stranded slots hold a column index until an operator resets
+            # them to PENDING.
             posthoganalytics.capture_exception(
                 Exception("dmat: stranded BACKFILL slots require operator action"),
                 properties={
@@ -388,31 +355,15 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
 
 @activity.defn
 def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCompactionTargetsResult:
-    """
-    Compaction-only target allocation. PENDING allocation is a separate activity / workflow —
-    see `assign_pending_columns` and `BackfillMaterializedPropertiesBatchWorkflow`.
+    """Plan compaction targets, in priority order:
 
-    Two distinct cases this activity handles, in priority order:
+    1. **Resume** any in-flight `compaction_target_slot_index` (a prior run crashed between
+       mutation and finalize). We do NOT re-plan these — re-targeting could leave plugin-
+       server caches stale on the new column and lose dual-writes until refresh.
+    2. **Fresh trigger** if no in-flight targets AND free pool is below
+       COMPACTION_FREE_COLUMN_THRESHOLD: plan dense targets for every READY slot.
 
-      1. **In-flight resume.** If any READY slot already has `compaction_target_slot_index`
-         set (from a prior run that crashed between mutation completion and finalize, or
-         from this workflow run if the activity is retrying after a partial commit), include
-         it in the returned assignment plan as-is. The mutation runner is idempotent — re-
-         submitting the same command attaches to the existing mutation rather than enqueuing
-         a duplicate — so this auto-recovers from the crash-mid-finalize gap without operator
-         intervention. We do NOT re-plan in-flight targets: re-targeting could leave plugin-
-         server caches stale on the new column, which would silently lose dual-writes for the
-         period until the cache refresh.
-
-      2. **Fresh trigger.** If there are no in-flight targets AND free_count is below
-         COMPACTION_FREE_COLUMN_THRESHOLD, plan dense compaction targets for every READY slot
-         (`_plan_compaction_targets` packs many teams into a small column range using per-
-         team uniqueness). Plugin-server reads pick this up on next cache refresh and start
-         dual-writing to both old and new columns.
-
-    Both branches return the same shape: an `AssignCompactionTargetsResult` with the column
-    assignments and the slot IDs to drive through mutation+finalize. If neither branch fires
-    (no in-flight, plenty of capacity), returns an empty result and the workflow no-ops.
+    Returns an empty result if neither fires (the workflow then no-ops).
     """
     logger.info("Evaluating compaction trigger", run_id=inputs.run_id)
 
@@ -532,51 +483,25 @@ def assign_compaction_targets(inputs: AssignCompactionTargetsInputs) -> AssignCo
 
 @dataclasses.dataclass
 class PopulateSlotAssignmentsInputs:
-    """Inputs for `populate_slot_assignments`.
-
-    No fields needed: the activity reads the current set of assigned slots straight
-    from Postgres and pushes them to ClickHouse. It always reflects the latest committed
-    state of the slot table. Both PENDING-allocation (where new BACKFILL slots have just
-    been written) and compaction (where compaction_target_slot_index has just been
-    written) workflows can call it the same way.
-    """
+    pass
 
 
 @dataclasses.dataclass
 class PopulateSlotAssignmentsResult:
-    """How many (team_id, column_index) rows were written to the dict source table."""
-
     rows_written: int
 
 
 @activity.defn
 def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> PopulateSlotAssignmentsResult:
-    """
-    Sync the current slot-assignment state from Postgres to the
-    `dmat_slot_assignments` ClickHouse table on every host, then reload the
-    `dmat_slot_assignments_dict` dictionary on every host so the next mutation reads
-    the fresh state.
+    """Sync slot assignments from Postgres to `dmat_slot_assignments` on every host, then
+    reload `dmat_slot_assignments_dict` everywhere.
 
-    Two passes via `cluster.map_all_hosts(...)`:
+    Two-phase: TRUNCATE+INSERT on every host, then RELOAD on every host. If any host
+    fails the populate, the reload never runs — the next mutation won't see a partially-
+    populated cluster.
 
-      1. **Populate**: every host runs `TRUNCATE TABLE dmat_slot_assignments` followed
-         by an `INSERT VALUES` with the current row set. `.result()` raises an
-         `ExceptionGroup` if any host fails — in that case the reload step is NEVER
-         issued, so the mutation that follows in the workflow won't run against a
-         partially-populated cluster.
-
-      2. **Reload**: every host runs `SYSTEM RELOAD DICTIONARY` against its local
-         dict. Synchronous — when this returns, every replica's dict reflects the new
-         state.
-
-    Idempotent under retry: TRUNCATE+INSERT produces the same end state regardless of
-    how many times it runs. A retry after partial failure converges to the same end
-    state on every host.
-
-    Each row is emitted twice during compaction — once for `slot_index` and once for
-    `compaction_target_slot_index` — so the dict serves both the active and the target
-    column for in-flight slots. Plugin-server keeps reading the slot table directly
-    (not the dict), so this only affects the mutation path.
+    Compaction emits each in-flight slot twice (slot_index AND compaction_target_slot_index)
+    so the dict serves both the active and the target column.
     """
     rows: list[tuple[int, int, str]] = []
     for slot in (
@@ -597,9 +522,6 @@ def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> Populate
     def populate(client) -> int:
         client.execute(truncate_sql)
         if rows:
-            # Pass rows as parameter substitution so clickhouse-driver handles escaping.
-            # Each row becomes (team_id, column_index, property_name) — version is filled
-            # by the column DEFAULT.
             client.execute(insert_sql, rows)
         return len(rows)
 
@@ -607,11 +529,7 @@ def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> Populate
         client.execute(reload_sql)
 
     cluster = get_cluster()
-
-    # Step 1: populate every host. .result() raises if any host fails.
     populate_results = cluster.map_all_hosts(populate).result()
-
-    # Step 2: only after every populate succeeded, reload every host's dict.
     cluster.map_all_hosts(reload).result()
 
     rows_written = next(iter(populate_results.values()), 0)
@@ -626,71 +544,45 @@ def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> Populate
 @dataclasses.dataclass
 class RunBatchedMutationInputs:
     assignments: list[_ColumnAssignment]
-    # 32-bit hash of the workflow_run_id, embedded in the WHERE clause as a no-op
-    # `AND <int> = <int>` conjunct so the formatted SQL text differs across cycles.
-    # AlterTableMutationRunner.find_existing_mutations dedups by formatted SQL against
-    # `system.mutations.command`; without a per-cycle distinguisher, the dict-based SQL
-    # would be byte-identical across cycles and a fresh cycle would falsely reattach to
-    # the previous cycle's completed mutation. The hash stays the same across activity
-    # retries within one cycle (so within-cycle dedup keeps working) and changes across
-    # cycles (so cross-cycle dedup distinguishes correctly).
+    # See `compute_cycle_marker_int` — embedded in the mutation WHERE so SQL text differs
+    # across cycles, defeating AlterTableMutationRunner's cross-cycle dedup.
     cycle_marker_int: int
 
 
 def compute_cycle_marker_int(workflow_run_id: str) -> int:
-    """Derive a stable 32-bit unsigned int from `workflow_run_id`.
-
-    Same input → same output (so activity retries within one cycle hash to the same
-    integer). Different inputs → different output with overwhelming probability
-    (~1/2³² collision rate, irrelevant at one cycle per week).
-    """
+    """Stable 32-bit unsigned int from `workflow_run_id` — same across activity retries
+    within one cycle, different across cycles."""
     return int.from_bytes(hashlib.sha1(workflow_run_id.encode()).digest()[:4], "big")
 
 
 def _build_dict_backed_update_command(
     assignments: list[_ColumnAssignment], cycle_marker_int: int
 ) -> tuple[str, dict[str, str]]:
-    """
-    Build the body of a single ALTER TABLE UPDATE that populates the given dmat_string
-    columns by reading the (team_id, column_index) → property_name mapping out of the
-    `dmat_slot_assignments_dict` ClickHouse dictionary.
+    """Build a single ALTER TABLE UPDATE that populates the given dmat_string columns by
+    reading (team_id, column_index) → property_name out of `dmat_slot_assignments_dict`.
 
-    Each affected column gets one SET expression of the form
-    `if(dictHas(...), <extract>, col_name)`. The extract wraps `JSONExtractRaw` in the
-    same `replaceRegexpAll(nullIf(nullIf(..., ''), 'null'), '^"|"$', '')` shape that
-    `_generate_property_extraction_sql` uses today, preserving the cross-language
-    coercion contract pinned by `coercion_fixtures.json`. The only change vs. the legacy
-    multiIf path is how the property name reaches `JSONExtractRaw` — query parameter
-    today, `dictGetString(...)` here.
+    Each column gets `col = if(dictHas(...), <extract>, col)`. The `<extract>` wraps
+    `JSONExtractRaw` in the same shape as `_generate_property_extraction_sql` so the
+    coercion contract pinned by `coercion_fixtures.json` is preserved.
 
-    The WHERE clause uses an IN-subselect against `dmat_slot_assignments` so the SQL
-    text stays constant-size regardless of team count. ClickHouse evaluates the
-    subselect once at submission and uses the result for primary-key part pruning on
-    `sharded_events` (parts containing none of the team_ids are skipped entirely).
+    The WHERE uses `team_id IN (SELECT DISTINCT team_id FROM dmat_slot_assignments)` so
+    the SQL is constant-size regardless of team count, and ClickHouse can prune sharded_events
+    parts that don't contain any of those teams.
 
-    A no-op `AND <cycle_marker_int> = <cycle_marker_int>` conjunct distinguishes the
-    formatted SQL across cycles for `MutationRunner.find_existing_mutations` dedup —
-    see the comment on `RunBatchedMutationInputs.cycle_marker_int`.
-
-    Returns (command, params) suitable for `AlterTableMutationRunner`. `params` is empty
-    because the property names live in the dict at runtime, not in query parameters.
+    Returns `(command, {})` — property names live in the dict, not in query parameters.
     """
     if not assignments:
         raise ValueError("Cannot build mutation command with no assignments")
 
-    # Identifiers are fully qualified with the connection database so the SQL we submit
-    # matches the form ClickHouse stores in `system.mutations.command` after parsing — bare
-    # references would get qualified server-side and the asymmetry breaks
-    # `AlterTableMutationRunner.find_existing_mutations`' byte-equality dedup join.
+    # Fully-qualified identifiers — ClickHouse normalizes bare references when storing
+    # `system.mutations.command`, and a bare-vs-qualified mismatch defeats the byte-equality
+    # dedup join in `AlterTableMutationRunner.find_existing_mutations`.
     qualified_dict = f"{settings.CLICKHOUSE_DATABASE}.{DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME}"
     qualified_assignments_table = f"{settings.CLICKHOUSE_DATABASE}.dmat_slot_assignments"
     set_clauses: list[str] = []
     for assignment in assignments:
         idx = int(assignment.column_index)
         col_name = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{idx}"
-        # Property name is sourced via dictGetString from `dmat_slot_assignments_dict`.
-        # JSONExtractRaw accepts a String argument either way, so the runtime extraction
-        # is byte-identical to today's bare-extract path.
         property_name_expr = f"dictGetString('{qualified_dict}', 'property_name', (team_id, {idx}))"
         extract_sql = (
             f"replaceRegexpAll("
@@ -712,25 +604,9 @@ def _build_dict_backed_update_command(
 
 @activity.defn
 def run_batched_mutation(inputs: RunBatchedMutationInputs) -> None:
-    """
-    Submit (or attach to an existing) batched ALTER TABLE UPDATE mutation and block until
-    it completes on every shard.
-
-    The mutation reads the (team_id, column_index) → property_name mapping out of the
-    `dmat_slot_assignments_dict` ClickHouse dictionary, which the `populate_slot_assignments`
-    activity must have populated (and reloaded on every host) before this activity runs.
-
-    Uses AlterTableMutationRunner which:
-      - dedups by formatted SQL — re-running with the same command attaches to the
-        existing mutation rather than queueing a duplicate. The `cycle_marker_int` in
-        `RunBatchedMutationInputs` makes the dedup correct across cycles too: same int
-        within a cycle (activity retries reattach), different across cycles (cross-cycle
-        does NOT reattach).
-      - submits with the cluster's default settings (mutations_sync=0 outside tests),
-        then polls system.mutations on each replica until is_done=1.
-
-    The dict-based SQL is a single bounded statement regardless of team count, so no
-    chunking is needed.
+    """Submit (or attach to) the batched ALTER TABLE UPDATE and block until done on every
+    shard. Reads property names from `dmat_slot_assignments_dict`, which
+    `populate_slot_assignments` must have synced and reloaded first.
     """
     if not inputs.assignments:
         logger.info("No assignments to backfill — skipping mutation")
@@ -746,10 +622,8 @@ def run_batched_mutation(inputs: RunBatchedMutationInputs) -> None:
 
     command, params = _build_dict_backed_update_command(inputs.assignments, inputs.cycle_marker_int)
 
-    # Sync activity that may run for hours — without periodic heartbeats Temporal
-    # will kill it as soon as `heartbeat_timeout` elapses. The HeartbeaterSync
-    # context manager spawns a background thread that calls `activity.heartbeat()`
-    # at heartbeat_timeout / 12.
+    # The mutation can run for hours; HeartbeaterSync keeps Temporal from killing the
+    # activity at `heartbeat_timeout`.
     with HeartbeaterSync(logger=logger):
         cluster = get_cluster()
         runner = AlterTableMutationRunner(

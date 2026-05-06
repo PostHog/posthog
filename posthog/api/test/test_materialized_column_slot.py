@@ -1,4 +1,4 @@
-"""Tests for MaterializedColumnSlot REST API endpoints (post-PENDING-flow)."""
+"""Tests for MaterializedColumnSlot REST API endpoints."""
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -13,14 +13,16 @@ from products.event_definitions.backend.models.property_definition import Proper
 
 
 class TestMaterializedColumnSlotAPI(APIBaseTest):
+    """Test MaterializedColumnSlot REST API endpoints."""
+
     def setUp(self):
         super().setUp()
+        # Make user staff so they can access endpoints
         self.user.is_staff = True
         self.user.save()
 
-    # ---------- list ----------
-
     def test_list_slots(self):
+        """Test listing all slots for a team."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
@@ -40,6 +42,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert len(response.json()["results"]) == 1
 
     def test_list_slots_filtered_by_team(self):
+        """Test that team_id query param filters correctly."""
         other_team = self.organization.teams.create(name="Other Team")
         prop_def = PropertyDefinition.objects.create(
             team=other_team,
@@ -59,9 +62,8 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 0
 
-    # ---------- slot_usage ----------
-
     def test_slot_usage_empty(self):
+        """Test slot usage when no slots are assigned."""
         response = self.client.get(f"/api/environments/{self.team.id}/materialized_column_slots/slot_usage/")
 
         assert response.status_code == status.HTTP_200_OK
@@ -71,7 +73,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert body["available"] == MAX_SLOTS_PER_TEAM
 
     def test_slot_usage_partially_filled(self):
-        # 2 PENDING slots and 1 READY → 3 total used, 2 remaining of MAX_SLOTS_PER_TEAM=5.
+        """Test slot usage with a mix of PENDING and READY slots."""
         for i in range(3):
             prop_def = PropertyDefinition.objects.create(
                 team=self.team,
@@ -93,7 +95,8 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert body["used_total"] == 3
         assert body["available"] == MAX_SLOTS_PER_TEAM - 3
 
-    def test_slot_usage_all_filled(self):
+    def test_slot_usage_all_slots_full(self):
+        """Test slot usage when all slots are full."""
         for i in range(MAX_SLOTS_PER_TEAM):
             prop_def = PropertyDefinition.objects.create(
                 team=self.team,
@@ -115,9 +118,9 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert body["used_total"] == MAX_SLOTS_PER_TEAM
         assert body["available"] == 0
 
-    # ---------- available_properties ----------
-
     def test_available_properties_filters_correctly(self):
+        """Test that available_properties excludes the right properties."""
+        # Create various property types
         PropertyDefinition.objects.create(
             team=self.team,
             name="custom_prop",
@@ -139,6 +142,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         PropertyDefinition.objects.create(
             team=self.team,
             name="email",
+            property_type=PropertyType.String,
             type=PropertyDefinition.Type.PERSON,
         )
         already_materialized = PropertyDefinition.objects.create(
@@ -159,48 +163,30 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         prop_names = [p["name"] for p in response.json()]
 
+        # Should include custom props and feature flags
         assert "custom_prop" in prop_names
         assert "$feature/my_flag" in prop_names
+
+        # Should NOT include system props, person props, or already materialized
         assert "$current_url" not in prop_names
         assert "email" not in prop_names
         assert "already_mat" not in prop_names
 
     def test_available_properties_includes_all_typed_properties(self):
-        # Every dmat column is `Nullable(String)` and HogQL casts at read time, so the
-        # storage shape is type-agnostic — Numeric / Boolean / DateTime / Duration properties
-        # all materialize fine. The only requirement is that property_type be set so HogQL
-        # knows how to cast.
-        PropertyDefinition.objects.create(
-            team=self.team,
-            name="numeric_prop",
-            property_type=PropertyType.Numeric,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        PropertyDefinition.objects.create(
-            team=self.team,
-            name="bool_prop",
-            property_type=PropertyType.Boolean,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        PropertyDefinition.objects.create(
-            team=self.team,
-            name="datetime_prop",
-            property_type=PropertyType.Datetime,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        PropertyDefinition.objects.create(
-            team=self.team,
-            name="duration_prop",
-            property_type=PropertyType.Duration,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        PropertyDefinition.objects.create(
-            team=self.team,
-            name="string_prop",
-            property_type=PropertyType.String,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        # Untyped properties are still excluded — without a type HogQL can't cast at read.
+        """Every typed event property is materializable — dmat columns are String, HogQL casts at read time."""
+        for prop_type in [
+            PropertyType.Numeric,
+            PropertyType.Boolean,
+            PropertyType.Datetime,
+            PropertyType.Duration,
+            PropertyType.String,
+        ]:
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name=f"{prop_type}_prop",
+                property_type=prop_type,
+                type=PropertyDefinition.Type.EVENT,
+            )
         PropertyDefinition.objects.create(
             team=self.team,
             name="untyped_prop",
@@ -212,10 +198,17 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         prop_names = {p["name"] for p in response.json()}
-        assert prop_names == {"numeric_prop", "bool_prop", "datetime_prop", "duration_prop", "string_prop"}
+        assert prop_names == {
+            f"{PropertyType.Numeric}_prop",
+            f"{PropertyType.Boolean}_prop",
+            f"{PropertyType.Datetime}_prop",
+            f"{PropertyType.Duration}_prop",
+            f"{PropertyType.String}_prop",
+        }
 
     @patch("posthog.api.materialized_column_slot.get_auto_materialized_property_names")
     def test_available_properties_excludes_auto_materialized(self, mock_get_auto):
+        """Test that auto-materialized properties are excluded from available_properties."""
         mock_get_auto.return_value = {"utm_source", "utm_medium"}
 
         PropertyDefinition.objects.create(
@@ -235,14 +228,14 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         prop_names = [p["name"] for p in response.json()]
+
         assert "custom_prop" in prop_names
         assert "utm_source" not in prop_names
-
-    # ---------- auto_materialized ----------
 
     @patch("posthog.api.materialized_column_slot.get_materialized_columns")
     @patch("posthog.api.materialized_column_slot.EE_AVAILABLE", True)
     def test_auto_materialized_returns_only_properties_columns(self, mock_get_mat_cols):
+        """Test that auto_materialized excludes person_properties columns."""
         mock_column = MagicMock()
         mock_column.name = "mat_$current_url"
         mock_column.details.property_name = "$current_url"
@@ -270,14 +263,14 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
 
     @patch("posthog.api.materialized_column_slot.EE_AVAILABLE", False)
     def test_auto_materialized_returns_empty_without_ee(self):
+        """Test that auto_materialized returns [] when EE not available."""
         response = self.client.get(f"/api/environments/{self.team.id}/materialized_column_slots/auto_materialized/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
 
-    # ---------- assign_slot (PENDING flow) ----------
-
-    def test_assign_slot_creates_pending_with_no_index(self):
+    def test_assign_slot_success(self):
+        """Test successfully queueing a property as PENDING."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
@@ -296,12 +289,10 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert body["slot_index"] is None
 
         slot = MaterializedColumnSlot.objects.get(property_definition=prop_def)
-        assert slot.state == MaterializedColumnSlotState.PENDING
-        assert slot.slot_index is None
-        # PENDING slots have no Temporal workflow until the weekly cron picks them up.
         assert slot.backfill_temporal_run_id is None
 
-    def test_assign_slot_rejects_when_team_at_limit(self):
+    def test_assign_slot_returns_error_when_all_slots_used(self):
+        """Test error when team has reached MAX_SLOTS_PER_TEAM."""
         for i in range(MAX_SLOTS_PER_TEAM):
             prop_def = PropertyDefinition.objects.create(
                 team=self.team,
@@ -332,6 +323,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert f"maximum of {MAX_SLOTS_PER_TEAM}" in response.json()["error"]
 
     def test_assign_slot_no_property_type(self):
+        """Test error when property has no type set."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="no_type_prop",
@@ -357,8 +349,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         ]
     )
     def test_assign_slot_accepts_all_typed_properties(self, prop_type):
-        # Storage is `Nullable(String)` regardless of logical type — HogQL casts at read time —
-        # so every PropertyType is valid for materialization.
+        """All PropertyTypes are materializable — storage is `Nullable(String)`, HogQL casts at read time."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name=f"{prop_type}_prop",
@@ -374,6 +365,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_assign_slot_system_property(self):
+        """Test error when trying to materialize PostHog system property."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="$current_url",
@@ -390,6 +382,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert "PostHog system properties cannot be materialized" in response.json()["error"]
 
     def test_assign_slot_allows_feature_flags(self):
+        """Test that feature flag properties CAN be materialized."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="$feature/my_flag",
@@ -406,6 +399,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
 
     @patch("posthog.api.materialized_column_slot.get_auto_materialized_property_names")
     def test_assign_slot_auto_materialized_property(self, mock_get_auto):
+        """Test error when trying to materialize already auto-materialized property."""
         mock_get_auto.return_value = {"utm_source"}
 
         prop_def = PropertyDefinition.objects.create(
@@ -424,6 +418,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert "already auto-materialized by PostHog" in response.json()["error"]
 
     def test_assign_slot_already_materialized(self):
+        """Test error when property is already materialized."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="already_mat",
@@ -445,9 +440,8 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Property is already materialized" in response.json()["error"]
 
-    # ---------- retry_backfill ----------
-
-    def test_retry_backfill_resets_to_pending(self):
+    def test_retry_backfill_success(self):
+        """Test retrying a failed backfill resets slot to PENDING."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
@@ -472,13 +466,13 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
 
         slot.refresh_from_db()
         assert slot.state == MaterializedColumnSlotState.PENDING
-        # slot_index is cleared so the next weekly run can re-pack into a fresh column.
         assert slot.slot_index is None
         assert slot.error_message is None
         assert slot.backfill_temporal_run_id is None
 
     @parameterized.expand([["PENDING"], ["BACKFILL"], ["READY"]])
     def test_retry_backfill_rejects_non_error_states(self, current_state):
+        """Test that retry only works on ERROR state."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
@@ -488,7 +482,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            slot_index=0 if current_state != "PENDING" else None,
+            slot_index=None if current_state == "PENDING" else 0,
             state=current_state,
         )
 
@@ -499,12 +493,56 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Can only retry slots in ERROR state" in response.json()["error"]
 
-    # ---------- destroy ----------
-
-    def test_delete_slot_in_pending_state(self):
+    def test_delete_slot(self):
+        """Test deleting a slot."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop",
+            property_type=PropertyType.String,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        slot = MaterializedColumnSlot.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            slot_index=0,
+            state=MaterializedColumnSlotState.READY,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/materialized_column_slots/{slot.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        # Verify slot was deleted
+        assert not MaterializedColumnSlot.objects.filter(id=slot.id).exists()
+
+    def test_delete_slot_blocked_during_backfill(self):
+        """Test that deletion is blocked when backfill in progress."""
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="test_prop",
+            property_type=PropertyType.String,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        slot = MaterializedColumnSlot.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            slot_index=0,
+            state=MaterializedColumnSlotState.BACKFILL,  # In progress!
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/materialized_column_slots/{slot.id}/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot delete slot while backfill is in progress" in response.json()["error"]
+
+        # Verify slot still exists
+        assert MaterializedColumnSlot.objects.filter(id=slot.id).exists()
+
+    def test_delete_slot_allowed_in_pending_state(self):
+        """Test that deletion works when slot is in PENDING state."""
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="test_prop_pending",
             property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
@@ -520,7 +558,8 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not MaterializedColumnSlot.objects.filter(id=slot.id).exists()
 
-    def test_delete_slot_in_ready_state(self):
+    def test_delete_slot_allowed_in_ready_state(self):
+        """Test that deletion works when slot is in READY state."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop_ready",
@@ -539,7 +578,8 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not MaterializedColumnSlot.objects.filter(id=slot.id).exists()
 
-    def test_delete_slot_in_error_state(self):
+    def test_delete_slot_allowed_in_error_state(self):
+        """Test that deletion works when slot is in ERROR state."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="test_prop_error",
@@ -559,29 +599,9 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not MaterializedColumnSlot.objects.filter(id=slot.id).exists()
 
-    def test_delete_slot_blocked_during_backfill(self):
-        prop_def = PropertyDefinition.objects.create(
-            team=self.team,
-            name="test_prop",
-            property_type=PropertyType.String,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        slot = MaterializedColumnSlot.objects.create(
-            team=self.team,
-            property_definition=prop_def,
-            slot_index=0,
-            state=MaterializedColumnSlotState.BACKFILL,
-        )
-
-        response = self.client.delete(f"/api/environments/{self.team.id}/materialized_column_slots/{slot.id}/")
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Cannot delete slot while backfill is in progress" in response.json()["error"]
-        assert MaterializedColumnSlot.objects.filter(id=slot.id).exists()
-
-    # ---------- permissions ----------
-
     def test_endpoints_require_staff_permission(self):
+        """Test that non-staff users cannot access endpoints."""
+        # Make user non-staff
         self.user.is_staff = False
         self.user.save()
 
@@ -598,8 +618,10 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
 
     @patch("loginas.utils.is_impersonated_session")
     def test_endpoints_allow_impersonated_sessions(self, mock_is_impersonated):
+        """Test that impersonated sessions can access endpoints."""
         mock_is_impersonated.return_value = True
 
+        # Make user non-staff
         self.user.is_staff = False
         self.user.save()
 
@@ -610,6 +632,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             type=PropertyDefinition.Type.EVENT,
         )
 
+        # Should succeed because of impersonated session
         response = self.client.post(
             f"/api/environments/{self.team.id}/materialized_column_slots/assign_slot/",
             {"property_definition_id": prop_def.id},

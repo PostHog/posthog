@@ -4,35 +4,16 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [("posthog", "1143_sharingconfiguration_notebook")]
 
-    # Single in-flight migration that brings the MaterializedColumnSlot model fully in line
-    # with the dynamic property materialization RFC. None of these changes have shipped, so
-    # they're folded into one migration rather than three.
-    #
-    # 1) PENDING flow: slot_index is now nullable so a slot can sit in PENDING with no column
-    #    assigned, and the assigned-range expands from 0–9 to 0–99 to match the larger string
-    #    column pool. The slot_index uniqueness becomes partial (only enforced for rows with a
-    #    non-null slot_index) so multiple PENDING slots can coexist.
-    #
-    # 2) compaction_target_slot_index: when a slot is being repacked into a smaller column
-    #    index, ingestion dual-writes to both columns until the historical mutation completes
-    #    and the workflow swaps `slot_index ← compaction_target_slot_index`. The partial
-    #    unique constraint on (team, compaction_target_slot_index) prevents two slots in one
-    #    team from claiming the same target column — defense-in-depth around a planner bug.
-    #
-    # 3) Drop `property_type` from the slot. Per the RFC every dmat column is `Nullable(String)`;
-    #    HogQL applies the type wrapper at read time using `prop_def.property_type`, the same
-    #    way it does for normal `mat_*` columns. Without `property_type` on the slot the
-    #    constraints/indexes that were keyed on `(team, property_type, slot_index)` collapse
-    #    to `(team, slot_index)` — per-team uniqueness is what protects against two slots in
-    #    one team dual-writing to the same dmat column.
-    #
-    # 4) Rename `backfill_temporal_workflow_id` to `backfill_temporal_run_id`. The column has
-    #    always stored a Temporal `run_id` (the schedule reuses one workflow_id for every
-    #    weekly firing, so workflow_id can't distinguish cycles). Renaming now while the table
-    #    is empty avoids carrying the misleading name through every future read site.
+    # Bundles four pre-shipping changes for MaterializedColumnSlot:
+    # 1) slot_index becomes nullable + range expands to 0–99 + uniqueness becomes partial
+    #    so multiple PENDING slots per team can coexist with no slot_index assigned.
+    # 2) Add compaction_target_slot_index with its own partial unique constraint.
+    # 3) Drop property_type — every dmat column is `Nullable(String)`; HogQL casts at read
+    #    using prop_def.property_type instead. Constraints collapse to (team, slot_index).
+    # 4) Rename backfill_temporal_workflow_id → backfill_temporal_run_id (the schedule
+    #    reuses one workflow_id, so the column always stored a run_id).
 
     operations = [
-        # Drop everything keyed on the old shape first, so we can drop the property_type field cleanly.
         migrations.RemoveConstraint(
             model_name="materializedcolumnslot",
             name="valid_slot_index",

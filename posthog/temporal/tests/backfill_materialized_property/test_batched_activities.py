@@ -118,9 +118,8 @@ class TestBuildDictBackedUpdateCommand:
         # The dictionary key includes column_index so different (team, idx) pairs lookup independently.
         assert "(team_id, 12)" in command
         assert "(team_id, 13)" in command
-        # Property name is sourced via dictGetString — not a query parameter.
         assert "dictGetString('dmat_slot_assignments_dict', 'property_name'," in command
-        # Inner extract wrapper is byte-identical to _generate_property_extraction_sql.
+        # Extract wrapper must stay byte-identical to `_generate_property_extraction_sql`.
         assert "replaceRegexpAll(" in command
         assert "JSONExtractRaw(properties," in command
 
@@ -136,8 +135,7 @@ class TestBuildDictBackedUpdateCommand:
         assignments = [_ColumnAssignment(column_index=7, branches=[])]
         command, _params = _build_dict_backed_update_command(assignments, cycle_marker_int=12345)
 
-        # The marker ends WHERE so MutationRunner's formatted-SQL dedup distinguishes cycles.
-        # See `compute_cycle_marker_int` and the RunBatchedMutationInputs.cycle_marker_int comment.
+        # Marker terminates the WHERE so MutationRunner's formatted-SQL dedup distinguishes cycles.
         assert command.endswith("AND 12345 = 12345"), command
 
     def test_different_cycle_markers_produce_different_sql(self):
@@ -302,11 +300,8 @@ class TestAssignPendingColumns:
         assert new_slot.slot_index == 1
 
     def test_refuses_to_allocate_when_free_pool_below_threshold(self, organization, activity_environment):
-        """Hard safety: if free_count < COMPACTION_FREE_COLUMN_THRESHOLD, allocating PENDING
-        would consume the last few columns and could leave compaction unable to plan dense
-        targets — bricking PENDING allocation indefinitely. This test fills the pool below
-        the threshold and confirms PENDING allocation no-ops with the slot left untouched
-        for the next cycle (after compaction has had a chance to free columns)."""
+        """Hard safety: allocating below the compaction threshold could starve compaction of
+        dense targets and brick PENDING allocation indefinitely."""
         from posthog.models import Team
         from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
         from posthog.models.materialized_column_slots import COMPACTION_FREE_COLUMN_THRESHOLD
@@ -347,10 +342,8 @@ class TestAssignPendingColumns:
         assert pending_slot.slot_index is None
 
     def test_reclaimed_slots_pass_through_even_below_threshold(self, organization, activity_environment):
-        """The threshold safety only blocks FRESH allocation. Reclaimed slots (from a partial
-        commit on a previous attempt of THIS workflow run) must still flow through — blocking
-        them would strand them, and they're already past the allocation point so their
-        columns are already counted in used_indexes anyway."""
+        """The threshold safety only blocks FRESH allocation — reclaimed slots are already
+        past the allocation point and blocking them would strand them."""
         from posthog.models import Team
         from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
         from posthog.models.materialized_column_slots import COMPACTION_FREE_COLUMN_THRESHOLD
@@ -396,10 +389,8 @@ class TestAssignPendingColumns:
         assert any(a.column_index == slots_needed for a in result.assignments)
 
     def test_avoids_in_flight_compaction_targets_within_team(self, team, activity_environment):
-        """A team's in-flight compaction target counts as in-use for that team — a new PENDING
-        slot in the same team must not land on the same column. This is the cross-workflow
-        invariant: PENDING allocation runs while compaction is mid-cycle (compaction Saturday,
-        allocation Sunday) and must not collide with whatever compaction reserved.
+        """In-flight compaction targets count as in-use, so PENDING allocation can't collide
+        with compaction reservations across workflow runs.
         """
         existing_prop = PropertyDefinition.objects.create(
             team=team,

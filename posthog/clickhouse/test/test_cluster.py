@@ -184,27 +184,20 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
 
 
 def test_cycle_marker_survives_format_query(cluster: ClickhouseCluster) -> None:
-    """The dmat dict-backed mutation embeds a per-cycle marker as `AND <int> = <int>` in
-    its WHERE clause so that AlterTableMutationRunner.find_existing_mutations distinguishes
-    cycles. The other parts of the mutation SQL are constant across cycles (the SET clause
-    references a dictionary at runtime), so without the marker, fresh cycles would falsely
-    reattach to a stale completed mutation.
-
-    This test pins the load-bearing assumption: that ClickHouse's `formatQuery` preserves
-    a literal-equality conjunct verbatim. Same int → same formatted SQL → dedup hits.
-    Different int → different formatted SQL → dedup misses.
+    """Pins the load-bearing assumption: ClickHouse's `formatQuery` preserves the
+    `AND <int> = <int>` conjunct verbatim, so same int → dedup hits, different int →
+    dedup misses. Without that, the dict-backed mutation's SQL would be byte-identical
+    across cycles and a fresh cycle would falsely reattach to last week's completed run.
     """
     table = EVENTS_DATA_TABLE()
     count = 100
 
-    # Seed some data so the mutation has rows to scan.
     cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
 
     sentinel_uuid_a = uuid.uuid1()
     sentinel_uuid_b = uuid.uuid1()
-    # Make the cycle markers unique per test run so a previous run's mutation rows
-    # in system.mutations don't collide with this run's expected-empty state. Time-based
-    # is fine — the marker just needs to be a valid 32-bit-ish int.
+    # Per-run unique cycle markers so prior test runs' mutations in `system.mutations` don't
+    # collide with this run's expected-empty state.
     cycle_a = int(sentinel_uuid_a.int % 2_000_000_000)
     cycle_b = int(sentinel_uuid_b.int % 2_000_000_000)
     assert cycle_a != cycle_b, "uuid collision — re-run the test"
@@ -249,7 +242,6 @@ def test_cycle_marker_survives_format_query(cluster: ClickhouseCluster) -> None:
             "formatQuery may have folded the marker, breaking cross-cycle isolation"
         )
 
-    # Both eventually complete.
     wait_and_check_mutations_on_shards(cluster, shard_mutations_b)
 
 

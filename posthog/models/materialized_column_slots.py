@@ -5,22 +5,14 @@ from posthog.models.utils import UUIDTModel
 
 from products.event_definitions.backend.models import PropertyDefinition
 
-# Maximum number of materialized column slots a team can hold across all states.
-# Per the dynamic property materialization RFC: balances utility vs column consumption.
 MAX_SLOTS_PER_TEAM = 5
 
-# Maximum slot_index value (inclusive). 100 string columns are pre-allocated in ClickHouse,
-# numbered 0..99 — see DMAT_STRING_COLUMN_COUNT in posthog/models/event/sql.py.
+# Inclusive — must stay paired with `DMAT_STRING_COLUMN_COUNT` in posthog/models/event/sql.py.
 MAX_SLOT_INDEX = 99
 
-# Compaction triggers when fewer than this many free string columns remain across all teams.
-# Compaction and PENDING allocation run as two separate workflows that each consume up to
-# MAX_SLOTS_PER_TEAM (5) columns from the global free pool. Setting the threshold to
-# 2 * MAX_SLOTS_PER_TEAM = 10 guarantees that the compaction workflow always has at least
-# MAX_SLOTS_PER_TEAM free columns to allocate dense compaction targets into, even if the
-# preceding non-compaction week burned its full quota on PENDING allocation. Below the
-# threshold the compaction workflow re-packs all existing assignments into a small dense
-# range, freeing the rest for the next ~19 weeks.
+# Compaction and PENDING allocation each consume up to MAX_SLOTS_PER_TEAM columns from the
+# global free pool, so the threshold is set to 2 * MAX_SLOTS_PER_TEAM — guarantees compaction
+# always has headroom to allocate dense targets even after a full PENDING week.
 COMPACTION_FREE_COLUMN_THRESHOLD = 10
 
 
@@ -88,11 +80,9 @@ class MaterializedColumnSlot(UUIDTModel):
                 name="unique_team_slot_index",
                 condition=models.Q(slot_index__isnull=False),
             ),
-            # Mirrors the slot_index uniqueness for compaction_target_slot_index. The planner
-            # already enforces per-team uniqueness in code; this is the safety net for hand
-            # edits, manual recovery, and any future planner regression — without it, two
-            # slots in one team could end up dual-writing to the same target column and
-            # silently corrupting each other's values.
+            # Defense-in-depth — the planner enforces this in code; the constraint catches
+            # hand edits and any future planner regression that would otherwise let two slots
+            # in one team dual-write to the same target column.
             models.UniqueConstraint(
                 fields=["team", "compaction_target_slot_index"],
                 name="unique_team_compaction_target",
