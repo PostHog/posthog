@@ -15289,8 +15289,6 @@ export namespace Schemas {
       active?: boolean;
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
-      /** @nullable */
-      has_encrypted_payloads?: boolean | null;
       /**
        * @minimum -2147483648
        * @maximum 2147483647
