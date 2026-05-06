@@ -11,7 +11,7 @@ from django.utils import timezone
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.agent_harness.budgets import DEFAULT_MAX_RUNTIME_S, BudgetCaps, resolve_budget
+from products.signals.backend.agent_harness.budgets import BudgetCaps, resolve_budget
 from products.signals.backend.agent_harness.lazy_seed import seed_canonical_skills
 from products.signals.backend.agent_harness.prompt import SignalAgentRunSummary, build_run_prompt
 from products.signals.backend.agent_harness.skill_loader import LoadedSkill, load_skill_for_run
@@ -233,6 +233,7 @@ def _has_running_run(team_id: int, config_id: str) -> bool:
         status=SignalAgentRun.Status.RUNNING,
     ).exists()
 
+
 def _create_run_row(
     *,
     team: Team,
@@ -286,10 +287,12 @@ def _finalize_failed(
 
 
 def _budget_for_run(config: SignalAgentConfig, overrides: dict[str, Any] | None) -> BudgetCaps:
-    # Caller-provided overrides win over the config row, which wins over harness defaults.
-    if overrides:
-        return resolve_budget(overrides)
-    return resolve_budget(config.budget_overrides or None)
+    # Three-level merge: harness defaults < per-team config < caller-provided overrides.
+    # Merging at the dict layer (not via two stacked `resolve_budget` calls) keeps a
+    # caller's `max_runtime_s=900` override from silently dropping the team's
+    # `max_findings=3` config — `resolve_budget` only reads the keys it sees.
+    merged: dict[str, Any] = {**(config.budget_overrides or {}), **(overrides or {})}
+    return resolve_budget(merged or None)
 
 
 def _step_name(skill: LoadedSkill) -> str:

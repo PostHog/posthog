@@ -18,7 +18,7 @@ from posthog.sync import database_sync_to_async
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.agent_harness.budgets import DEFAULT_BUDGET, BudgetCaps, resolve_budget
 from products.signals.backend.agent_harness.prompt import build_run_prompt
-from products.signals.backend.agent_harness.runner import RunResult, arun_signals_agent
+from products.signals.backend.agent_harness.runner import RunResult, _budget_for_run, arun_signals_agent
 from products.signals.backend.agent_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_agent_skill,
@@ -75,6 +75,31 @@ class TestBudgetResolution(BaseTest):
         # A stale config row shouldn't crash the runner if a budget field gets renamed.
         budget = resolve_budget({"max_runtime_s": 120, "obsolete_field": "ignore_me"})
         assert budget == BudgetCaps(max_runtime_s=120)
+
+    def test_budget_for_run_merges_config_and_overrides(self) -> None:
+        # `_budget_for_run` is the three-level merge point: defaults < config row <
+        # caller overrides. A caller-supplied key must not silently drop unrelated
+        # config-row keys (the bug a previous short-circuit would introduce).
+        config = SignalAgentConfig(team=self.team, budget_overrides={"max_findings": 3})
+        budget = _budget_for_run(config, overrides={"max_runtime_s": 900})
+        # Caller's max_runtime_s wins, but the team's max_findings is preserved.
+        assert budget.max_runtime_s == 900
+        assert budget.max_findings == 3
+        # Defaults still fill in everything else.
+        assert budget.max_tool_calls == DEFAULT_BUDGET.max_tool_calls
+        assert budget.max_cost_usd == DEFAULT_BUDGET.max_cost_usd
+
+    def test_budget_for_run_overrides_win_on_conflict(self) -> None:
+        # When config and overrides set the same key, the caller wins.
+        config = SignalAgentConfig(team=self.team, budget_overrides={"max_runtime_s": 600})
+        budget = _budget_for_run(config, overrides={"max_runtime_s": 120})
+        assert budget.max_runtime_s == 120
+
+    def test_budget_for_run_falls_back_to_config_when_no_overrides(self) -> None:
+        config = SignalAgentConfig(team=self.team, budget_overrides={"max_findings": 2})
+        budget = _budget_for_run(config, overrides=None)
+        assert budget.max_findings == 2
+        assert budget.max_runtime_s == DEFAULT_BUDGET.max_runtime_s
 
 
 class TestSkillLoader(BaseTest):
