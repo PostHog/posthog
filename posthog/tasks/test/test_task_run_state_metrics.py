@@ -131,6 +131,46 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         # Oldest run was ~30 minutes ago; allow generous slack for test timing.
         assert 1500 < age < 2400
 
+    def test_emits_p90_open_run_age(self) -> None:
+        # 9 fresh runs and 1 ~30-minute-old run — only the oldest 10% is stale, so p90 age should be ~30 min.
+        long_ago = timezone.now() - timedelta(minutes=30)
+        self._make_task_run(
+            origin=Task.OriginProduct.SLACK,
+            status=TaskRun.Status.QUEUED,
+            created_at=long_ago,
+        )
+        for _ in range(9):
+            self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.QUEUED)
+
+        registry = self._run_with_registry()
+
+        p90 = registry.get_sample_value(
+            "posthog_tasks_open_run_age_seconds_p90",
+            {"status": "queued", "origin_product": "slack", "run_environment": "cloud"},
+        )
+        assert p90 is not None
+        assert 1500 < p90 < 2400
+
+    def test_p90_age_ignores_lone_straggler(self) -> None:
+        # 1 ~30-minute-old run and 99 fresh runs — only 1% is stale, so p90 should be ~0, not the straggler's age.
+        long_ago = timezone.now() - timedelta(minutes=30)
+        self._make_task_run(
+            origin=Task.OriginProduct.SLACK,
+            status=TaskRun.Status.QUEUED,
+            created_at=long_ago,
+        )
+        for _ in range(99):
+            self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.QUEUED)
+
+        registry = self._run_with_registry()
+
+        p90 = registry.get_sample_value(
+            "posthog_tasks_open_run_age_seconds_p90",
+            {"status": "queued", "origin_product": "slack", "run_environment": "cloud"},
+        )
+        assert p90 is not None
+        assert p90 < 60
+
     def test_emits_runs_created_1h_by_origin_and_environment(self) -> None:
         # Two Slack runs created just now, one old run (outside the 1h window), one PostHog-code run.
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.QUEUED)
@@ -196,6 +236,13 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert (
             registry.get_sample_value(
                 "posthog_tasks_oldest_open_run_age_seconds",
+                {"status": "not_started", "origin_product": "slack", "run_environment": "cloud"},
+            )
+            is None
+        )
+        assert (
+            registry.get_sample_value(
+                "posthog_tasks_open_run_age_seconds_p90",
                 {"status": "not_started", "origin_product": "slack", "run_environment": "cloud"},
             )
             is None

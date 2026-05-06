@@ -541,6 +541,8 @@ def capture_task_run_state_metrics() -> None:
     """Emit gauges describing the current state of the Tasks product's TaskRun table"""
     from django.db.models import Count, Min
 
+    from posthog.models.utils import Percentile
+
     from products.tasks.backend.models import TaskRun
 
     try:
@@ -557,6 +559,12 @@ def capture_task_run_state_metrics() -> None:
             oldest_age_gauge = Gauge(
                 "posthog_tasks_oldest_open_run_age_seconds",
                 "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "run_environment"],
+            )
+            p90_age_gauge = Gauge(
+                "posthog_tasks_open_run_age_seconds_p90",
+                "p90 age (seconds) of TaskRun rows still in a given non-terminal status, by origin_product and run_environment.",
                 registry=registry,
                 labelnames=["status", "origin_product", "run_environment"],
             )
@@ -585,19 +593,27 @@ def capture_task_run_state_metrics() -> None:
                     run_environment=row["environment"],
                 ).set(row["count"])
 
-            oldest = (
+            # `percentile_disc(0.1) WITHIN GROUP (ORDER BY created_at)` returns the timestamp at the 10th percentile
+            # of created_at (oldest 10% boundary). The corresponding age (now - that timestamp) is the p90 age — the
+            # value such that 90% of open rows are younger and 10% are older.
+            age_rows = (
                 TaskRun.objects.filter(status__in=_TASKS_RUN_AGE_STATUSES)
                 .values("status", "environment", "task__origin_product")
-                .annotate(oldest_created_at=Min("created_at"))
+                .annotate(
+                    oldest_created_at=Min("created_at"),
+                    p90_oldest_created_at=Percentile(0.1, "created_at"),
+                )
             )
             now = timezone.now()
-            for row in oldest:
-                age_seconds = (now - row["oldest_created_at"]).total_seconds()
-                oldest_age_gauge.labels(
-                    status=row["status"],
-                    origin_product=row["task__origin_product"] or "unknown",
-                    run_environment=row["environment"],
-                ).set(age_seconds)
+            for row in age_rows:
+                labels = {
+                    "status": row["status"],
+                    "origin_product": row["task__origin_product"] or "unknown",
+                    "run_environment": row["environment"],
+                }
+                oldest_age_gauge.labels(**labels).set((now - row["oldest_created_at"]).total_seconds())
+                if row["p90_oldest_created_at"] is not None:
+                    p90_age_gauge.labels(**labels).set((now - row["p90_oldest_created_at"]).total_seconds())
 
             created_1h = (
                 TaskRun.objects.filter(created_at__gte=now - datetime.timedelta(hours=1))
