@@ -6,8 +6,8 @@ from datetime import datetime
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar, cast
 
+import django.db
 from django.conf import settings
-from django.db import close_old_connections
 
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
@@ -88,7 +88,7 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
                         },
                     )
 
-        return await sync_to_async(instrumented)()
+        return await sync_to_async(thread_sensitive=False)(close_db_connections(instrumented))()
 
     return wrapper
 
@@ -96,7 +96,8 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
 def _close_db_connections() -> None:
     """Close old database connections to prevent usage of stale connections in long-running Temporal workers."""
     if not settings.TEST:
-        close_old_connections()
+        for conn in django.db.connections.all(initialized_only=True):
+            conn.close()
 
 
 def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
@@ -112,18 +113,11 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
     Skipped under ``settings.TEST`` to avoid tearing down the test DB connection
     that ``transaction=True`` fixtures rely on.
 
-    Stack below ``@activity.defn``. For sync activities wrapped in ``@asyncify``,
-    place ``@close_db_connections`` *innermost* so connection cleanup runs on the
-    same ``sync_to_async`` thread as the ORM work::
-
+    Stack below ``@activity.defn``. Asyncified activities should use the ``@asyncify`` decorator instead,
+    which preserves type hints for Temporal's serialization while allowing sync Django ORM code.
         @activity.defn
         @close_db_connections
         async def my_activity(...): ...
-
-        @activity.defn
-        @asyncify
-        @close_db_connections
-        def my_sync_activity(...): ...
     """
     if inspect.iscoroutinefunction(fn):
 
