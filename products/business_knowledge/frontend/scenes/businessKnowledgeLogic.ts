@@ -376,7 +376,12 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         },
         openEditModal: ({ source }) => {
             if (source.source_type === 'url') {
-                const cfg = source.crawl_config || {}
+                const cfg = (source.crawl_config || {}) as {
+                    include_globs?: string[]
+                    exclude_globs?: string[]
+                    max_pages?: number
+                    max_depth?: number
+                }
                 actions.setEditUrlSourceValues({
                     name: source.name,
                     url: source.source_url,
