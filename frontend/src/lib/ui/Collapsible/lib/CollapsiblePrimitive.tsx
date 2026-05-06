@@ -32,6 +32,6 @@ export function CollapsiblePrimitiveTrigger({
     // so Tailwind's :disabled selectors (e.g. disabled:cursor-not-allowed) apply.
     const renderWithDisabled = isValidElement(render)
         ? cloneElement(render as React.ReactElement<{ disabled?: boolean }>, { disabled })
-        : render ?? <button type="button" disabled={disabled} />
+        : (render ?? <button type="button" disabled={disabled} />)
     return <Collapsible.Trigger disabled={disabled} render={renderWithDisabled} {...props} />
 }
