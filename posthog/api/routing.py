@@ -90,15 +90,18 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
     def dispatch(self, request, *args, **kwargs):
         """
-        Outermost wrapper for the request lifecycle. We use this to *guarantee*
-        the team scope ContextVar token is reset on the way out, regardless of
-        whether the response path goes through the normal flow or a subclass
-        that customizes initial()/finalize_response() without calling super().
+        Outermost wrapper for the request lifecycle. The try/finally below
+        ensures cleanup across the standard `initial`/`finalize_response`
+        override surface — a subclass that customizes either of those without
+        calling super() would otherwise leak the token.
+
+        Note: a subclass that overrides `dispatch` itself without super() would
+        also bypass this cleanup; in this codebase only `query_coalescer.py`
+        overrides dispatch and it does call super().
 
         ContextVars in sync Django are thread-local and the same worker thread
-        is reused across requests — a leaked token persists, which would let
-        scope from one request bleed into the next. Resetting in this finally
-        block is the safety net for that.
+        is reused across requests, so a leaked token would let scope from one
+        request bleed into the next.
 
         Setting the scope still happens in initial() (where authentication has
         completed and self.team is loaded by permission checks for free).

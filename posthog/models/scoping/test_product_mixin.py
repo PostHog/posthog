@@ -33,22 +33,23 @@ class TestProductTeamManagerScoping(SimpleTestCase):
     def test_with_context_filters_by_team(self) -> None:
         # Manager filters directly by ctx.team_id — no DB lookup required,
         # so synthetic team ids work fine in this SimpleTestCase.
-        with team_scope(42):
+        with team_scope(42, canonical=True):
             qs = self._make_manager().get_queryset()
             self.assertTrue(qs.query.has_filters())
 
     def test_unscoped_context_manager_raises_without_scope(self) -> None:
-        with team_scope(42):
+        with team_scope(42, canonical=True):
             with unscoped():
                 with pytest.raises(TeamScopeError):
                     self._make_manager().get_queryset()
 
     def test_for_team_explicit_scoping(self) -> None:
-        qs = self._make_manager().for_team(99)
+        # canonical=True so the synthetic id doesn't trigger a Team lookup
+        qs = self._make_manager().for_team(99, canonical=True)
         self.assertTrue(qs.query.has_filters())
 
     def test_unscoped_manager_returns_unfiltered(self) -> None:
-        with team_scope(42):
+        with team_scope(42, canonical=True):
             qs = self._make_manager().unscoped()
             self.assertFalse(qs.query.has_filters())
 

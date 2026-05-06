@@ -84,10 +84,13 @@ class ProductTeamModel(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Rewrite child team_ids to their parent so data always lives at
-        # the canonical id. Mirrors RootTeamMixin.save() for main-DB models.
-        # Only resolve on insert / when team_id changes — re-saving an
-        # existing row shouldn't pay the lookup cost on every save().
-        if self.team_id is not None:
+        # Rewrite child team_ids to canonical on insert / when team_id is
+        # being written. Updates that don't touch team_id skip the lookup —
+        # otherwise every status transition / unrelated field update would
+        # pay the Team roundtrip. Mirrors RootTeamMixin.save() for main-DB
+        # models.
+        update_fields = kwargs.get("update_fields")
+        team_id_changed = update_fields is None or "team_id" in update_fields
+        if (self._state.adding or team_id_changed) and self.team_id is not None:
             self.team_id = resolve_effective_team_id(self.team_id)
         super().save(*args, **kwargs)

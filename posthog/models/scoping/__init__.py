@@ -56,20 +56,34 @@ def reset_current_team_id(token: Token[int | None]) -> None:
 
 
 @contextmanager
-def team_scope(team_id: int) -> Generator[None, None, None]:
+def team_scope(team_id: int, *, canonical: bool = False) -> Generator[None, None, None]:
     """
     Context manager to set the current team_id for a block of code.
 
-    Caller is responsible for passing the **canonical** team_id (parent if
-    the team is a child environment, the team's own id otherwise). If you
-    have a raw team_id and aren't sure, use
-    `posthog.models.scoping.manager.resolve_effective_team_id` to convert
-    it once before calling this.
+    By default, resolves `team_id` to its canonical id (parent if the team
+    is a child environment, the team's own id otherwise) — one Team lookup
+    per scope entry. This guarantees the manager's filter finds rows
+    regardless of whether the caller passed a parent or a child id.
+
+    Pass `canonical=True` if the caller has already resolved (or is using
+    a synthetic id in tests). Skipping resolution silently scopes queries
+    to whatever id was passed; if it isn't actually canonical, reads will
+    return zero rows from the wrong scope.
 
     Example:
-        with team_scope(canonical_team_id):
-            flags = FeatureFlag.objects.all()  # Auto-filtered
+        # Production: caller may have a child id, framework resolves
+        with team_scope(team_id):
+            flags = FeatureFlag.objects.all()
+
+        # Test or pre-resolved caller: skip the lookup
+        with team_scope(self.team.id, canonical=True):
+            flags = FeatureFlag.objects.all()
     """
+    if not canonical:
+        # Imported here to avoid the manager → __init__ circular dependency
+        from posthog.models.scoping.manager import resolve_effective_team_id
+
+        team_id = resolve_effective_team_id(team_id)
     token = set_current_team_id(team_id)
     try:
         yield
@@ -97,17 +111,21 @@ def unscoped() -> Generator[None, None, None]:
 
 def with_team_scope(
     team_id_param: str = "team_id",
+    *,
+    canonical: bool = False,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """
     Decorator that wraps a function in a team_scope() context.
 
     Extracts the team_id from the function's arguments and sets it as the
-    current team context for the duration of the function call.
+    current team context for the duration of the function call. Auto-resolves
+    to canonical via `team_scope()` — callers can pass any team_id (raw or
+    canonical) and the framework guarantees the manager's filter finds
+    rows.
 
-    The team_id passed in must be the **canonical** team_id (see team_scope
-    docstring). Tasks should be designed to receive canonical team_ids in
-    their messages — if a task accepts a raw team_id and needs to resolve
-    it, do that explicitly inside the task body before scoped queries.
+    Pass `canonical=True` if the wrapped function will only ever be called
+    with already-canonical team_ids (or in tests with synthetic ids) to skip
+    the per-call Team lookup.
 
     Args:
         team_id_param: Name of the parameter containing the team_id.
@@ -153,7 +171,7 @@ def with_team_scope(
             if isinstance(team_id, bool) or not isinstance(team_id, int):
                 raise TypeError(f"with_team_scope: '{team_id_param}' must be an int, got {type(team_id).__name__}")
 
-            with team_scope(team_id):
+            with team_scope(team_id, canonical=canonical):
                 return func(*args, **kwargs)
 
         return wrapper

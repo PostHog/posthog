@@ -110,12 +110,19 @@ class TeamScopedManager(models.Manager[T]):
         """Return an unscoped queryset that bypasses automatic team filtering."""
         return self._queryset_class(self.model, using=self._db)
 
-    def for_team(self, team_id: int) -> TeamScopedQuerySet[T]:
+    def for_team(self, team_id: int, *, canonical: bool = False) -> TeamScopedQuerySet[T]:
         """Explicitly scope to a team. Useful outside request context.
 
-        Caller is responsible for passing the canonical team_id (use
-        `resolve_effective_team_id` first if you only have a raw id).
+        Auto-resolves `team_id` to canonical via `resolve_effective_team_id`
+        (one Team lookup per call). Bulk callers iterating over many teams
+        can pre-resolve once and pass `canonical=True` to skip the per-call
+        lookup.
+
+        Pass `canonical=True` only when the caller has independently
+        verified the id is canonical (or is using a synthetic id in tests).
         """
+        if not canonical:
+            team_id = resolve_effective_team_id(team_id)
         return self._queryset_class(self.model, using=self._db)._apply_team_filter(team_id)
 
 
