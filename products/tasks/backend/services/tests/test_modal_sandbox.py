@@ -16,6 +16,7 @@ from products.tasks.backend.services.modal_sandbox import (
     ModalSandbox,
     _get_modal_region,
     _get_sandbox_image_reference,
+    _image_ref_cache,
 )
 from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError
@@ -37,7 +38,7 @@ def _mock_manifest_response(status_code: int = 200, digest: str | None = "sha256
 
 class TestGetSandboxImageReference:
     def setup_method(self):
-        _get_sandbox_image_reference.cache_clear()
+        _image_ref_cache.clear()
 
     def test_returns_digest_reference_on_success(self):
         with patch(
@@ -115,10 +116,31 @@ class TestGetSandboxImageReference:
         assert result1 == result2 == result3 == f"{SANDBOX_IMAGE}@sha256:cached123"
         assert mock_get.call_count == 2  # token + manifest, called only once due to cache
 
+    def test_re_resolves_after_cache_expiry(self):
+        """After TTL expiry (simulated via clear), a fresh GHCR query picks up the new digest."""
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            side_effect=[
+                _mock_token_response(),
+                _mock_manifest_response(digest="sha256:old"),
+                _mock_token_response(),
+                _mock_manifest_response(digest="sha256:new"),
+            ],
+        ) as mock_get:
+            result1 = _get_sandbox_image_reference()
+            assert result1 == f"{SANDBOX_IMAGE}@sha256:old"
+            assert mock_get.call_count == 2
+
+            _image_ref_cache.clear()
+
+            result2 = _get_sandbox_image_reference()
+            assert result2 == f"{SANDBOX_IMAGE}@sha256:new"
+            assert mock_get.call_count == 4
+
 
 class TestGetSandboxImageReferenceIntegration:
     def setup_method(self):
-        _get_sandbox_image_reference.cache_clear()
+        _image_ref_cache.clear()
 
     @pytest.mark.xfail(
         reason="Flaky: depends on GHCR availability. Remove this mark when we've figured out a less flaky approach"
@@ -372,6 +394,28 @@ class TestModalSandboxAgentServer:
 
         assert result is False
         assert mock_sandbox.execute.call_count == 1
+
+    def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
+        events: list[str] = []
+        exec_process = MagicMock()
+        exec_process.wait.side_effect = lambda: events.append("wait")
+        image = MagicMock()
+        image.object_id = "snapshot-123"
+
+        def snapshot_filesystem() -> Any:
+            events.append("snapshot")
+            return image
+
+        mock_sandbox._sandbox.exec.return_value = exec_process
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = snapshot_filesystem
+
+        result = mock_sandbox.create_snapshot()
+
+        assert result == "snapshot-123"
+        mock_sandbox._sandbox.exec.assert_called_once_with("true", timeout=30)
+        exec_process.wait.assert_called_once_with()
+        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with()
+        assert events == ["wait", "snapshot"]
 
 
 class TestModalSandboxProvisionDiagnostics:

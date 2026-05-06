@@ -1,5 +1,6 @@
 # ruff: noqa: T201 allow print statements
 
+import os
 import sys
 
 from django.core.management.base import BaseCommand
@@ -7,7 +8,7 @@ from django.db import migrations
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.deprecated_field_filter import DeprecatedFieldFilter
-from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter
+from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter, JsonFormatter
 from posthog.management.migration_analysis.models import MigrationRisk, RiskLevel
 
 
@@ -20,22 +21,31 @@ class Command(BaseCommand):
             action="store_true",
             help="Exit with code 1 if any blocked migrations found",
         )
+        parser.add_argument(
+            "--output-json",
+            metavar="PATH",
+            help="Also write structured analyzer output to PATH for programmatic consumers (CI, agents, etc.)",
+        )
 
     def handle(self, *args, **options):
+        json_path = options.get("output_json")
+
         # Check for missing migrations first
         missing_migrations_warning = self.check_missing_migrations()
 
         migrations = self.get_unapplied_migrations()
 
         if not migrations and not missing_migrations_warning:
-            # Return silently when no migrations to analyze and no missing migrations (for CI)
+            # No migrations to analyze. Still emit empty JSON so consumers can
+            # distinguish "analyzer ran, nothing to report" from "analyzer failed".
+            self.write_json_report([], json_path)
             return
 
         # Print missing migrations warning if present
         if missing_migrations_warning:
             print(missing_migrations_warning)
             if not migrations:
-                # If only missing migrations, exit early
+                self.write_json_report([], json_path)
                 return
 
         # Check batch-level policies (e.g., multiple migrations per app)
@@ -49,10 +59,11 @@ class Command(BaseCommand):
         results = self.analyze_loaded_migrations(migrations)
 
         if not results:
-            # Return silently when no results (for CI)
+            self.write_json_report([], json_path)
             return
 
         self.print_report(results)
+        self.write_json_report(results, json_path)
 
         if options.get("fail_on_blocked"):
             blocked = [r for r in results if r.level == RiskLevel.BLOCKED]
@@ -74,9 +85,7 @@ class Command(BaseCommand):
         try:
             executor = MigrationExecutor(connection)
             plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-        except Exception as e:
-            # Log error details for debugging (shows in stderr during CI)
-            print(f"## ⚠️ Error analyzing migrations: {e}", file=sys.stderr)
+        except Exception:
             # Return empty list if can't connect to DB or load migrations
             return []
 
@@ -96,23 +105,47 @@ class Command(BaseCommand):
         try:
             executor = MigrationExecutor(connection)
             loader = executor.loader
-        except Exception as e:
-            print(f"## ⚠️ Error getting migration loader: {e}", file=sys.stderr)
+        except Exception:
             loader = None
 
         for label, migration in migrations:
+            # Best-effort: a single un-analyzable migration must not abort the run,
+            # otherwise handle() never reaches write_json_report() and the
+            # downstream Migration risk check is never published — leaving
+            # stamphog stuck in WAITING with no bridge retrigger.
             try:
+                file_path = self._migration_file_path(migration)
                 if loader:
-                    risk = analyzer.analyze_migration_with_context(migration, label, loader)
+                    risk = analyzer.analyze_migration_with_context(migration, label, loader, file_path=file_path)
                 else:
-                    risk = analyzer.analyze_migration(migration, label)
+                    risk = analyzer.analyze_migration(migration, label, file_path=file_path)
                 results.append(risk)
             except Exception as e:
                 print(f"## ⚠️ Error analyzing migration {label}: {e}", file=sys.stderr)
-                # Skip this migration and continue
                 continue
 
         return results
+
+    def _migration_file_path(self, migration) -> str | None:
+        """Resolve the repo-relative file path for a loaded Django migration.
+
+        Uses the migration class's imported module rather than the loader so it
+        works for any app — including products with custom MIGRATION_MODULES
+        mappings, which still set __module__ to the actual import path.
+        """
+        module_name = getattr(migration.__class__, "__module__", None)
+        if not module_name:
+            return None
+        module = sys.modules.get(module_name)
+        absolute = getattr(module, "__file__", None)
+        if not absolute:
+            return None
+        try:
+            return os.path.relpath(absolute)
+        except ValueError:
+            # Cross-drive or otherwise unrelatable path — fall back to None
+            # so consumers know we couldn't pin a path for this migration.
+            return None
 
     def check_missing_migrations(self) -> str:
         """Check if there are model changes that need migrations."""
@@ -160,3 +193,10 @@ class Command(BaseCommand):
         formatter = ConsoleTreeFormatter()
         output = formatter.format_report(results)
         print(output)
+
+    def write_json_report(self, results: list[MigrationRisk], path: str | None) -> None:
+        """Write structured analyzer output for programmatic consumers."""
+        if not path:
+            return
+        with open(path, "w") as f:
+            f.write(JsonFormatter().format_report(results))

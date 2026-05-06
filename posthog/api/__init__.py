@@ -66,6 +66,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSettingsViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
@@ -803,9 +804,10 @@ register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet,
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
+    from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
+
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
     from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
-    from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
@@ -912,11 +914,18 @@ legacy_project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-projects_router.register(
+project_notebooks_router = projects_router.register(
     r"notebooks",
     NotebookViewSet,
     "project_notebooks",
     ["project_id"],
+)
+
+project_notebooks_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_notebook_sharing",
+    ["project_id", "notebook_id"],
 )
 
 projects_router.register(
@@ -1021,6 +1030,13 @@ environments_router.register(
     r"error_tracking/spike_detection_config",
     ErrorTrackingSpikeDetectionConfigViewSet,
     "environment_error_tracking_spike_detection_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/settings",
+    ErrorTrackingSettingsViewSet,
+    "environment_error_tracking_settings",
     ["team_id"],
 )
 
@@ -1240,6 +1256,9 @@ environments_router.register(
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
 register_grandfathered_environment_nested_viewset(
     r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(
+    r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "environment_logs_sampling_rules", ["team_id"]
 )
 environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
 

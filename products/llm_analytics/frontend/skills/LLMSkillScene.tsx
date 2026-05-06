@@ -147,7 +147,7 @@ export function LLMSkillScene(): JSX.Element {
                 }
             />
 
-            <div className="flex flex-col gap-6 xl:flex-row">
+            <div className="flex flex-col gap-6 2xl:flex-row">
                 <div className="min-w-0 flex-1">
                     <SkillViewDetails />
                 </div>
@@ -226,7 +226,7 @@ export function LLMSkillScene(): JSX.Element {
                     }
                 />
 
-                <div className="flex flex-col gap-6 xl:flex-row">
+                <div className="flex flex-col gap-6 2xl:flex-row">
                     <div className="min-w-0 flex-1">
                         <SkillEditForm
                             isHistoricalVersion={isHistoricalVersion}
@@ -854,7 +854,7 @@ function SkillVersionSidebar({
     const { setCompareVersion } = useActions(llmSkillLogic)
 
     return (
-        <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
+        <aside className="w-full shrink-0 2xl:sticky 2xl:top-4 2xl:mt-3 2xl:w-80">
             <div className="rounded border bg-surface-primary p-4">
                 <div className="mb-3 flex items-center justify-between">
                     <div>

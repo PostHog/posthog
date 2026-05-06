@@ -13,9 +13,6 @@ import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
-import RAW_LANDING_HTML from './static/landing.html'
-
-const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
@@ -153,9 +150,7 @@ const handleRequest = async (
     log.extend({ route: url.pathname })
 
     if (url.pathname === '/') {
-        return new Response(PARSED_LANDING_HTML, {
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-        })
+        return Response.redirect(MCP_DOCS_URL, 302)
     }
 
     // OpenAI ChatGPT App Directory domain verification
@@ -196,13 +191,26 @@ const handleRequest = async (
         return Response.redirect(redirectTo, redirect.status)
     }
 
+    // The legacy SSE transport (`/sse`) is deprecated in favor of `/mcp`
+    // (Streamable HTTP). Permanently redirect `/sse*` to the equivalent `/mcp*`.
+    // We tag the redirect Location with `_deprecated=sse` so the followup
+    // request on /mcp carries the marker — that lets us correlate
+    // success/failure on /mcp back to clients that came in via the deprecated
+    // path, even after the protocol-level handoff.
+    if (url.pathname === '/sse' || url.pathname.startsWith('/sse/')) {
+        const target = getPublicUrl(request)
+        target.pathname = '/mcp' + url.pathname.slice('/sse'.length)
+        target.searchParams.set('_deprecated', 'sse')
+        log.extend({ deprecation: 'sse', redirectTo: target.toString() })
+        return Response.redirect(target.toString(), 308)
+    }
+
     // OAuth Protected Resource Metadata (RFC 9728)
     // This endpoint tells MCP clients where to authenticate to get tokens.
     //
     // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
     // between the host and the path. For example:
     // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
-    // - Resource: https://mcp.posthog.com/sse → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/sse
     //
     // OAuth flow for MCP:
     // 1. Client connects to MCP server without a token
@@ -248,7 +256,6 @@ const handleRequest = async (
         // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
         // between the host and the resource path:
         // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
-        // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
         const metadataUrl = getPublicUrl(request)
         metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
         metadataUrl.search = ''
@@ -347,13 +354,20 @@ const handleRequest = async (
         log.extend({ mcpClientName: clientInfo.clientName })
     }
 
+    // Marker set by the /sse → /mcp redirect handler above. Lets us correlate
+    // success/failure on this /mcp request back to clients that originated on
+    // the deprecated /sse path — both in worker logs and in the `mcp init`
+    // analytics event (via `RequestProperties.viaSseRedirect`).
+    const viaSseRedirect = url.searchParams.get('_deprecated') === 'sse'
+    if (viaSseRedirect) {
+        log.extend({ via: 'sse_redirect' })
+        Object.assign(ctx.props, { viaSseRedirect: true })
+    }
+
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
         Object.assign(ctx.props, { transport: 'streamable-http' })
         server = MCP.serve('/mcp').fetch(request, env, ctx)
-    } else if (url.pathname.startsWith('/sse')) {
-        Object.assign(ctx.props, { transport: 'sse' })
-        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 
     if (server !== null) {

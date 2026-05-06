@@ -424,7 +424,7 @@ export interface HogFunctionApi {
     /**
      * Execution priority for transformations. Lower values run first.
      * @minimum 0
-     * @maximum 32767
+     * @maximum 2147483647
      * @nullable
      */
     execution_order?: number | null
@@ -499,7 +499,7 @@ export interface PatchedHogFunctionApi {
     /**
      * Execution priority for transformations. Lower values run first.
      * @minimum 0
-     * @maximum 32767
+     * @maximum 2147483647
      * @nullable
      */
     execution_order?: number | null
@@ -600,10 +600,6 @@ export type HogFunctionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
     /**
      * Multiple values may be separated by commas.
      */
