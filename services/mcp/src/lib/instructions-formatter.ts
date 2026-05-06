@@ -3,9 +3,12 @@ import {
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildQueryToolsCompact,
+    buildSkillStoreBlock,
+    buildSkillStoreCompact,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
     type QueryToolInfo,
+    type SkillInfo,
     type ToolInfo,
 } from '@/lib/instructions'
 import { formatPrompt } from '@/lib/utils'
@@ -23,6 +26,7 @@ import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import LEGACY from '@/templates/sections/legacy.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
+import SKILL_STORE from '@/templates/sections/skill-store.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 
@@ -32,6 +36,10 @@ export interface InstructionsContext {
     metadata?: string | undefined
     tools?: ToolInfo[] | undefined
     queryTools?: QueryToolInfo[] | undefined
+    /** Team-authored skills resolved from the LLM Skill store for the active project.
+     *  Undefined when the lookup was skipped (no scope, fetch failure); empty array
+     *  when the project has no skills — both suppress the catalog block. */
+    skills?: SkillInfo[] | undefined
     /** Resolved tool feature flags from `resolveToolFeatureFlags`. Used to gate
      *  prompt sections whose corresponding tool is flag-gated. */
     featureFlags?: Record<string, boolean> | undefined
@@ -62,6 +70,7 @@ export class InstructionsFormatter {
                 TOOL_SEARCH,
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
+                ...(this.skillStoreEnabled(ctx.skills) ? [SKILL_STORE] : []),
                 ENV_CONTEXT,
                 URL_PATTERNS,
                 ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
@@ -89,6 +98,9 @@ export class InstructionsFormatter {
      *  `instructions` field), the env-related placeholders resolve to empty
      *  strings to avoid duplication. */
     buildExecCommandReference(ctx: InstructionsContext, opts: { stripEnvContext: boolean }): string {
+        // The skill catalog rides with env-context: when the client honors `instructions`,
+        // both move into that field and the command reference omits them.
+        const skillsForReference = opts.stripEnvContext ? undefined : ctx.skills
         const sections = [
             CLI_SYNTAX,
             CLI_SCHEMA_DRILLDOWN,
@@ -99,6 +111,7 @@ export class InstructionsFormatter {
             TOOL_SEARCH,
             RETRIEVING_DATA,
             SCHEMA_WORKFLOW,
+            ...(this.skillStoreEnabled(skillsForReference) ? [SKILL_STORE] : []),
             ENV_CONTEXT,
             URL_PATTERNS,
             ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
@@ -115,15 +128,25 @@ export class InstructionsFormatter {
         return featureFlags?.['mcp-feedback-tool'] === true
     }
 
+    /** Skip the skill-store section when there is nothing to advertise. The
+     *  fetch in `init()` returns `undefined` on permission/network errors and
+     *  `[]` when the project genuinely has no skills — both look the same to
+     *  the prompt. */
+    private skillStoreEnabled(skills: SkillInfo[] | undefined): boolean {
+        return !!skills && skills.length > 0
+    }
+
     private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {
         const renderToolDomains = opts.compact ? buildToolDomainsCompact : buildToolDomainsBlock
         const renderQueryTools = opts.compact ? buildQueryToolsCompact : buildQueryToolsBlock
+        const renderSkillStore = opts.compact ? buildSkillStoreCompact : buildSkillStoreBlock
         const vars = {
             guidelines: ctx.guidelines.trim(),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? renderQueryTools(ctx.queryTools) : '',
+            skill_store: renderSkillStore(ctx.skills),
         }
         const body = sections
             .map((s) => s.trim())

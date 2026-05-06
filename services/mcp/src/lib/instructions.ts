@@ -277,3 +277,63 @@ export function buildQueryToolsBlock(tools: QueryToolInfo[]): string {
 export function buildQueryToolsCompact(tools: QueryToolInfo[]): string {
     return new QueryToolCatalog(tools).toCompact()
 }
+
+export interface SkillInfo {
+    name: string
+    description: string
+}
+
+/**
+ * Renders the team skill catalog (`name — description`) injected into the
+ * system prompt. Intent: surface skills that the project's MCP user has
+ * stored in PostHog so the agent picks the right one without being told to
+ * call `llma-skill-list` first. Discovery, not loading — bodies are still
+ * fetched on demand via `llma-skill-get`.
+ */
+export class SkillStoreCatalog {
+    constructor(private readonly skills: SkillInfo[]) {}
+
+    toMarkdown(): string {
+        if (this.skills.length === 0) {
+            return ''
+        }
+        return this.sorted()
+            .map((s) => `- \`${s.name}\` — ${SkillStoreCatalog.condenseDescription(s.description)}`)
+            .join('\n')
+    }
+
+    toCompact(): string {
+        if (this.skills.length === 0) {
+            return ''
+        }
+        return this.sorted()
+            .map((s) => s.name)
+            .join('|')
+    }
+
+    private sorted(): SkillInfo[] {
+        return [...this.skills].sort((a, b) => a.name.localeCompare(b.name))
+    }
+
+    /** Squash newlines + collapse whitespace so each catalog row stays on one line.
+     *  Long descriptions still get truncated so the catalog can't dominate the prompt. */
+    private static condenseDescription(description: string): string {
+        const condensed = description.replace(/\s+/g, ' ').trim()
+        const MAX = 240
+        return condensed.length > MAX ? condensed.slice(0, MAX - 1).trimEnd() + '…' : condensed
+    }
+}
+
+export function buildSkillStoreBlock(skills: SkillInfo[] | undefined): string {
+    if (!skills) {
+        return ''
+    }
+    return new SkillStoreCatalog(skills).toMarkdown()
+}
+
+export function buildSkillStoreCompact(skills: SkillInfo[] | undefined): string {
+    if (!skills) {
+        return ''
+    }
+    return new SkillStoreCatalog(skills).toCompact()
+}

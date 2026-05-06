@@ -26,7 +26,7 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError, wrapError } from '@/lib/errors'
-import { type QueryToolInfo } from '@/lib/instructions'
+import { type QueryToolInfo, type SkillInfo } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
@@ -553,9 +553,9 @@ export class MCP extends McpAgent<Env> {
             clientVersion,
         })
 
-        // Fetch group types and metadata in parallel (cache is now seeded)
+        // Fetch group types, metadata, and team skill catalog in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
-        const [groupTypes, metadata] = await Promise.all([
+        const [groupTypes, metadata, skills] = await Promise.all([
             (async () => {
                 if (!resolvedProjectId) {
                     return undefined
@@ -566,6 +566,7 @@ export class MCP extends McpAgent<Env> {
                     : undefined
             })(),
             context.stateManager.getEnvironmentPrompt(),
+            this.fetchSkillCatalog(context, resolvedProjectId),
         ])
         // When project ID is provided, both switch tools are removed (project implies org).
         // When only organization ID is provided, only switch-organization is removed.
@@ -618,6 +619,7 @@ export class MCP extends McpAgent<Env> {
             metadata,
             tools: toolInfos,
             queryTools: queryToolInfos,
+            skills,
             featureFlags: toolFeatureFlags,
         }
 
@@ -785,6 +787,42 @@ export class MCP extends McpAgent<Env> {
         this.mcpVersion = version
 
         return { useSingleExec, version }
+    }
+
+    /**
+     * Fetch the team's published skill catalog (name + description only) so the
+     * system prompt can advertise them upfront instead of requiring the agent
+     * to discover the skill store via `llma-skill-list`. The discovery handshake
+     * was the point of friction the team feedback called out — agents only
+     * surface team skills when explicitly told to look.
+     *
+     * Returns `undefined` on missing project, missing scope, or any fetch error
+     * so `init()` continues without skills rather than failing the connection
+     * over an optional prompt enrichment. The catalog is bounded by the API's
+     * default page size; teams with very large skill libraries will see a
+     * truncated catalog and can still discover the rest via `llma-skill-list`.
+     */
+    private async fetchSkillCatalog(context: Context, projectId: string | undefined): Promise<SkillInfo[] | undefined> {
+        if (!projectId) {
+            return undefined
+        }
+        try {
+            const apiKey = await context.stateManager.getApiKey()
+            if (!hasScope(apiKey.scopes, 'llm_skill:read')) {
+                return undefined
+            }
+            const response = await context.api.request<{ results: { name: string; description: string }[] }>({
+                method: 'GET',
+                path: `/api/environments/${encodeURIComponent(projectId)}/llm_skills/`,
+                query: { limit: 100 },
+            })
+            return (response.results ?? []).map((s) => ({
+                name: s.name,
+                description: s.description ?? '',
+            }))
+        } catch {
+            return undefined
+        }
     }
 
     private async resolveVersionFlag(): Promise<number | undefined> {

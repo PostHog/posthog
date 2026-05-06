@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
-import type { QueryToolInfo } from '@/lib/instructions'
+import type { QueryToolInfo, SkillInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 
 const realisticGroupTypes: GroupType[] = [
@@ -18,6 +18,10 @@ const realisticQueryTools: QueryToolInfo[] = [
     { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
 ]
+const realisticSkills: SkillInfo[] = [
+    { name: 'product-usage', description: 'How to read and report on product usage for the active project.' },
+    { name: 'growth-review', description: 'Weekly growth review workflow tailored for this team.' },
+]
 const realisticMetadata =
     'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).\n' +
     'Project timezone: America/New_York.\n' +
@@ -29,6 +33,7 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
+    skills: realisticSkills,
     featureFlags: { 'mcp-feedback-tool': true },
 }
 
@@ -111,6 +116,24 @@ describe('InstructionsFormatter', () => {
                 expect(result).not.toContain('### Sharing feedback on this MCP server')
             }
         })
+
+        it('renders the team skill catalog when skills are present', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildV2Instructions(fullCtx)
+            expect(result).toContain('### Team skill store')
+            expect(result).toContain('- `growth-review` —')
+            expect(result).toContain('- `product-usage` —')
+            expect(result).toContain('llma-skill-get')
+        })
+
+        it('omits the team skill catalog when no skills are advertised', () => {
+            const formatter = new InstructionsFormatter()
+            for (const skills of [undefined, []]) {
+                const result = formatter.buildV2Instructions({ ...fullCtx, skills })
+                expect(result).not.toContain('### Team skill store')
+                expect(result).not.toContain('{skill_store}')
+            }
+        })
     })
 
     describe('buildExecInstructions', () => {
@@ -122,7 +145,7 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('Defined group types: organization')
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).not.toMatch(
-                /\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/
+                /\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}|\{skill_store\}/
             )
         })
 
@@ -219,6 +242,16 @@ describe('InstructionsFormatter', () => {
                 )
                 expect(withoutFeedback).not.toContain('### Sharing feedback on this MCP server')
             }
+        })
+
+        it('hosts the skill catalog only when env-context is also inlined', () => {
+            const formatter = new InstructionsFormatter()
+            const inlined = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
+            expect(inlined).toContain('### Team skill store')
+            expect(inlined).toContain('- `growth-review` —')
+
+            const stripped = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: true })
+            expect(stripped).not.toContain('### Team skill store')
         })
     })
 

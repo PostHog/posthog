@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
-import type { QueryToolInfo } from '@/lib/instructions'
+import type { QueryToolInfo, SkillInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 
 // Static, deterministic context shared by all snapshots — mirrors the realistic
@@ -24,6 +24,10 @@ const STATIC_QUERY_TOOLS: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
     { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
 ]
+const STATIC_SKILLS: SkillInfo[] = [
+    { name: 'product-usage', description: 'How to read and report on product usage for the active project.' },
+    { name: 'growth-review', description: 'Weekly growth review workflow tailored for this team.' },
+]
 const STATIC_METADATA = [
     'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).',
     'Project timezone: America/New_York.',
@@ -36,6 +40,7 @@ const STATIC_CTX: InstructionsContext = {
     metadata: STATIC_METADATA,
     tools: STATIC_TOOLS,
     queryTools: STATIC_QUERY_TOOLS,
+    skills: STATIC_SKILLS,
     featureFlags: { 'mcp-feedback-tool': true },
 }
 

@@ -5,10 +5,14 @@ import {
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildQueryToolsCompact,
+    buildSkillStoreBlock,
+    buildSkillStoreCompact,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
     QueryToolCatalog,
     type QueryToolInfo,
+    type SkillInfo,
+    SkillStoreCatalog,
 } from '@/lib/instructions'
 
 describe('buildDefinedGroupsBlock', () => {
@@ -217,5 +221,52 @@ describe('QueryToolCatalog', () => {
             const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends' }]
             expect(buildQueryToolsCompact(tools)).toBe('trends')
         })
+    })
+})
+
+describe('SkillStoreCatalog', () => {
+    it('renders skills as a sorted markdown list with backticked names', () => {
+        const skills: SkillInfo[] = [
+            { name: 'product-usage', description: 'How to read product usage.' },
+            { name: 'growth-review', description: 'Weekly growth review.' },
+        ]
+        expect(new SkillStoreCatalog(skills).toMarkdown()).toBe(
+            '- `growth-review` — Weekly growth review.\n- `product-usage` — How to read product usage.'
+        )
+    })
+
+    it('collapses internal whitespace so each row stays on one line', () => {
+        const skills: SkillInfo[] = [{ name: 'multi-line', description: 'Line one.\n\nLine two.\n  Line three.' }]
+        expect(new SkillStoreCatalog(skills).toMarkdown()).toBe('- `multi-line` — Line one. Line two. Line three.')
+    })
+
+    it('truncates long descriptions with an ellipsis', () => {
+        const longDescription = 'a'.repeat(300)
+        const skills: SkillInfo[] = [{ name: 'long', description: longDescription }]
+        const result = new SkillStoreCatalog(skills).toMarkdown()
+        expect(result).toMatch(/^- `long` — a{239}…$/)
+    })
+
+    it('renders compact form as pipe-separated names', () => {
+        const skills: SkillInfo[] = [
+            { name: 'product-usage', description: 'desc' },
+            { name: 'growth-review', description: 'desc' },
+        ]
+        expect(new SkillStoreCatalog(skills).toCompact()).toBe('growth-review|product-usage')
+    })
+
+    it('returns empty strings for empty input', () => {
+        expect(new SkillStoreCatalog([]).toMarkdown()).toBe('')
+        expect(new SkillStoreCatalog([]).toCompact()).toBe('')
+    })
+
+    it('buildSkillStoreBlock and buildSkillStoreCompact treat undefined as empty', () => {
+        expect(buildSkillStoreBlock(undefined)).toBe('')
+        expect(buildSkillStoreCompact(undefined)).toBe('')
+    })
+
+    it('buildSkillStoreBlock delegates to SkillStoreCatalog.toMarkdown', () => {
+        const skills: SkillInfo[] = [{ name: 'a', description: 'A skill.' }]
+        expect(buildSkillStoreBlock(skills)).toBe('- `a` — A skill.')
     })
 })
