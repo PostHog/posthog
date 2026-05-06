@@ -550,3 +550,108 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["actionability"] is None
+
+
+class TestSignalReportSuppressionAPI(APIBaseTest):
+    def _state_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
+
+    def _create_report(self, report_status=SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=report_status,
+            title="Test report",
+            summary="Test summary",
+        )
+
+    def test_suppress_without_dismissal_creates_no_artefact(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "suppressed"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+            ).count()
+            == 0
+        )
+
+    def test_suppress_with_dismissal_reason_and_note_creates_artefact(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "state": "suppressed",
+                    "dismissal_reason": "wontfix_intentional",
+                    "dismissal_note": "this is intentional behavior, see RFC-123",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
+        artefacts = list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+            )
+        )
+        assert len(artefacts) == 1
+        content = json.loads(artefacts[0].content)
+        assert content["reason"] == "wontfix_intentional"
+        assert content["note"] == "this is intentional behavior, see RFC-123"
+        assert content["user_id"] == self.user.id
+        assert content["user_uuid"] == str(self.user.uuid)
+
+    def test_suppress_with_only_dismissal_note_creates_artefact(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "suppressed", "dismissal_note": "free-form note"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = SignalReportArtefact.objects.get(
+            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+        )
+        content = json.loads(artefact.content)
+        assert content["reason"] is None
+        assert content["note"] == "free-form note"
+
+    def test_suppress_with_invalid_dismissal_reason_400(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "suppressed", "dismissal_reason": "definitely_not_a_real_reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    def test_dismissal_reason_rejected_when_not_suppressing(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "dismissal_reason": "other"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_suppress_with_oversized_dismissal_note_400(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps(
+                {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "x" * 4001}
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
