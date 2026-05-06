@@ -47,9 +47,14 @@ function CustomTagsField({ disabled }: { disabled: boolean }): JSX.Element {
             'custom_tags',
             tags.filter((_, i) => i !== index)
         )
+        if (editingIndex === null) {
+            return
+        }
         if (editingIndex === index) {
             setEditingIndex(null)
             setDraft(EMPTY_DRAFT)
+        } else if (index < editingIndex) {
+            setEditingIndex(editingIndex - 1)
         }
     }
 
