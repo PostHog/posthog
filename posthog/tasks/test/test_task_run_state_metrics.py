@@ -135,13 +135,9 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert 1500 < total < 2400
 
         # The fresh run lands in the smallest bucket (≤30s); both runs land in +Inf.
-        bucket_30s = registry.get_sample_value(
-            "posthog_tasks_open_run_age_seconds_bucket", {**labels, "le": "30.0"}
-        )
+        bucket_30s = registry.get_sample_value("posthog_tasks_open_run_age_seconds_bucket", {**labels, "le": "30.0"})
         assert bucket_30s == 1
-        bucket_inf = registry.get_sample_value(
-            "posthog_tasks_open_run_age_seconds_bucket", {**labels, "le": "+Inf"}
-        )
+        bucket_inf = registry.get_sample_value("posthog_tasks_open_run_age_seconds_bucket", {**labels, "le": "+Inf"})
         assert bucket_inf == 2
 
     def test_emits_runs_created_1h_by_origin_and_environment(self) -> None:
