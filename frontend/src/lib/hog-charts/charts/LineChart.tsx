@@ -3,6 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
 import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
+import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
     computePercentStackData,
     computeStackData,
@@ -39,10 +40,21 @@ export interface LineChartProps<Meta = unknown> {
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
+    /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
+    dataAttr?: string
     children?: React.ReactNode
+    onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-export function LineChart<Meta = unknown>({
+export function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<Meta>): React.ReactElement {
+    return (
+        <ChartErrorBoundary onError={onError}>
+            <LineChartInner {...rest} />
+        </ChartErrorBoundary>
+    )
+}
+
+function LineChartInner<Meta = unknown>({
     series,
     labels,
     config,
@@ -50,6 +62,7 @@ export function LineChart<Meta = unknown>({
     tooltip,
     onPointClick,
     className,
+    dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
@@ -67,11 +80,12 @@ export function LineChart<Meta = unknown>({
     }, [percentStackView, hasAreaFill, series, labels])
 
     const chartConfig = useMemo(() => {
+        const base = { ...config, isPercent: percentStackView }
         if (!percentStackView || config?.yTickFormatter) {
-            return config
+            return base
         }
         return {
-            ...config,
+            ...base,
             yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
         }
     }, [config, percentStackView])
@@ -147,6 +161,22 @@ export function LineChart<Meta = unknown>({
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
             }
 
+            // Clip data drawing to the plot area so an overlay series with values outside
+            // the y-domain (e.g. a trendline projecting below 0) doesn't bleed into the
+            // axis-label gutter beneath the chart. A small pad on top/bottom keeps strokes
+            // at the domain edge from rendering at half-thickness — line strokes and point
+            // markers extend past the value's pixel center.
+            const CLIP_PAD = 8
+            ctx.save()
+            ctx.beginPath()
+            ctx.rect(
+                dimensions.plotLeft,
+                dimensions.plotTop - CLIP_PAD,
+                dimensions.plotWidth,
+                dimensions.plotHeight + CLIP_PAD * 2
+            )
+            ctx.clip()
+
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
                     continue
@@ -164,6 +194,8 @@ export function LineChart<Meta = unknown>({
                     drawPoints(drawCtx, s, yValues)
                 }
             }
+
+            ctx.restore()
         },
         [showGrid, stackedData]
     )
@@ -184,7 +216,7 @@ export function LineChart<Meta = unknown>({
                 // Auxiliary overlays (moving averages, trend lines) opt out of stacking.
                 // In percent-stack mode the y-scale domain is [0, 1], so mapping their raw
                 // values produces a highlight ring far outside the plot — skip them entirely.
-                if (s.visibility?.fromStack) {
+                if (s.overlay) {
                     continue
                 }
                 const data = stackedData?.get(s.key)?.top ?? s.data
@@ -224,6 +256,7 @@ export function LineChart<Meta = unknown>({
             tooltip={tooltip}
             onPointClick={onPointClick}
             className={className}
+            dataAttr={dataAttr}
             resolveValue={resolveValue}
         >
             {children}

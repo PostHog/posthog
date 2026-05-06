@@ -1,16 +1,18 @@
 {
-    "docs-search": {
-        "description": "Use this tool to search the PostHog documentation for information that can help the user with their request. Use it as a fallback when you cannot answer the user's request using other tools in this MCP. Only use this tool for PostHog related questions.",
-        "category": "Documentation",
-        "feature": "docs",
-        "summary": "Search the PostHog documentation for information.",
-        "title": "Search docs",
+    "agent-feedback": {
+        "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out — friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Optional: submit feedback about the PostHog MCP server.",
+        "title": "Submit agent feedback",
         "required_scopes": [],
         "new_mcp": true,
+        "always_available": true,
+        "feature_flag": "mcp-feedback-tool",
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
+            "idempotentHint": false,
+            "openWorldHint": false,
             "readOnlyHint": true
         }
     },
@@ -45,7 +47,7 @@
         }
     },
     "insight-query": {
-        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results.",
+        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results. Optionally accepts `variables_override` and `filters_override` to run the insight with one-off overrides without mutating the saved definition.",
         "category": "Insights & analytics",
         "feature": "insights",
         "summary": "Run a saved insight's query and return results.",
@@ -345,7 +347,7 @@
         }
     },
     "survey-create": {
-        "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
+        "description": "Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow.",
         "category": "Surveys",
         "summary": "Creates a new survey in the project.",
         "required_scopes": ["survey:write"],
@@ -388,7 +390,7 @@
         }
     },
     "survey-update": {
-        "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
+        "description": "Update an existing survey by ID. Omitted top-level fields are preserved, but nested objects and arrays you provide may replace existing values. Before changing questions, conditions, appearance, targeting, translations, or hosted-form content, retrieve the survey first and preserve fields that should remain. Do not send null to clear a field unless the user explicitly asked to remove it.",
         "category": "Surveys",
         "summary": "Update an existing survey by ID.",
         "required_scopes": ["survey:write"],

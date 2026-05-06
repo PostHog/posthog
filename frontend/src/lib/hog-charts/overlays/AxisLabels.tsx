@@ -10,6 +10,10 @@ interface AxisLabelsProps {
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
+    orientation?: 'vertical' | 'horizontal'
+    /** Optional override for label → coord mapping. Falls back to `scales.x`, which chart types
+     *  serving horizontal orientation are expected to set to a label→band-center function. */
+    labelToCoord?: (label: string) => number | undefined
 }
 
 export const LABEL_FONT =
@@ -93,6 +97,8 @@ export function AxisLabels({
     hideXAxis,
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
+    orientation = 'vertical',
+    labelToCoord,
 }: AxisLabelsProps): React.ReactElement | null {
     const { scales, dimensions, labels } = useChartLayout()
     const yTicks = scales.yTicks()
@@ -106,11 +112,71 @@ export function AxisLabels({
     const rightTicks = useMemo(() => rightAxis?.ticks() ?? [], [rightAxis])
 
     const visibleXLabels = useMemo(
-        () => (hideXAxis ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter)),
-        [hideXAxis, labels, scales.x, xTickFormatter]
+        () =>
+            hideXAxis || orientation === 'horizontal' ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter),
+        [hideXAxis, labels, scales.x, xTickFormatter, orientation]
     )
 
     const rightFormatter = yRightTickFormatter ?? yTickFormatter
+
+    if (orientation === 'horizontal') {
+        // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives
+        // on `scales.x` (or `labelToCoord` if explicitly overridden).
+        const labelToY = labelToCoord ?? scales.x
+        return (
+            <>
+                {!hideYAxis &&
+                    labels.map((labelText, i) => {
+                        const text = xTickFormatter ? xTickFormatter(labelText, i) : labelText
+                        if (text === null) {
+                            return null
+                        }
+                        const y = labelToY(labelText)
+                        if (y == null || !isFinite(y)) {
+                            return null
+                        }
+                        return (
+                            <div
+                                key={`y-cat-${i}`}
+                                data-attr="hog-chart-axis-tick-y"
+                                style={{
+                                    ...TICK_STYLE_BASE,
+                                    right: dimensions.width - dimensions.plotLeft + 8,
+                                    top: y,
+                                    transform: 'translateY(-50%)',
+                                    color: axisColor,
+                                }}
+                            >
+                                {text}
+                            </div>
+                        )
+                    })}
+                {!hideXAxis &&
+                    yTicks.map((tick: number) => {
+                        const x = scales.y(tick)
+                        if (!isFinite(x)) {
+                            return null
+                        }
+                        const label = yTickFormatter ? yTickFormatter(tick) : String(tick)
+                        return (
+                            <div
+                                key={`x-val-${tick}`}
+                                data-attr="hog-chart-axis-tick-x"
+                                style={{
+                                    ...TICK_STYLE_BASE,
+                                    left: x,
+                                    top: dimensions.plotTop + dimensions.plotHeight + 8,
+                                    transform: 'translateX(-50%)',
+                                    color: axisColor,
+                                }}
+                            >
+                                {label}
+                            </div>
+                        )
+                    })}
+            </>
+        )
+    }
 
     return (
         <>

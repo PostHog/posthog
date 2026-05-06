@@ -9,9 +9,6 @@ interface AnnotationsLayerProps {
     insightNumericId: number | 'new'
     /** Per-data-point date strings; used for grouping annotations. */
     dates: string[]
-    /** Custom x-axis tick formatter — must match the one passed to the chart so the
-     *  computed tick set lines up with what the user sees. */
-    xTickFormatter?: (value: string, index: number) => string | null
 }
 
 const WRAPPER_STYLE: React.CSSProperties = {
@@ -20,18 +17,14 @@ const WRAPPER_STYLE: React.CSSProperties = {
     pointerEvents: 'auto',
 }
 
-// Stop badge clicks from bubbling to the chart wrapper, which would otherwise
-// fire the chart's onPointClick (e.g. opening the persons modal).
-const stopClickPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
+// Annotation badges must not drive the chart's crosshair or onPointClick.
+const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
     e.stopPropagation()
 }
 
-export function AnnotationsLayer({
-    insightNumericId,
-    dates,
-    xTickFormatter,
-}: AnnotationsLayerProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChartLayout()
+export function AnnotationsLayer({ insightNumericId, dates }: AnnotationsLayerProps): React.ReactElement | null {
+    const { scales, dimensions, labels, axis } = useChartLayout()
+    const xTickFormatter = axis.xTickFormatter
 
     const chartLike = useMemo(() => {
         const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)
@@ -54,7 +47,13 @@ export function AnnotationsLayer({
     }
 
     return (
-        <div className="HogChartsAnnotationsLayer" style={WRAPPER_STYLE} onClick={stopClickPropagation}>
+        <div
+            className="HogChartsAnnotationsLayer"
+            style={WRAPPER_STYLE}
+            onClick={stopPointerPropagation}
+            onMouseMove={stopPointerPropagation}
+            onMouseDown={stopPointerPropagation}
+        >
             <AnnotationsOverlay
                 chart={chartLike as unknown as Chart}
                 dates={dates}

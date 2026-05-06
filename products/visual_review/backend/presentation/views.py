@@ -43,6 +43,7 @@ from .serializers import (
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     AutoApproveResultSerializer,
+    BaselineOverviewSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
@@ -72,7 +73,13 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
-    scope_object_read_actions = ["list", "retrieve", "list_quarantined", "thumbnail"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "list_quarantined",
+        "thumbnail",
+        "baselines",
+    ]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -234,6 +241,27 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: BaselineOverviewSerializer},
+        description=(
+            "Snapshots overview for a repo: every identifier with a current baseline (latest "
+            "non-superseded master/main run per run_type), plus tolerate counts, active "
+            "quarantine state, and a 30-day stability sparkline. Capped at "
+            f"{contracts.BASELINE_OVERVIEW_MAX_ENTRIES} entries — sets `truncated` and "
+            "returns the most recently active when exceeded. Filtering / faceting / search are "
+            "all done client-side; this endpoint takes no filter query params."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="baselines")
+    def baselines(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            api.get_repo(UUID(pk), team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        result = api.get_baselines_overview(UUID(pk))
+        return Response(BaselineOverviewSerializer(instance=result).data)
+
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
 class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -282,6 +310,44 @@ class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
+class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Listing/aggregation of runs scoped to a single repo.
+
+    Run-by-id actions (retrieve, snapshots, approve, complete, etc.) live on
+    the flat `RunViewSet` so that direct links by run id keep working without
+    forcing the repo into the path.
+    """
+
+    scope_object = "visual_review"
+    scope_object_read_actions = ["list", "counts"]
+    serializer_class = RunSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+        ],
+        responses={200: RunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        """List runs in this repo, optionally filtered by review state."""
+        review_state = request.query_params.get("review_state")
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        runs = api.list_runs(self.team_id, review_state=review_state, repo_id=repo_id)
+        page = self.paginate_queryset(runs)
+        if page is not None:
+            serializer = RunSerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
+        return Response(RunSerializer(instance=runs, many=True).data)
+
+    @extend_schema(responses={200: ReviewStateCountsSerializer})
+    @action(detail=False, methods=["get"])
+    def counts(self, request: Request, **kwargs) -> Response:
+        """Review state counts for runs in this repo."""
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        return Response(api.get_review_state_counts(self.team_id, repo_id=repo_id))
+
+
+@extend_schema(tags=[VISUAL_REVIEW_TAG])
 class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Visual review runs.
@@ -291,17 +357,32 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
     serializer_class = RunSerializer
 
     @extend_schema(
-        parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
+        parameters=[
+            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+            OpenApiParameter("pr_number", int, required=False, description="Filter by GitHub PR number"),
+            OpenApiParameter("commit_sha", str, required=False, description="Filter by full commit SHA"),
+            OpenApiParameter("branch", str, required=False, description="Filter by branch name"),
+        ],
         responses={200: RunSerializer(many=True)},
     )
     def list(self, request: Request, **kwargs) -> Response:
-        """List runs for the team, optionally filtered by review state."""
-        review_state = request.query_params.get("review_state")
-        runs = api.list_runs(self.team_id, review_state=review_state)
+        """List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch."""
+        pr_number_raw = request.query_params.get("pr_number")
+        try:
+            pr_number = int(pr_number_raw) if pr_number_raw is not None else None
+        except ValueError:
+            return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        runs = api.list_runs(
+            self.team_id,
+            review_state=request.query_params.get("review_state"),
+            pr_number=pr_number,
+            commit_sha=request.query_params.get("commit_sha"),
+            branch=request.query_params.get("branch"),
+        )
         page = self.paginate_queryset(runs)
         if page is not None:
             serializer = RunSerializer(instance=page, many=True)
@@ -405,6 +486,28 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ValueError:
             return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(AddSnapshotsResultSerializer(instance=result).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        responses={200: SnapshotHistoryEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="snapshot-history")
+    def snapshot_history(self, request: Request, pk: str, **kwargs) -> Response:
+        """Recent change history for a snapshot identifier across runs."""
+        identifier = request.query_params.get("identifier")
+        if not identifier:
+            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            run = api.get_run(UUID(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        history = api.get_snapshot_history(run.repo_id, identifier, run.run_type)
+        page = self.paginate_queryset(history)
+        if page is not None:
+            return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
+        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
     @extend_schema(request=None, responses={200: RunSerializer})
     @action(detail=True, methods=["post"])

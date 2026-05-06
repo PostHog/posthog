@@ -6,6 +6,7 @@ import uuid
 import base64
 import hashlib
 import secrets
+import unicodedata
 from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import urlencode
@@ -90,7 +91,12 @@ PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
 LEGACY_STRIPE_APP_NAME = "PostHog Stripe App"
-PROVISIONED_PAT_LABEL_PREFIX = "Stripe Projects"
+# Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
+PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
+# Cap partner-supplied prefix below the full label length so " - {team_name}" still
+# survives the truncation. A 37-char prefix would otherwise consume the whole label
+# and the team name would disappear from the truncated result.
+PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH = 25
 
 ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 PARTNER_TOKEN_EXPIRY_SECONDS = 3600
@@ -1164,18 +1170,71 @@ def _try_activate_billing_with_spt(request: Request, team: Team, user: User) -> 
     return _activate_billing_with_spt(team, user, spt_token)
 
 
-def _create_provisioned_pat(user: User, team: Team) -> str | None:
-    """Create a Personal API Key for a provisioned user and return the raw key value."""
+class _InvalidLabelPrefixError(Exception):
+    """Raised when a partner-supplied label_prefix fails validation."""
+
+
+def _extract_label_prefix(request: Request) -> str | None:
+    """Extract and validate the optional ``label_prefix`` from the request body.
+
+    Returns ``None`` when the field is absent or empty (caller creates an
+    unprefixed label). Raises ``_InvalidLabelPrefixError`` when the field is
+    present but malformed (wrong type, too long, or contains control or format
+    characters that would render badly in the user's PAT list).
+    """
+    raw = request.data.get("label_prefix")
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise _InvalidLabelPrefixError("label_prefix must be a string")
+
+    stripped = raw.strip()
+    if not stripped:
+        return None
+
+    if len(stripped) > PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH:
+        raise _InvalidLabelPrefixError(
+            f"label_prefix must be {PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH} characters or fewer"
+        )
+
+    # Reject Unicode control (Cc), format (Cf), and line/paragraph separators (Zl/Zp).
+    # Cf is the important one - it includes bidi overrides (U+202A-U+202E) and
+    # isolates (U+2066-U+2069), which a partner could use to re-order surrounding
+    # text in the user's settings page (Trojan Source class). Cc covers C0 + DEL.
+    if any(unicodedata.category(c) in {"Cc", "Cf", "Zl", "Zp"} for c in stripped):
+        raise _InvalidLabelPrefixError("label_prefix must not contain control or format characters")
+
+    return stripped
+
+
+def _create_provisioned_pat(user: User, team: Team, label_prefix: str | None = None) -> str | None:
+    """Create a Personal API Key for a provisioned user and return the raw key value.
+
+    Scopes are ["*"] so downstream tooling (e.g. the wizard CI install flow)
+    can use the key without silent 403s — a narrow default has no in-product
+    recovery path since there's no scope upgrade UI.
+
+    scoped_teams is set to [team.id] so the PAT only grants access to the team
+    being provisioned, matching the scoping of the OAuth token issued in the
+    same flow. Without this, a provisioning call from an existing user would
+    return a PAT that reaches across every team the user already belongs to.
+
+    ``label_prefix`` should be pre-validated by ``_extract_label_prefix``; pass
+    ``None`` (or any falsy value) to label the key with just the team name.
+    """
     try:
         api_key_value = generate_random_token_personal()
-        label = f"{PROVISIONED_PAT_LABEL_PREFIX} - {team.name}"[:40]
+        label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
+        # PersonalAPIKey.label is stored as a CharField(max_length=40); cap the
+        # final string to match so we never violate the column constraint.
+        label = label_base[:PROVISIONED_PAT_LABEL_MAX_LENGTH]
 
         PersonalAPIKey.objects.create(
             user=user,
             label=label,
             secure_value=hash_key_value(api_key_value),
             mask_value=mask_key_value(api_key_value),
-            scopes=[],
+            scopes=["*"],
             scoped_teams=[team.id],
             scoped_organizations=[str(team.organization_id)],
         )
@@ -1354,6 +1413,12 @@ def provisioning_resources_create(request: Request) -> Response:
         _capture_provisioning_event("resource_created", "error", error_code="unknown_service")
         return _error_response("unknown_service", f"Unknown service_id: {service_id}")
 
+    try:
+        label_prefix = _extract_label_prefix(request)
+    except _InvalidLabelPrefixError as exc:
+        _capture_provisioning_event("resource_created", "error", error_code="invalid_label_prefix")
+        return _error_response("invalid_label_prefix", str(exc))
+
     scoped_teams = access_token.scoped_teams or []
 
     if not scoped_teams:
@@ -1440,7 +1505,7 @@ def provisioning_resources_create(request: Request) -> Response:
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team):
+    if personal_api_key := _create_provisioned_pat(user, team, label_prefix=label_prefix):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
@@ -1487,6 +1552,12 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     if error := verify_api_version(request):
         return error
 
+    try:
+        label_prefix = _extract_label_prefix(request)
+    except _InvalidLabelPrefixError as exc:
+        _capture_provisioning_event("credential_rotation", "error", error_code="invalid_label_prefix")
+        return _error_response("invalid_label_prefix", str(exc), resource_id=resource_id)
+
     scoped_teams = access_token.scoped_teams or []
 
     try:
@@ -1523,7 +1594,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team):
+    if personal_api_key := _create_provisioned_pat(user, team, label_prefix=label_prefix):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(

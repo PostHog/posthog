@@ -107,6 +107,17 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
         # task run as unrecoverably disconnected.
         await redis_stream.mark_complete()
         raise
+    except RuntimeError as e:
+        # Interpreter-shutdown race: asyncio uses the default ThreadPoolExecutor
+        # for getaddrinfo, and it gets torn down by atexit before in-flight
+        # reconnect attempts finish (common under pytest teardown of the eval
+        # harness). Exit quietly — logger and Redis are already unusable here,
+        # so touching them would cascade into "I/O on closed file" noise.
+        if "cannot schedule new futures after shutdown" in str(e):
+            return
+        logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
+        await redis_stream.mark_error(str(e)[:500])
+        raise
     except Exception as e:
         try:
             marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))
@@ -272,9 +283,11 @@ async def _relay_loop(
                                 )
                                 continue
 
+                            if _is_keepalive_event(event_data):
+                                continue
+
                             await redis_stream.write_event(event_data)
-                            if not _is_keepalive_event(event_data):
-                                reconnect_count = 0
+                            reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
                             if _is_end_of_turn(event_data):
@@ -312,6 +325,28 @@ async def _relay_loop(
                 logger.warning(
                     "relay_sandbox_events_read_timeout",
                     run_id=run_id,
+                    reconnect_count=reconnect_count,
+                )
+                await asyncio.sleep(min(reconnect_count * 2, 10))
+
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                if status < 500:
+                    # 4xx errors are permanent — sandbox is gone or auth is invalid
+                    logger.warning(
+                        "relay_sandbox_events_sandbox_gone",
+                        run_id=run_id,
+                        status_code=status,
+                    )
+                    await redis_stream.mark_error(f"Sandbox returned HTTP {status}")
+                    return
+                # 5xx — transient server error, worth retrying
+                reconnect_count += 1
+                logger.warning(
+                    "relay_sandbox_events_http_error",
+                    run_id=run_id,
+                    status_code=status,
+                    error=str(e),
                     reconnect_count=reconnect_count,
                 )
                 await asyncio.sleep(min(reconnect_count * 2, 10))

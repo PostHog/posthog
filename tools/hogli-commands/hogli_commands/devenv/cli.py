@@ -6,7 +6,6 @@ Provides hogli dev:* commands for managing the development environment.
 from __future__ import annotations
 
 import click
-from hogli.cli import cli
 
 from .generator import (
     DevenvConfig,
@@ -26,7 +25,7 @@ def _create_resolver() -> IntentResolver:
     return IntentResolver(intent_map, registry)
 
 
-@cli.command(name="dev:generate", help="Regenerate mprocs config from saved settings")
+@click.command(name="dev:generate", help="Regenerate mprocs config from saved settings")
 @click.option(
     "--with",
     "with_intents",
@@ -111,7 +110,7 @@ def dev_generate(
     click.echo("Run 'hogli dev:setup' to change your environment.")
 
 
-@cli.command(name="dev:explain", help="Show what services would be started for intents")
+@click.command(name="dev:explain", help="Show what services would be started for intents")
 @click.argument("intents", nargs=-1)
 def dev_explain(intents: tuple[str, ...]) -> None:
     """Show resolution of intents to services.
@@ -158,7 +157,7 @@ def dev_explain(intents: tuple[str, ...]) -> None:
     click.echo(resolver.explain_resolution(resolved))
 
 
-@cli.command(name="dev:intents", help="List available intents")
+@click.command(name="dev:intents", help="List available intents")
 def dev_intents() -> None:
     """List all available intents with descriptions."""
     try:
@@ -178,7 +177,7 @@ def dev_intents() -> None:
         click.echo("")
 
 
-@cli.command(name="dev:list-units", help="List autostart units for given intents (used by phrocs)")
+@click.command(name="dev:list-units", help="List autostart units for given intents (used by phrocs)")
 @click.argument("intents", nargs=-1, required=True)
 def dev_list_units(intents: tuple[str, ...]) -> None:
     """Resolve intents and print autostart unit names, one per line."""
@@ -202,7 +201,7 @@ def dev_list_units(intents: tuple[str, ...]) -> None:
             click.echo(unit)
 
 
-@cli.command(name="dev:apply", help="Apply intent config non-interactively (used by phrocs)")
+@click.command(name="dev:apply", help="Apply intent config non-interactively (used by phrocs)")
 @click.argument("intents", nargs=-1, required=True)
 @click.option(
     "--include",
@@ -287,7 +286,7 @@ def dev_apply(
     click.echo(str(output_path))
 
 
-@cli.command(name="dev:setup", help="Interactive wizard to configure your dev environment")
+@click.command(name="dev:setup", help="Interactive wizard to configure your dev environment")
 @click.option("--log", "log_to_files", is_flag=True, help="Log process output to /tmp/posthog-*.log files")
 def dev_setup(log_to_files: bool) -> None:
     """Run the interactive setup wizard to configure your development environment."""
@@ -327,7 +326,7 @@ def _get_docker_profiles_from_config() -> list[str]:
         return []
 
 
-@cli.command(
+@click.command(
     name="docker:services:up",
     help="Start Docker services based on your intent config",
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},

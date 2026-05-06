@@ -13,6 +13,7 @@ import type {
     AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
     AutoApproveResultApi,
+    BaselineOverviewApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
@@ -33,8 +34,10 @@ import type {
     SnapshotApi,
     VisualReviewReposListParams,
     VisualReviewReposQuarantineListParams,
+    VisualReviewReposRunsListParams,
     VisualReviewReposSnapshotsListParams,
     VisualReviewRunsListParams,
+    VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
     VisualReviewRunsToleratedHashesListParams,
 } from './api.schemas'
@@ -125,6 +128,24 @@ export const visualReviewReposPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedUpdateRepoRequestInputApi),
+    })
+}
+
+/**
+ * Snapshots overview for a repo: every identifier with a current baseline (latest non-superseded master/main run per run_type), plus tolerate counts, active quarantine state, and a 30-day stability sparkline. Capped at 5000 entries — sets `truncated` and returns the most recently active when exceeded. Filtering / faceting / search are all done client-side; this endpoint takes no filter query params.
+ */
+export const getVisualReviewReposBaselinesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/baselines/`
+}
+
+export const visualReviewReposBaselinesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<BaselineOverviewApi> => {
+    return apiMutator<BaselineOverviewApi>(getVisualReviewReposBaselinesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -230,6 +251,59 @@ export const visualReviewReposThumbnailsRetrieve = async (
 }
 
 /**
+ * List runs in this repo, optionally filtered by review state.
+ */
+export const getVisualReviewReposRunsListUrl = (
+    projectId: string,
+    repoId: string,
+    params?: VisualReviewReposRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${repoId}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${repoId}/runs/`
+}
+
+export const visualReviewReposRunsList = async (
+    projectId: string,
+    repoId: string,
+    params?: VisualReviewReposRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedRunListApi> => {
+    return apiMutator<PaginatedRunListApi>(getVisualReviewReposRunsListUrl(projectId, repoId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Review state counts for runs in this repo.
+ */
+export const getVisualReviewReposRunsCountsRetrieveUrl = (projectId: string, repoId: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${repoId}/runs/counts/`
+}
+
+export const visualReviewReposRunsCountsRetrieve = async (
+    projectId: string,
+    repoId: string,
+    options?: RequestInit
+): Promise<ReviewStateCountsApi> => {
+    return apiMutator<ReviewStateCountsApi>(getVisualReviewReposRunsCountsRetrieveUrl(projectId, repoId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Deduped baseline timeline for a snapshot identity. Newest first.
  */
 export const getVisualReviewReposSnapshotsListUrl = (
@@ -272,7 +346,7 @@ export const visualReviewReposSnapshotsList = async (
 }
 
 /**
- * List runs for the team, optionally filtered by review state.
+ * List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch.
  */
 export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualReviewRunsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -418,6 +492,44 @@ export const visualReviewRunsRecomputeCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+/**
+ * Recent change history for a snapshot identifier across runs.
+ */
+export const getVisualReviewRunsSnapshotHistoryListUrl = (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsSnapshotHistoryListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/runs/${id}/snapshot-history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/runs/${id}/snapshot-history/`
+}
+
+export const visualReviewRunsSnapshotHistoryList = async (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsSnapshotHistoryListParams,
+    options?: RequestInit
+): Promise<PaginatedSnapshotHistoryEntryListApi> => {
+    return apiMutator<PaginatedSnapshotHistoryEntryListApi>(
+        getVisualReviewRunsSnapshotHistoryListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**
