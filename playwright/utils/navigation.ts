@@ -12,6 +12,23 @@ type LowercaseEnum<T> = {
  * refactoring scenes though. */
 export type Identifier = LowercaseEnum<typeof Scene>
 
+const IDENTIFIER_URL_FALLBACKS: Record<string, string> = {
+    projecthomepage: urls.projectHomepage(),
+    activity: urls.activity(),
+    datamanagement: urls.eventDefinitions(),
+    'event-definitions': urls.eventDefinitions(),
+    annotations: urls.annotations(),
+    toolbar: urls.toolbarLaunch(),
+    'sql-editor': urls.sqlEditor(),
+    settings: urls.settings(),
+    surveys: '/surveys',
+    cohorts: '/cohorts',
+    dashboards: '/dashboard',
+    people: '/persons',
+    persons: '/persons',
+    action: '/data-management/actions',
+}
+
 export class Navigation {
     readonly page: Page
 
@@ -27,10 +44,20 @@ export class Navigation {
         // Use navbar-specific selector for items that have duplicates in LemonTree
         const navbarSelector = this.page.getByTestId(`navbar-${name}`)
         const menuSelector = this.page.getByTestId(`menu-item-${name}`)
+        const navItemSelector = this.page.getByTestId(`nav-item-${name === 'projecthomepage' ? 'home' : name}`)
 
-        // Prefer navbar selector if it exists, fall back to menu-item
-        const element = (await navbarSelector.count()) > 0 ? navbarSelector : menuSelector
-        await element.click()
+        // Prefer navbar selector, then menu-item, then ai-first nav-item
+        let element = navbarSelector
+        if ((await navbarSelector.count()) === 0) {
+            element = (await menuSelector.count()) > 0 ? menuSelector : navItemSelector
+        }
+
+        if ((await element.count()) === 0 && IDENTIFIER_URL_FALLBACKS[name]) {
+            // No nav element exists in the AI-first navigation for this scene; navigate by URL
+            await this.page.goto(IDENTIFIER_URL_FALLBACKS[name])
+        } else {
+            await element.click()
+        }
         // Wait for navigation to complete and page to be ready
         await this.page.waitForLoadState('domcontentloaded')
         // Additional wait with timeout for network to settle (catches lazy-loaded components)
