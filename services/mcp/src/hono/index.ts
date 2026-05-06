@@ -5,6 +5,7 @@ import { serve } from '@hono/node-server'
 import Redis from 'ioredis'
 
 import { createApp } from './app'
+import { shuttingDown as shuttingDownMetric } from './metrics'
 
 const PORT = parseInt(process.env.PORT || '3001', 10)
 const HOST = process.env.HOST || '0.0.0.0'
@@ -79,6 +80,7 @@ async function main(): Promise<void> {
         // Step 1: flip /readyz to 503 and refuse new sessions. This kicks off
         // kube-proxy's removal of the pod from the service endpoints.
         lifecycle.shuttingDown = true
+        shuttingDownMetric.set(1)
 
         // Step 2: give kube-proxy a head start (skip if a preStop hook handles it).
         if (SHUTDOWN_PRESTOP_DELAY_MS > 0) {

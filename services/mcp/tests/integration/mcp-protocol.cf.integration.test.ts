@@ -2,7 +2,7 @@ import { afterAll, beforeAll } from 'vitest'
 
 import { startCfHarness } from './harness/cf'
 import { loadIntegrationEnv, type IntegrationEnv, type IntegrationHarness } from './harness/types'
-import { defineMcpProtocolTests, defineUiAppProtocolTests } from './mcp-protocol-suite'
+import { defineMcpProtocolTests, defineResilienceTests, defineUiAppProtocolTests } from './mcp-protocol-suite'
 
 // End-to-end MCP protocol test against the Cloudflare Workers runtime.
 //   - Real workerd via `wrangler unstable_dev` (DurableObjects, agents SDK,
@@ -32,4 +32,5 @@ const harnessFor = () => ({
 })
 
 defineMcpProtocolTests('Cloudflare Workers (real stack)', harnessFor)
+defineResilienceTests('Cloudflare Workers (real stack)', harnessFor)
 defineUiAppProtocolTests('Cloudflare Workers (real stack)', harnessFor)

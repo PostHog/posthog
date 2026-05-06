@@ -51,6 +51,7 @@
         "mcpcat": "0.1.15",
         "posthog-js-lite": "4.2.2",
         "posthog-node": "^5.25.0",
+        "prom-client": "^14.2.0",
         "uuid": "^11.1.0",
         "yaml": "^2.8.2",
         "zod": "^4.3.6"

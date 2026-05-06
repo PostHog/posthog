@@ -10,6 +10,7 @@ import {
     OAUTH_SCOPES_SUPPORTED,
 } from './constants'
 import type { Lifecycle } from './lifecycle'
+import { register } from './metrics'
 import type { HonoCtx, HonoEnv, RedisWithPing } from './types'
 
 const WELL_KNOWN_PREFIX = '/.well-known/oauth-protected-resource'
@@ -95,6 +96,10 @@ export function registerPublicRoutes(app: Hono<HonoEnv>, redis: RedisWithPing, l
     app.get('/health', healthHandler)
     app.get('/healthz', healthHandler)
     app.get('/readyz', readyzHandler(redis, lifecycle))
+    app.get('/metrics', async (c) => {
+        c.header('Content-Type', register.contentType)
+        return c.body(await register.metrics())
+    })
 
     app.all(WELL_KNOWN_PREFIX, wellKnownHandler)
     app.all(`${WELL_KNOWN_PREFIX}/*`, wellKnownHandler)

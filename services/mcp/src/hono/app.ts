@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 
 import { type Lifecycle, newLifecycle } from './lifecycle'
-import { attachRedis, corsMiddleware, securityHeaders } from './middleware'
+import { attachRedis, httpMetrics, securityHeaders } from './middleware'
 import { registerPublicRoutes } from './public-routes'
 import { SessionStore } from './session-store'
 import { StreamableMcpHandler } from './streamable-handler'
@@ -31,7 +31,7 @@ export function createApp(redis: RedisWithPing): App {
     const lifecycle = newLifecycle()
 
     app.use('*', securityHeaders)
-    app.use('*', corsMiddleware)
+    app.use('*', httpMetrics)
     app.use('*', attachRedis(redis))
 
     registerPublicRoutes(app, redis, lifecycle)

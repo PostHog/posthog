@@ -3458,6 +3458,9 @@ importers:
       posthog-node:
         specifier: ^5.25.0
         version: 5.25.0
+      prom-client:
+        specifier: ^14.2.0
+        version: 14.2.0
       uuid:
         specifier: ^11.1.0
         version: 11.1.0

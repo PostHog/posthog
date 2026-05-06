@@ -40,6 +40,7 @@ import {
     getEnv,
     toCloudRegion,
 } from './constants'
+import { initDurationSeconds, toolCallDurationSeconds, toolCallsTotal } from './metrics'
 
 export type { RequestProperties }
 
@@ -294,6 +295,7 @@ export class HonoMcpServer {
             const validation = tool.schema.safeParse(params)
 
             if (!validation.success) {
+                toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
                 const errorOutput = `Invalid input: ${validation.error.message}`
 
                 return {
@@ -306,6 +308,7 @@ export class HonoMcpServer {
                 }
             }
 
+            const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
             try {
                 const isContextSwitch = tool.name === 'switch-project' || tool.name === 'switch-organization'
                 const previousContext = isContextSwitch
@@ -315,6 +318,8 @@ export class HonoMcpServer {
                 if (isContextSwitch) {
                     void this.trackContextSwitchEvent(tool.name, await this.getContext(), previousContext)
                 }
+                toolCallsTotal.inc({ tool: tool.name, status: 'success' })
+                stop({ status: 'success' })
                 if (isToolCallPayload(handlerResult)) {
                     return handlerResult
                 }
@@ -331,6 +336,8 @@ export class HonoMcpServer {
                     distinctId,
                 })
             } catch (error: any) {
+                toolCallsTotal.inc({ tool: tool.name, status: 'error' })
+                stop({ status: 'error' })
                 const distinctId = await this.getDistinctId()
                 return handleToolError(
                     error,
@@ -383,6 +390,15 @@ export class HonoMcpServer {
     }
 
     async init(): Promise<void> {
+        const stopInit = initDurationSeconds.startTimer()
+        try {
+            await this.initInner()
+        } finally {
+            stopInit()
+        }
+    }
+
+    private async initInner(): Promise<void> {
         const {
             features,
             tools,

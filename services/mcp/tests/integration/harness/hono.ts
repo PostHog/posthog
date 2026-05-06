@@ -1,37 +1,36 @@
 import { serve } from '@hono/node-server'
+import Redis from 'ioredis'
 import type { AddressInfo } from 'node:net'
 
 import { createApp } from '@/hono/app'
-import type { RedisLike } from '@/hono/cache/RedisCache'
 
 import type { IntegrationEnv, IntegrationHarness } from './types'
 
-function createInMemoryRedis(): RedisLike & { ping(): Promise<string> } {
-    const store = new Map<string, string>()
-    return {
-        get: async (key) => store.get(key) ?? null,
-        set: async (key, value) => {
-            store.set(key, String(value))
-            return 'OK'
-        },
-        del: async (...keys) => {
-            let removed = 0
-            for (const key of keys) {
-                if (store.delete(key)) {
-                    removed++
-                }
-            }
-            return removed
-        },
-        scan: async (cursor) => {
-            const cur = String(cursor)
-            return [cur === '0' ? 'next' : '0', cur === '0' ? Array.from(store.keys()) : []] as [
-                string,
-                string[],
-            ]
-        },
-        ping: async () => 'PONG',
+// Pinned test DB so we don't collide with the dev Redis (DB 0). Must be in
+// 0–15 (Redis default DB count). FLUSHDB at boot is safe because the test
+// owns this DB exclusively. Override via TEST_REDIS_DB if your local Redis is
+// configured with a different db count.
+const TEST_REDIS_DB = parseInt(process.env.TEST_REDIS_DB ?? '15', 10)
+const TEST_REDIS_URL = process.env.TEST_REDIS_URL ?? process.env.REDIS_URL ?? 'redis://localhost:6379'
+
+async function startTestRedis(): Promise<InstanceType<typeof Redis>> {
+    const redis = new Redis(TEST_REDIS_URL, {
+        db: TEST_REDIS_DB,
+        lazyConnect: true,
+        maxRetriesPerRequest: 1,
+        connectTimeout: 2000,
+    })
+    try {
+        await redis.connect()
+    } catch (err) {
+        await redis.quit().catch(() => undefined)
+        throw new Error(
+            `Hono integration harness needs Redis at ${TEST_REDIS_URL} (db ${TEST_REDIS_DB}). ` +
+                `Boot the dev stack with \`./bin/start\`, or override TEST_REDIS_URL/TEST_REDIS_DB. Cause: ${String(err)}`
+        )
     }
+    await redis.flushdb()
+    return redis
 }
 
 export async function startHonoHarness(env: IntegrationEnv): Promise<IntegrationHarness> {
@@ -39,7 +38,8 @@ export async function startHonoHarness(env: IntegrationEnv): Promise<Integration
     // `getBaseUrl()` checks `POSTHOG_API_BASE_URL` first and bypasses region detection.
     process.env.POSTHOG_API_BASE_URL = env.apiBaseUrl
 
-    const { app } = createApp(createInMemoryRedis())
+    const redis = await startTestRedis()
+    const { app } = createApp(redis as unknown as Parameters<typeof createApp>[0])
     const server = serve({ fetch: app.fetch, port: 0 })
     const address = server.address() as AddressInfo
     const baseUrl = new URL(`http://127.0.0.1:${address.port}`)
@@ -51,6 +51,9 @@ export async function startHonoHarness(env: IntegrationEnv): Promise<Integration
 
     return {
         baseUrl,
-        stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
+        stop: async () => {
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+            await redis.quit().catch(() => undefined)
+        },
     }
 }

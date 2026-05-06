@@ -1,6 +1,7 @@
 import type { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 
 import { MAX_SESSIONS_PER_INSTANCE, SESSION_TTL_MS } from './constants'
+import { sessionReservationsTotal, sessionsActive } from './metrics'
 
 type Entry = {
     transport: WebStandardStreamableHTTPServerTransport
@@ -33,10 +34,12 @@ export class SessionStore {
         if (this.entries.size + this.pending >= MAX_SESSIONS_PER_INSTANCE) {
             this.compact()
             if (this.entries.size + this.pending >= MAX_SESSIONS_PER_INSTANCE) {
+                sessionReservationsTotal.inc({ result: 'rejected' })
                 return null
             }
         }
         this.pending += 1
+        sessionReservationsTotal.inc({ result: 'accepted' })
         let released = false
         return {
             release: () => {
@@ -51,6 +54,7 @@ export class SessionStore {
 
     set(id: string, transport: WebStandardStreamableHTTPServerTransport, tokenHash: string): void {
         this.entries.set(id, { transport, lastUsedAt: Date.now(), tokenHash })
+        sessionsActive.set(this.entries.size)
     }
 
     /** Lookup with idle-TTL eviction and per-token isolation. Active use refreshes lastUsedAt. */
@@ -100,6 +104,7 @@ export class SessionStore {
 
     private evict(id: string, entry: Entry): void {
         this.entries.delete(id)
+        sessionsActive.set(this.entries.size)
         try {
             entry.transport.close()
         } catch (err) {

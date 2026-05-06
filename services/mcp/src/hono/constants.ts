@@ -51,20 +51,6 @@ export const SESSION_TTL_MS = 30 * 60 * 1000
 // once full, we run a compaction sweep before rejecting new connections.
 export const MAX_SESSIONS_PER_INSTANCE = 10_000
 
-// Header allow-list for CORS preflight. Kept here so the routing layer doesn't carry
-// a magic literal of header names.
-export const ALLOWED_REQUEST_HEADERS = [
-    'Authorization',
-    'Content-Type',
-    'mcp-session-id',
-    'x-posthog-organization-id',
-    'x-posthog-project-id',
-    'x-posthog-mcp-version',
-    'x-posthog-readonly',
-    'x-posthog-mcp-consumer',
-    'x-posthog-mcp-mode',
-] as const
-
 // Auth-server fallback paths that MCP clients sometimes hit directly on this server
 // (instead of following the RFC 9728 metadata). These are routed through `matchAuthServerRedirect`.
 export const AUTH_REDIRECT_PATHS = [
