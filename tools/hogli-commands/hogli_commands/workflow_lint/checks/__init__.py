@@ -30,7 +30,22 @@ def _check_aliases(check: WorkflowCheck) -> tuple[str, str]:
     return check.id.lower(), check.id.partition("-")[0].lower()
 
 
-_LOOKUP: dict[str, WorkflowCheck] = {alias: c for c in CHECKS for alias in _check_aliases(c)}
+def _build_lookup(checks: list[WorkflowCheck]) -> dict[str, WorkflowCheck]:
+    """Build the alias→check map and fail loudly on duplicate ids or prefixes."""
+    lookup: dict[str, WorkflowCheck] = {}
+    for check in checks:
+        for alias in _check_aliases(check):
+            existing = lookup.get(alias)
+            if existing is not None and existing is not check:
+                raise ValueError(
+                    f"workflow check alias '{alias}' is registered by both "
+                    f"{existing.id!r} and {check.id!r} — pick distinct WF### prefixes"
+                )
+            lookup[alias] = check
+    return lookup
+
+
+_LOOKUP: dict[str, WorkflowCheck] = _build_lookup(CHECKS)
 
 
 def get_check(check_id: str) -> WorkflowCheck | None:

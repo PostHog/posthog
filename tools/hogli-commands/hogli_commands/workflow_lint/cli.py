@@ -14,7 +14,7 @@ from hogli.manifest import REPO_ROOT
 
 from .check import Issue, WorkflowCheck
 from .checks import CHECKS, get_check
-from .model import Workflow, WorkflowParseError, WorkflowReader
+from .model import Workflow, WorkflowParseError, read_workflows
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -26,19 +26,16 @@ def _gh_annotation(level: str, check_label: str, issue: Issue) -> None:
     click.echo(f"::{level}{file_part} title=lint:workflows ({check_label})::{issue.render()}")
 
 
-def _run_one(check: WorkflowCheck, workflows: list[Workflow]) -> tuple[int, int]:
-    """Run a single check, print results, return (issue_count, warning_count)."""
+def _run_one(check: WorkflowCheck, workflows: list[Workflow]) -> int:
+    """Run a single check, print results, return the issue count."""
     click.echo(f"  {check.id} ({check.label})...")
     result = check.run(workflows)
     for issue in result.issues:
         click.echo(f"    ✗ {issue.render()}")
         _gh_annotation("error", check.label, issue)
-    for warning in result.warnings:
-        click.echo(f"    ! {warning.render()}")
-        _gh_annotation("warning", check.label, warning)
-    if not result.issues and not result.warnings:
+    if not result.issues:
         click.echo("    ✓ ok")
-    return len(result.issues), len(result.warnings)
+    return len(result.issues)
 
 
 def _default_workflows_dir() -> Path:
@@ -78,9 +75,8 @@ def cmd_lint_workflows(check_id: str | None, list_checks: bool, workflows_dir: P
         selected = list(CHECKS)
 
     resolved_dir = workflows_dir or _default_workflows_dir()
-    reader = WorkflowReader(workflows_dir=resolved_dir)
     try:
-        workflows = list(reader.read_all())
+        workflows = list(read_workflows(resolved_dir))
     except WorkflowParseError as exc:
         click.echo(f"✗ {exc}", err=True)
         raise SystemExit(1) from exc
@@ -90,7 +86,7 @@ def cmd_lint_workflows(check_id: str | None, list_checks: bool, workflows_dir: P
     total_issues = 0
     failing_checks: list[WorkflowCheck] = []
     for check in selected:
-        issues, _warnings = _run_one(check, workflows)
+        issues = _run_one(check, workflows)
         total_issues += issues
         if issues:
             failing_checks.append(check)

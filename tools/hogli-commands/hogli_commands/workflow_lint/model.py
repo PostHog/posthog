@@ -179,21 +179,12 @@ def _build_workflow(path: Path) -> Workflow | None:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class WorkflowReader:
-    """Walks a directory and yields parsed `Workflow` objects.
-
-    Most callers want :meth:`read_all`. Keep this class stateless so tests can
-    point it at a fixtures directory without any setup.
-    """
-
-    workflows_dir: Path
-
-    def read_all(self, glob: str = "*.y*ml") -> Iterator[Workflow]:
-        for path in sorted(self.workflows_dir.glob(glob)):
-            wf = _build_workflow(path)
-            if wf is not None:
-                yield wf
+def read_workflows(workflows_dir: Path, glob: str = "*.y*ml") -> Iterator[Workflow]:
+    """Walk ``workflows_dir`` and yield parsed :class:`Workflow` objects."""
+    for path in sorted(workflows_dir.glob(glob)):
+        wf = _build_workflow(path)
+        if wf is not None:
+            yield wf
 
 
 __all__ = [
@@ -202,6 +193,6 @@ __all__ = [
     "Step",
     "Workflow",
     "WorkflowParseError",
-    "WorkflowReader",
     "parse_filters",
+    "read_workflows",
 ]

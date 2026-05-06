@@ -34,7 +34,6 @@ class Issue:
 @dataclass(slots=True)
 class CheckResult:
     issues: list[Issue] = field(default_factory=list)
-    warnings: list[Issue] = field(default_factory=list)
 
 
 class WorkflowCheck(ABC):

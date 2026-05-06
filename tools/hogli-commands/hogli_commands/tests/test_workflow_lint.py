@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-from hogli_commands.workflow_lint.check import CheckResult
-from hogli_commands.workflow_lint.checks import CHECKS, get_check
+from hogli_commands.workflow_lint.check import CheckResult, WorkflowCheck
+from hogli_commands.workflow_lint.checks import CHECKS, _build_lookup, get_check
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
-from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, WorkflowReader
+from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
 
 def _write(dir_: Path, name: str, content: str) -> Path:
@@ -29,7 +29,7 @@ def _write(dir_: Path, name: str, content: str) -> Path:
 
 
 def _read_all(dir_: Path) -> list[Workflow]:
-    return list(WorkflowReader(workflows_dir=dir_).read_all())
+    return list(read_workflows(dir_))
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +37,7 @@ def _read_all(dir_: Path) -> list[Workflow]:
 # ---------------------------------------------------------------------------
 
 
-class TestWorkflowReader:
+class TestReadWorkflows:
     def test_normalizes_on_true_key(self, tmp_path: Path) -> None:
         # PyYAML parses `on:` as the boolean True. The reader must surface it
         # as the original triggers regardless.
@@ -52,7 +52,7 @@ class TestWorkflowReader:
             jobs: {}
             """,
         )
-        wf = next(WorkflowReader(workflows_dir=tmp_path).read_all())
+        wf = next(read_workflows(tmp_path))
         assert wf.is_pr_triggered, f"expected PR-trigger detection, got on={wf.on!r}"
 
     def test_quoted_on_string_also_works(self, tmp_path: Path) -> None:
@@ -65,7 +65,7 @@ class TestWorkflowReader:
             jobs: {}
             """,
         )
-        wf = next(WorkflowReader(workflows_dir=tmp_path).read_all())
+        wf = next(read_workflows(tmp_path))
         assert wf.is_pr_triggered
 
     def test_non_pr_trigger(self, tmp_path: Path) -> None:
@@ -78,7 +78,7 @@ class TestWorkflowReader:
             jobs: {}
             """,
         )
-        wf = next(WorkflowReader(workflows_dir=tmp_path).read_all())
+        wf = next(read_workflows(tmp_path))
         assert not wf.is_pr_triggered
         assert "push" not in PR_TRIGGERS  # sanity
 
@@ -94,7 +94,7 @@ class TestWorkflowReader:
                 uses: ./.github/workflows/other.yml
             """,
         )
-        wf = next(WorkflowReader(workflows_dir=tmp_path).read_all())
+        wf = next(read_workflows(tmp_path))
         [job] = wf.jobs
         assert job.is_reusable_call
         assert job.uses == "./.github/workflows/other.yml"
@@ -103,7 +103,7 @@ class TestWorkflowReader:
         bad = tmp_path / "wf.yml"
         bad.write_text("name: x\non: [\njobs: {}\n")
         with pytest.raises(WorkflowParseError) as exc:
-            list(WorkflowReader(workflows_dir=tmp_path).read_all())
+            list(read_workflows(tmp_path))
         assert exc.value.path == bad
 
 
@@ -490,6 +490,26 @@ class TestRegistry:
         assert get_check("not-a-real-id") is None
         assert get_check("WF999") is None
 
+    def test_build_lookup_rejects_duplicate_prefix(self) -> None:
+        class _A(WorkflowCheck):
+            id = "WF001-alpha"
+            label = "a"
+            description = "a"
+
+            def run(self, workflows: list[Workflow]) -> CheckResult:
+                return CheckResult()
+
+        class _B(WorkflowCheck):
+            id = "WF001-beta"
+            label = "b"
+            description = "b"
+
+            def run(self, workflows: list[Workflow]) -> CheckResult:
+                return CheckResult()
+
+        with pytest.raises(ValueError, match="WF001"):
+            _build_lookup([_A(), _B()])
+
     def test_run_returns_check_result(self, tmp_path: Path) -> None:
         # A near-empty workflow set should not crash any check.
         _write(
@@ -510,14 +530,17 @@ class TestRegistry:
 class TestLiveTreeSmoke:
     """Smoke test against the live ``.github/workflows/`` tree.
 
-    Asserts only that parsing does not raise — does NOT assert pass/fail of
-    individual rules. This keeps the test stable as workflows evolve.
+    Asserts that parsing and every check execute without raising — does NOT
+    assert pass/fail of individual rules. This keeps the test stable as
+    workflows evolve while still catching crashes that fixtures miss.
     """
 
-    def test_live_tree_parses(self) -> None:
+    def test_live_tree_parses_and_checks_run(self) -> None:
         from hogli.manifest import REPO_ROOT
 
         workflows_dir = REPO_ROOT / ".github" / "workflows"
         if not workflows_dir.exists():
             pytest.skip("no .github/workflows directory in this checkout")
-        list(WorkflowReader(workflows_dir=workflows_dir).read_all())
+        workflows = list(read_workflows(workflows_dir))
+        for check in CHECKS:
+            assert isinstance(check.run(workflows), CheckResult)
