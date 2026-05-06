@@ -903,9 +903,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
         # log below — gaps between the two point at workflow-loop backpressure.
+        context = self._context
         workflow.logger.info(
             "send_followup_signal_received",
-            run_id=self.context.run_id,
+            run_id=context.run_id if context is not None else None,
             message_length=len(message or ""),
             artifact_count=len(artifact_ids or []),
         )

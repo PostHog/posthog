@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from django.conf import settings
 
@@ -274,6 +274,24 @@ class TestProcessTaskWorkflow:
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    async def test_send_followup_message_can_arrive_before_context_is_loaded(self, monkeypatch):
+        logger = Mock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
+        workflow = ProcessTaskWorkflow()
+
+        await workflow.send_followup_message("hello", ["artifact-1"])
+
+        assert workflow._pending_followup == {
+            "message": "hello",
+            "artifact_ids": ["artifact-1"],
+        }
+        logger.info.assert_called_once_with(
+            "send_followup_signal_received",
+            run_id=None,
+            message_length=5,
+            artifact_count=1,
+        )
+
     @pytest.mark.parametrize(
         "state, expected",
         [

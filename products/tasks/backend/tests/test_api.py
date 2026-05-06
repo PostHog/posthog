@@ -4964,6 +4964,26 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
 
     @patch("products.tasks.backend.api.signal_task_followup_message")
+    def test_command_signals_user_message_without_active_sandbox(self, mock_signal_followup):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={},
+        )
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["result"]["queued"])
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
+
+    @patch("products.tasks.backend.api.signal_task_followup_message")
     def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)

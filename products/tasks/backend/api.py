@@ -1926,24 +1926,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def command(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
-        run_state = parse_run_state(task_run.state)
-
-        if not run_state.sandbox_url:
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not self._is_valid_sandbox_url(run_state.sandbox_url):
-            logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         method = request.validated_data["method"]
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
+
         if method == "user_message":
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
@@ -1978,6 +1964,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if request_id is not None:
                 response_payload["id"] = request_id
             return Response(TaskRunCommandResponseSerializer(response_payload).data)
+
+        run_state = parse_run_state(task_run.state)
+
+        if not run_state.sandbox_url:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not self._is_valid_sandbox_url(run_state.sandbox_url):
+            logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         connection_token = create_sandbox_connection_token(
             task_run=task_run,
