@@ -13,9 +13,10 @@ import {
     ExperimentExposureQueryResponse,
     ExperimentMetric,
 } from '~/queries/schema/schema-general'
+import { ResultsTag } from '~/scenes/experiments/components/ResultsTag'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { getExperimentStatus } from '~/scenes/experiments/experimentsLogic'
-import { ResultsTag, StatusTag } from '~/scenes/experiments/ExperimentView/components'
+import { StatusTag } from '~/scenes/experiments/ExperimentView/components'
 import { MicroChart } from '~/scenes/experiments/ExperimentView/Exposures'
 import { getChanceToWin, isBayesianResult } from '~/scenes/experiments/MetricsView/shared/utils'
 import { isLegacyExperiment } from '~/scenes/experiments/utils'
@@ -151,7 +152,7 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
                             {status && <StatusTag status={status} />}
                             {isExperimentLaunched && hasResults && !isLegacy && bestMetric && (
-                                <ResultsTag metricUuid={bestMetric.metric.uuid} />
+                                <ResultsTag isSignificant={bestMetric.isSignificant} />
                             )}
                         </>
                     )}
