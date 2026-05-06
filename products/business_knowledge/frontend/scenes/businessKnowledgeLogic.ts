@@ -14,39 +14,11 @@ import {
     refreshSource,
     updateSource,
 } from '../api'
+import type { KnowledgeSourceDTOApi } from '../generated/api.schemas'
 import type { businessKnowledgeLogicType } from './businessKnowledgeLogicType'
 
-// Mirror of products.business_knowledge.backend.facade.contracts.KnowledgeSourceDTO.
-// Hand-typed for now; once the OpenAPI types include this endpoint, swap to
-// the generated interface.
+export type KnowledgeSource = KnowledgeSourceDTOApi
 export type CrawlMode = 'single' | 'sitemap' | 'same_origin' | 'github_repo'
-
-export interface KnowledgeSource {
-    id: string
-    team_id: number
-    name: string
-    source_type: 'text' | 'url' | 'file'
-    status: 'pending' | 'processing' | 'ready' | 'error'
-    error_message: string
-    document_count: number
-    chunk_count: number
-    created_at: string
-    updated_at: string | null
-    source_url: string
-    last_refresh_at: string | null
-    last_refresh_status: '' | 'success' | 'not_modified' | 'error'
-    last_refresh_error: string
-    crawl_mode: '' | CrawlMode
-    crawl_config: {
-        include_globs?: string[]
-        exclude_globs?: string[]
-        max_pages?: number
-        max_depth?: number
-    }
-    original_filename: string
-    file_content_type: string
-    file_size_bytes: number | null
-}
 
 export interface TextSourceFormValues {
     name: string
