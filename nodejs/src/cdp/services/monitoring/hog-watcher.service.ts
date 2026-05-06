@@ -423,32 +423,53 @@ export class HogWatcherService {
             functionCosts[result.invocation.functionId] = functionCost
         })
 
-        // We apply the costs and return the existing states so we can calculate those that need a state change
-        const res = await this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
-            for (const functionCost of Object.values(functionCosts)) {
-                pipeline.get(`${REDIS_KEY_STATE}/${functionCost.functionId}`)
-                pipeline.get(`${REDIS_KEY_STATE_LOCK}/${functionCost.functionId}`)
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
-            }
-        })
+        const functionCostEntries = Object.values(functionCosts)
 
-        if (!res) {
+        if (functionCostEntries.length === 0) {
+            return
+        }
+
+        // Split reads (state/lock) to the reader and writes (token bucket) to the writer.
+        // These can run concurrently since the reads don't depend on the write results.
+        // Uses mget to batch all state keys and lock keys into 2 commands instead of 2N individual gets.
+        const stateKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE}/${fc.functionId}`)
+        const lockKeys = functionCostEntries.map((fc) => `${REDIS_KEY_STATE_LOCK}/${fc.functionId}`)
+
+        const readStates = (pool: RedisV2) =>
+            pool.useClient({ name: 'readStatesForObserve' }, async (client) => {
+                const [states, locks] = await Promise.all([client.mget(...stateKeys), client.mget(...lockKeys)])
+                return { states, locks }
+            })
+
+        const [stateRes, tokenRes] = await Promise.all([
+            readStates(this.redisReader).catch((err) => {
+                logger.warn('🔀', '[HogWatcher] reader readStatesForObserve failed, falling back to writer', { err })
+                return readStates(this.redis)
+            }),
+            this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
+                for (const functionCost of functionCostEntries) {
+                    pipeline.checkRateLimitV2(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
+                }
+            }),
+        ])
+
+        if (!stateRes || !tokenRes) {
             return
         }
 
         const changes: [HogFunctionType, HogWatcherState][] = []
 
         // Calculate all those that have changed state
-        Object.values(functionCosts).map((functionCost, index) => {
-            const [stateResult, lockResult, tokenResult] = getRedisPipelineResults(res, index, 3)
+        functionCostEntries.map((functionCost, index) => {
+            const tokenResult = tokenRes[index]
 
-            const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
+            const currentState: HogWatcherState = Number(stateRes.states[index] ?? HogWatcherState.healthy)
             // V2 returns [tokensBefore, tokensAfter], we use tokensAfter
-            const tokens = Number(tokenResult[1]?.[1] ?? this.config.bucketSize)
+            const tokens = Number(tokenResult?.[1]?.[1] ?? this.config.bucketSize)
             const newState = this.calculateNewState(tokens)
 
             if (currentState !== newState) {
-                if (lockResult[1]) {
+                if (stateRes.locks[index]) {
                     // We don't want to change the state of a function that is being locked (i.e. recently changed state)
                     return
                 }

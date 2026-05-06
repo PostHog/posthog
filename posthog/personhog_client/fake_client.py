@@ -382,6 +382,120 @@ class FakePersonHogClient:
             results.append(group_pb2.GroupTypeMappingsByKey(key=pid, mappings=mappings))
         return group_pb2.GroupTypeMappingsBatchResponse(results=results)
 
+    # ── Group writes ─────────────────────────────────────────────────
+
+    def create_group(self, request: group_pb2.CreateGroupRequest) -> group_pb2.CreateGroupResponse:
+        self.calls.append(_Call("create_group", request))
+        next_id = max((g.id for g in self._groups.values()), default=0) + 1
+        group = group_pb2.Group(
+            id=next_id,
+            team_id=request.team_id,
+            group_type_index=request.group_type_index,
+            group_key=request.group_key,
+            group_properties=request.group_properties,
+            created_at=request.created_at,
+            version=0,
+        )
+        self._groups[(request.team_id, request.group_type_index, request.group_key)] = group
+        response = group_pb2.CreateGroupResponse(group=group)
+        return response
+
+    def update_group(self, request: group_pb2.UpdateGroupRequest) -> group_pb2.UpdateGroupResponse:
+        self.calls.append(_Call("update_group", request))
+        key = (request.team_id, request.group_type_index, request.group_key)
+        group = self._groups.get(key)
+        if group is None:
+            import grpc
+
+            raise grpc.RpcError()
+        for field in request.update_mask:
+            if field == "group_properties":
+                group.group_properties = request.group_properties
+            elif field == "properties_last_updated_at":
+                group.properties_last_updated_at = request.properties_last_updated_at
+            elif field == "properties_last_operation":
+                group.properties_last_operation = request.properties_last_operation
+            elif field == "created_at":
+                group.created_at = request.created_at
+        group.version += 1
+        self._groups[key] = group
+        return group_pb2.UpdateGroupResponse(group=group, updated=True)
+
+    def delete_groups_batch_for_team(
+        self, request: group_pb2.DeleteGroupsBatchForTeamRequest, timeout: float | None = None
+    ) -> group_pb2.DeleteGroupsBatchForTeamResponse:
+        self.calls.append(_Call("delete_groups_batch_for_team", request))
+        to_delete = [k for k in self._groups if k[0] == request.team_id][: request.batch_size]
+        for key in to_delete:
+            del self._groups[key]
+        return group_pb2.DeleteGroupsBatchForTeamResponse(deleted_count=len(to_delete))
+
+    # ── Group type mapping writes ───────────────────────────────────
+
+    def get_group_type_mapping_by_dashboard_id(
+        self, request: group_pb2.GetGroupTypeMappingByDashboardIdRequest
+    ) -> group_pb2.GetGroupTypeMappingByDashboardIdResponse:
+        self.calls.append(_Call("get_group_type_mapping_by_dashboard_id", request))
+        for mappings in self._group_type_mappings_by_project.values():
+            for m in mappings:
+                if m.detail_dashboard_id == request.dashboard_id and m.team_id == request.team_id:
+                    return group_pb2.GetGroupTypeMappingByDashboardIdResponse(mapping=m)
+        return group_pb2.GetGroupTypeMappingByDashboardIdResponse()
+
+    def update_group_type_mapping(
+        self, request: group_pb2.UpdateGroupTypeMappingRequest
+    ) -> group_pb2.UpdateGroupTypeMappingResponse:
+        self.calls.append(_Call("update_group_type_mapping", request))
+        mappings = self._group_type_mappings_by_project.get(request.project_id, [])
+        for m in mappings:
+            if m.group_type_index == request.group_type_index:
+                for field in request.update_mask:
+                    if field == "name_singular":
+                        m.name_singular = request.name_singular
+                    elif field == "name_plural":
+                        m.name_plural = request.name_plural
+                    elif field == "detail_dashboard_id":
+                        m.detail_dashboard_id = request.detail_dashboard_id
+                    elif field == "default_columns":
+                        m.default_columns = request.default_columns
+                return group_pb2.UpdateGroupTypeMappingResponse(mapping=m)
+        import grpc
+
+        raise grpc.RpcError()
+
+    def delete_group_type_mapping(
+        self, request: group_pb2.DeleteGroupTypeMappingRequest
+    ) -> group_pb2.DeleteGroupTypeMappingResponse:
+        self.calls.append(_Call("delete_group_type_mapping", request))
+        mappings = self._group_type_mappings_by_project.get(request.project_id, [])
+        original_len = len(mappings)
+        self._group_type_mappings_by_project[request.project_id] = [
+            m for m in mappings if m.group_type_index != request.group_type_index
+        ]
+        deleted = len(self._group_type_mappings_by_project[request.project_id]) < original_len
+        for tid in list(self._group_type_mappings_by_team):
+            self._group_type_mappings_by_team[tid] = [
+                m
+                for m in self._group_type_mappings_by_team[tid]
+                if not (m.project_id == request.project_id and m.group_type_index == request.group_type_index)
+            ]
+        return group_pb2.DeleteGroupTypeMappingResponse(deleted=deleted)
+
+    def delete_group_type_mappings_batch_for_team(
+        self, request: group_pb2.DeleteGroupTypeMappingsBatchForTeamRequest, timeout: float | None = None
+    ) -> group_pb2.DeleteGroupTypeMappingsBatchForTeamResponse:
+        self.calls.append(_Call("delete_group_type_mappings_batch_for_team", request))
+        deleted = 0
+        for pid in list(self._group_type_mappings_by_project):
+            before = len(self._group_type_mappings_by_project[pid])
+            self._group_type_mappings_by_project[pid] = [
+                m for m in self._group_type_mappings_by_project[pid] if m.team_id != request.team_id
+            ]
+            deleted += before - len(self._group_type_mappings_by_project[pid])
+            if deleted >= request.batch_size:
+                break
+        return group_pb2.DeleteGroupTypeMappingsBatchForTeamResponse(deleted_count=deleted)
+
     # ── Person deletes ────────────────────────────────────────────────
 
     def delete_persons(

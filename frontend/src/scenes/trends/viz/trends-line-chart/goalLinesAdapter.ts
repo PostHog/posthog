@@ -1,12 +1,9 @@
-import { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from 'lib/hog-charts'
+import { buildGoalLineReferenceLines } from 'lib/hog-charts'
 import type { GoalLineConfig, ReferenceLineProps, Series } from 'lib/hog-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
-// Re-exported so existing call sites importing from this adapter keep working.
-export { computeSeriesNonZeroMax }
-
-function schemaToGoalLineConfig(line: SchemaGoalLine): GoalLineConfig {
+export function schemaGoalLineToConfig(line: SchemaGoalLine): GoalLineConfig {
     return {
         value: line.value,
         label: line.label,
@@ -15,6 +12,13 @@ function schemaToGoalLineConfig(line: SchemaGoalLine): GoalLineConfig {
         labelPosition: line.position,
         displayIfCrossed: line.displayIfCrossed,
     }
+}
+
+export function schemaGoalLinesToConfigs(goalLines: SchemaGoalLine[] | null | undefined): GoalLineConfig[] | undefined {
+    if (!goalLines?.length) {
+        return undefined
+    }
+    return goalLines.map(schemaGoalLineToConfig)
 }
 
 function schemaToReferenceLine(line: SchemaGoalLine, variant: 'goal' | 'alert'): ReferenceLineProps {
@@ -48,7 +52,7 @@ export function goalLinesToReferenceLines(
     if (!goalLines?.length) {
         return []
     }
-    const refs = buildGoalLineReferenceLines(goalLines.map(schemaToGoalLineConfig), series)
+    const refs = buildGoalLineReferenceLines(goalLines.map(schemaGoalLineToConfig), series)
     return withAxisOrientation(refs, axisOrientation)
 }
 

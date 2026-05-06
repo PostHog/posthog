@@ -194,6 +194,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     const grouped = new Map()
     const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
     const allSchemas = schema.components?.schemas ?? {}
+    const allParameters = schema.components?.parameters ?? {}
     const skippedTags = new Map()
     let skippedNoTags = 0
     let routedByTag = 0
@@ -307,6 +308,19 @@ function buildGroupedSchemasByOutput(schema, mappings) {
 
     // Build final schemas with only referenced components
     for (const [outputDir, entry] of grouped.entries()) {
+        const filteredParameters = {}
+        for (const ref of entry._refs) {
+            if (!ref.startsWith('#/components/parameters/')) {
+                continue
+            }
+            const paramName = ref.replace('#/components/parameters/', '')
+            const paramDef = allParameters[paramName]
+            if (paramDef) {
+                filteredParameters[paramName] = paramDef
+                collectSchemaRefs(paramDef, entry._refs)
+            }
+        }
+
         const allRefs = resolveNestedRefs(allSchemas, entry._refs)
         const filteredSchemas = {}
 
@@ -317,19 +331,26 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             }
         }
 
-        // Inline the full `components.parameters` (and any other top-level
-        // component buckets we don't slice) verbatim. The per-product paths
-        // reference shared parameter objects like `#/components/parameters/
-        // ProjectIdPath` — without these, orval validation fails with
-        // INVALID_REFERENCE and silently writes nothing. The parameter set
-        // is small and reused across products, so the duplication is fine.
+        // Inline non-schema component buckets (securitySchemes, responses,
+        // headers, etc.) verbatim — per-product paths reference shared
+        // objects like `#/components/parameters/ProjectIdPath`, and without
+        // them orval validation fails with INVALID_REFERENCE and silently
+        // writes nothing. Parameters specifically are slicing-friendly and
+        // tracked via `_refs`, so we override with the filtered subset.
         const sharedComponents = { ...schema.components }
         delete sharedComponents.schemas
+        delete sharedComponents.parameters
+
+        const components = { ...sharedComponents, schemas: filteredSchemas }
+        if (Object.keys(filteredParameters).length > 0) {
+            components.parameters = filteredParameters
+        }
+
         grouped.set(outputDir, {
             openapi: entry.openapi,
             info: { ...entry.info, title: `${entry.info?.title ?? 'API'} - ${path.basename(outputDir)}` },
             paths: entry.paths,
-            components: { ...sharedComponents, schemas: filteredSchemas },
+            components,
         })
     }
 
