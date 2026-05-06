@@ -112,10 +112,10 @@ tools:
         description: >
             Delete an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the
             user's reference first. Always confirm by name before deleting.
-        soft_delete: true
         param_overrides:
             id:
                 cast: string-int
+        soft_delete: true
         response:
             include:
                 - id
