@@ -92,6 +92,12 @@ class DimensionScore:
     score: int  # 0-100
     detail: str  # human-readable explanation
     applicable: bool = True  # False = dimension doesn't apply to this product
+    # Agent-actionable steps to raise the score. Only populated when score < 100.
+    # Each entry is a single sentence the agent can act on directly.
+    next_steps: list[str] = field(default_factory=list)
+    # Skill slash commands to invoke (e.g. "/isolating-product-facade-contracts")
+    # before attempting the work.
+    skills: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -173,7 +179,23 @@ def score_models(name: str, backend_dir: Path, assigned_model_counts: dict[str, 
         detail = f"{len(models_in_product)}/{total} in product ({still_to_move} to move)"
     else:
         detail = f"{len(models_in_product)}/{total} in product"
-    return DimensionScore("models", pct, detail)
+
+    next_steps: list[str] = []
+    skills: list[str] = []
+    if still_to_move > 0:
+        next_steps.append(
+            f"Move {still_to_move} model(s) from posthog/models/ (and ee/models/) into "
+            f"products/{name}/backend/models/. Use a SeparateDatabaseAndState migration so "
+            f"Postgres tables stay put while Django imports move."
+        )
+        next_steps.append(
+            "Update every importer (admin, serializers, signals, queries, tests) to point at "
+            "the new module path; keep the model's `app_label` so the ORM still resolves the table."
+        )
+        skills.append("/django-migrations")
+        skills.append("/isolating-product-facade-contracts")
+
+    return DimensionScore("models", pct, detail, next_steps=next_steps, skills=skills)
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +230,7 @@ def score_facade(backend_dir: Path) -> DimensionScore:
 
     score = 0
     parts = []
+    next_steps: list[str] = []
 
     # Contracts
     contracts_path = backend_dir / "facade" / "contracts.py"
@@ -220,10 +243,25 @@ def score_facade(backend_dir: Path) -> DimensionScore:
         elif dc_names:
             score += 5
             parts.append(f"contracts ({len(dc_names)}, impure)")
+            next_steps.append(
+                "Make backend/facade/contracts.py pure: remove all `django` and `rest_framework` "
+                "imports. Contracts must be plain frozen dataclasses so they can be consumed across "
+                "product boundaries without dragging in DRF or the ORM."
+            )
         else:
             parts.append("contracts (empty)")
+            next_steps.append(
+                "backend/facade/contracts.py exists but defines no frozen dataclasses. Add "
+                "`@dataclass(frozen=True)` types describing every value the facade returns "
+                "(see products/visual_review/backend/facade/contracts.py)."
+            )
     else:
         parts.append("no contracts")
+        next_steps.append(
+            "Create backend/facade/contracts.py with frozen dataclasses that describe each "
+            "facade return value. No Django, no DRF — just stdlib types. This is the public "
+            "contract other products read against."
+        )
 
     # Facade — must have actual function definitions, not just re-exports
     facade_path = backend_dir / "facade" / "api.py"
@@ -232,6 +270,11 @@ def score_facade(backend_dir: Path) -> DimensionScore:
         real_facade = has_any_function_defs(facade_path)
         if not real_facade:
             parts.append("facade (re-export only)")
+            next_steps.append(
+                "backend/facade/api.py only re-exports; it doesn't define any functions. Move "
+                "logic into real `def` entrypoints (`list_*`, `get_*`, `create_*`, `update_*`, "
+                "`delete_*`) that map ORM rows to contract dataclasses before returning."
+            )
         else:
             impure = imports_any(facade_path, ["rest_framework"])
             fn_names = get_public_function_names(facade_path)
@@ -240,6 +283,11 @@ def score_facade(backend_dir: Path) -> DimensionScore:
             else:
                 score += 5
                 parts.append("facade (impure)")
+                next_steps.append(
+                    "Remove `rest_framework` imports from backend/facade/api.py. The facade must "
+                    "return contract dataclasses; serializing to DRF Response belongs in "
+                    "presentation/views.py."
+                )
 
             if len(fn_names) >= 3:
                 score += 15
@@ -247,8 +295,17 @@ def score_facade(backend_dir: Path) -> DimensionScore:
             elif fn_names:
                 score += 5
                 parts.append(f"facade (stub, {len(fn_names)} method)")
+                next_steps.append(
+                    f"Facade is a stub ({len(fn_names)} method). Add a method per capability the "
+                    "product exposes — list, retrieve, create, update, delete, plus any async "
+                    "task entrypoints. Each viewset action and Celery task should call exactly one."
+                )
     else:
         parts.append("no facade")
+        next_steps.append(
+            "Create backend/facade/api.py with public functions wrapping logic. Use "
+            "products/visual_review/backend/facade/api.py as the reference shape."
+        )
 
     # Logic
     has_logic = (backend_dir / "logic.py").exists() or (backend_dir / "logic").is_dir()
@@ -257,6 +314,10 @@ def score_facade(backend_dir: Path) -> DimensionScore:
         parts.append("logic")
     else:
         parts.append("no logic")
+        next_steps.append(
+            "Add backend/logic.py (or a logic/ package) that owns business rules and ORM access. "
+            "The facade should be a thin orchestration layer that calls into logic."
+        )
 
     # Views inside product + using facade
     # "uses facade" only counts when the facade is real — importing a
@@ -269,12 +330,25 @@ def score_facade(backend_dir: Path) -> DimensionScore:
             parts.append("views use facade")
         elif uses_facade:
             parts.append("views import facade (but facade is fake)")
+            next_steps.append(
+                "Views import the facade but the facade is just a re-export shim. Fix the facade "
+                "first (above), then this lights up automatically."
+            )
         else:
             parts.append("views skip facade")
+            next_steps.append(
+                "Refactor views to call facade functions instead of importing models, querysets, "
+                "or logic directly. Each view action should be one facade call plus a serializer."
+            )
     else:
         parts.append("views not in product")
+        next_steps.append(
+            "Move the product's views into products/<name>/backend/presentation/views.py. The "
+            "facade has no leverage if the views still live in posthog/api/ or ee/api/."
+        )
 
-    return DimensionScore("facade", score, ", ".join(parts))
+    skills = ["/isolating-product-facade-contracts"] if next_steps else []
+    return DimensionScore("facade", score, ", ".join(parts), next_steps=next_steps, skills=skills)
 
 
 # ---------------------------------------------------------------------------
@@ -297,16 +371,31 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
         model_names = get_model_names(backend_dir)
         if not model_names:
             return DimensionScore("presentation", 0, "no views", applicable=False)
-        return DimensionScore("presentation", 0, "views not in product")
+        return DimensionScore(
+            "presentation",
+            0,
+            "views not in product",
+            next_steps=[
+                "Move the product's views into products/<name>/backend/presentation/views.py "
+                "(URL routing stays unchanged; just relocate the module).",
+            ],
+            skills=["/isolating-product-facade-contracts", "/improving-drf-endpoints"],
+        )
 
     score = 0
     parts = []
+    next_steps: list[str] = []
 
     if correct_location:
         score += 25
         parts.append("correct location")
     else:
         parts.append(f"at {views_path.relative_to(backend_dir)}")
+        next_steps.append(
+            f"Views currently at {views_path.relative_to(backend_dir)}. Move them to "
+            f"backend/presentation/views.py — that's the canonical location the architecture "
+            f"and tach interfaces expect."
+        )
 
     uses_facade, _ = view_facade_usage(views_path)
     orm_queries = count_direct_orm_queries(views_path)
@@ -320,14 +409,27 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
         parts.append("uses facade")
     elif uses_facade:
         parts.append("imports facade (but facade is fake)")
+        next_steps.append(
+            "Views import the facade but it's a re-export shim. Land a real facade with `def` "
+            "functions returning contracts before this dimension can score."
+        )
     else:
         parts.append("no facade usage")
+        next_steps.append(
+            "Replace direct model/logic imports in views with calls to backend.facade.api. Each "
+            "viewset action should fetch contracts via the facade and hand them to a serializer."
+        )
 
     if orm_queries == 0:
         score += 25
         parts.append("no direct ORM")
     else:
         parts.append(f"{orm_queries} .objects calls")
+        next_steps.append(
+            f"Remove {orm_queries} direct `.objects` query/queries from the view module. Push "
+            f"those queries down into facade/logic and return contract dataclasses instead — "
+            f"presentation should never hit the ORM."
+        )
 
     # Serializers — check canonical then legacy location
     serializers_path = backend_dir / "presentation" / "serializers.py"
@@ -340,11 +442,21 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
             parts.append("serializers clean")
         else:
             parts.append(f"{len(orm_bound)} ORM-bound serializers")
+            next_steps.append(
+                f"Convert {len(orm_bound)} ModelSerializer(s) to plain `Serializer` subclasses "
+                f"backed by contract dataclasses. ModelSerializer leaks the ORM through the "
+                f"presentation boundary and produces weak OpenAPI types."
+            )
     else:
         score += 25
         parts.append("no serializers (ok)")
 
-    return DimensionScore("presentation", score, ", ".join(parts))
+    skills: list[str] = []
+    if next_steps:
+        skills.append("/isolating-product-facade-contracts")
+        skills.append("/improving-drf-endpoints")
+
+    return DimensionScore("presentation", score, ", ".join(parts), next_steps=next_steps, skills=skills)
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +540,7 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] |
 
     score = 0
     parts = []
+    next_steps: list[str] = []
 
     # Tach entry + interfaces
     module_path = f"products.{name}"
@@ -451,17 +564,32 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] |
         else:
             score += 5
             parts.append("tach (no interfaces)")
+            next_steps.append(
+                f'Add `interfaces = ["products.{name}.backend.facade.*", '
+                f'"products.{name}.backend.presentation.*"]` to the [[modules]] entry in '
+                f"tach.toml so tach enforces what's public."
+            )
 
         # Cross-product depends_on: each one is an explicit coupling
-        n_cross_deps, _cross_deps = _count_tach_depends_on(block)
+        n_cross_deps, cross_deps = _count_tach_depends_on(block)
         if n_cross_deps == 0:
             score += 15
             parts.append("no cross-product deps")
         else:
             score += max(0, 15 - n_cross_deps * 5)
             parts.append(f"{n_cross_deps} cross-product deps")
+            dep_list = ", ".join(cross_deps[:5]) + ("…" if len(cross_deps) > 5 else "")
+            next_steps.append(
+                f"Drop {n_cross_deps} cross-product depends_on entry/entries from tach.toml "
+                f"({dep_list}). If a real dependency exists, route through that product's facade "
+                f"so the coupling is interface-level rather than module-level."
+            )
     else:
         parts.append("not in tach.toml")
+        next_steps.append(
+            f"Add a [[modules]] entry for products.{name} to tach.toml with explicit "
+            f"`depends_on` and `interfaces`. Without it, tach won't catch boundary regressions."
+        )
 
     # Outbound: this product importing other products' internals
     outbound = get_cross_product_internal_imports(product_dir, name)
@@ -471,19 +599,36 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] |
     else:
         score += max(0, 15 - len(outbound) * 5)
         parts.append(f"{len(outbound)} outbound violations")
+        next_steps.append(
+            f"Replace {len(outbound)} outbound import(s) of other products' internals (models, "
+            f"logic, presentation) with calls to those products' facades. Run "
+            f"`rg 'from products\\.\\w+\\.backend\\.(models|logic|presentation)' products/{name}` "
+            f"to enumerate."
+        )
 
     # Inbound: other code importing this product's non-facade internals
     inbound = _count_inbound_violations(name, inbound_map)
     if inbound is None:
         parts.append("inbound scan failed")
+        next_steps.append(
+            "Inbound scan failed — `rg` is missing or timed out. Install ripgrep and re-run "
+            "`hogli product:maturity` for an accurate inbound count."
+        )
     elif inbound == 0:
         score += 60
         parts.append("inbound clean")
     else:
         score += max(0, 60 - inbound * 3)
         parts.append(f"{inbound} inbound violations")
+        next_steps.append(
+            f"Audit {inbound} external import(s) of this product's internals: "
+            f"`rg 'from products\\.{name}\\.backend\\.(models|logic|presentation)' .` Each one "
+            f"either belongs in the facade's public surface (then expose it through facade.api) "
+            f"or should not exist (refactor the caller). Update tach `interfaces` to match."
+        )
 
-    return DimensionScore("boundaries", score, ", ".join(parts))
+    skills = ["/isolating-product-facade-contracts"] if next_steps else []
+    return DimensionScore("boundaries", score, ", ".join(parts), next_steps=next_steps, skills=skills)
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +668,31 @@ def score_codegen(product_dir: Path) -> DimensionScore:
         score = 0
         detail = "no API usage"
 
-    return DimensionScore("codegen", score, detail)
+    next_steps: list[str] = []
+    skills: list[str] = []
+    if score < 100 and manual > 0:
+        next_steps.append(
+            f"Replace {manual} manual `api.*`/`api.<entity>.<verb>` call(s) with the generated "
+            f"client. Run `hogli product:maturity {product_dir.name} --codegen` (or "
+            f"`hogli product:maturity --codegen`) to see each call site mapped to its generated "
+            f"equivalent."
+        )
+        next_steps.append(
+            "If a call site has no generated match, the underlying viewset is missing schema "
+            "annotations (`@validated_request` or `@extend_schema`) or the serializer field types "
+            "are too loose. Fix the backend, run `hogli build:openapi`, then migrate the call."
+        )
+        skills.append("/adopting-generated-api-types")
+        skills.append("/improving-drf-endpoints")
+    elif score < 100:
+        next_steps.append(
+            "All API calls are accounted for but none use the generated client. Run "
+            "`hogli build:openapi` and migrate to the generated functions in "
+            "products/<name>/frontend/generated/api.ts."
+        )
+        skills.append("/adopting-generated-api-types")
+
+    return DimensionScore("codegen", score, detail, next_steps=next_steps, skills=skills)
 
 
 # ---------------------------------------------------------------------------
@@ -680,8 +849,13 @@ def generate_report(scores: list[ProductScore]) -> str:
     return "\n".join(lines)
 
 
-def generate_detail(ps: ProductScore) -> str:
-    """Generate detailed single-product maturity breakdown with tree connectors."""
+def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
+    """Generate detailed single-product maturity breakdown with tree connectors.
+
+    When verbose=True (the default), each dimension that scored below 100 is followed
+    by a "to fix" block listing concrete agent-actionable steps and the skills to
+    invoke. Set verbose=False for a terse listing matching the original output.
+    """
     lines: list[str] = []
 
     overall = ps.overall
@@ -696,6 +870,25 @@ def generate_detail(ps: ProductScore) -> str:
         is_last = i == len(applicable) - 1
         connector = "\u2514\u2500" if is_last else "\u251c\u2500"
         lines.append(_dim_line(dim, connector))
+
+        if not verbose:
+            continue
+        if not dim.next_steps and not dim.skills:
+            continue
+
+        # Indent guide column matches the tree above. Use a vertical bar for
+        # non-last dimensions so the tree stays visually intact, and spaces
+        # for the last dimension.
+        guide = "\u2502 " if not is_last else "  "
+        prefix = f"  {guide}    "
+        if dim.next_steps:
+            lines.append(f"{prefix}to fix:")
+            for step in dim.next_steps:
+                # Wrap long lines lightly \u2014 keep indentation consistent.
+                lines.append(f"{prefix}  - {step}")
+        if dim.skills:
+            skills_str = "  ".join(dim.skills)
+            lines.append(f"{prefix}skills: {skills_str}")
 
     if overall is not None:
         lines.append("")
