@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BatchExportApi,
     BatchExportBackfillApi,
+    BatchExportRequestApi,
     BatchExportRunApi,
     BatchExportsBackfillsListParams,
     BatchExportsListParams,
@@ -20,7 +21,7 @@ import type {
     PaginatedBatchExportBackfillListApi,
     PaginatedBatchExportListApi,
     PaginatedBatchExportRunListApi,
-    PatchedBatchExportApi,
+    PatchedBatchExportRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -73,14 +74,14 @@ export const getBatchExportsCreateUrl = (projectId: string) => {
 
 export const batchExportsCreate = async (
     projectId: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
+    batchExportRequestApi: BatchExportRequestApi,
     options?: RequestInit
 ): Promise<BatchExportApi> => {
     return apiMutator<BatchExportApi>(getBatchExportsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
+        body: JSON.stringify(batchExportRequestApi),
     })
 }
 
@@ -339,14 +340,14 @@ export const getBatchExportsUpdateUrl = (projectId: string, id: string) => {
 export const batchExportsUpdate = async (
     projectId: string,
     id: string,
-    batchExportApi: NonReadonly<BatchExportApi>,
+    batchExportRequestApi: BatchExportRequestApi,
     options?: RequestInit
 ): Promise<BatchExportApi> => {
     return apiMutator<BatchExportApi>(getBatchExportsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExportApi),
+        body: JSON.stringify(batchExportRequestApi),
     })
 }
 
@@ -357,14 +358,14 @@ export const getBatchExportsPartialUpdateUrl = (projectId: string, id: string) =
 export const batchExportsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedBatchExportApi: NonReadonly<PatchedBatchExportApi>,
+    patchedBatchExportRequestApi: PatchedBatchExportRequestApi,
     options?: RequestInit
 ): Promise<BatchExportApi> => {
     return apiMutator<BatchExportApi>(getBatchExportsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBatchExportApi),
+        body: JSON.stringify(patchedBatchExportRequestApi),
     })
 }
 
