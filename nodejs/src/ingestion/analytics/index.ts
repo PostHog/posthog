@@ -21,12 +21,12 @@ export {
 } from './pre-team-preprocessing-subpipeline'
 
 export {
-    createJoinedIngestionPipeline,
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineDeps,
-    JoinedIngestionPipelineInput,
-} from './joined-ingestion-pipeline'
+    createAnalyticsPipeline,
+    AnalyticsPipelineConfig,
+    AnalyticsPipelineContext,
+    AnalyticsPipelineDeps,
+    AnalyticsPipelineInput,
+} from './pipeline'
 
 export {
     createTestingJoinedIngestionPipeline,

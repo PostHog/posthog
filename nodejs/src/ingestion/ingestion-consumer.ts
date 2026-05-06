@@ -27,11 +27,11 @@ import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writ
 import { PersonsStore } from '../worker/ingestion/persons/persons-store'
 import { PersonRepository } from '../worker/ingestion/persons/repositories/person-repository'
 import {
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineDeps,
-    JoinedIngestionPipelineInput,
-    createJoinedIngestionPipeline,
+    AnalyticsPipelineConfig,
+    AnalyticsPipelineContext,
+    AnalyticsPipelineDeps,
+    AnalyticsPipelineInput,
+    createAnalyticsPipeline,
 } from './analytics'
 import {
     AiEventOutput,
@@ -130,8 +130,8 @@ export class IngestionConsumer {
     public readonly promiseScheduler = new PromiseScheduler()
     private topHog!: TopHog
 
-    private joinedPipeline!: ReturnType<
-        typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
+    private analyticsPipeline!: ReturnType<
+        typeof createAnalyticsPipeline<AnalyticsPipelineInput, AnalyticsPipelineContext>
     >
 
     constructor(
@@ -249,7 +249,7 @@ export class IngestionConsumer {
             throw new Error(`Output topic verification failed for: ${topicFailures.join(', ')}`)
         }
 
-        const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
+        const analyticsPipelineConfig: AnalyticsPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
@@ -266,7 +266,7 @@ export class IngestionConsumer {
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             },
         }
-        const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
+        const analyticsPipelineDeps: AnalyticsPipelineDeps = {
             personsStore: this.personsStore,
             groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
@@ -281,7 +281,7 @@ export class IngestionConsumer {
             groupTypeManager: this.deps.groupTypeManager,
             topHog: this.topHog!,
         }
-        this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
+        this.analyticsPipeline = createAnalyticsPipeline(analyticsPipelineConfig, analyticsPipelineDeps)
 
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
@@ -391,18 +391,18 @@ export class IngestionConsumer {
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
         const batch = messages.map((message) => createOkContext({ message }, { message }))
 
-        const feedResult = await this.joinedPipeline.feed(batch)
+        const feedResult = await this.analyticsPipeline.feed(batch)
         if (!feedResult.ok) {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }
 
         // Drain the pipeline, scheduling batch-level side effects
-        let result = await this.joinedPipeline.next()
+        let result = await this.analyticsPipeline.next()
         while (result !== null) {
             for (const sideEffect of result.sideEffects ?? []) {
                 void this.promiseScheduler.schedule(sideEffect)
             }
-            result = await this.joinedPipeline.next()
+            result = await this.analyticsPipeline.next()
         }
     }
 

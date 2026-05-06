@@ -15,12 +15,12 @@ import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import {
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineDeps,
-    JoinedIngestionPipelineInput,
-    createJoinedIngestionPipeline,
-} from '../ingestion/analytics/joined-ingestion-pipeline'
+    AnalyticsPipelineConfig,
+    AnalyticsPipelineContext,
+    AnalyticsPipelineDeps,
+    AnalyticsPipelineInput,
+    createAnalyticsPipeline,
+} from '../ingestion/analytics'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
@@ -143,8 +143,8 @@ export class IngestionApiServer implements NodeServer {
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
 
-    private joinedPipeline!: ReturnType<
-        typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
+    private analyticsPipeline!: ReturnType<
+        typeof createAnalyticsPipeline<AnalyticsPipelineInput, AnalyticsPipelineContext>
     >
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
@@ -317,7 +317,7 @@ export class IngestionApiServer implements NodeServer {
         // 7. Create the ingestion pipeline
         const groupId = this.config.INGESTION_CONSUMER_GROUP_ID
 
-        const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
+        const analyticsPipelineConfig: AnalyticsPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
             overflowEnabled: this.overflowEnabled(),
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
@@ -334,7 +334,7 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             },
         }
-        const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
+        const analyticsPipelineDeps: AnalyticsPipelineDeps = {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
@@ -349,7 +349,7 @@ export class IngestionApiServer implements NodeServer {
             groupTypeManager,
             topHog: this.topHog,
         }
-        this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
+        this.analyticsPipeline = createAnalyticsPipeline(analyticsPipelineConfig, analyticsPipelineDeps)
 
         // 8. Register the ingest endpoint and service
         this.lifecycle.expressApp.post('/ingest', async (req, res) => {
@@ -384,17 +384,17 @@ export class IngestionApiServer implements NodeServer {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
 
             const batch = messages.map((message) => createOkContext({ message }, { message }))
-            const feedResult = await this.joinedPipeline.feed(batch)
+            const feedResult = await this.analyticsPipeline.feed(batch)
             if (!feedResult.ok) {
                 throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
             }
 
-            let result = await this.joinedPipeline.next()
+            let result = await this.analyticsPipeline.next()
             while (result !== null) {
                 for (const sideEffect of result.sideEffects ?? []) {
                     void this.promiseScheduler.schedule(sideEffect)
                 }
-                result = await this.joinedPipeline.next()
+                result = await this.analyticsPipeline.next()
             }
 
             // Wait for all side effects — the HTTP response is the ACK to the

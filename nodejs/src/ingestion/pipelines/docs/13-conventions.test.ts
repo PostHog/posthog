@@ -451,7 +451,7 @@ describe('Pipeline Phases', () => {
             promiseScheduler,
         }
 
-        // Compose subpipelines like joined-ingestion-pipeline:
+        // Compose subpipelines like the analytics pipeline:
         // messageAware → concurrently(preTeam) → filterMap(addTeam,
         //     teamAware(concurrently(postTeam) → groupBy → concurrently(sequentially(processing)))
         //     → handleIngestionWarnings)
