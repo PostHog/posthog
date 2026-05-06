@@ -269,6 +269,8 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               shell: bash
+              env:
+                  COMPOSE_PROFILES: temporal
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   (
@@ -371,13 +373,15 @@ jobs:
               shell: bash
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: temporal
               run: bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
               shell: bash
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker wait
+                  COMPOSE_PROFILES: temporal
+              run: bin/ci-wait-for-docker wait temporal
 
             - name: Run migrations
               run: |

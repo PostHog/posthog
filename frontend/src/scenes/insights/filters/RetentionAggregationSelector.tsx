@@ -152,6 +152,7 @@ export function RetentionAggregationSelector(): JSX.Element {
                     }}
                     placeholder="Select property"
                     data-attr="retention-aggregation-property-selector"
+                    selectingKeyOnly
                     renderValue={(currentValue) => (
                         <Tooltip
                             title={

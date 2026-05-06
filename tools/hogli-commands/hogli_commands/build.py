@@ -6,7 +6,6 @@ import fnmatch
 import subprocess
 
 import click
-from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
 
 # command -> file globs that should trigger it
@@ -82,7 +81,7 @@ def _match_commands(changed_files: set[str]) -> list[str]:
     ]
 
 
-@cli.command(name="build", help="Run code generation pipelines (smart change detection by default)")
+@click.command(name="build", help="Run code generation pipelines (smart change detection by default)")
 @click.option("--force", is_flag=True, help="Rebuild all pipelines unconditionally")
 @click.option("--dry-run", is_flag=True, help="Show what would be rebuilt without running")
 @click.option("--list", "list_all", is_flag=True, help="List all available pipelines")

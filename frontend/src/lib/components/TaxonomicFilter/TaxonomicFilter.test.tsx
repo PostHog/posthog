@@ -19,7 +19,9 @@ import {
     mockGetEventDefinitions,
     mockGetPropertyDefinitions,
 } from '~/test/mocks'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
 
@@ -1189,6 +1191,120 @@ describe('TaxonomicFilter', () => {
             expect(parseInt(podIdx.split('-').pop() as string)).toBeLessThan(
                 parseInt(deploymentIdx.split('-').pop() as string)
             )
+        })
+    })
+
+    describe('excludedOperators', () => {
+        const seedRecents = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 1,
+                item: { name: 'Power Users' },
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 1,
+                    operator: PropertyOperator.In,
+                    cohort_name: 'Power Users',
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 2,
+                item: { name: 'Trial Users' },
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 2,
+                    operator: PropertyOperator.NotIn,
+                    cohort_name: 'Trial Users',
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: '$browser',
+                item: { name: '$browser' },
+                propertyFilter: {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                },
+            })
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/cohorts/': { results: [], next: null, count: 0 },
+                    '/api/projects/:team/actions': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+            localStorage.clear()
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.clearRecentFilters()
+            seedRecents()
+        })
+
+        it.each([
+            {
+                name: 'hides cohort recents whose operator is denylisted but keeps other recents',
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
+                expectInRecent: ['User in Power Users', 'Browser = Chrome'],
+                expectNotInRecent: ['User not in Trial Users'],
+            },
+            {
+                name: 'keeps every recent when no operators are denylisted',
+                excludedOperators: undefined,
+                expectInRecent: ['User in Power Users', 'User not in Trial Users', 'Browser = Chrome'],
+                expectNotInRecent: [],
+            },
+        ])('$name', async ({ excludedOperators, expectInRecent, expectNotInRecent }) => {
+            render(
+                <Provider>
+                    <TaxonomicFilter
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.EventProperties,
+                        ]}
+                        excludedOperators={excludedOperators}
+                        onChange={onChangeMock}
+                        onClose={onCloseMock}
+                    />
+                </Provider>
+            )
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            const recentRowText = (): string =>
+                Array.from(document.querySelectorAll('[data-attr^="prop-filter-recent_filters-"]'))
+                    .map((el) => el.textContent ?? '')
+                    .join('||')
+
+            await waitFor(() => {
+                for (const expected of expectInRecent) {
+                    expect(recentRowText()).toContain(expected)
+                }
+            })
+
+            const allText = recentRowText()
+            for (const forbidden of expectNotInRecent) {
+                expect(allText).not.toContain(forbidden)
+            }
         })
     })
 })

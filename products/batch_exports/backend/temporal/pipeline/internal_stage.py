@@ -70,8 +70,12 @@ from products.batch_exports.backend.temporal.utils import set_status_to_running_
 LOGGER = get_write_only_logger()
 
 
-def _is_local_or_test() -> bool:
+def _is_local_dev_or_test() -> bool:
     return settings.DEBUG or settings.TEST
+
+
+def _uses_object_storage_endpoint() -> bool:
+    return _is_local_dev_or_test() or not settings.CLOUD_DEPLOYMENT
 
 
 def _get_s3_endpoint_url() -> str:
@@ -80,7 +84,7 @@ def _get_s3_endpoint_url() -> str:
     When running the stack locally, MinIO runs in Docker but the Temporal workers run outside, so we need to pass in
     localhost URL rather than the hostname of the container.
     """
-    if _is_local_or_test():
+    if _is_local_dev_or_test():
         return "http://localhost:19000"
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
@@ -91,7 +95,7 @@ def _get_s3_credentials() -> tuple[str | None, str | None]:
     If keyless S3 auth is enabled, we use no credentials as the IAM role will be used to authenticate.
     Otherwise, we use the credentials from the object storage settings.
     """
-    use_keyless_s3_auth = not _is_local_or_test()
+    use_keyless_s3_auth = not _uses_object_storage_endpoint()
     if use_keyless_s3_auth:
         aws_access_key_id = None
         aws_secret_access_key = None
@@ -453,7 +457,7 @@ def _get_clickhouse_s3_staging_folder_url(folder: str) -> str:
     bucket = settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET
     region = settings.BATCH_EXPORT_OBJECT_STORAGE_REGION
     # in these environments this will be a URL for MinIO
-    if _is_local_or_test():
+    if _uses_object_storage_endpoint():
         base_url = f"{settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT}/{bucket}/"
     else:
         base_url = f"https://{bucket}.s3.{region}.amazonaws.com/"
