@@ -1,3 +1,5 @@
+import datetime
+
 from posthog.test.base import BaseTest
 
 from posthog.constants import AvailableFeature
@@ -168,8 +170,6 @@ class TestUser(BaseTest):
         self.assertEqual(User.objects.get_by_natural_key("inactive@example.com"), user)
 
     def test_get_by_natural_key_with_multiple_case_variants_picks_most_recent_login(self):
-        import datetime
-
         older = User.objects.create(email="dup@example.com")
         older.last_login = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
         older.save(update_fields=["last_login"])
