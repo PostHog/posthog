@@ -1,8 +1,8 @@
 import { cleanup } from '@testing-library/react'
 
 import type { ChartTheme, Series } from '../../core/types'
+import type { AnomalyMarker } from '../../overlays/AnomalyPointsLayer'
 import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
-import type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
 import { TimeSeriesLineChart } from './TimeSeriesLineChart'
 
 const THEME: ChartTheme = { colors: ['#111', '#222', '#333'], backgroundColor: '#ffffff' }
