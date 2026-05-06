@@ -103,11 +103,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
             f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
             token=token,
         )
-        pat = (
-            PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40])
-            .order_by("-created_at")
-            .first()
-        )
+        pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).order_by("-created_at").first()
         assert pat is not None
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
