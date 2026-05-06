@@ -1,5 +1,4 @@
 from typing import Any
-from uuid import UUID
 
 from django.core.cache import cache
 from django.views.decorators.debug import sensitive_variables
@@ -97,7 +96,7 @@ class CIMDVerificationTokenViewSet(
         token.value = plaintext  # type: ignore[attr-defined]
         output = CIMDVerificationTokenWithValueSerializer(token).data
         log_activity(
-            organization_id=UUID(self.organization_id),
+            organization_id=self.organization.id,
             team_id=None,
             user=request.user if request.user.is_authenticated else None,
             was_impersonated=getattr(request, "impersonated_session", False),
