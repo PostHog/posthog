@@ -10,6 +10,7 @@ import json
 import base64
 import hashlib
 import subprocess
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 import pytest
@@ -71,7 +72,7 @@ class VisualReviewTeamScopedTestMixin:
     to __exit__ an unentered context manager.
     """
 
-    _team_scope_cm = None
+    _team_scope_cm: AbstractContextManager[None] | None = None
 
     def setUp(self) -> None:
         super().setUp()  # type: ignore[misc]
