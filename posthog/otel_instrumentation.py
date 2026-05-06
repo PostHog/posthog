@@ -11,6 +11,7 @@ from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -167,6 +168,16 @@ def instrument_aiohttp_client(provider: trace.TracerProvider):
         )
 
 
+def instrument_requests_client(provider: trace.TracerProvider):
+    try:
+        RequestsInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="error", exc_info=e
+        )
+
+
 INSTRUMENTORS: dict[str, typing.Callable[[trace.TracerProvider], None]] = {
     "django": instrument_django,
     "psycopg": instrument_psycopg,
@@ -174,4 +185,5 @@ INSTRUMENTORS: dict[str, typing.Callable[[trace.TracerProvider], None]] = {
     "kafka": instrument_kafka,
     "aiokafka": instrument_aiokafka,
     "aiohttp-client": instrument_aiohttp_client,
+    "requests": instrument_requests_client,
 }

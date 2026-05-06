@@ -1,10 +1,7 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { registerActionNodeCategory } from 'products/workflows/frontend/Workflows/hogflows/registry/actions/actionNodeRegistry'
 
 registerActionNodeCategory({
     label: 'Support',
-    featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     nodes: [
         {
             type: 'function',

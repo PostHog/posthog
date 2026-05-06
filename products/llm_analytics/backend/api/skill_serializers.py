@@ -90,6 +90,10 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional substring filter applied to skill names and descriptions.",
     )
+    created_by_id = serializers.IntegerField(
+        required=False,
+        help_text="Filter skills by the ID of the user who created them.",
+    )
 
 
 class LLMSkillResolveQuerySerializer(LLMSkillFetchQuerySerializer):

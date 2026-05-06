@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -128,7 +127,6 @@ export function InsightVizDisplay({
 }): JSX.Element | null {
     const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2, isInDashboardContext } =
         useValues(insightLogic)
-    const hasAIAnalysis = useFeatureFlag('PRODUCT_ANALYTICS_AI_INSIGHT_ANALYSIS')
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -381,11 +379,6 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
-        // Check feature flag
-        if (!hasAIAnalysis) {
-            return null
-        }
-
         // Only show in view mode
         if (editMode) {
             return null

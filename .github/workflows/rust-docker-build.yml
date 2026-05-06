@@ -24,7 +24,7 @@ on:
             - 'master'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -67,6 +67,9 @@ jobs:
                       values_key: image
                     - release: feature-flags
                       digest_key: feature-flags
+                      values_key: image
+                    - release: flags-cache-jumphost
+                      digest_key: flags-cache-warmer
                       values_key: image
                     - release: batch-import-worker
                       digest_key: batch-import-worker

@@ -1,6 +1,6 @@
 import type { ExternalDataSourceSchema } from '~/types'
 
-import { groupDirectQuerySourceSchemasBySchema, splitDirectQuerySchemaName } from './SchemasTab'
+import { groupDirectQuerySourceSchemasBySchema, splitDirectQuerySchemaName } from './DirectQuerySchemasTab'
 
 const makeSchema = (name: string): ExternalDataSourceSchema => ({
     id: name,

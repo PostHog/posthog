@@ -20,6 +20,10 @@ export function subscriptionName(sub: SubscriptionApi): string {
     return sub.title?.trim() || sub.resource_name?.trim() || 'Untitled subscription'
 }
 
+export function isSubscriptionEnabled(sub: { enabled?: boolean | null }): boolean {
+    return sub.enabled !== false
+}
+
 export function subscriptionEditHref(sub: SubscriptionApi): string | null {
     if (sub.insight && sub.insight_short_id) {
         return urls.insightSubcription(sub.insight_short_id as InsightShortId, String(sub.id))
@@ -94,7 +98,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                         <div className="min-w-0 w-full overflow-hidden">
                             <Link
                                 to={urls.subscription(sub.id)}
-                                className={`font-medium block truncate ${sub.enabled !== false ? '' : 'text-muted'}`}
+                                className={`font-medium block truncate ${isSubscriptionEnabled(sub) ? '' : 'text-muted'}`}
                                 data-attr="subscription-name-link"
                             >
                                 {name}
@@ -186,14 +190,14 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             sorter: true,
         },
         {
-            title: 'Enabled',
+            title: 'Status',
             key: 'enabled',
             dataIndex: 'enabled',
             render: (_value: unknown, sub: SubscriptionApi) =>
-                sub.enabled !== false ? (
-                    <LemonTag type="success">ENABLED</LemonTag>
+                isSubscriptionEnabled(sub) ? (
+                    <LemonTag type="success">Enabled</LemonTag>
                 ) : (
-                    <LemonTag type="danger">DISABLED</LemonTag>
+                    <LemonTag type="danger">Disabled</LemonTag>
                 ),
         },
         {

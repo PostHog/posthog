@@ -93,12 +93,17 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 return { ...NEW_SUBSCRIPTION }
             },
         },
+        summaryQuota: {
+            __default: null as { active_count: number; limit: number | null; at_limit: boolean } | null,
+            loadSummaryQuota: async () => {
+                return await api.subscriptions.summaryQuota()
+            },
+        },
     })),
 
     forms(({ props, actions }) => ({
         subscription: {
-            // Keep in sync with NEW_SUBSCRIPTION.enabled — both paths feed the form's initial state.
-            defaults: { enabled: true } as unknown as SubscriptionType,
+            defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
             errors: ({
                 frequency,
                 interval,
@@ -163,6 +168,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 // this change is propagated to `subscriptions` there
                 subscriptionsLogic.findMounted(props)?.actions.loadSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
+                actions.loadSummaryQuota()
                 lemonToast.success(`Subscription saved.`)
 
                 return updatedSub
@@ -271,7 +277,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    events(({ values }) => ({
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            // Load the org-wide AI summary quota once per logic mount so
+            // the paywall conditional in EditSubscription has data to react
+            // to without depending on URL navigation. urlToAction kept its
+            // own loader call in case the user navigates between :id and
+            // /new without unmounting; afterMount covers initial mount and
+            // Storybook (which doesn't navigate the route).
+            actions.loadSummaryQuota()
+        },
         beforeUnmount: () => {
             if (values.previewImageUrl) {
                 URL.revokeObjectURL(values.previewImageUrl)

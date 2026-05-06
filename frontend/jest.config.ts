@@ -15,6 +15,7 @@ const esmModules = [
     '@posthog/hedgehog-mode',
     'escape-string-regexp',
     '@tiptap',
+    '@mathjax',
     'marked',
     'lowlight',
     'devlop',

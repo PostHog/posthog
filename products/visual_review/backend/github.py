@@ -7,23 +7,12 @@ so individual call sites don't need to handle any of this.
 
 from __future__ import annotations
 
-import time
-
 import requests
 import structlog
 
+from posthog.models.integration import GITHUB_API_VERSION, GitHubRateLimitError, raise_if_github_rate_limited
+
 logger = structlog.get_logger(__name__)
-
-GITHUB_API_VERSION = "2022-11-28"
-
-
-class GitHubRateLimitError(Exception):
-    """GitHub API rate limit exhausted for this installation."""
-
-    def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
-        super().__init__(message)
-        self.reset_at = reset_at
-        self.retry_after = retry_after
 
 
 def github_request(
@@ -96,45 +85,22 @@ def _log_rate_limit_headers(response: requests.Response, method: str, url: str) 
 def _check_rate_limit_response(response: requests.Response, method: str, url: str) -> None:
     # GitHub returns 429 for secondary rate limits (concurrent request limits)
     # and 403 with "rate limit" in the body for primary rate limits.
-    if response.status_code == 429:
-        is_rate_limited = True
-    elif response.status_code == 403:
-        body = ""
-        try:
-            body = response.text
-        except Exception:
-            pass
-        is_rate_limited = "rate limit" in body.lower()
-    else:
-        return
-
-    if not is_rate_limited:
-        return
-
-    reset_at = _safe_int(response.headers.get("x-ratelimit-reset"))
-    retry_after_seconds = _safe_int(response.headers.get("retry-after"))
-
-    # Derive retry_after from reset_at when GitHub only sends the reset timestamp
-    if retry_after_seconds is None and reset_at is not None:
-        retry_after_seconds = max(1, reset_at - int(time.time()))
-
-    logger.error(
-        "visual_review.github_rate_limit_exceeded",
-        method=method,
-        url=_sanitize_url(url),
-        status_code=response.status_code,
-        reset_at=reset_at,
-        retry_after=retry_after_seconds,
-        remaining=response.headers.get("x-ratelimit-remaining"),
-        limit=response.headers.get("x-ratelimit-limit"),
-        resource=response.headers.get("x-ratelimit-resource"),
-    )
-
-    raise GitHubRateLimitError(
-        f"GitHub API rate limit exceeded (resets at {reset_at})",
-        reset_at=reset_at,
-        retry_after=retry_after_seconds,
-    )
+    # raise_if_github_rate_limited handles detection and construction; we add structlog context here.
+    try:
+        raise_if_github_rate_limited(response)
+    except GitHubRateLimitError as e:
+        logger.error(  # noqa: TRY400 — rate limiting is expected; no traceback needed
+            "visual_review.github_rate_limit_exceeded",
+            method=method,
+            url=_sanitize_url(url),
+            status_code=response.status_code,
+            reset_at=e.reset_at,
+            retry_after=e.retry_after,
+            remaining=response.headers.get("x-ratelimit-remaining"),
+            limit=response.headers.get("x-ratelimit-limit"),
+            resource=response.headers.get("x-ratelimit-resource"),
+        )
+        raise
 
 
 def _sanitize_url(url: str) -> str:

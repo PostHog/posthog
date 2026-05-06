@@ -16,6 +16,7 @@ from products.tasks.backend.services.modal_sandbox import (
     ModalSandbox,
     _get_modal_region,
     _get_sandbox_image_reference,
+    _image_ref_cache,
 )
 from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError
@@ -37,7 +38,7 @@ def _mock_manifest_response(status_code: int = 200, digest: str | None = "sha256
 
 class TestGetSandboxImageReference:
     def setup_method(self):
-        _get_sandbox_image_reference.cache_clear()
+        _image_ref_cache.clear()
 
     def test_returns_digest_reference_on_success(self):
         with patch(
@@ -115,10 +116,31 @@ class TestGetSandboxImageReference:
         assert result1 == result2 == result3 == f"{SANDBOX_IMAGE}@sha256:cached123"
         assert mock_get.call_count == 2  # token + manifest, called only once due to cache
 
+    def test_re_resolves_after_cache_expiry(self):
+        """After TTL expiry (simulated via clear), a fresh GHCR query picks up the new digest."""
+        with patch(
+            "products.tasks.backend.services.modal_sandbox.requests.get",
+            side_effect=[
+                _mock_token_response(),
+                _mock_manifest_response(digest="sha256:old"),
+                _mock_token_response(),
+                _mock_manifest_response(digest="sha256:new"),
+            ],
+        ) as mock_get:
+            result1 = _get_sandbox_image_reference()
+            assert result1 == f"{SANDBOX_IMAGE}@sha256:old"
+            assert mock_get.call_count == 2
+
+            _image_ref_cache.clear()
+
+            result2 = _get_sandbox_image_reference()
+            assert result2 == f"{SANDBOX_IMAGE}@sha256:new"
+            assert mock_get.call_count == 4
+
 
 class TestGetSandboxImageReferenceIntegration:
     def setup_method(self):
-        _get_sandbox_image_reference.cache_clear()
+        _image_ref_cache.clear()
 
     @pytest.mark.xfail(
         reason="Flaky: depends on GHCR availability. Remove this mark when we've figured out a less flaky approach"
@@ -237,6 +259,29 @@ class TestModalSandboxAgentServer:
         assert "env -0 > /tmp/agent-env" in command
         assert "/tmp/agentsh-env-wrapper.sh" in command
         assert "./node_modules/.bin/agent-server" in command
+
+    def test_start_agent_server_wraps_with_agentsh_when_domains_empty(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            ]
+        )
+
+        with patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh:
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                allowed_domains=[],
+            )
+
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", [])
+        command = mock_sandbox.execute.call_args_list[0][0][0]
+        assert "--allowedDomains" not in command
+        assert "agentsh exec --client-timeout 2h --timeout 2h" in command
+        assert "env -0 > /tmp/agent-env" in command
 
     @pytest.mark.parametrize(
         ("create_pr", "expected_flag"),

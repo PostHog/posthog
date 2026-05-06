@@ -1,24 +1,44 @@
+import uuid
+from typing import NamedTuple
+
 import structlog
 
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 
-# User-visible reasons embedded in the disabled-subscription email body.
-SLACK_INTEGRATION_DISCONNECTED_REASON = "Slack integration disconnected"
-UNSUPPORTED_TARGET_TYPE_REASON = "Unsupported delivery channel"
-NO_ASSETS_REASON = "All insights or dashboard tiles for this subscription have been deleted"
-SLACK_PERMISSION_REVOKED_REASON = "PostHog can no longer post to this Slack channel"
+from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
 
-# SlackApiError codes that indicate a permanent user-config problem and will not
-# self-heal on retry. When we hit one of these, auto-disable instead of letting
-# the subscription re-fire every cycle and rack up SLO failure events.
-# Excludes `not_in_channel` (admin can re-add the bot), `internal_error`/5xx
-# (transient), and `rate_limited` (transient).
+
+class DisableReason(NamedTuple):
+    # Stable identity used for analytics (`error_type`) and activity comparisons.
+    key: str
+    # Shown in the disabled-subscription email body and the activity's recipient_results.
+    description: str
+    # Re-enable rejection message surfaced by the API serializer; `{target_type}` is interpolated.
+    user_message: str
+
+
+SLACK_DISCONNECTED_DISABLE_REASON = DisableReason(
+    key="missing_integration",
+    description="Slack integration disconnected",
+    user_message="Cannot re-enable Slack subscription: no integration configured. Reconnect Slack first.",
+)
+UNSUPPORTED_TARGET_DISABLE_REASON = DisableReason(
+    key="unsupported_target",
+    description="Unsupported delivery channel",
+    user_message="Cannot re-enable {target_type} subscription: this delivery channel is not currently supported.",
+)
+SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
+    key="slack_permission_revoked",
+    description="PostHog can no longer post to this Slack channel",
+    user_message="Cannot re-enable Slack subscription: PostHog can no longer post to this channel. Reconnect Slack or pick a different channel.",
+)
+
 # Subset of SLACK_USER_CONFIG_ERRORS (in __init__.py) that won't self-heal
-# without user intervention — auto-disable the subscription on these. Excludes
-# `not_in_channel` (admin can re-add bot) and includes `token_revoked` (token-
-# level, not channel-level). Keep in sync with SLACK_USER_CONFIG_ERRORS.
+# without user intervention — auto-disable on these. Excludes `not_in_channel`
+# (admin can re-add the bot) and the transient `internal_error`/`rate_limited`.
+# Keep in sync with SLACK_USER_CONFIG_ERRORS.
 TERMINAL_SLACK_ERROR_CODES = frozenset(
     {"invalid_auth", "account_inactive", "token_revoked", "is_archived", "channel_not_found"}
 )
@@ -26,20 +46,48 @@ TERMINAL_SLACK_ERROR_CODES = frozenset(
 logger = structlog.get_logger(__name__)
 
 
-def disable_invalid_subscription(subscription: Subscription, reason: str) -> None:
-    """Auto-disable a subscription whose delivery prerequisite is permanently invalid.
+def get_subscription_disable_reason(target_type: str | None, integration_id: int | None) -> DisableReason | None:
+    """Single source of truth for "what target configuration is permanently broken"."""
+    if not target_type:
+        return None
+    if target_type not in SUPPORTED_TARGET_TYPES:
+        return UNSUPPORTED_TARGET_DISABLE_REASON
+    if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
+        return SLACK_DISCONNECTED_DISABLE_REASON
+    return None
 
-    Called from the Temporal delivery activity when we detect that the subscription
-    cannot succeed without user intervention (e.g. the Slack integration was
-    disconnected). Mirrors `posthog.tasks.alerts.utils.disable_invalid_alert`.
-    """
+
+def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
+    """API-serializer wrapper — returns the user-facing rejection message, or None if re-enable is OK."""
+    reason = get_subscription_disable_reason(target_type, integration_id)
+    if reason is None:
+        return None
+    return reason.user_message.format(target_type=target_type)
+
+
+def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
+    # Compare-and-swap so only one racing caller sends the disabled-notification
+    # email (UUID4 campaign keys mean MessagingRecord can't dedup the duplicate).
+    rowcount = Subscription.objects.filter(pk=subscription.pk, enabled=True).update(enabled=False)
+    if rowcount == 0:
+        # A concurrent caller already disabled the row — no-op, no side effects.
+        # The in-memory `subscription.enabled` is intentionally NOT touched here so
+        # callers can distinguish "we just disabled it" from "it was already disabled";
+        # the activity site re-fetches via select_related when it needs fresh state.
+        logger.info(
+            "subscription.auto_disable_already_disabled",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            reason=reason.key,
+        )
+        return
+
     logger.warning(
         "subscription.auto_disabling",
         subscription_id=subscription.id,
         team_id=subscription.team_id,
-        reason=reason,
+        reason=reason.key,
     )
-    Subscription.objects.filter(pk=subscription.pk).update(enabled=False)
     # Mirror the UPDATE in memory so callers see the new state without a fresh
     # SELECT — refresh_from_db() would also drop the eagerly-loaded created_by
     # relation (loaded via select_related at the activity site).
@@ -47,7 +95,9 @@ def disable_invalid_subscription(subscription: Subscription, reason: str) -> Non
 
     if subscription.created_by and subscription.created_by.email:
         try:
-            send_notifications_for_disabled_subscription(subscription, reason, [subscription.created_by.email])
+            send_notifications_for_disabled_subscription(
+                subscription, reason.description, [subscription.created_by.email]
+            )
         except Exception as e:
             # Disabling is the durable side effect; email is best-effort. If the email
             # fails (SMTP outage, ImproperlyConfigured on self-hosted, Customer.io 5xx)
@@ -58,6 +108,7 @@ def disable_invalid_subscription(subscription: Subscription, reason: str) -> Non
                 "subscription.send_disabled_notification_failed",
                 subscription_id=subscription.id,
                 error=str(e),
+                exc_info=True,
             )
 
 
@@ -70,13 +121,11 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
 
     display_name = subscription.title or "your subscription"
     subject = (
-        f'PostHog subscription "{subscription.title}" has been disabled'
+        f'PostHog subscription "{subscription.title}" has been automatically disabled'
         if subscription.title
-        else "Your PostHog subscription has been disabled"
+        else "Your PostHog subscription has been automatically disabled"
     )
-    # Deterministic key — `MessagingRecord` dedupes on this campaign_key per recipient,
-    # so retries (Temporal, concurrent workflows, rolling deploys) don't double-send.
-    campaign_key = f"subscription-disabled-notification-{subscription.id}"
+    campaign_key = f"subscription-disabled-notification-{subscription.id}-{uuid.uuid4()}"
 
     message = EmailMessage(
         campaign_key=campaign_key,

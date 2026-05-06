@@ -957,7 +957,7 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
                 return int(tid)
         return None
 
-    def authenticate(self, request: Request) -> tuple[None, Any] | None:
+    def authenticate(self, request: Request) -> tuple[AnonymousUser, Any] | None:
         signature = request.headers.get(self.get_signature_header())
         timestamp = request.headers.get(self.get_timestamp_header())
         if not signature or not timestamp:
@@ -986,7 +986,8 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         if abs(time.time() - ts) > self.timestamp_tolerance:
             raise AuthenticationFailed("Webhook timestamp too old.")
 
-        return (None, self.get_auth_context(request))
+        # Return AnonymousUser (not None) so DRF throttles can safely access request.user.is_authenticated.
+        return (AnonymousUser(), self.get_auth_context(request))
 
     def authenticate_header(self, request: Request) -> str:
         return "WebhookSignature"

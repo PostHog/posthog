@@ -37,6 +37,19 @@ class IntegrationAdmin(admin.ModelAdmin):
         return format_html("{} ({})", obj.team.name, obj.team_id)
 
 
+class UserIntegrationAdmin(admin.ModelAdmin):
+    list_select_related = ("user",)
+    list_display = ("id", "kind", "integration_id", "user", "created_at")
+    list_display_links = ("id",)
+    list_filter = (
+        "kind",
+        ("created_at", admin.DateFieldListFilter),
+    )
+    search_fields = ("id", "integration_id", "user__email", "user__first_name", "user__last_name", "config")
+    ordering = ("-created_at",)
+    readonly_fields = ("id", "user", "created_at", "updated_at")
+
+
 class OrganizationIntegrationAdmin(admin.ModelAdmin):
     list_select_related = ("organization", "created_by")
     list_display = ("id", "kind", "integration_id", "organization_link", "created_by", "created_at")

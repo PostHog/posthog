@@ -1,4 +1,4 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %} {% block section %}
     <p>
         Your subscription <strong>{{ subscription_title }}</strong> has been
         <strong>automatically disabled</strong> because:
@@ -12,4 +12,4 @@
         <a class="button" href="{% absolute_uri subscription_url %}">Manage subscription</a>
     </div>
     {% endif %}
-{% endblock %}{% load posthog_filters %}
+{% endblock %}

@@ -4,10 +4,11 @@ from collections.abc import Callable, Iterator
 from typing import Any, Optional
 from urllib.parse import urljoin
 
-import requests
-from requests import Request, Response
+from requests import Request, Response, Session
 from requests.auth import AuthBase
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
+
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 
 from .exceptions import IgnoreResponseException
 from .jsonpath_utils import TJsonPath, find_values
@@ -42,12 +43,17 @@ class RESTClient:
         headers: Optional[dict[str, str]] = None,
         auth: Optional[AuthBase] = None,
         paginator: Optional[BasePaginator] = None,
+        session: Optional[Session] = None,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
         self.auth = auth
         self.paginator = paginator
-        self.session = requests.Session()
+        # Default to the tracked session so every source built on top of
+        # `RESTClient` participates in HTTP logging, metrics, and sample
+        # capture. Callers can pass a pre-built `Session` for tests or
+        # specialized auth (it should still be a tracked one in prod).
+        self.session = session or make_tracked_session()
         if self.headers:
             self.session.headers.update(self.headers)
 

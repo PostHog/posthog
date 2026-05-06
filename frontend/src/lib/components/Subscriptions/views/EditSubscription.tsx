@@ -6,6 +6,7 @@ import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-u
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -72,7 +73,8 @@ export function EditSubscription({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
+        useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const { resetSubscription, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
@@ -172,17 +174,19 @@ export function EditSubscription({
                             </LemonBanner>
                         )}
 
-                        <div className="flex gap-4 items-center">
+                        <div className="flex gap-4 items-end">
                             <LemonField className="flex-auto" name="title" label="Name">
                                 <LemonInput placeholder="e.g. Weekly team report" />
                             </LemonField>
-                            <LemonField name="enabled">
-                                <LemonCheckbox
-                                    checked={subscription?.enabled}
-                                    data-attr="subscription-enabled"
-                                    fullWidth
-                                    label="Enabled"
-                                />
+                            <LemonField name="enabled" className="pb-2">
+                                {({ value, onChange }) => (
+                                    <LemonCheckbox
+                                        checked={value !== false}
+                                        onChange={onChange}
+                                        data-attr="subscription-enabled"
+                                        label="Enabled"
+                                    />
+                                )}
                             </LemonField>
                         </div>
 
@@ -451,12 +455,24 @@ export function EditSubscription({
                                             disabledReason={
                                                 !dataProcessingAccepted && !value
                                                     ? 'Your organization needs to approve AI data processing before enabling AI summaries'
-                                                    : undefined
+                                                    : summaryQuota?.at_limit && !value
+                                                      ? `Plan limit reached (${summaryQuota.limit} active AI summaries). See details below.`
+                                                      : undefined
                                             }
                                         />
                                     </AIConsentPopoverWrapper>
                                 )}
                             </LemonField>
+
+                            {summaryQuota?.at_limit && !subscription.summary_enabled && summaryQuota.limit !== null && (
+                                <UsageLimitPaywall
+                                    title="AI summary limit reached"
+                                    description="Disable an existing AI summary or upgrade your plan to add more."
+                                    limit={summaryQuota.limit}
+                                    currentUsage={summaryQuota.active_count}
+                                    unit="active AI summaries on your plan"
+                                />
+                            )}
 
                             {subscription.summary_enabled && (
                                 <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
