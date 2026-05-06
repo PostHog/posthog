@@ -38,7 +38,6 @@ import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
-import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
@@ -72,16 +71,8 @@ const AiAnalysisTab = (): JSX.Element => {
 }
 
 const MetricsTab = (): JSX.Element => {
-    const {
-        firstPrimaryMetric,
-        primaryMetricsLengthWithSharedMetrics,
-        hasMinimumExposureForResults,
-        orderedPrimaryMetricsWithResults,
-        orderedSecondaryMetricsWithResults,
-        isExperimentLaunched,
-    } = useValues(experimentLogic)
-
-    const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
+    const { orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
+        useValues(experimentLogic)
 
     return (
         <>
@@ -91,13 +82,6 @@ const MetricsTab = (): JSX.Element => {
                 <Exposures />
                 <MultiVariantBiasWarning />
             </div>
-
-            {/* Show overview if there's only a single primary metric */}
-            {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
-                <div className="mb-4 mt-2">
-                    <Overview metricUuid={firstPrimaryMetric?.uuid || ''} />
-                </div>
-            )}
 
             {/* Modern metrics view */}
             {orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (

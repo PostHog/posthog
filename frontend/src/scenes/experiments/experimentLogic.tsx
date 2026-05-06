@@ -36,10 +36,7 @@ import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
 import {
     AnyEntityNode,
     Breakdown,
-    CachedExperimentFunnelsQueryResponse,
     CachedExperimentQueryResponse,
-    CachedExperimentTrendsQueryResponse,
-    CachedLegacyExperimentQueryResponse,
     CachedNewExperimentQueryResponse,
     ExperimentExposureCriteria,
     ExperimentExposureQueryResponse,
@@ -66,11 +63,9 @@ import {
     ExperimentConclusion,
     ExperimentStatsMethod,
     FeatureFlagType,
-    FunnelExperimentVariant,
     InsightType,
     MultivariateFlagVariant,
     PropertyMathType,
-    TrendExperimentVariant,
 } from '~/types'
 
 import {
@@ -89,9 +84,7 @@ import {
 } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
-    legacyConversionRateForVariant,
     legacyExpectedRunningTime,
-    legacyGetSignificanceDetails,
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
 } from './legacy/calculations/legacyExperimentCalculations'
@@ -235,14 +228,6 @@ interface MetricLoadingConfig {
     metricIndexOffset: number
     orderedUuids?: string[] | null
     featureFlags: FeatureFlagsSet
-    onSetLegacyResults: (
-        results: (
-            | CachedLegacyExperimentQueryResponse
-            | CachedExperimentTrendsQueryResponse
-            | CachedExperimentFunnelsQueryResponse
-            | null
-        )[]
-    ) => void
     onSetResults: (results: CachedNewExperimentQueryResponse[]) => void
     onSetErrors: (errors: any[]) => void
 }
@@ -418,17 +403,9 @@ const loadMetrics = async ({
     metricIndexOffset,
     orderedUuids,
     featureFlags,
-    onSetLegacyResults,
     onSetResults,
     onSetErrors,
 }: MetricLoadingConfig): Promise<MetricLoadingSummary> => {
-    const legacyResults: (
-        | CachedLegacyExperimentQueryResponse
-        | CachedExperimentTrendsQueryResponse
-        | CachedExperimentFunnelsQueryResponse
-        | null
-    )[] = []
-
     const results: CachedNewExperimentQueryResponse[] = []
     const currentErrors = new Array(metrics.length).fill(null)
 
@@ -449,18 +426,10 @@ const loadMetrics = async ({
             const metricKind = metric.kind || 'unknown'
 
             try {
-                let queryWithExperimentId
-                if (metric.kind === NodeKind.ExperimentMetric) {
-                    queryWithExperimentId = {
-                        kind: NodeKind.ExperimentQuery,
-                        metric: metric,
-                        experiment_id: experimentId,
-                    }
-                } else {
-                    queryWithExperimentId = {
-                        ...metric,
-                        experiment_id: experimentId,
-                    }
+                const queryWithExperimentId = {
+                    kind: NodeKind.ExperimentQuery,
+                    metric: metric,
+                    experiment_id: experimentId,
                 }
                 response = await performQuery(
                     setLatestVersionsOnQuery(queryWithExperimentId),
@@ -471,32 +440,9 @@ const loadMetrics = async ({
                 const durationMs = Math.round(performance.now() - startTime)
                 const isCached = !!response?.is_cached
 
-                // Convert ExperimentQuery responses to typed responses
-                if (
-                    metric.kind === NodeKind.ExperimentMetric ||
-                    queryWithExperimentId.kind === NodeKind.ExperimentQuery
-                ) {
-                    const typedResponse = convertToTypedExperimentResponse(response as CachedExperimentQueryResponse)
-                    if (typedResponse) {
-                        if (isLegacyExperimentResponse(typedResponse)) {
-                            legacyResults[originalIndex] = {
-                                ...typedResponse,
-                                fakeInsightId: Math.random().toString(36).substring(2, 15),
-                            } as CachedLegacyExperimentQueryResponse & { fakeInsightId: string }
-                        } else if (isNewExperimentResponse(typedResponse)) {
-                            results[originalIndex] = typedResponse
-                        }
-                    }
-                } else {
-                    // For trends/funnels queries, keep original response
-                    legacyResults[originalIndex] = {
-                        ...response,
-                        fakeInsightId: Math.random().toString(36).substring(2, 15),
-                    } as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse) & {
-                        fakeInsightId: string
-                    }
+                if (isNewExperimentResponse(response as CachedExperimentQueryResponse)) {
+                    results[originalIndex] = response as CachedNewExperimentQueryResponse
                 }
-                onSetLegacyResults([...legacyResults])
                 onSetResults([...results])
 
                 successfulCount++
@@ -560,8 +506,6 @@ const loadMetrics = async ({
                     status_code: statusCode,
                 })
 
-                legacyResults[originalIndex] = null
-                onSetLegacyResults([...legacyResults])
                 onSetResults([...results])
             }
         }
@@ -572,34 +516,10 @@ const loadMetrics = async ({
     return { successfulCount, erroredCount, cachedCount }
 }
 
-// Type guards to distinguish between legacy and new experiment responses
-export function isLegacyExperimentResponse(
-    response: CachedExperimentQueryResponse
-): response is CachedLegacyExperimentQueryResponse {
-    return 'variants' in response && response.variants !== null
-}
-
 export function isNewExperimentResponse(
     response: CachedExperimentQueryResponse
 ): response is CachedNewExperimentQueryResponse {
     return 'baseline' in response && response.baseline !== null
-}
-
-// Union type for strongly typed experiment responses
-export type TypedExperimentResponse = CachedLegacyExperimentQueryResponse | CachedNewExperimentQueryResponse
-
-// Utility function to convert generic response to typed response
-function convertToTypedExperimentResponse(response: CachedExperimentQueryResponse): TypedExperimentResponse | null {
-    if (isLegacyExperimentResponse(response)) {
-        return response
-    }
-
-    if (isNewExperimentResponse(response)) {
-        return response
-    }
-
-    // If response doesn't match either pattern, return null
-    return null
 }
 
 const sharedMetricsToExperimentMetrics = (
@@ -853,14 +773,6 @@ export const experimentLogic = kea<experimentLogicType>([
         removeMetricBreakdown: (uuid: string, index: number, breakdown: Breakdown) => ({ uuid, index, breakdown }),
         // METRICS RESULTS
         clearMetricsResults: true,
-        setLegacyPrimaryMetricsResults: (
-            results: (
-                | CachedLegacyExperimentQueryResponse
-                | CachedExperimentTrendsQueryResponse
-                | CachedExperimentFunnelsQueryResponse
-                | null
-            )[]
-        ) => ({ results }),
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setPrimaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         loadPrimaryMetricsResults: (refresh?: boolean, refreshId?: string) => ({ refresh, refreshId }),
@@ -871,14 +783,6 @@ export const experimentLogic = kea<experimentLogicType>([
         setSecondaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
         retrySecondaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
-        setLegacySecondaryMetricsResults: (
-            results: (
-                | CachedLegacyExperimentQueryResponse
-                | CachedExperimentTrendsQueryResponse
-                | CachedExperimentFunnelsQueryResponse
-                | null
-            )[]
-        ) => ({ results }),
         updateDistribution: (variants: MultivariateFlagVariant[], rolloutPercentage?: number) => ({
             variants,
             rolloutPercentage,
@@ -1251,18 +1155,6 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         // PRIMARY METRICS
-        legacyPrimaryMetricsResults: [
-            [] as (
-                | CachedLegacyExperimentQueryResponse
-                | CachedExperimentTrendsQueryResponse
-                | CachedExperimentFunnelsQueryResponse
-                | null
-            )[],
-            {
-                setLegacyPrimaryMetricsResults: (_, { results }) => results,
-                clearMetricsResults: () => [],
-            },
-        ],
         primaryMetricsResults: [
             [] as CachedNewExperimentQueryResponse[],
             {
@@ -1288,18 +1180,6 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         // SECONDARY METRICS
-        legacySecondaryMetricsResults: [
-            [] as (
-                | CachedLegacyExperimentQueryResponse
-                | CachedExperimentTrendsQueryResponse
-                | CachedExperimentFunnelsQueryResponse
-                | null
-            )[],
-            {
-                setLegacySecondaryMetricsResults: (_, { results }) => results,
-                clearMetricsResults: () => [],
-            },
-        ],
         secondaryMetricsResults: [
             [] as CachedNewExperimentQueryResponse[],
             {
@@ -2135,7 +2015,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadPrimaryMetricsResults: async ({ refresh, refreshId }: { refresh?: boolean; refreshId?: string }) => {
             actions.setPrimaryMetricsResultsLoading(true)
-            actions.setLegacyPrimaryMetricsResults([])
             actions.setPrimaryMetricsResults([])
 
             const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
@@ -2157,7 +2036,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
                 featureFlags: values.featureFlags,
-                onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
             })
@@ -2176,7 +2054,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         loadSecondaryMetricsResults: async ({ refresh, refreshId }: { refresh?: boolean; refreshId?: string }) => {
             actions.setSecondaryMetricsResultsLoading(true)
-            actions.setLegacySecondaryMetricsResults([])
             actions.setSecondaryMetricsResults([])
 
             const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
@@ -2197,7 +2074,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 metricIndexOffset: 0,
                 orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
                 featureFlags: values.featureFlags,
-                onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
             })
@@ -2231,7 +2107,6 @@ export const experimentLogic = kea<experimentLogicType>([
 
             // Create single-item arrays for this metric
             const singleMetricArray = [metricToRetry]
-            const currentLegacyResults = [...values.legacyPrimaryMetricsResults]
             const currentResults = [...values.primaryMetricsResults]
 
             // Load just this one metric
@@ -2245,10 +2120,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: true,
                 metricIndexOffset: index,
                 featureFlags: values.featureFlags,
-                onSetLegacyResults: (results) => {
-                    currentLegacyResults[index] = results[0]
-                    actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
-                },
                 onSetResults: (results) => {
                     currentResults[index] = results[0]
                     actions.setPrimaryMetricsResults(currentResults)
@@ -2280,7 +2151,6 @@ export const experimentLogic = kea<experimentLogicType>([
 
             // Create single-item arrays for this metric
             const singleMetricArray = [metricToRetry]
-            const currentLegacyResults = [...values.legacySecondaryMetricsResults]
             const currentResults = [...values.secondaryMetricsResults]
 
             // Load just this one metric
@@ -2294,10 +2164,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 isRetry: true,
                 metricIndexOffset: index,
                 featureFlags: values.featureFlags,
-                onSetLegacyResults: (results) => {
-                    currentLegacyResults[index] = results[0]
-                    actions.setLegacySecondaryMetricsResults(currentLegacyResults)
-                },
                 onSetResults: (results) => {
                     currentResults[index] = results[0]
                     actions.setSecondaryMetricsResults(currentResults)
@@ -2607,80 +2473,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
             },
         ],
-        isPrimaryMetricSignificant: [
-            (s) => [s.legacyPrimaryMetricsResults, s.experiment],
-            (
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                experiment: Experiment
-            ) =>
-                (metricUuid: string): boolean => {
-                    // Find metric index by UUID
-                    const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
-                    if (index === -1) {
-                        return false
-                    }
-
-                    const result = legacyPrimaryMetricsResults?.[index]
-                    if (!result) {
-                        return false
-                    }
-
-                    return result.significant || false
-                },
-        ],
-        isSecondaryMetricSignificant: [
-            (s) => [s.legacySecondaryMetricsResults, s.experiment],
-            (
-                legacySecondaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                experiment: Experiment
-            ) =>
-                (metricUuid: string): boolean => {
-                    // Find metric index by UUID
-                    const index = experiment.metrics_secondary.findIndex((m) => m.uuid === metricUuid)
-                    if (index === -1) {
-                        return false
-                    }
-
-                    const result = legacySecondaryMetricsResults?.[index]
-                    if (!result) {
-                        return false
-                    }
-
-                    return result.significant || false
-                },
-        ],
-        significanceDetails: [
-            (s) => [s.legacyPrimaryMetricsResults, s.experiment],
-            (
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                experiment: Experiment
-            ) =>
-                (metricUuid: string): string => {
-                    // Find metric index by UUID
-                    const index = experiment.metrics.findIndex((m) => m.uuid === metricUuid)
-                    if (index === -1) {
-                        return ''
-                    }
-
-                    const results = legacyPrimaryMetricsResults?.[index]
-                    return legacyGetSignificanceDetails(results)
-                },
-        ],
         recommendedSampleSize: [
             (s) => [s.conversionMetrics, s.variants, s.minimumDetectableEffect],
             (conversionMetrics, variants, minimumDetectableEffect): number => {
@@ -2738,151 +2530,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 const runningTime = legacyRecommendedExposureForCountData(minimumDetectableEffect, trendCount)
                 return runningTime
             },
-        ],
-        tabularExperimentResults: [
-            (s) => [s.experiment, s.legacyPrimaryMetricsResults, s.legacySecondaryMetricsResults, s.getInsightType],
-            (
-                experiment,
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                legacySecondaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                getInsightType
-            ) =>
-                (metricIdentifier: number | string = 0, isSecondary: boolean = false): any[] => {
-                    let index: number
-                    if (typeof metricIdentifier === 'string') {
-                        // Find index by UUID
-                        const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
-                        index = metrics.findIndex((m) => m.uuid === metricIdentifier)
-                        if (index === -1) {
-                            return []
-                        }
-                    } else {
-                        index = metricIdentifier
-                    }
-
-                    const tabularResults = []
-                    const metricType = isSecondary
-                        ? getInsightType(experiment.metrics_secondary[index])
-                        : getInsightType(experiment.metrics[index])
-                    const result = isSecondary
-                        ? legacySecondaryMetricsResults[index]
-                        : legacyPrimaryMetricsResults[index]
-
-                    if (result) {
-                        for (const variantObj of result.variants) {
-                            if (metricType === InsightType.FUNNELS) {
-                                const { key, success_count, failure_count } = variantObj as FunnelExperimentVariant
-                                tabularResults.push({ key, success_count, failure_count })
-                            } else if (metricType === InsightType.TRENDS) {
-                                const { key, count, exposure, absolute_exposure } = variantObj as TrendExperimentVariant
-                                tabularResults.push({ key, count, exposure, absolute_exposure })
-                            }
-                        }
-                    }
-
-                    if (experiment.feature_flag?.filters.multivariate?.variants) {
-                        for (const { key } of experiment.feature_flag.filters.multivariate.variants) {
-                            if (tabularResults.find((variantObj) => variantObj.key === key)) {
-                                continue
-                            }
-
-                            if (metricType === InsightType.FUNNELS) {
-                                tabularResults.push({ key, success_count: null, failure_count: null })
-                            } else if (metricType === InsightType.TRENDS) {
-                                tabularResults.push({ key, count: null, exposure: null, absolute_exposure: null })
-                            }
-                        }
-                    }
-
-                    return tabularResults
-                },
-        ],
-        sortedWinProbabilities: [
-            (s) => [s.legacyPrimaryMetricsResults, s.experiment],
-            (
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                experiment: Experiment
-            ) =>
-                (metricIdentifier: number | string = 0) => {
-                    let index: number
-                    if (typeof metricIdentifier === 'string') {
-                        // Find index by UUID
-                        index = experiment.metrics.findIndex((m) => m.uuid === metricIdentifier)
-                        if (index === -1) {
-                            return []
-                        }
-                    } else {
-                        index = metricIdentifier
-                    }
-
-                    const result = legacyPrimaryMetricsResults?.[index]
-
-                    if (!result) {
-                        return []
-                    }
-
-                    return Object.keys(result.probability)
-                        .map((key) => ({
-                            key,
-                            winProbability: result.probability[key],
-                            conversionRate: legacyConversionRateForVariant(result, key),
-                        }))
-                        .sort((a, b) => b.winProbability - a.winProbability)
-                },
-        ],
-        funnelResultsPersonsTotal: [
-            (s) => [s.experiment, s.legacyPrimaryMetricsResults, s.getInsightType],
-            (
-                experiment,
-                legacyPrimaryMetricsResults: (
-                    | CachedLegacyExperimentQueryResponse
-                    | CachedExperimentFunnelsQueryResponse
-                    | CachedExperimentTrendsQueryResponse
-                    | null
-                )[],
-                getInsightType
-            ) =>
-                (metricIdentifier: number | string = 0): number => {
-                    let index: number
-                    if (typeof metricIdentifier === 'string') {
-                        // Find index by UUID
-                        index = experiment.metrics.findIndex((m) => m.uuid === metricIdentifier)
-                        if (index === -1) {
-                            return 0
-                        }
-                    } else {
-                        index = metricIdentifier
-                    }
-
-                    const result = legacyPrimaryMetricsResults?.[index]
-
-                    if (getInsightType(experiment.metrics[index]) !== InsightType.FUNNELS || !result) {
-                        return 0
-                    }
-
-                    let sum = 0
-                    result.insight.forEach((variantResult) => {
-                        if (variantResult[0]?.count) {
-                            sum += variantResult[0].count
-                        }
-                    })
-                    return sum
-                },
         ],
         actualRunningTime: [
             (s) => [s.experiment],
