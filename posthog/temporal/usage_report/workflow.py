@@ -15,6 +15,7 @@ remains in production until billing migrates to consume the S3 layout.
 """
 
 import json
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -23,22 +24,21 @@ from temporalio import common, workflow
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.usage_report.activities import (
-    aggregate_and_chunk_org_reports,
-    enqueue_pointer_message,
-    run_query_to_s3,
-)
+from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports, run_query_to_s3
 from posthog.temporal.usage_report.queries import QUERIES, QuerySpec
 from posthog.temporal.usage_report.storage import run_prefix
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
-    EnqueuePointerInputs,
     RunQueryToS3Inputs,
     RunQueryToS3Result,
     RunUsageReportsInputs,
     WorkflowContext,
 )
 from posthog.utils import get_previous_day
+
+# Cap concurrent gather queries so we don't overwhelm ClickHouse / Postgres
+# with ~40 simultaneous heavy queries.
+QUERY_CONCURRENCY = 4
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: Optional[datetime] = None) -> WorkflowContext:
@@ -80,14 +80,19 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 },
             )
 
-            # Run the gather queries serially. Even though Temporal could run
-            # them in parallel, we deliberately stagger them so we don't pile
-            # ~40 simultaneous heavy queries onto ClickHouse / Postgres at
-            # once — the daily report is not latency-sensitive, and giving
-            # the databases breathing room matters more than wall-clock.
-            query_results: list[RunQueryToS3Result] = []
-            for spec in QUERIES:
-                query_results.append(await self._run_query(ctx, spec))
+            # Run the gather queries with bounded concurrency. We don't want
+            # ~40 simultaneous heavy queries hitting ClickHouse / Postgres,
+            # but a small batch shortens wall-clock substantially without
+            # overwhelming the databases.
+            sem = asyncio.Semaphore(QUERY_CONCURRENCY)
+
+            async def _run_with_sem(spec: QuerySpec) -> RunQueryToS3Result:
+                async with sem:
+                    return await self._run_query(ctx, spec)
+
+            query_results: list[RunQueryToS3Result] = list(
+                await asyncio.gather(*(_run_with_sem(spec) for spec in QUERIES))
+            )
 
             agg = await workflow.execute_activity(
                 aggregate_and_chunk_org_reports,
@@ -100,16 +105,22 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 heartbeat_timeout=timedelta(minutes=5),
             )
 
-            await workflow.execute_activity(
-                enqueue_pointer_message,
-                EnqueuePointerInputs(ctx=ctx, aggregate=agg),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=common.RetryPolicy(
-                    maximum_attempts=5,
-                    initial_interval=timedelta(seconds=10),
-                ),
-                heartbeat_timeout=timedelta(minutes=1),
-            )
+            # SQS pointer dispatch is disabled until the `usage_reports_v2`
+            # queue is provisioned in deployment and
+            # `SQS_USAGE_REPORT_V2_QUEUE_URL` is set on the temporal-worker
+            # pods. Re-enable by uncommenting the call below once billing has
+            # the queue ready to consume.
+            #
+            # await workflow.execute_activity(
+            #     enqueue_pointer_message,
+            #     EnqueuePointerInputs(ctx=ctx, aggregate=agg),
+            #     start_to_close_timeout=timedelta(minutes=2),
+            #     retry_policy=common.RetryPolicy(
+            #         maximum_attempts=5,
+            #         initial_interval=timedelta(seconds=10),
+            #     ),
+            #     heartbeat_timeout=timedelta(minutes=1),
+            # )
 
             # Intentionally NOT cleaning up the per-query intermediates yet —
             # we want them around in S3 for debugging while we validate the
@@ -150,4 +161,5 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 initial_interval=timedelta(seconds=30),
             ),
             heartbeat_timeout=timedelta(minutes=2),
+            summary=spec.name,
         )
