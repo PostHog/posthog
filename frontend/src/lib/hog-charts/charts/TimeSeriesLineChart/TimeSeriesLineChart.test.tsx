@@ -79,9 +79,7 @@ describe('TimeSeriesLineChart', () => {
 
     describe('config.valueLabels', () => {
         it('does not render value labels when omitted', () => {
-            const { chart } = renderHogChart(
-                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} />
-            )
+            const { chart } = renderHogChart(<TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} />)
             expect(chart.valueLabels()).toHaveLength(0)
         })
 
