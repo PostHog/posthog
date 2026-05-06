@@ -29,6 +29,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# `hogli_commands` isn't an installable package; the hogli launcher normally adds
+# this dir to `sys.path` at boot. We bypass hogli here to keep the CI venv to
+# pyyaml + click, so we do the same bootstrap ourselves. Same shape as
+# `.github/scripts/check-idor-model-coverage.py`.
 sys.path.insert(0, str(REPO_ROOT / "tools" / "hogli-commands"))
 
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows  # noqa: E402
