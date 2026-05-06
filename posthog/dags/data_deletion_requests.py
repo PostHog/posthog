@@ -10,12 +10,7 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
-from posthog.clickhouse.cluster import (
-    AlterTableMutationRunner,
-    ClickhouseCluster,
-    LightweightDeleteMutationRunner,
-    Query,
-)
+from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightDeleteMutationRunner
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
 from posthog.models.data_deletion_request import (
@@ -635,6 +630,13 @@ def process_property_removal_per_shard(
         # replicas of the originating shard; the explicit ``wait`` is a defensive backstop.
         delete_waiter.wait(client)
 
+        # Drop the temp table on the SAME host that created it. The temp table is local
+        # non-replicated MergeTree; a separate ``map_any_host_in_shards`` call from the outer
+        # loop can resolve to a different replica (the schema-qualified name does not
+        # influence host selection), which would silently DROP IF EXISTS on the wrong host
+        # and leave the staging rows behind on the originating one.
+        execute("drop-temp", f"DROP TABLE IF EXISTS {db}.{temp}")
+
         return {"copied": copied}
 
     shards = sorted(cluster.shards)
@@ -644,12 +646,6 @@ def process_property_removal_per_shard(
 
         result = cluster.map_any_host_in_shards({shard_num: process_shard}).result()
         _host, stats = next(iter(result.items()))
-
-        # Drop the local temp table. Runs on the originating host because the table is
-        # local non-replicated; we route to the same host via Query on the full schema name.
-        drop_sql = f"DROP TABLE IF EXISTS {db}.{temp}"
-        context.log.info(f"[drop-temp] shard {shard_num}: {drop_sql}")
-        cluster.map_any_host_in_shards({shard_num: Query(drop_sql)}).result()
 
         elapsed = time.monotonic() - shard_start
         context.log.info(
@@ -936,7 +932,11 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
 
     context.log.error(f"Deletion request {request_id} marked as failed.")
 
-    # Clean up temp tables for property removal jobs
+    # Clean up temp tables for property removal jobs. The temp table is local
+    # non-replicated MergeTree, so it only exists on whichever host originally ran
+    # ``process_shard`` for that shard. We don't know which host that was at this
+    # point, so broadcast the DROP to every host in every shard — DROP IF EXISTS
+    # is a safe no-op on hosts that don't have it.
     if ops_config.get("load_property_removal_request"):
         try:
             from posthog.clickhouse.cluster import Query, get_cluster
@@ -946,7 +946,8 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
                 temp = _temp_table_name(db_request["team_id"], request_id)
                 db = django_settings.CLICKHOUSE_DATABASE
                 cluster = get_cluster()
-                cluster.map_one_host_per_shard(Query(f"DROP TABLE IF EXISTS {db}.{temp}")).result()
+                drop_sql = f"DROP TABLE IF EXISTS {db}.{temp}"
+                cluster.map_all_hosts(Query(drop_sql)).result()
                 context.log.info(f"Cleaned up temp table {temp}")
         except Exception as e:
             context.log.warning(f"Failed to clean up temp table: {e}")
