@@ -310,13 +310,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
                 />
             )}
             {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
-            {showAnnotations && (
-                <AnnotationsLayer
-                    insightNumericId={insight.id || 'new'}
-                    dates={annotationsDates}
-                    xTickFormatter={xTickFormatter}
-                />
-            )}
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
         </BarChart>
     )
 }

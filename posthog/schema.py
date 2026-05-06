@@ -21755,6 +21755,7 @@ class VisualizationBlock(BaseModel):
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
@@ -22037,6 +22038,7 @@ class VisualizationItem(BaseModel):
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
@@ -22066,6 +22068,7 @@ class VisualizationMessage(BaseModel):
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery
         | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
         | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
@@ -23636,7 +23639,8 @@ class VisualizationArtifactContent(BaseModel):
     name: str | None = None
     plan: str | None = None
     query: (
-        AssistantTrendsQuery
+        DataVisualizationNode
+        | AssistantTrendsQuery
         | AssistantFunnelsQuery
         | AssistantRetentionQuery
         | AssistantStickinessQuery

@@ -340,6 +340,7 @@ export function DataTable({
                                         renderValue={() => <>Edit column</>}
                                         type="tertiary"
                                         fullWidth
+                                        selectingKeyOnly
                                         onChange={(v, g) => {
                                             const hogQl = isActorsQuery(query.source)
                                                 ? taxonomicPersonFilterToHogQL(g, v)

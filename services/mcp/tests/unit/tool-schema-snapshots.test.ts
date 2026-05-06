@@ -106,10 +106,9 @@ describe('Tool schema snapshots', () => {
     it('snapshots runtime tool schemas as common + version deltas', async () => {
         const shouldUpdateSnapshots = isSnapshotUpdateAll()
         const root = path.resolve(__dirname, '__snapshots__', 'tool-schemas')
-        // Enable the agent-feedback gating flag so its snapshot is captured. Other flag-gated
-        // tools (logs-alerts, visual-review) remain excluded so this test stays scoped to the
-        // tool surface that was previously snapshotted.
-        const featureFlags = { 'mcp-feedback-tool': true }
+        // Enable flag-gated tools we snapshot here: agent-feedback, tracing (APM spans). Other
+        // flag-gated tools (logs-alerts, visual-review, etc.) stay off to keep the surface stable.
+        const featureFlags = { 'mcp-feedback-tool': true, tracing: true }
         const v1Tools = [...(await getToolsFromContext(context, { version: 1, featureFlags }))].sort((a, b) =>
             a.name.localeCompare(b.name)
         )

@@ -349,8 +349,20 @@ export const CommentsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
+    completed: zod
+        .enum(['any', 'open', 'completed'])
+        .optional()
+        .describe(
+            "When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).\n\n* `any` - any\n* `open` - open\n* `completed` - completed"
+        ),
     cursor: zod.string().optional().describe('The pagination cursor value.'),
     item_id: zod.string().min(1).optional().describe('Filter by the ID of the resource being commented on.'),
+    kind: zod
+        .enum(['any', 'comment', 'task'])
+        .optional()
+        .describe(
+            "Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).\n\n* `any` - any\n* `comment` - comment\n* `task` - task"
+        ),
     scope: zod
         .string()
         .min(1)

@@ -276,14 +276,14 @@ function SeedRecents({ count }: { count: number }): null {
     useOnMountEffect(() => {
         recentTaxonomicFiltersLogic.actions.clearRecentFilters()
         for (const recent of RECENT_ITEMS.slice(0, count)) {
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-                recent.groupType,
-                recent.groupName,
-                recent.value,
-                recent.item,
-                MOCK_TEAM_ID,
-                recent.propertyFilter
-            )
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: recent.groupType,
+                groupName: recent.groupName,
+                value: recent.value,
+                item: recent.item,
+                teamId: MOCK_TEAM_ID,
+                propertyFilter: recent.propertyFilter,
+            })
         }
     })
 

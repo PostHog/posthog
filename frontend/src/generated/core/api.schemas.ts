@@ -2658,6 +2658,8 @@ export interface SubscriptionApi {
     readonly created_by: UserBasicApi
     /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
     deleted?: boolean
+    /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
+    enabled?: boolean
     /**
      * Human-readable name for this subscription.
      * @maxLength 100
@@ -2764,6 +2766,8 @@ export interface PatchedSubscriptionApi {
     readonly created_by?: UserBasicApi
     /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
     deleted?: boolean
+    /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
+    enabled?: boolean
     /**
      * Human-readable name for this subscription.
      * @maxLength 100

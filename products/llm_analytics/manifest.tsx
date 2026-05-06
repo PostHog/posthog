@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from './frontend/clusters/constants'
 
 export const manifest: ProductManifest = {
     name: 'LLM Analytics',
@@ -178,7 +179,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/skills/:name': ['LLMAnalyticsSkill', 'llmAnalyticsSkill'],
         '/llm-analytics/clusters': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
         '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
-        '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
+        [LLM_ANALYTICS_CLUSTER_URL_PATTERN]: ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
     },
     redirects: {
         '/llm-analytics': (_params, searchParams, hashParams) =>
