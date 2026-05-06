@@ -7,6 +7,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
+import { LogsColumnsModal } from 'products/logs/frontend/components/LogsViewer/LogsColumnsModal/LogsColumnsModal'
 import { LogsOrderBy } from 'products/logs/frontend/types'
 
 import { LogsExportMenu } from './LogsExportMenu'
@@ -14,6 +15,7 @@ import { logsViewerLogic } from './logsViewerLogic'
 import { TimezoneSelect } from './TimezoneSelect'
 
 export interface LogsViewerToolbarProps {
+    viewerId: string
     totalLogsCount?: number
     orderBy: LogsOrderBy
     onChangeOrderBy: (orderBy: LogsOrderBy) => void
@@ -21,6 +23,7 @@ export interface LogsViewerToolbarProps {
 }
 
 export const LogsViewerToolbar = ({
+    viewerId,
     totalLogsCount,
     orderBy,
     onChangeOrderBy,
@@ -49,6 +52,7 @@ export const LogsViewerToolbar = ({
                 />
                 <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
                 <TimezoneSelect value={timezone} onChange={setTimezone} size="small" />
+                <LogsColumnsModal viewerId={viewerId} />
                 <LogsExportMenu totalLogsCount={totalLogsCount} />
                 {onOpenFullScreen && (
                     <LemonButton

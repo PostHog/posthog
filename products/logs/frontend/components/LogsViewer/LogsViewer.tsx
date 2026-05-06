@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
@@ -12,6 +14,7 @@ import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewe
 import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { logsColumnsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsColumnsModal/logsColumnsModalLogic'
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
@@ -47,10 +50,12 @@ export function LogsViewer({
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
                             <BindLogic logic={logsExportLogic} props={{ id }}>
                                 <BindLogic logic={logsFilterHistoryLogic} props={{ id }}>
-                                    <LogsViewerContent
-                                        showFullScreenButton={showFullScreenButton}
-                                        showSavedViewsButton={showSavedViewsButton}
-                                    />
+                                    <BindLogic logic={logsColumnsModalLogic} props={{ viewerId: id }}>
+                                        <LogsViewerContent
+                                            showFullScreenButton={showFullScreenButton}
+                                            showSavedViewsButton={showSavedViewsButton}
+                                        />
+                                    </BindLogic>
                                 </BindLogic>
                             </BindLogic>
                         </BindLogic>
@@ -80,6 +85,7 @@ function LogsViewerContent({
         isSelectionActive,
         keyboardNavEnabled,
         isLogDetailsOpen,
+        attributeColumns,
     } = useValues(logsViewerLogic)
     const {
         moveCursorDown,
@@ -97,6 +103,7 @@ function LogsViewerContent({
         useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
+    const { openModal: openLogsColumnsModal } = useActions(logsColumnsModalLogic({ viewerId: id }))
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
@@ -280,11 +287,26 @@ function LogsViewerContent({
             <SceneDivider />
             <LogsFilterBar showSavedViewsButton={showSavedViewsButton} />
             <LogsViewerToolbar
+                viewerId={id}
                 totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
                 orderBy={orderBy}
                 onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'toolbar')}
                 onOpenFullScreen={showFullScreenButton ? () => openLogsViewerModal({ id }) : undefined}
             />
+            {attributeColumns.length === 0 && !logsLoading && parsedLogs.length > 0 && (
+                <div
+                    className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-bg-light px-3 py-2 text-sm"
+                    data-attr="logs-columns-hint"
+                >
+                    <p className="text-muted m-0">
+                        Tip: add attribute columns (trace id, service name, HTTP route, …) so they appear between
+                        timestamp and message.
+                    </p>
+                    <LemonButton size="small" type="secondary" onClick={() => openLogsColumnsModal()}>
+                        Choose columns
+                    </LemonButton>
+                </div>
+            )}
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList
                     dataSource={pinnedLogsArray}

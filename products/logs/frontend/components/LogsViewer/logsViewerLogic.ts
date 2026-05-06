@@ -121,6 +121,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         removeAttributeColumn: (attributeKey: string) => ({ attributeKey }),
         setAttributeColumnWidth: (attributeKey: string, width: number) => ({ attributeKey, width }),
         moveAttributeColumn: (attributeKey: string, direction: 'left' | 'right') => ({ attributeKey, direction }),
+        setAttributeColumnsFromOrderedKeys: (keys: string[]) => ({ keys }),
 
         // Row height recomputation (triggered by child components when content changes)
         recomputeRowHeights: (logIds?: string[]) => ({ logIds }),
@@ -254,6 +255,22 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         [attributeKey]: { ...state[attributeKey], order: state[targetKey].order },
                         [targetKey]: { ...state[targetKey], order: state[attributeKey].order },
                     }
+                },
+                setAttributeColumnsFromOrderedKeys: (state, { keys }) => {
+                    const seen = new Set<string>()
+                    const unique = keys.filter((k) => {
+                        if (seen.has(k)) {
+                            return false
+                        }
+                        seen.add(k)
+                        return true
+                    })
+                    const next: Record<string, AttributeColumnConfig> = {}
+                    unique.forEach((key, order) => {
+                        const prev = state[key]
+                        next[key] = { order, ...(prev?.width !== undefined ? { width: prev.width } : {}) }
+                    })
+                    return next
                 },
             },
         ],
@@ -513,6 +530,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         toggleAttributeColumn: ({ attributeKey }) => {
             if (attributeKey in values.attributeColumnsConfig) {
                 posthog.capture('logs column added', { attribute_key: attributeKey })
+            } else {
+                posthog.capture('logs column removed', { attribute_key: attributeKey })
             }
         },
     })),

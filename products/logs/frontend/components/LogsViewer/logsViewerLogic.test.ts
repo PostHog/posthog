@@ -631,6 +631,37 @@ describe('logsViewerLogic', () => {
                 })
             })
         })
+
+        describe('setAttributeColumnsFromOrderedKeys', () => {
+            it('replaces column order and drops duplicates', async () => {
+                logic.actions.toggleAttributeColumn('x')
+                logic.actions.setAttributeColumnWidth('x', 120)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setAttributeColumnsFromOrderedKeys(['a', 'b', 'a', 'c'])
+                }).toMatchValues({
+                    attributeColumns: ['a', 'b', 'c'],
+                })
+                expect(logic.values.attributeColumnsConfig['a']?.width).toBeUndefined()
+                expect(logic.values.attributeColumnsConfig['b']?.width).toBeUndefined()
+                expect(logic.values.attributeColumnsConfig['c']?.width).toBeUndefined()
+                expect(logic.values.attributeColumnsConfig['x']).toBeUndefined()
+            })
+
+            it('preserves width for keys that stay', async () => {
+                logic.actions.toggleAttributeColumn('keep')
+                logic.actions.setAttributeColumnWidth('keep', 200)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setAttributeColumnsFromOrderedKeys(['keep', 'new'])
+                }).toMatchValues({
+                    attributeColumns: ['keep', 'new'],
+                })
+                expect(logic.values.attributeColumnsConfig['keep']?.width).toBe(200)
+            })
+        })
     })
 
     describe('expansion', () => {

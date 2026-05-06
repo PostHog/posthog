@@ -770,6 +770,10 @@ export class ApiRequest {
         return this.logs(projectId).addPathComponent('export')
     }
 
+    public logsAttributes(projectId?: ProjectType['id']): ApiRequest {
+        return this.logs(projectId).addPathComponent('attributes')
+    }
+
     // # Tracing
     public tracingSpans(): ApiRequest {
         return this.environmentsDetail().addPathComponent('tracing').addPathComponent('spans')

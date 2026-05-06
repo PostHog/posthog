@@ -70,7 +70,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsViewerDataLogic({ id: props.tabId }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
             logsViewerLogic({ id: props.tabId }),
-            ['setLinkToLogId', 'clearLinkToLogId'],
+            [
+                'setLinkToLogId',
+                'clearLinkToLogId',
+                'setAttributeColumnsFromOrderedKeys',
+                'toggleAttributeColumn',
+                'removeAttributeColumn',
+                'moveAttributeColumn',
+                'setAttributeColumnWidth',
+            ],
             logDetailsModalLogic({ id: props.tabId }),
             ['closeLogDetails'],
         ],
@@ -82,7 +90,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsViewerDataLogic({ id: props.tabId }),
             ['initialLogsLimit'],
             logsViewerLogic({ id: props.tabId }),
-            ['linkToLogId'],
+            ['linkToLogId', 'attributeColumns'],
         ],
     })),
     tabAwareUrlToAction(({ actions, values, cache }) => {
@@ -168,6 +176,22 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (linkToLogId && linkToLogId !== values.linkToLogId) {
                 actions.setLinkToLogId(linkToLogId)
             }
+
+            const logColumnsParam = params.logColumns
+            if (typeof logColumnsParam === 'string') {
+                try {
+                    const parsed: unknown = JSON.parse(logColumnsParam)
+                    if (
+                        Array.isArray(parsed) &&
+                        parsed.every((x): x is string => typeof x === 'string') &&
+                        !equal(parsed, values.attributeColumns)
+                    ) {
+                        actions.setAttributeColumnsFromOrderedKeys(parsed)
+                    }
+                } catch {
+                    // Ignore malformed logColumns JSON in URL
+                }
+            }
         }
         return {
             '*': urlToAction,
@@ -191,6 +215,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
+                updateSearchParams(params, 'logColumns', values.attributeColumns, [])
                 return params
             })
             queueMicrotask(() => {
@@ -278,6 +303,21 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             actions.syncUrl()
         },
         setOrderBy: () => {
+            actions.syncUrl()
+        },
+        toggleAttributeColumn: () => {
+            actions.syncUrl()
+        },
+        removeAttributeColumn: () => {
+            actions.syncUrl()
+        },
+        moveAttributeColumn: () => {
+            actions.syncUrl()
+        },
+        setAttributeColumnWidth: () => {
+            actions.syncUrl()
+        },
+        setAttributeColumnsFromOrderedKeys: () => {
             actions.syncUrl()
         },
         keepSqlEditorMounted: ({ editorTabId }) => {
