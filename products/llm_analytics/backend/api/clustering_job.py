@@ -45,13 +45,10 @@ class ClusteringJobSerializer(serializers.ModelSerializer):
         the user immediate feedback. Cohorts deleted *after* save are still
         handled defensively in the sampling activity itself.
         """
-        if not isinstance(value, list):
-            return value
-
         team = self.context["get_team"]()
         referenced_ids: list[int] = []
         for f in value:
-            if not isinstance(f, dict) or f.get("type") not in _COHORT_FILTER_TYPES:
+            if f.get("type") not in _COHORT_FILTER_TYPES:
                 continue
             cohort_value = f.get("value")
             if not isinstance(cohort_value, (int, str)):
