@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
@@ -18,7 +19,7 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 
 import { actionsModel } from '~/models/actionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
+import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { AnyCohortCriteriaType, CohortType, FilterLogicalOperator } from '~/types'
 
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
@@ -27,9 +28,20 @@ import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 const MAX_CRITERIA_GROUPS = 2
 const MAX_CRITERIA = 2
 
-export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Element | null {
+export function CohortPopoverInfo({ cohort: cohortInput }: { cohort: CohortType }): JSX.Element | null {
     const { cohortsById } = useValues(cohortsModel)
     const { actionsById } = useValues(actionsModel)
+
+    // The cohort prop arrives raw from the TaxonomicFilter cohorts endpoint, but
+    // BEHAVIORAL_TYPE_TO_LABEL and criteriaToHumanSentence expect criteria that have
+    // been through processCohort — which rewrites person/cohort criteria.value into
+    // a behavioral filter type. Without it, the popover renders "Unknown criteria".
+    const cohort = useMemo(() => {
+        if (!cohortInput) {
+            return null
+        }
+        return cohortsById[cohortInput.id] ?? processCohort(cohortInput)
+    }, [cohortInput, cohortsById])
 
     if (!cohort) {
         return null
