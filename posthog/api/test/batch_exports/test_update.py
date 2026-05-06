@@ -554,7 +554,7 @@ def test_patch_rejects_destination_type_change(
 ):
     """Assert PATCH cannot change the destination type — callers must delete and recreate."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -592,7 +592,7 @@ def test_patch_rejects_destination_type_change(
 
     # The original destination is still intact.
     refreshed = get_batch_export_ok(client, team.pk, batch_export["id"])
-    assert refreshed["destination"]["type"] == "S3"
+    assert refreshed["destination"]["type"] == "AwsS3"
     assert refreshed["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
 
 
@@ -605,7 +605,7 @@ def test_put_rejects_destination_type_change(
 ):
     """Assert PUT cannot change the destination type either — same restriction as PATCH."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -642,7 +642,7 @@ def test_put_rejects_destination_type_change(
 
     # The original destination is still intact.
     refreshed = get_batch_export_ok(client, team.pk, batch_export["id"])
-    assert refreshed["destination"]["type"] == "S3"
+    assert refreshed["destination"]["type"] == "AwsS3"
     assert refreshed["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
 
 
