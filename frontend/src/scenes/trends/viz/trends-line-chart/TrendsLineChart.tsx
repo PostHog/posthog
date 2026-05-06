@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { createXAxisTickCallback, DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -123,17 +123,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
-    // Built here so the same instance can be threaded into <AnnotationsLayer> below.
-    const xTickFormatter = useMemo(
-        () =>
-            createXAxisTickCallback({
-                interval: interval ?? 'day',
-                allDays: currentPeriodResult?.days ?? [],
-                timezone,
-            }),
-        [interval, currentPeriodResult?.days, timezone]
-    )
-
     const yAxisConfig = useMemo(
         () =>
             buildTrendsYAxisConfig(trendsFilter, isPercentStackView, baseCurrency, {
@@ -177,7 +166,11 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     const chartConfig: TimeSeriesLineChartConfig = useMemo(
         () => ({
-            xAxis: { tickFormatter: xTickFormatter },
+            xAxis: {
+                timezone,
+                interval: interval ?? 'day',
+                allDays: currentPeriodResult?.days ?? [],
+            },
             yAxis: yAxisConfig,
             valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
             goalLines: goalLineConfigs,
@@ -187,7 +180,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             tooltip: TOOLTIP_CONFIG,
         }),
         [
-            xTickFormatter,
+            timezone,
+            interval,
+            currentPeriodResult?.days,
             yAxisConfig,
             showValuesOnSeries,
             valueLabelFormatter,
@@ -317,13 +312,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                     isHidden={getTrendsHidden}
                 />
             ) : null}
-            {showAnnotations && (
-                <AnnotationsLayer
-                    insightNumericId={insight.id || 'new'}
-                    dates={annotationsDates}
-                    xTickFormatter={xTickFormatter}
-                />
-            )}
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
         </TimeSeriesLineChart>
     )
 }

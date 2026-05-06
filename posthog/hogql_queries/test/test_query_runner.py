@@ -1105,7 +1105,7 @@ class TestSharedInsightsExecutionMode(BaseTest):
     def test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval(self) -> None:
         """Backend throttle must match frontend auto-refresh interval — drift would silently throttle periodic refreshes."""
         frontend_file = (
-            Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardUtils.ts"
+            Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardConstants.ts"
         )
         source = frontend_file.read_text()
 

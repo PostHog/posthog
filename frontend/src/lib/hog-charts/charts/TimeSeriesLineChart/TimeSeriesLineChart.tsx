@@ -11,7 +11,12 @@ import type {
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, type GoalLineConfig } from '../../utils/goal-lines'
-import { useYTickFormatter, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
+import {
+    useXTickFormatter,
+    useYTickFormatter,
+    type XAxisConfig,
+    type YAxisConfig,
+} from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart'
 import {
     useDerivedSeries,
@@ -93,6 +98,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showCrosshair,
         tooltip: tooltipConfig,
     } = config ?? {}
+    const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
 
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
@@ -107,7 +113,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         }
         const allowed = new Set(seriesKeys)
         return series.map((s) =>
-            allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, fromValueLabels: true } }
+            allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, valueLabel: false } }
         )
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [series, seriesKeysSignature])
@@ -125,7 +131,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
 
     const lineChartConfig: LineChartConfig = {
         yScaleType: yAxis?.scale,
-        xTickFormatter: xAxis?.tickFormatter,
+        xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxis?.hide,

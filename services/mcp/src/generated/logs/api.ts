@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -192,6 +192,127 @@ export const LogsAlertsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.
+ */
+export const LogsAlertsDestinationsCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['slack', 'webhook'])
+        .describe('* `slack` - slack\n* `webhook` - webhook')
+        .describe('Destination type — slack or webhook.\n\n* `slack` - slack\n* `webhook` - webhook'),
+    slack_workspace_id: zod
+        .number()
+        .optional()
+        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
+    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
+    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to POST to. Required when type=webhook.'),
+})
+
+/**
+ * Delete a notification destination by deleting its HogFunction group atomically.
+ */
+export const LogsAlertsDestinationsDeleteCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.string())
+        .min(1)
+        .describe('HogFunction IDs to delete as one atomic destination group.'),
+})
+
+/**
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind.
+ */
+export const LogsAlertsEventsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LogsAlertsEventsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
+ */
+export const LogsAlertsSimulateCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
+export const logsAlertsSimulateCreateBodyCheckIntervalMinutesMax = 60
+
+export const logsAlertsSimulateCreateBodyEvaluationPeriodsDefault = 1
+export const logsAlertsSimulateCreateBodyEvaluationPeriodsMax = 10
+
+export const logsAlertsSimulateCreateBodyDatapointsToAlarmDefault = 1
+export const logsAlertsSimulateCreateBodyDatapointsToAlarmMax = 10
+
+export const logsAlertsSimulateCreateBodyCooldownMinutesDefault = 0
+export const logsAlertsSimulateCreateBodyCooldownMinutesMin = 0
+
+export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod.unknown().describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
+    threshold_count: zod.number().min(1).describe('Threshold count to evaluate against.'),
+    threshold_operator: zod
+        .enum(['above', 'below'])
+        .describe('* `above` - Above\n* `below` - Below')
+        .describe(
+            'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below'
+        ),
+    window_minutes: zod.number().describe('Window size in minutes — determines bucket interval.'),
+    check_interval_minutes: zod
+        .number()
+        .min(1)
+        .max(logsAlertsSimulateCreateBodyCheckIntervalMinutesMax)
+        .default(logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault)
+        .describe('How often the alert is evaluated, in minutes.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(logsAlertsSimulateCreateBodyEvaluationPeriodsMax)
+        .default(logsAlertsSimulateCreateBodyEvaluationPeriodsDefault)
+        .describe('Total check periods in the N-of-M evaluation window (M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(logsAlertsSimulateCreateBodyDatapointsToAlarmMax)
+        .default(logsAlertsSimulateCreateBodyDatapointsToAlarmDefault)
+        .describe('How many periods must breach to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(logsAlertsSimulateCreateBodyCooldownMinutesMin)
+        .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
+        .describe('Minutes to wait after firing before sending another notification.'),
+    date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
 })
 
 export const LogsAttributesRetrieveParams = /* @__PURE__ */ zod.object({
@@ -606,6 +727,99 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
             after: zod.string().optional().describe('Pagination cursor from previous response.'),
         })
         .describe('The logs query to execute.'),
+})
+
+export const LogsServicesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for "now".'),
+                })
+                .optional()
+                .describe('Date range for the services aggregation. Defaults to last hour.'),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Filter by log severity levels.'),
+            serviceNames: zod
+                .array(zod.string())
+                .optional()
+                .describe('Restrict the aggregation to these service names.'),
+            searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").'
+                            ),
+                        type: zod
+                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                            .describe(
+                                '* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                            )
+                            .describe(
+                                '"log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .nullish()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Property filters for the query.'),
+        })
+        .describe('The services aggregation query to execute.'),
 })
 
 export const LogsSparklineCreateParams = /* @__PURE__ */ zod.object({

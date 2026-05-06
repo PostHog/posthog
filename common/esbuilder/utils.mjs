@@ -279,7 +279,8 @@ function getChunks(result) {
             (i) => i.kind === 'import-statement' && i.path.startsWith('dist/chunk-')
         )
         const exports = output.exports.filter((e) => e !== 'default' && e !== 'scene')
-        if (importStatements.length > 0 && (exports.length > 0 || output.entryPoint === 'src/index.tsx')) {
+        const isRootEntry = output.entryPoint === 'src/index.tsx' || output.entryPoint === 'src/exporter/index.tsx'
+        if (importStatements.length > 0 && (exports.length > 0 || isRootEntry)) {
             chunks[exports[0] || 'index'] = importStatements.map((i) =>
                 i.path.replace('dist/chunk-', '').replace('.js', '')
             )
@@ -356,10 +357,42 @@ export async function buildInParallel(configs, { onBuildStart, onBuildComplete }
 
 /** Get the main ".js" and ".css" files for a build */
 function getBuiltEntryPoints(config, result) {
+    // Normalise entryPoints: support both array form and object form { name: path }
+    const entryValues = Array.isArray(config.entryPoints) ? config.entryPoints : Object.values(config.entryPoints || {})
+
+    // Primary: scan the metafile directly — works regardless of entryNames overrides.
+    // CSS outputs never have entryPoint set, so we find JS entries first, then locate
+    // each companion CSS by matching the same base name (hashes differ between JS and CSS).
+    const jsFiles = []
+    for (const [outputPath, output] of Object.entries(result.metafile?.outputs || {})) {
+        if (output.entryPoint && entryValues.includes(output.entryPoint) && outputPath.endsWith('.js')) {
+            jsFiles.push(path.resolve(process.cwd(), outputPath))
+        }
+    }
+    if (jsFiles.length > 0) {
+        const allFiles = [...jsFiles]
+        const allOutputPaths = Object.keys(result.metafile?.outputs || {})
+        for (const jsFile of jsFiles) {
+            // Strip optional hash suffix: "dist/exporter-HASH.js" -> "dist/exporter"
+            const baseName = jsFile.replace(/(-[A-Z0-9]+)?\.js$/, '')
+            for (const outputPath of allOutputPaths) {
+                if (!outputPath.endsWith('.css')) {
+                    continue
+                }
+                const absoluteCss = path.resolve(process.cwd(), outputPath)
+                if (absoluteCss.startsWith(baseName + '-') || absoluteCss === baseName + '.css') {
+                    allFiles.push(absoluteCss)
+                }
+            }
+        }
+        return allFiles
+    }
+
+    // Fallback: path-based convention for configs where metafile scan yields nothing
     let outfiles = []
     if (config.outdir) {
         // convert "src/index.tsx" --> /a/posthog/frontend/dist/index.js
-        outfiles = config.entryPoints.map((file) =>
+        outfiles = entryValues.map((file) =>
             path
                 .resolve(config.absWorkingDir, file)
                 .replace('/src/', '/dist/')
@@ -369,24 +402,21 @@ function getBuiltEntryPoints(config, result) {
         outfiles = [path.resolve(config.absWorkingDir, config.outfile)]
     }
 
-    const builtFiles = []
+    const fallbackFiles = []
     for (const outfile of outfiles) {
-        // convert "/a/something.tsx" --> "/a/something-"
         const fileNoExt = outfile.replace(/\.[^/]+$/, '')
-        // find if we built a .js or .css file that matches
-        for (const file of Object.keys(result.metafile.outputs)) {
+        for (const file of Object.keys(result.metafile?.outputs || {})) {
             const absoluteFile = path.resolve(process.cwd(), file)
             if (
                 (absoluteFile.startsWith(`${fileNoExt}-`) && (file.endsWith('.js') || file.endsWith('.css'))) ||
                 absoluteFile === `${fileNoExt}.js` ||
                 absoluteFile === `${fileNoExt}.css`
             ) {
-                builtFiles.push(absoluteFile)
+                fallbackFiles.push(absoluteFile)
             }
         }
     }
-
-    return builtFiles
+    return fallbackFiles
 }
 
 let buildsInProgress = 0

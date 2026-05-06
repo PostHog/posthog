@@ -491,7 +491,7 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
+    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface

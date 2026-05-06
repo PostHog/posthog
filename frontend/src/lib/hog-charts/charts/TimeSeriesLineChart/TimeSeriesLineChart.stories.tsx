@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { createXAxisTickCallback, TimeSeriesLineChart } from 'lib/hog-charts'
+import { TimeSeriesLineChart } from 'lib/hog-charts'
 import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
 import { ciRanges } from 'lib/statistics'
 
@@ -88,7 +88,6 @@ interface DateAxisCellProps {
 
 function DateAxisCell({ title, labels, series, interval, timezone }: DateAxisCellProps): JSX.Element {
     const theme = useReactiveTheme()
-    const tickFormatter = createXAxisTickCallback({ timezone, interval, allDays: labels })
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -99,7 +98,7 @@ function DateAxisCell({ title, labels, series, interval, timezone }: DateAxisCel
                     labels={labels}
                     theme={theme}
                     config={{
-                        xAxis: { tickFormatter },
+                        xAxis: { timezone, interval },
                         yAxis: { showGrid: true },
                     }}
                 />

@@ -30,7 +30,7 @@ export function buildConfidenceIntervalSeries<Meta = unknown>(
         yAxisId: input.yAxisId,
         meta: input.meta,
         fill: { opacity: CI_FILL_OPACITY, lowerData: input.lower },
-        visibility: { excluded: input.excluded, fromTooltip: true, fromValueLabels: true },
+        visibility: { excluded: input.excluded, tooltip: false, valueLabel: false },
     }
 }
 
@@ -54,7 +54,8 @@ export function buildMovingAverageSeries<Meta = unknown>(input: BuildMovingAvera
         yAxisId: sourceSeries.yAxisId,
         meta: sourceSeries.meta,
         stroke: { pattern: MA_DASH_PATTERN },
-        visibility: { fromTooltip: true, fromStack: true },
+        overlay: true,
+        visibility: { tooltip: false },
     }
 }
 
@@ -86,7 +87,8 @@ export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeries
         yAxisId: sourceSeries.yAxisId,
         meta: sourceSeries.meta,
         stroke: { pattern: TREND_LINE_DASH_PATTERN },
-        visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
+        overlay: true,
+        visibility: { tooltip: false, valueLabel: false },
     }
 }
 
