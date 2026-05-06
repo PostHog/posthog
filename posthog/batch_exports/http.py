@@ -35,7 +35,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, S3_FAMILY_TYPES, TIMEZONES
 from posthog.event_usage import groups
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
@@ -232,6 +232,23 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             raise ValidationError(f"Cannot cancel a run that is in '{batch_export_run.status}' status")
 
         return response.Response({"cancelled": True})
+
+
+def _normalize_legacy_s3_type(export_type: str, config: dict[str, typing.Any]) -> str:
+    """Map the legacy `S3` type alias to a provider-specific type.
+
+    `type=S3` is still accepted on input for backward compatibility, but new
+    rows are normalized to `AwsS3` (no endpoint_url) or `S3Compatible`
+    (endpoint_url set) so they match the post-split API shape.
+
+    TODO: this helper (and the legacy `S3` enum value) can be removed once all
+    existing rows with `type=S3` have been migrated to `AwsS3` / `S3Compatible`.
+    """
+    if export_type != BatchExportDestination.Destination.S3:
+        return export_type
+    if config.get("endpoint_url"):
+        return BatchExportDestination.Destination.S3_COMPATIBLE
+    return BatchExportDestination.Destination.AWS_S3
 
 
 class DatabricksDestinationConfigSerializer(serializers.Serializer):
@@ -502,6 +519,14 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             A `serializers.ValidationError` if any of these checks fail.
         """
         export_type, config = data["type"], data["config"]
+        is_patch = self.context["request"].method == "PATCH"
+
+        if not is_patch:
+            normalized_type = _normalize_legacy_s3_type(export_type, config)
+            if normalized_type != export_type:
+                export_type = normalized_type
+                data = {**data, "type": export_type}
+
         _, workflow_inputs = DESTINATION_WORKFLOWS[export_type]
         base_field_names = {field.name for field in dataclasses.fields(BaseBatchExportInputs)}
         workflow_fields = dataclasses.fields(workflow_inputs)
@@ -518,8 +543,6 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
                 and destination_field.default_factory == dataclasses.MISSING
             )
             if destination_field.name not in config:
-                request = self.context.get("request")
-                is_patch = request is not None and request.method == "PATCH"
                 if is_required and not is_patch:
                     # When patching we expect a partial configuration. So, we don't
                     # error on missing required fields.
@@ -926,15 +949,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
         else:
             existing_config = {}
 
-        if instance is not None and destination_type != instance.destination.type:
-            # Changing the destination type via PATCH/PUT is not supported —
-            # callers must delete and recreate the batch export. This avoids
-            # ambiguity around whether existing config should be preserved or
-            # wiped, and the matrix of edge cases that brings.
-            raise serializers.ValidationError(
-                f"Cannot change destination type from '{instance.destination.type}' to '{destination_type}'. "
-                "Delete this batch export and create a new one with the new destination type."
-            )
+        if instance is not None:
+            existing_type = instance.destination.type
+            # Accept the legacy `S3` alias as a no-op when the row was already
+            # normalized to a refined S3-family type on create.
+            if destination_type == BatchExportDestination.Destination.S3 and existing_type in S3_FAMILY_TYPES:
+                destination_type = existing_type
+                destination_attrs["type"] = existing_type
+            if destination_type != existing_type:
+                raise serializers.ValidationError(
+                    f"Cannot change destination type from '{existing_type}' to '{destination_type}'. "
+                    "Delete this batch export and create a new one with the new destination type."
+                )
         merged_config = recursive_dict_merge(existing_config, config)
 
         # SSRF protection for HTTP batch exports
@@ -949,7 +975,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
 
-        if destination_type == BatchExportDestination.Destination.S3:
+        if destination_type in S3_FAMILY_TYPES:
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
             # so here we just ensure that the inputs are not empty
             required_non_empty_inputs = (
@@ -1252,8 +1278,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             if destination_data:
-                # `validate_destination` rejects type changes, so the incoming
-                # `type` (if any) always equals the existing type here.
+                # Type changes are rejected by `validate_destination` — the
+                # incoming `type` (if any) always equals the existing type by
+                # the time we get here.
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
                     destination_data.get("config", {}),
