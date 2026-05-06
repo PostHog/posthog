@@ -378,6 +378,81 @@
             "readOnlyHint": true
         }
     },
+    "batch-export-create": {
+        "description": "Create a new batch export. Typed destination config schemas are available for Databricks and AzureBlob destinations — both require a team-scoped Integration (use integrations-list to find one). Other destination types are permitted by the API but typically must be created via the PostHog UI because their credentials are stored in the destination config. Always specify the model field (events, persons, or sessions) — omitting it defaults to events but the field should be set explicitly.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Create batch export",
+        "title": "Create batch export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "batch-export-delete": {
+        "description": "Soft-delete a batch export. Stops all future scheduled runs and hides the export from list and get operations. Historic run records remain attached to the deleted export in the database.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Delete batch export",
+        "title": "Delete batch export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "batch-export-get": {
+        "description": "Get a batch export by ID. Returns full non-sensitive configuration including destination type and config, linked Integration id (for Databricks and AzureBlob), schedule, model, and the 10 most recent runs.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Get batch export",
+        "title": "Get batch export",
+        "required_scopes": ["batch_export:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "batch-export-update": {
+        "description": "Partially update a batch export. Top-level fields (name, paused, interval, schema, filters) work for any destination type. Destination config updates are only typed for Databricks and AzureBlob destinations. Do not change the model field on an existing export — the destination table schema is created on the first run, so switching models causes errors unless the table name is also changed.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Update batch export",
+        "title": "Update batch export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "batch-exports-list": {
+        "description": "List batch exports in the project. Batch exports send event, person, or session data on a schedule to destinations like S3, Snowflake, BigQuery, Databricks, Azure Blob, Postgres, Redshift, or HTTP. Returns destination type, interval, paused state, and non-sensitive config; credentials are never exposed. Use batch-export-get with the ID for full details including latest runs, query, and filters.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "List batch exports",
+        "title": "List batch exports",
+        "required_scopes": ["batch_export:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",

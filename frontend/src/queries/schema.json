@@ -23269,6 +23269,10 @@
                 "ID",
                 "Campaign",
                 "Source",
+                "Ad group",
+                "Ad group ID",
+                "Ad",
+                "Ad ID",
                 "Cost",
                 "Clicks",
                 "Impressions",
@@ -23292,7 +23296,11 @@
                 "impressions",
                 "source",
                 "reported_conversion",
-                "reported_conversion_value"
+                "reported_conversion_value",
+                "ad_group_id",
+                "ad_group_name",
+                "ad_id",
+                "ad_name"
             ],
             "type": "string"
         },
@@ -23362,13 +23370,16 @@
                         "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
                     },
                     "type": "array"
+                },
+                "excludesConversionGoals": {
+                    "type": "boolean"
                 }
             },
             "required": ["columnAlias", "excludedBaseColumns"],
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign", "medium", "content", "term"],
+            "enum": ["channel", "source", "campaign", "ad_group", "ad", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -35745,6 +35756,18 @@
         "SourceMap": {
             "additionalProperties": false,
             "properties": {
+                "ad_group_id": {
+                    "type": "string"
+                },
+                "ad_group_name": {
+                    "type": "string"
+                },
+                "ad_id": {
+                    "type": "string"
+                },
+                "ad_name": {
+                    "type": "string"
+                },
                 "campaign": {
                     "type": "string"
                 },
@@ -40266,6 +40289,22 @@
                 }
             },
             "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
+        "getEffectiveExcludedColumns": {
+            "$comment": "(\n    level: MarketingAnalyticsDrillDownLevel) => Set<MarketingAnalyticsBaseColumns>",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "level": {
+                            "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel"
+                        }
+                    },
+                    "required": ["level"],
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "integer": {
