@@ -104,6 +104,7 @@ class TestUpsertHogFunctionTool(BaseTest):
         function = await sync_to_async(HogFunction.objects.get)(id=artifact["function_id"])
         assert function.template_id == "template-slack"
         assert function.team == self.team
+        assert function.filters is not None
         assert function.filters["events"][0]["id"] == "$insight_alert_firing"
         assert function.filters["properties"][0]["value"] == "alert-abc"
 
