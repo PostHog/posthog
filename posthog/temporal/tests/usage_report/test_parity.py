@@ -249,7 +249,7 @@ def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() ->
         fresh_orgs.append(org)
 
     period_start = datetime(2026, 5, 4, 0, 0, 0, tzinfo=UTC)
-    all_data = {key: {} for key in _all_destination_keys()}
+    all_data: dict[str, dict[int, int]] = {key: {} for key in _all_destination_keys()}
 
     with CaptureQueriesContext(connection) as captured:
         org_user_counts = get_org_user_counts()
