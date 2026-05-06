@@ -454,6 +454,8 @@ class DatabricksClient:
         except ServerOperationError as err:
             if err.message and "[SCHEMA_NOT_FOUND]" in err.message:
                 raise DatabricksSchemaNotFoundError(schema)
+            elif err.message and "PERMISSION_DENIED" in err.message:
+                raise DatabricksInsufficientPermissionsError("USE SCHEMA", err.message)
             raise
 
     @contextlib.asynccontextmanager
