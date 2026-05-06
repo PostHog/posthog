@@ -82,9 +82,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                         }
                     }
 
-                    // The logic may have been unmounted while the request was in flight (user
-                    // navigated away). Touching `values` post-unmount throws a kea path-not-found
-                    // error, so bail out before reading the store.
+                    // Reading `values` post-unmount throws kea's path-not-found error.
                     if (!databaseTableListLogic.isMounted()) {
                         return null
                     }
