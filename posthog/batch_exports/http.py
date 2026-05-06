@@ -474,7 +474,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
                 and destination_field.default_factory == dataclasses.MISSING
             )
             if destination_field.name not in config:
-                is_patch = self.context["request"].method == "PATCH"
+                request = self.context.get("request")
+                is_patch = request is not None and request.method == "PATCH"
                 if is_required and not is_patch:
                     # When patching we expect a partial configuration. So, we don't
                     # error on missing required fields.
