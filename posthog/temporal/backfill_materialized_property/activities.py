@@ -3,6 +3,7 @@
 import hashlib
 import dataclasses
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -22,16 +23,9 @@ from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
 from posthog.models.materialized_column_slots import COMPACTION_FREE_COLUMN_THRESHOLD, MaterializedColumnSlotState
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 
-from products.event_definitions.backend.models.property_definition import PropertyType
-
 logger = structlog.get_logger(__name__)
 
 DMAT_STRING_COLUMN_NAME_PREFIX = "dmat_string_"
-
-# Per the dynamic property materialization RFC, every dmat column is `Nullable(String)`.
-# HogQL casts to the property's logical type at read time the same way it does for normal
-# `mat_*` columns, so the API layer rejects requests to materialize anything other than String.
-MATERIALIZABLE_PROPERTY_TYPES: set[str] = {str(PropertyType.String)}
 
 
 def _generate_property_extraction_sql(property_name_param: str = "property_name") -> str:
@@ -217,9 +211,10 @@ def assign_pending_columns(inputs: AssignPendingColumnsInputs) -> AssignPendingC
     logger.info("Assigning pending slots to columns", run_id=inputs.run_id)
 
     with transaction.atomic():
-        # Lock all slot rows we may inspect for collision avoidance. The slot table only ever
-        # holds String slots (the API rejects other types — see MATERIALIZABLE_PROPERTY_TYPES),
-        # so there's no per-type filter to apply.
+        # Lock all slot rows we may inspect for collision avoidance. Every dmat column is
+        # `Nullable(String)` regardless of the property's logical type — HogQL casts at
+        # read time using the same wrapper as `mat_*` — so a single shared pool covers
+        # all property types and there's no per-type filter to apply.
         all_string_slots = list(
             MaterializedColumnSlot.objects.select_for_update()
             .select_related("property_definition", "team")
@@ -683,6 +678,12 @@ def _build_dict_backed_update_command(
     if not assignments:
         raise ValueError("Cannot build mutation command with no assignments")
 
+    # Identifiers are fully qualified with the connection database so the SQL we submit
+    # matches the form ClickHouse stores in `system.mutations.command` after parsing — bare
+    # references would get qualified server-side and the asymmetry breaks
+    # `AlterTableMutationRunner.find_existing_mutations`' byte-equality dedup join.
+    qualified_dict = f"{settings.CLICKHOUSE_DATABASE}.{DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME}"
+    qualified_assignments_table = f"{settings.CLICKHOUSE_DATABASE}.dmat_slot_assignments"
     set_clauses: list[str] = []
     for assignment in assignments:
         idx = int(assignment.column_index)
@@ -690,9 +691,7 @@ def _build_dict_backed_update_command(
         # Property name is sourced via dictGetString from `dmat_slot_assignments_dict`.
         # JSONExtractRaw accepts a String argument either way, so the runtime extraction
         # is byte-identical to today's bare-extract path.
-        property_name_expr = (
-            f"dictGetString('{DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME}', 'property_name', (team_id, {idx}))"
-        )
+        property_name_expr = f"dictGetString('{qualified_dict}', 'property_name', (team_id, {idx}))"
         extract_sql = (
             f"replaceRegexpAll("
             f"nullIf(nullIf("
@@ -700,13 +699,11 @@ def _build_dict_backed_update_command(
             f", ''), 'null')"
             f", '^\"|\"$', '')"
         )
-        dispatch_sql = (
-            f"if(dictHas('{DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME}', (team_id, {idx})), {extract_sql}, {col_name})"
-        )
+        dispatch_sql = f"if(dictHas('{qualified_dict}', (team_id, {idx})), {extract_sql}, {col_name})"
         set_clauses.append(f"{col_name} = {dispatch_sql}")
 
     where_clause = (
-        f"team_id IN (SELECT DISTINCT team_id FROM dmat_slot_assignments) "
+        f"team_id IN (SELECT DISTINCT team_id FROM {qualified_assignments_table}) "
         f"AND {int(cycle_marker_int)} = {int(cycle_marker_int)}"
     )
     command = f"UPDATE {', '.join(set_clauses)} WHERE {where_clause}"

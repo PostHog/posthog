@@ -855,7 +855,3 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
-    dmat:local:smoke:
-        bin_script: dmat-local-smoke.py
-        description: 'TODO: add description for dmat-local-smoke.py'
-        hidden: true

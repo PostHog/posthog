@@ -16,7 +16,6 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.materialized_column_slots import MAX_SLOTS_PER_TEAM
 from posthog.permissions import IsStaffUserOrImpersonating
 from posthog.settings import EE_AVAILABLE
-from posthog.temporal.backfill_materialized_property.activities import MATERIALIZABLE_PROPERTY_TYPES
 
 if EE_AVAILABLE:
     from ee.clickhouse.materialized_columns.columns import get_materialized_columns
@@ -113,7 +112,6 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             PropertyDefinition.objects.filter(
                 team_id=self.team_id,
                 property_type__isnull=False,
-                property_type__in=MATERIALIZABLE_PROPERTY_TYPES,
                 type=PropertyDefinition.Type.EVENT,
             )
             .exclude(id__in=already_materialized)
@@ -177,11 +175,6 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         """Returns error message if property cannot be materialized, None if valid."""
         if not property_definition.property_type:
             return "Property must have a type set to be materialized"
-        if property_definition.property_type not in MATERIALIZABLE_PROPERTY_TYPES:
-            return (
-                f"Property type '{property_definition.property_type}' cannot be materialized — "
-                "only String properties are supported by the dynamic materialization system"
-            )
         if property_definition.name.startswith("$") and not property_definition.name.startswith("$feature/"):
             return "PostHog system properties cannot be materialized"
         if property_definition.name in auto_materialized_names:

@@ -270,12 +270,15 @@ def test_find_existing_mutations_handles_multiline_formatted_command(cluster: Cl
 
     # Deeply nested no-op UPDATE on `properties`. The shape mirrors the dmat dict-backed
     # mutation closely enough that formatQuery wraps it across multiple lines — that is the
-    # condition that pre-fix tripped the assertion in find_existing_mutations.
+    # condition that pre-fix tripped the assertion in find_existing_mutations. The leaf is
+    # wrapped in `ifNull(..., properties)` because `replaceRegexpAll(nullIf(...))` returns
+    # NULL when the JSON key is absent, and `properties` is non-Nullable — without the guard
+    # the mutation fails on every row with CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN.
     long_command = (
         "UPDATE properties = if(1 = 1, "
         "if(1 = 1, "
         "if(1 = 1, "
-        "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'a_long_property_name_to_force_wrapping'), ''), 'null'), '^\"|\"$', ''), "
+        "ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'a_long_property_name_to_force_wrapping'), ''), 'null'), '^\"|\"$', ''), properties), "
         "properties), "
         "properties), "
         "properties) "
@@ -285,9 +288,7 @@ def test_find_existing_mutations_handles_multiline_formatted_command(cluster: Cl
 
     # Pre-fix, this call alone raised AssertionError because formatQuery wraps the command.
     existing = cluster.map_all_hosts(runner.find_existing_mutations).result()
-    assert all(not mutations for mutations in existing.values()), (
-        "expected no pre-existing mutation for this cycle"
-    )
+    assert all(not mutations for mutations in existing.values()), "expected no pre-existing mutation for this cycle"
 
     shard_mutations = cluster.map_one_host_per_shard(runner).result()
     wait_and_check_mutations_on_shards(cluster, shard_mutations)

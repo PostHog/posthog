@@ -165,8 +165,11 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert "email" not in prop_names
         assert "already_mat" not in prop_names
 
-    def test_available_properties_excludes_non_string_types(self):
-        # Numeric/Boolean/DateTime properties are no longer materializable via the new system.
+    def test_available_properties_includes_all_typed_properties(self):
+        # Every dmat column is `Nullable(String)` and HogQL casts at read time, so the
+        # storage shape is type-agnostic — Numeric / Boolean / DateTime / Duration properties
+        # all materialize fine. The only requirement is that property_type be set so HogQL
+        # knows how to cast.
         PropertyDefinition.objects.create(
             team=self.team,
             name="numeric_prop",
@@ -181,16 +184,35 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
         PropertyDefinition.objects.create(
             team=self.team,
+            name="datetime_prop",
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="duration_prop",
+            property_type=PropertyType.Duration,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
             name="string_prop",
             property_type=PropertyType.String,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        # Untyped properties are still excluded — without a type HogQL can't cast at read.
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="untyped_prop",
+            property_type=None,
             type=PropertyDefinition.Type.EVENT,
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/materialized_column_slots/available_properties/")
 
         assert response.status_code == status.HTTP_200_OK
-        prop_names = [p["name"] for p in response.json()]
-        assert prop_names == ["string_prop"]
+        prop_names = {p["name"] for p in response.json()}
+        assert prop_names == {"numeric_prop", "bool_prop", "datetime_prop", "duration_prop", "string_prop"}
 
     @patch("posthog.api.materialized_column_slot.get_auto_materialized_property_names")
     def test_available_properties_excludes_auto_materialized(self, mock_get_auto):
@@ -331,9 +353,12 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             [PropertyType.Boolean],
             [PropertyType.Datetime],
             [PropertyType.Duration],
+            [PropertyType.String],
         ]
     )
-    def test_assign_slot_rejects_non_string_types(self, prop_type):
+    def test_assign_slot_accepts_all_typed_properties(self, prop_type):
+        # Storage is `Nullable(String)` regardless of logical type — HogQL casts at read time —
+        # so every PropertyType is valid for materialization.
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name=f"{prop_type}_prop",
@@ -346,8 +371,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             {"property_definition_id": prop_def.id},
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "only String properties are supported" in response.json()["error"]
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_assign_slot_system_property(self):
         prop_def = PropertyDefinition.objects.create(
