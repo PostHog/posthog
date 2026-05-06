@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1143_sharingconfiguration_notebook")]
+    dependencies = [("posthog", "1145_alter_integration_kind")]
 
     # Bundles four pre-shipping changes for MaterializedColumnSlot:
     # 1) slot_index becomes nullable + range expands to 0–99 + uniqueness becomes partial

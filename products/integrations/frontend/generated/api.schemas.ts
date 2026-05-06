@@ -153,7 +153,8 @@ export interface RoleLookupResponseApi {
 }
 
 /**
- * * `apns` - Apple Push
+ * * `anthropic` - Anthropic
+ * `apns` - Apple Push
  * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
  * `clickup` - Clickup
@@ -191,6 +192,7 @@ export interface RoleLookupResponseApi {
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
+    Anthropic: 'anthropic',
     Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
@@ -416,7 +418,8 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 
 export type IntegrationsListParams = {
     /**
-     * * `apns` - Apple Push
+     * * `anthropic` - Anthropic
+     * `apns` - Apple Push
      * `azure-blob` - Azure Blob
      * `bing-ads` - Bing Ads
      * `clickup` - Clickup
@@ -465,6 +468,7 @@ export type IntegrationsListParams = {
 export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof IntegrationsListKind]
 
 export const IntegrationsListKind = {
+    Anthropic: 'anthropic',
     Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
