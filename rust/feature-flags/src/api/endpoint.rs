@@ -298,9 +298,12 @@ pub async fn flags(
     // would take longer than the age of the universe.
     let concurrency_limit_wait_ms = concurrency_wait.map(|Extension(w)| w.0.as_millis() as u64);
 
-    // Body-buffering wall-clock, captured by `record_body_read`. Same cast
-    // shape as `concurrency_limit_wait_ms`.
-    let body_read_ms = body_read_duration.map(|Extension(d)| d.0.as_millis() as u64);
+    // Body-buffering wall-clock, captured by `record_body_read`. Sub-ms
+    // precision (paired with the sub-ms-floor `BODY_READ_BUCKETS_MS`):
+    // integer-ms truncation would collapse fast in-memory POSTs into the
+    // 0-ms bucket and hide the very tail behavior the buckets exist to
+    // surface.
+    let body_read_ms = body_read_duration.map(|Extension(d)| d.0.as_secs_f64() * 1000.0);
 
     // Initialize canonical log with all upfront request metadata.
     // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().

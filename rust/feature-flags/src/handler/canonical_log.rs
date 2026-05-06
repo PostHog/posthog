@@ -272,12 +272,15 @@ pub struct FlagsCanonicalLogLine {
     /// phase ships; while None, `emit_timing_metrics` skips emission.
     pub concurrency_limit_wait_ms: Option<u64>,
 
-    /// Wall-clock duration of inbound POST body buffering. Captured by
-    /// the `record_body_read` middleware shim, populated on the request
+    /// Wall-clock duration of inbound POST body buffering, in
+    /// milliseconds with sub-ms precision. Captured by the
+    /// `record_body_read` middleware shim, populated on the request
     /// extensions, and seeded onto the canonical log at handler entry.
     /// `None` for GET / HEAD / OPTIONS where the shim was bypassed or the
-    /// extractor short-circuited on an empty body.
-    pub body_read_ms: Option<u64>,
+    /// extractor short-circuited on an empty body. `f64` (not `u64`)
+    /// because `BODY_READ_BUCKETS_MS` has sub-ms boundaries — integer-ms
+    /// truncation would hide warm in-memory POSTs in the bottom bucket.
+    pub body_read_ms: Option<f64>,
 
     /// Per-phase wall-clock breakdown of `process_request_inner`.
     /// Populated by [`crate::handler::phases::PhaseGuard`] drops; emitted
@@ -524,7 +527,7 @@ impl FlagsCanonicalLogLine {
         if let Some(body_read) = self.body_read_ms {
             // No `team_id` label — body buffering happens before
             // authentication, mirroring `concurrency_limit_wait_ms`.
-            common_metrics::histogram(FLAG_BODY_READ_TIME_MS, &[], body_read as f64);
+            common_metrics::histogram(FLAG_BODY_READ_TIME_MS, &[], body_read);
         }
     }
 
@@ -592,6 +595,40 @@ mod tests {
     use super::*;
     use crate::api::errors::{ClientFacingError, FlagError};
     use crate::utils::graph_utils::DependencyType;
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+    /// Shared metric-snapshot fixture for the `emit_*_metrics` test
+    /// modules below. Both modules need the same captured-sample shape
+    /// (name + sorted labels + raw value) and the same conversion from
+    /// `DebuggingRecorder`'s nested-tuple snapshot.
+    struct MetricSample {
+        name: String,
+        labels: Vec<(String, String)>,
+        #[allow(dead_code)]
+        value: DebugValue,
+    }
+
+    fn snapshot_metrics(recorder: &DebuggingRecorder) -> Vec<MetricSample> {
+        recorder
+            .snapshotter()
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .map(|(ckey, _, _, value)| {
+                let key = ckey.key();
+                let mut labels: Vec<(String, String)> = key
+                    .labels()
+                    .map(|l| (l.key().to_string(), l.value().to_string()))
+                    .collect();
+                labels.sort();
+                MetricSample {
+                    name: key.name().to_string(),
+                    labels,
+                    value,
+                }
+            })
+            .collect()
+    }
 
     #[test]
     fn test_new_creates_with_defaults() {
@@ -685,37 +722,7 @@ mod tests {
 
     mod emit_timing_metrics_tests {
         use super::*;
-        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
         use rstest::rstest;
-
-        struct MetricSample {
-            name: String,
-            labels: Vec<(String, String)>,
-            #[allow(dead_code)]
-            value: DebugValue,
-        }
-
-        fn snapshot_metrics(recorder: &DebuggingRecorder) -> Vec<MetricSample> {
-            recorder
-                .snapshotter()
-                .snapshot()
-                .into_vec()
-                .into_iter()
-                .map(|(ckey, _, _, value)| {
-                    let key = ckey.key();
-                    let mut labels: Vec<(String, String)> = key
-                        .labels()
-                        .map(|l| (l.key().to_string(), l.value().to_string()))
-                        .collect();
-                    labels.sort();
-                    MetricSample {
-                        name: key.name().to_string(),
-                        labels,
-                        value,
-                    }
-                })
-                .collect()
-        }
 
         fn set_queue_time(log: &mut FlagsCanonicalLogLine) {
             log.queue_time_ms = Some(150);
@@ -843,7 +850,7 @@ mod tests {
             metrics::with_local_recorder(&recorder, || {
                 let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
                 log.team_id = Some(123);
-                log.body_read_ms = Some(7);
+                log.body_read_ms = Some(7.0);
                 log.emit_timing_metrics();
             });
 
@@ -864,37 +871,7 @@ mod tests {
     mod emit_phase_metrics_tests {
         use super::*;
         use crate::handler::phases::Phase;
-        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
         use std::time::Duration;
-
-        struct MetricSample {
-            name: String,
-            labels: Vec<(String, String)>,
-            #[allow(dead_code)]
-            value: DebugValue,
-        }
-
-        fn snapshot_metrics(recorder: &DebuggingRecorder) -> Vec<MetricSample> {
-            recorder
-                .snapshotter()
-                .snapshot()
-                .into_vec()
-                .into_iter()
-                .map(|(ckey, _, _, value)| {
-                    let key = ckey.key();
-                    let mut labels: Vec<(String, String)> = key
-                        .labels()
-                        .map(|l| (l.key().to_string(), l.value().to_string()))
-                        .collect();
-                    labels.sort();
-                    MetricSample {
-                        name: key.name().to_string(),
-                        labels,
-                        value,
-                    }
-                })
-                .collect()
-        }
 
         #[test]
         fn test_emits_one_sample_per_recorded_phase() {
