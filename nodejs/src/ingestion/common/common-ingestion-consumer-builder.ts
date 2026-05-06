@@ -11,20 +11,16 @@ import {
 /**
  * The lifecycle contract honored by the builder for every registered service.
  *
- * Both methods are optional: services without lifecycle (e.g., a `TeamManager`
- * that's pure in-memory cache) simply omit them. The builder calls `start()`
- * in registration order and `stop()` in reverse on the consumer's own lifecycle.
- *
- * Note: `withService` doesn't constrain its `T` parameter to this interface —
- * TypeScript's "weak type" check rejects objects that share no properties with
- * an all-optional interface, which would block legitimate lifecycle-less
- * services. The builder's runtime composition coerces every entry through
- * this shape anyway, so the contract is enforced at the call sites of
- * `service.start?.()` / `service.stop?.()`, not at registration.
+ * Both methods are required. Services that have no real startup/shutdown work
+ * implement no-op `start()`/`stop()` — that's deliberate, so every service has
+ * to declare its lifecycle stance explicitly rather than having the consumer
+ * silently skip lifecycle for missing methods. This eliminates a class of bugs
+ * where a service that should have shutdown logic is registered with no method
+ * and silently leaks resources.
  */
 export interface ConsumerManagedService {
-    start?(): Promise<void>
-    stop?(): Promise<void>
+    start(): Promise<void>
+    stop(): Promise<void>
 }
 
 export interface PipelineFactoryContext<S, O extends string> {
@@ -35,7 +31,7 @@ export interface PipelineFactoryContext<S, O extends string> {
 
 export type PipelineFactory<S, O extends string> = (ctx: PipelineFactoryContext<S, O>) => IngestionBatchingPipeline
 
-type ServiceMap = Record<string, unknown>
+type ServiceMap = Record<string, ConsumerManagedService>
 
 // `keyof EmptyServiceMap` is `never`, which makes the duplicate-name check in `withService`
 // behave correctly when no services have been registered yet. Using `Record<string, never>`
@@ -59,7 +55,7 @@ export class ConsumerNeedsOutputsBuilder<S extends ServiceMap = EmptyServiceMap>
         private readonly services: S
     ) {}
 
-    withService<Name extends string, T>(
+    withService<Name extends string, T extends ConsumerManagedService>(
         name: Name & (Name extends keyof S ? never : Name),
         service: T
     ): ConsumerNeedsOutputsBuilder<S & Record<Name, T>> {
@@ -158,14 +154,12 @@ export function composeConsumerLifecycle<S extends ServiceMap, O extends string>
     onStopHooks,
     healthcheckFn,
 }: ComposeLifecycleArgs<S, O>): IngestionPipelineLifecycle {
-    const serviceEntries = Object.entries(services) as Array<[string, ConsumerManagedService | undefined]>
+    const serviceEntries = Object.entries(services)
 
     return {
         onStart: async () => {
             for (const [, service] of serviceEntries) {
-                if (service?.start) {
-                    await service.start()
-                }
+                await service.start()
             }
             const failures = await outputs.checkTopics()
             if (failures.length > 0) {
@@ -180,9 +174,7 @@ export function composeConsumerLifecycle<S extends ServiceMap, O extends string>
                 await hook()
             }
             for (const [, service] of [...serviceEntries].reverse()) {
-                if (service?.stop) {
-                    await service.stop()
-                }
+                await service.stop()
             }
             await promiseScheduler.waitForAll()
         },

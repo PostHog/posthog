@@ -13,7 +13,7 @@ function makeOutputs(failures: string[] = []): IngestionOutputs<string> {
     } as unknown as IngestionOutputs<string>
 }
 
-function makeService(): Required<ConsumerManagedService> & { start: jest.Mock; stop: jest.Mock } {
+function makeService(): ConsumerManagedService & { start: jest.Mock; stop: jest.Mock } {
     return {
         start: jest.fn().mockResolvedValue(undefined),
         stop: jest.fn().mockResolvedValue(undefined),
@@ -30,8 +30,14 @@ function record(calls: string[], label: string): () => Promise<void> {
 describe('composeConsumerLifecycle', () => {
     it('starts services in registration order, then verifies topics, then runs onStart hooks', async () => {
         const calls: string[] = []
-        const a = { start: jest.fn(record(calls, 'a.start')) }
-        const b = { start: jest.fn(record(calls, 'b.start')) }
+        const a: ConsumerManagedService = {
+            start: jest.fn(record(calls, 'a.start')),
+            stop: jest.fn().mockResolvedValue(undefined),
+        }
+        const b: ConsumerManagedService = {
+            start: jest.fn(record(calls, 'b.start')),
+            stop: jest.fn().mockResolvedValue(undefined),
+        }
         const outputs = {
             checkTopics: jest.fn(() => {
                 calls.push('checkTopics')
@@ -60,8 +66,14 @@ describe('composeConsumerLifecycle', () => {
             calls.push('drain')
             return Promise.resolve([])
         })
-        const a = { stop: jest.fn(record(calls, 'a.stop')) }
-        const b = { stop: jest.fn(record(calls, 'b.stop')) }
+        const a: ConsumerManagedService = {
+            start: jest.fn().mockResolvedValue(undefined),
+            stop: jest.fn(record(calls, 'a.stop')),
+        }
+        const b: ConsumerManagedService = {
+            start: jest.fn().mockResolvedValue(undefined),
+            stop: jest.fn(record(calls, 'b.stop')),
+        }
 
         const lifecycle = composeConsumerLifecycle({
             services: { a, b },
@@ -76,42 +88,6 @@ describe('composeConsumerLifecycle', () => {
 
         expect(calls).toEqual(['stop2', 'stop1', 'b.stop', 'a.stop', 'drain'])
         expect(drainSpy).toHaveBeenCalledTimes(1)
-    })
-
-    it('skips lifecycle for services without start/stop', async () => {
-        const noLifecycle = {} as ConsumerManagedService
-        const withStart = makeService()
-        const lifecycle = composeConsumerLifecycle({
-            services: { noLifecycle, withStart },
-            outputs: makeOutputs(),
-            promiseScheduler: new PromiseScheduler(),
-            onStartHooks: [],
-            onStopHooks: [],
-            healthcheckFn: undefined,
-        })
-
-        await lifecycle.onStart!()
-        await lifecycle.onStop!()
-
-        expect(withStart.start).toHaveBeenCalledTimes(1)
-        expect(withStart.stop).toHaveBeenCalledTimes(1)
-    })
-
-    it('skips lifecycle for undefined services', async () => {
-        const present = makeService()
-        const lifecycle = composeConsumerLifecycle({
-            services: { present, missing: undefined },
-            outputs: makeOutputs(),
-            promiseScheduler: new PromiseScheduler(),
-            onStartHooks: [],
-            onStopHooks: [],
-            healthcheckFn: undefined,
-        })
-
-        await expect(lifecycle.onStart!()).resolves.toBeUndefined()
-        await expect(lifecycle.onStop!()).resolves.toBeUndefined()
-        expect(present.start).toHaveBeenCalledTimes(1)
-        expect(present.stop).toHaveBeenCalledTimes(1)
     })
 
     it('throws when topic verification fails', async () => {
@@ -177,7 +153,7 @@ describe('composeConsumerLifecycle', () => {
 
 describe('newCommonIngestionConsumer phase transitions', () => {
     it('does not invoke the pipeline factory until build()', () => {
-        const teamManager = { id: 'tm' }
+        const teamManager = makeService()
         const topHog = makeService()
         const outputs = makeOutputs()
 
@@ -193,7 +169,7 @@ describe('newCommonIngestionConsumer phase transitions', () => {
             INGESTION_LANE: 'main',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
         })
-            .withService('teamManager', teamManager as unknown as ConsumerManagedService)
+            .withService('teamManager', teamManager)
             .withService('topHog', topHog)
             .setOutputs(outputs)
             .withPipeline(factory)

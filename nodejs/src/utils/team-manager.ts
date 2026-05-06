@@ -23,6 +23,14 @@ export class TeamManager {
         })
     }
 
+    public async start(): Promise<void> {
+        // No startup work — the lazy loader hydrates on first access.
+    }
+
+    public async stop(): Promise<void> {
+        // No shutdown work — the lazy loader's caches are GC'd with the instance.
+    }
+
     public async getTeam(teamId: number): Promise<Team | null> {
         return this.lazyLoader.get(String(teamId))
     }
