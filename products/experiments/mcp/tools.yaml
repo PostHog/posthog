@@ -44,6 +44,9 @@ tools:
 
 
             No request body needed. Can be restored later via the unarchive tool.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiment-create:
         operation: experiments_create
@@ -110,6 +113,9 @@ tools:
             Delete an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the
             user's reference first. Always confirm by name before deleting.
         soft_delete: true
+        param_overrides:
+            id:
+                cast: string-int
         response:
             include:
                 - id
@@ -139,6 +145,9 @@ tools:
             meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments.
             Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults
             to "Original Name (Copy)").
+        param_overrides:
+            id:
+                cast: string-int
     experiment-end:
         operation: experiments_end_create
         enabled: true
@@ -170,6 +179,9 @@ tools:
 
             Other options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag
             without ending.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiment-get:
         operation: experiments_retrieve
@@ -192,6 +204,9 @@ tools:
             end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays,
             conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and
             recommended_running_time), stats_config, and type (web/product).
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiment-holdouts-create:
         operation: experiment_holdouts_create
@@ -237,6 +252,9 @@ tools:
 
 
             No request body needed.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiment-list:
         operation: experiments_list
@@ -266,6 +284,14 @@ tools:
                     Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active),
                     "paused" (launched, flag deactivated — mutually exclusive with running), "stopped" or "complete"
                     (both mean ended), "all" (no filter). Defaults to all non-archived experiments.
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
+            created_by_id:
+                cast: string-int
+            feature_flag_id:
+                cast: string-int
         ui_app: experiment-list
         response:
             include:
@@ -308,6 +334,9 @@ tools:
 
 
             No request body needed. Use resume to reactivate.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiment-reset:
         operation: experiments_reset_create
@@ -338,6 +367,9 @@ tools:
 
 
             No request body needed.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiment-resume:
         operation: experiments_resume_create
@@ -366,6 +398,9 @@ tools:
 
 
             No request body needed.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiment-saved-metrics-create:
         operation: experiment_saved_metrics_create
@@ -418,6 +453,9 @@ tools:
             Returns 400 if: experiment is in draft ("Experiment has not been launched yet."), variant_key not found on
             the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag
             change takes effect — includes a change_request_id in the response.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiment-stats:
         operation: experiments_stats_retrieve
@@ -453,6 +491,9 @@ tools:
             Returns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day,
             overall status ("pending", "completed", "partial", "failed"), computed_at timestamp, and
             recalculation_status if a recalculation is in progress.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment-results
     experiment-unarchive:
         operation: experiments_unarchive_create
@@ -477,6 +518,9 @@ tools:
 
 
             No request body needed.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiment-update:
         operation: experiments_partial_update
@@ -537,6 +581,9 @@ tools:
             - archived
             - allow_unknown_events
             - update_feature_flag_params
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: experiment
     experiments-copy-to-project-create:
         operation: experiments_copy_to_project_create
