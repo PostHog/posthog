@@ -610,6 +610,7 @@ describe('hog-charts canvas-renderer', () => {
                 series: [],
                 labels: ['Mon', 'Tue', 'Wed'],
                 hoverIndex,
+                hoverPosition: null,
                 theme: {} as ChartTheme,
             }
         }
