@@ -40288,6 +40288,22 @@
             "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
             "type": "object"
         },
+        "getEffectiveExcludedColumns": {
+            "$comment": "(\n    level: MarketingAnalyticsDrillDownLevel) => Set<MarketingAnalyticsBaseColumns>",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "level": {
+                            "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel"
+                        }
+                    },
+                    "required": ["level"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "integer": {
             "type": "integer"
         },

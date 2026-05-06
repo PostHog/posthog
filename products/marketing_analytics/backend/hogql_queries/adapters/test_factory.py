@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock
@@ -10,6 +11,7 @@ from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
+from products.data_warehouse.backend.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
@@ -155,14 +157,14 @@ class TestMetaAdsConfigDiscovery(BaseTest):
     returns False at AD_GROUP / AD respectively.
     """
 
-    def _make_table(self, schema_name: str) -> Mock:
+    def _make_table(self, schema_name: str) -> DataWarehouseTable:
         """Build a DataWarehouseTable mock with name `metaads_<schema_name>`. The
         factory's `_extract_schema_name` strips the `metaads_` prefix to get the
         canonical schema name, which is what we match against MetaAdsResource.
         """
         table = Mock()
         table.name = f"metaads_{schema_name}"
-        return table
+        return cast(DataWarehouseTable, table)
 
     def _make_factory(self) -> MarketingSourceFactory:
         date_range = QueryDateRange(
