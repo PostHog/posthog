@@ -1870,24 +1870,22 @@ async def test_hogql_table_applies_custom_modifier_to_sessions_query(ateam):
 
 
 async def test_create_default_modifiers_for_team_in_async_context(ateam):
-    """Test that create_default_modifiers_for_team must be wrapped with database_sync_to_async in async context.
+    """`create_default_modifiers_for_team` must be safe to call in an async context.
 
-    The function accesses team.organization.created_at via person_on_events_mode_flag_based_default,
-    which triggers a lazy load of the organization foreign key. Without database_sync_to_async,
-    this raises SynchronousOnlyOperation in an async context.
-
-    This is a regression test for the fix that wrapped the call in hogql_table and get_query_row_count.
+    Previously this function evaluated a feature flag inside `set_default_modifier_values` which
+    indirectly lazy-loaded `team.organization.created_at` and raised `SynchronousOnlyOperation` when
+    called outside `database_sync_to_async`. The flag eval was removed (see the modifier fix that
+    persists `personsOnEventsMode` to `team.modifiers` instead of evaluating per-request), so the
+    lazy load no longer happens and the function is now async-safe by construction. This test is the
+    inverse regression guard: it asserts that the previously-problematic call site stays clean.
     """
-    from django.core.exceptions import SynchronousOnlyOperation
-
     from posthog.hogql.modifiers import create_default_modifiers_for_team
 
     # fetch team without select_related to ensure organization needs lazy loading
     team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)
-    # mock is_cloud() to return true so that the code path accessing team.organization.created_at is triggered
+    # mock is_cloud() to return true so any cloud-only code paths run; should still be async-safe
     with unittest.mock.patch("posthog.models.team.team.is_cloud", return_value=True):
-        # calling directly raises
-        with pytest.raises(SynchronousOnlyOperation):
-            create_default_modifiers_for_team(team)
-        # wrapped doesn't raise
+        # calling directly no longer raises
+        create_default_modifiers_for_team(team)
+        # wrapped also continues to work
         await database_sync_to_async(create_default_modifiers_for_team)(team)
