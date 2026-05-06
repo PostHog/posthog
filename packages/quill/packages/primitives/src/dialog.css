@@ -76,6 +76,26 @@
         grid-template-rows: auto minmax(0, 1fr) auto;
     }
 
+    /*
+     * Width variants — opt-in via the `size` prop on `<DialogContent>`.
+     * Defaults stay at the existing ~24rem clamp from the
+     * `@media (min-width: 640px)` rule below, so existing dialogs
+     * render unchanged.
+     *
+     *   - `data-size='wide'` — clamps to ~72rem (1152px), shrinks
+     *     proportionally below; intended for dialogs that embed wide
+     *     content like data tables or side-by-side editors.
+     *   - `data-size='full'` — drops the desktop clamp entirely and
+     *     grows to `calc(100vw - 3rem)`; for true full-bleed dialogs.
+     */
+    .quill-dialog__content[data-size='wide'] {
+        max-width: min(72rem, calc(100vw - 3rem));
+    }
+
+    .quill-dialog__content[data-size='full'] {
+        max-width: calc(100vw - 3rem);
+    }
+
     [dir='rtl'] .quill-dialog__content {
         translate: 50% 0;
     }

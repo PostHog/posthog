@@ -43,10 +43,21 @@ function DialogContent({
     children,
     showCloseButton = true,
     nested = false,
+    size,
     ...props
 }: DialogPrimitive.Popup.Props & {
     showCloseButton?: boolean
     nested?: boolean
+    /**
+     * Width variant. Defaults to the standard ~24rem dialog width
+     * (Quill's existing media-query clamp at ≥640px viewports).
+     *   - `'wide'`: clamps to `min(72rem, calc(100vw - 3rem))` for
+     *     content that needs horizontal breathing room (data tables,
+     *     side-by-side editors, etc.).
+     *   - `'full'`: drops the desktop clamp entirely and grows to
+     *     `calc(100vw - 3rem)`.
+     */
+    size?: 'wide' | 'full'
 }): React.ReactElement {
     return (
         <DialogPortal>
@@ -55,6 +66,7 @@ function DialogContent({
                 data-quill
                 data-quill-portal="modal-content"
                 data-slot="dialog-content"
+                data-size={size}
                 className={cn('quill-dialog__content grid gap-4', className)}
                 {...props}
             >

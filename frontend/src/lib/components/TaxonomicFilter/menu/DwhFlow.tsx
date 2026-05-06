@@ -278,13 +278,13 @@ export function MenuFilterDwhConfig({
                 // already open underneath; tells base-ui to stack focus
                 // traps + handle overlay clicks correctly.
                 nested
-                // `quill-dialog--wide` is defined in
-                // `frontend/src/styles/quill-bridge.scss` — it widens
-                // the dialog to ~72rem so the LemonTable preview gets
-                // horizontal breathing room. Vertical behaviour
-                // (viewport-bounded `max-height`, three-row grid, body
-                // scroll) is now baked into Quill itself.
-                className="quill-dialog--wide gap-0 p-0"
+                // `size="wide"` clamps to ~72rem so the embedded
+                // LemonTable preview gets horizontal breathing room.
+                // Vertical behaviour (viewport-bounded `max-height`,
+                // three-row grid, body scroll) comes from Quill's
+                // base dialog styling regardless of size.
+                size="wide"
+                className="gap-0 p-0"
             >
                 <DialogHeader className="px-4 py-3 border-b">
                     <DialogTitle>Configure data warehouse table</DialogTitle>
@@ -295,7 +295,7 @@ export function MenuFilterDwhConfig({
                     `padding-block: 1rem` from Quill's body styling, so
                     the inner stack just needs row gap + min-width
                     bound for the LemonTable. */}
-                <DialogBody>
+                <DialogBody className="w-full max-w-[700px] overflow-auto">
                     <div className="flex flex-col gap-4 min-w-0">
                         <FieldDescription className="!mt-0">
                             Table: <Badge variant="info">{tableName}</Badge>

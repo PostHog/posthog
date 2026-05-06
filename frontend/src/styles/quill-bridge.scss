@@ -243,21 +243,6 @@
     );
 }
 
-/*
- * Wide dialog width override.
- *
- * Quill's base `.quill-dialog__content` clamps to 24rem above 640px
- * via `@media (min-width: 640px)`. The DataWarehouse config dialog
- * renders a `LemonTable` preview that needs horizontal breathing room,
- * so we widen it to ~72rem with stylesheet specificity (0,2,0) to beat
- * the base rule. Height + grid + body-scroll behaviour comes from
- * Quill itself — width is the only piece kept here because it's
- * consumer-specific.
- */
-[data-slot='dialog-content'].quill-dialog--wide {
-    max-width: min(72rem, calc(100vw - 3rem));
-}
-
 [theme='dark'] [data-quill] [data-not-quill] {
     --muted-3000: var(--muted-3000-dark);
     --color-bg-primary: var(--color-neutral-cool-950);
