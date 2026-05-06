@@ -30,7 +30,7 @@ def setup_django() -> None:
     django.setup()
 
 
-def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
+def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[str]]:
     """
     Scan all Django models and categorize by scope.
 
@@ -43,7 +43,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
     since the team filter is the primary access control mechanism.
 
     Returns:
-        Tuple of (scoped_models_dict, excluded_models_set)
+        Tuple of (scoped_models_dict, excluded_models_set,
+                  legitimately_unscoped_set, needs_team_id_set).
     """
     from django.apps import apps
     from django.db.models import ForeignKey
@@ -84,6 +85,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "PersonlessDistinctId",
         "SessionRecordingEvent",
         # --- Persons system (managed separately, not looked up by user input) ---
+        "FlatPersonOverride",
         "Group",
         "PendingPersonOverride",
         "Person",
@@ -192,9 +194,129 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "ResourceTransfer",
     }
 
+    # Legitimately unscoped — these models correctly have no team_id.
+    # Silent pass in CI. Adding here requires a category comment.
+    LEGITIMATELY_UNSCOPED: set[str] = {
+        # --- Django/third-party internals ---
+        "AccessAttempt",
+        "AccessFailureLog",
+        "AccessLog",
+        "Association",
+        "Code",
+        "ContentType",
+        "Group",
+        "LogEntry",
+        "Nonce",
+        "OAuthAccessToken",
+        "OAuthApplication",
+        "OAuthGrant",
+        "OAuthIDToken",
+        "OAuthRefreshToken",
+        "Partial",
+        "Permission",
+        "Session",
+        "StaticDevice",
+        "StaticToken",
+        "TOTPDevice",
+        "UserSocialAuth",
+        # --- Core identity (are the scope, not scoped themselves) ---
+        "Organization",
+        "Team",
+        "User",
+        # --- Instance-level config ---
+        "AsyncMigration",
+        "AsyncMigrationError",
+        "InstanceSetting",
+        "License",
+        # --- Deprecated ---
+        "Prompt",
+        "PromptSequence",
+        "UserPromptState",
+        # --- Global catalogs ---
+        "HogFunctionTemplate",
+        "MCPServer",
+        # --- Special (has source_team + destination_team, not a plain team) ---
+        "ResourceTransfer",
+        # --- Organization-scoped (correctly above team level) ---
+        "OrganizationDomain",
+        "OrganizationIntegration",
+        "OrganizationInvite",
+        "OrganizationMembership",
+        "OrganizationResourceAccess",
+        "Plugin",
+        "PluginSourceFile",
+        "Project",
+        "ProxyRecord",
+        "Role",
+        "RoleMembership",
+        # --- User-scoped (cross-tenant by design) ---
+        "NotificationViewed",
+        "SCIMProvisionedUser",
+        "SCIMRequestLog",
+        "WebauthnCredential",
+        # --- Infra / no tenant data ---
+        "EventBuffer",
+        "EventIngestionRestrictionConfig",
+        "MessagingRecord",
+    }
+
+    # Baseline violations — these models SHOULD have team_id but don't yet.
+    # Emits a warning (not error) in CI. Shrink this list over time.
+    # When adding team_id to a model, remove it from here.
+    NEEDS_TEAM_ID: set[str] = {
+        # --- Through/junction tables (scoped only via parent FK chain) ---
+        "ActionStep",  # via Action
+        "AlertCheck",  # via AlertConfiguration
+        "AlertSubscription",  # via AlertConfiguration
+        "Approval",  # via ChangeRequest
+        "CohortPeople",  # via Cohort
+        "ConversationCheckpoint",  # via Conversation
+        "ConversationCheckpointBlob",  # via ConversationCheckpoint
+        "ConversationCheckpointWrite",  # via ConversationCheckpoint
+        "DashboardPrivilege",  # via Dashboard
+        "DashboardTile",  # via Dashboard
+        "Element",  # via Event/ElementGroup
+        "ErrorTrackingExternalReference",  # via ErrorTrackingIssue
+        "ErrorTrackingIssueCohort",  # via ErrorTrackingIssue
+        "EvaluationReportRun",  # via EvaluationReport
+        "EventSchema",  # via EventDefinition
+        "ExperimentMetricResult",  # via Experiment
+        "ExperimentToSavedMetric",  # via Experiment
+        "ExternalDataSourceRevenueAnalyticsConfig",  # via ExternalDataSource
+        "FeatureFlagDashboards",  # via FeatureFlag
+        "FeatureFlagEvaluationContext",  # via FeatureFlag
+        "FeatureFlagRoleAccess",  # via FeatureFlag
+        "HeatmapSnapshot",  # via SavedHeatmap
+        "LLMSkillFile",  # via LLMSkill
+        "LogsAlertCheck",  # via LogsAlertConfiguration
+        "LogsAlertEvent",  # via LogsAlertConfiguration
+        "NotificationReadState",  # via NotificationEvent
+        "PluginStorage",  # via PluginConfig
+        "ResourceNotebook",  # via Notebook
+        "SchemaPropertyGroupProperty",  # via SchemaPropertyGroup
+        "ScoreDefinitionVersion",  # via ScoreDefinition
+        "SessionRecordingExternalReference",  # via SessionRecording
+        "SessionRecordingPlaylistItem",  # via Playlist
+        "SharePassword",  # via SharingConfiguration
+        "SourceBatchStatus",  # via SourceBatch
+        "StreamlitAppSandbox",  # via StreamlitApp
+        "TaggedItem",  # via Tag/Dashboard/Insight
+        "TaskAutomation",  # via Task
+        "TicketAssignment",  # via Ticket
+        "UserGroupMembership",  # via UserGroup
+        # --- Other models missing direct team_id ---
+        "BatchExportDestination",  # via Integration
+        "BatchExportRun",  # via BatchExport
+        "CodeInvite",  # user-scoped but stores team data
+        "CodeInviteRedemption",  # via CodeInvite
+        "SandboxSnapshot",  # via Integration
+        "SlackUserProfileCache",  # via Integration
+    }
+
     team_scoped: set[str] = set()
     org_scoped: set[str] = set()
     user_scoped: set[str] = set()
+    no_scope: set[str] = set()
 
     for model in apps.get_models():
         model_name = model.__name__
@@ -207,12 +329,17 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         if model._meta.proxy:
             continue
 
-        # Check for FK fields
+        # Check for FK fields and plain team_id (ProductTeamModel uses BigIntegerField)
         has_team_fk = False
         has_org_fk = False
         has_user_fk = False
 
         for field in model._meta.get_fields():
+            # Plain team_id field (e.g., ProductTeamModel's BigIntegerField)
+            if getattr(field, "name", None) == "team_id" and not isinstance(field, ForeignKey):
+                has_team_fk = True
+                continue
+
             if not isinstance(field, ForeignKey):
                 continue
 
@@ -234,14 +361,19 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
             org_scoped.add(model_name)
         elif has_user_fk:
             user_scoped.add(model_name)
+        else:
+            no_scope.add(model_name)
 
     return (
         {
             "team_scoped": team_scoped,
             "org_scoped": org_scoped,
             "user_scoped": user_scoped,
+            "no_scope": no_scope,
         },
         EXCLUDED_MODELS,
+        LEGITIMATELY_UNSCOPED,
+        NEEDS_TEAM_ID,
     )
 
 
@@ -323,7 +455,7 @@ def main() -> int:
     setup_django()
 
     # Get models from code
-    code_models, excluded_models = get_scoped_models()
+    code_models, excluded_models, legitimately_unscoped, needs_team_id = get_scoped_models()
 
     # Get models from semgrep rules
     semgrep_path = Path(__file__).parent.parent.parent / ".semgrep/rules/idor-team-scoped-models.yaml"
@@ -379,13 +511,49 @@ def main() -> int:
         if not missing and not stale:
             print("  ✅ All models covered")
 
+    # Check for models with no team/org/user scope at all
+    acknowledged = legitimately_unscoped | needs_team_id
+    unacknowledged = code_models["no_scope"] - acknowledged
+
+    print(f"\n{'=' * 60}")
+    print("Unscoped model check")
+    print("=" * 60)
+
+    baseline_in_code = code_models["no_scope"] & needs_team_id
+    if baseline_in_code:
+        has_warnings = True
+        models_list = ", ".join(sorted(baseline_in_code))
+        # GitHub Actions annotation — shows in PR checks tab
+        print(f"::warning::{len(baseline_in_code)} models need team_id (baseline debt): {models_list}")
+        print(f"\n  ⚠️  WARNING: {len(baseline_in_code)} models need team_id (baseline debt):")
+        for model in sorted(baseline_in_code):
+            print(f"     - {model}")
+
+    if unacknowledged:
+        has_errors = True
+        models_list = ", ".join(sorted(unacknowledged))
+        # GitHub Actions annotation
+        print(f"::error::New unscoped models without team_id: {models_list}")
+        print(f"\n  ❌ ERROR: New models with no team_id, org, or user FK:")
+        for model in sorted(unacknowledged):
+            print(f"     - {model}")
+        print("\n  Every model storing tenant data must have team_id.")
+        print("  To fix:")
+        print("    - Add team_id to the model (preferred)")
+        print("    - Add to LEGITIMATELY_UNSCOPED if correctly unscoped")
+        print("    - Add to NEEDS_TEAM_ID as last resort (baseline debt)")
+
+    if not unacknowledged and not baseline_in_code:
+        print("  ✅ No unacknowledged unscoped models")
+
     print("\n" + "=" * 60)
 
     if has_errors:
-        print("\n❌ FAILED: Some models are missing from semgrep IDOR rules.")
+        print("\n❌ FAILED: Some models need attention.")
         print("\nTo fix:")
         print("  1. Add the missing models to .semgrep/rules/idor-team-scoped-models.yaml")
         print("  2. Or add them to EXCLUDED_MODELS in this script if they don't need IDOR protection")
+        print("  3. For unscoped models: add team_id, or add to LEGITIMATELY_UNSCOPED / NEEDS_TEAM_ID")
         return 1
 
     if has_warnings:
