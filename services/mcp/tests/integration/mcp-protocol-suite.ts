@@ -6,7 +6,6 @@
 // silent runtime drift.
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -285,65 +284,6 @@ export function defineUiAppProtocolTests(
     })
 }
 
-// SSE transport coverage. Same protocol moves, separate code path:
-// `SSEClientTransport` opens an EventSource for receiving and POSTs back via
-// `?sessionId=…`. Hono uses `createSSEResponseAdapter`; CF uses
-// `MCP.serveSSE('/sse')`. A regression in either is invisible to the
-// streamable-http suite.
-export function defineSseProtocolTests(
-    label: string,
-    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
-): void {
-    describe(`MCP protocol over SSE (${label})`, () => {
-        let client: Client
-        let transport: SSEClientTransport
-
-        beforeEach(async () => {
-            const harness = await getHarness()
-            const sseUrl = new URL('/sse', harness.baseUrl)
-            const authHeaders = { Authorization: `Bearer ${harness.token}` }
-
-            transport = new SSEClientTransport(sseUrl, {
-                // EventSource doesn't support custom headers natively; the
-                // `eventsource` package the SDK uses lets us inject them via a
-                // custom fetch on `eventSourceInit`.
-                eventSourceInit: {
-                    fetch: (url, init) =>
-                        harness.fetch(url as RequestInfo, {
-                            ...init,
-                            headers: { ...(init?.headers as Record<string, string>), ...authHeaders },
-                        }),
-                },
-                requestInit: { headers: authHeaders },
-                fetch: harness.fetch,
-            })
-            client = new Client(
-                { name: 'mcp-integration-test-sse', version: '0.0.0' },
-                { capabilities: {} }
-            )
-            await client.connect(transport)
-        })
-
-        afterEach(async () => {
-            await safeClose(client)
-        })
-
-        it('completes the initialize handshake over SSE', () => {
-            expect(client.getServerVersion()?.name).toBe('PostHog')
-        })
-
-        it('lists tools over SSE', async () => {
-            const { tools } = await client.listTools()
-            expect(tools.length).toBeGreaterThan(0)
-            expect(tools.map((t) => t.name)).toContain('organization-get')
-        })
-
-        it('calls a tool over SSE and returns content', async () => {
-            const result = await client.callTool({ name: 'organization-get', arguments: {} })
-            if (result.isError) {
-                throw new Error(`tool returned error: ${JSON.stringify(result.content)}`)
-            }
-            expect((result.content as unknown[]).length).toBeGreaterThan(0)
-        })
-    })
-}
+// SSE coverage was dropped: the only client-facing `/sse` behavior left is the
+// 308 redirect to `/mcp`, which is exercised by the streamable suite via the
+// `_deprecated=sse` followup path.

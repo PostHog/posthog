@@ -39,7 +39,7 @@ export async function startHonoHarness(env: IntegrationEnv): Promise<Integration
     // `getBaseUrl()` checks `POSTHOG_API_BASE_URL` first and bypasses region detection.
     process.env.POSTHOG_API_BASE_URL = env.apiBaseUrl
 
-    const app = createApp(createInMemoryRedis())
+    const { app } = createApp(createInMemoryRedis())
     const server = serve({ fetch: app.fetch, port: 0 })
     const address = server.address() as AddressInfo
     const baseUrl = new URL(`http://127.0.0.1:${address.port}`)

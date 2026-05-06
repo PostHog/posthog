@@ -8,13 +8,9 @@ import {
 } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
 
-import type { RedisLike } from './cache/RedisCache'
-import { HonoMcpServer } from './mcp-server'
 import type { HonoCtx } from './types'
 
-// -----------------------------------------------------------------------------
-// Auth + request parsing
-// -----------------------------------------------------------------------------
+// Auth + request parsing -----------------------------------------------------
 
 export async function authenticateAndParse(
     c: HonoCtx,
@@ -31,15 +27,7 @@ export async function authenticateAndParse(
     return { props: parseRequestProperties(c.req.raw, clientInfo, transport) }
 }
 
-export async function bootMcpServer(redis: RedisLike, props: RequestProperties): Promise<HonoMcpServer> {
-    const server = new HonoMcpServer(redis, props)
-    await server.init()
-    return server
-}
-
-// -----------------------------------------------------------------------------
-// Error / response shaping
-// -----------------------------------------------------------------------------
+// Error / response shaping ---------------------------------------------------
 
 function reportInternalError(error: unknown, props: RequestProperties): void {
     try {

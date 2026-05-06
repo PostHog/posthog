@@ -310,6 +310,7 @@ export class MCP extends McpAgent<Env> {
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...(this.mcpMode ? { mcp_mode: this.mcpMode } : {}),
                     ...(this.mcpVersion !== undefined ? { mcp_version: this.mcpVersion } : {}),
+                    mcp_runtime: 'cloudflare',
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,

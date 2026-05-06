@@ -32,18 +32,17 @@ describe('Hono App Routes', () => {
     })
 
     describe('GET /', () => {
-        it('should return landing page HTML with 200', async () => {
-            const app = createApp(mockRedis)
+        it('should redirect to the docs', async () => {
+            const { app } = createApp(mockRedis)
             const res = await app.request('/')
-            expect(res.status).toBe(200)
-            const text = await res.text()
-            expect(text).toContain('html')
+            expect(res.status).toBe(302)
+            expect(res.headers.get('location')).toBe('https://posthog.com/docs/model-context-protocol')
         })
     })
 
     describe('health checks', () => {
         it('should return 200 with JSON on /healthz', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/healthz')
             expect(res.status).toBe(200)
             const body = (await res.json()) as Record<string, unknown>
@@ -51,7 +50,7 @@ describe('Hono App Routes', () => {
         })
 
         it('should return 200 with JSON on /health', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/health')
             expect(res.status).toBe(200)
             const body = (await res.json()) as Record<string, unknown>
@@ -59,13 +58,13 @@ describe('Hono App Routes', () => {
         })
 
         it('should return Cache-Control: no-store on /health', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/health')
             expect(res.headers.get('Cache-Control')).toBe('no-store')
         })
 
         it('should return 200 on /readyz when Redis is healthy', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/readyz')
             expect(res.status).toBe(200)
             const body = (await res.json()) as Record<string, unknown>
@@ -74,7 +73,7 @@ describe('Hono App Routes', () => {
 
         it('should return 503 on /readyz when Redis ping fails', async () => {
             mockRedis.ping.mockRejectedValue(new Error('Connection refused'))
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/readyz')
             expect(res.status).toBe(503)
             const body = (await res.json()) as Record<string, unknown>
@@ -83,7 +82,7 @@ describe('Hono App Routes', () => {
 
         it('should return 503 on /readyz when Redis returns unexpected value', async () => {
             mockRedis.ping.mockResolvedValue('NOT_PONG')
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/readyz')
             expect(res.status).toBe(503)
         })
@@ -91,7 +90,7 @@ describe('Hono App Routes', () => {
 
     describe('GET /.well-known/openai-apps-challenge', () => {
         it('should return the challenge token', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/.well-known/openai-apps-challenge')
             expect(res.status).toBe(200)
             const body = await res.text()
@@ -101,13 +100,13 @@ describe('Hono App Routes', () => {
 
     describe('security headers', () => {
         it('should include X-Content-Type-Options: nosniff', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/healthz')
             expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
         })
 
         it('should include X-Frame-Options: DENY', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/healthz')
             expect(res.headers.get('X-Frame-Options')).toBe('DENY')
         })
@@ -115,7 +114,7 @@ describe('Hono App Routes', () => {
 
     describe('CORS', () => {
         it('should respond to OPTIONS preflight', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'OPTIONS',
                 headers: {
@@ -128,7 +127,7 @@ describe('Hono App Routes', () => {
         })
 
         it('should expose mcp-session-id header', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'OPTIONS',
                 headers: {
@@ -142,7 +141,7 @@ describe('Hono App Routes', () => {
 
     describe('OAuth Protected Resource Metadata', () => {
         it('should return metadata for bare /.well-known/oauth-protected-resource', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/.well-known/oauth-protected-resource')
             expect(res.status).toBe(200)
             const body = (await res.json()) as Record<string, any>
@@ -152,7 +151,7 @@ describe('Hono App Routes', () => {
         })
 
         it('should return metadata for /mcp path', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/.well-known/oauth-protected-resource/mcp')
             expect(res.status).toBe(200)
             const body = (await res.json()) as Record<string, any>
@@ -160,14 +159,14 @@ describe('Hono App Routes', () => {
         })
 
         it('should use oauth.posthog.com as authorization server', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/.well-known/oauth-protected-resource/mcp')
             const body = (await res.json()) as Record<string, any>
             expect(body.authorization_servers[0]).toBe('https://oauth.posthog.com')
         })
 
         it('should set Cache-Control header', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/.well-known/oauth-protected-resource/mcp')
             expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600')
         })
@@ -175,7 +174,7 @@ describe('Hono App Routes', () => {
 
     describe('hostname-based region detection', () => {
         it('should detect EU from mcp.eu.posthog.com via X-Forwarded-Host', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'POST',
                 headers: { 'X-Forwarded-Host': 'mcp.eu.posthog.com' },
@@ -186,7 +185,7 @@ describe('Hono App Routes', () => {
         })
 
         it('should detect US from mcp.us.posthog.com', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request(
                 new Request('http://mcp.us.posthog.com/.well-known/oauth-protected-resource/mcp')
             )
@@ -194,7 +193,7 @@ describe('Hono App Routes', () => {
         })
 
         it('should detect EU from legacy mcp-eu.posthog.com', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'POST',
                 headers: { 'X-Forwarded-Host': 'mcp-eu.posthog.com' },
@@ -207,7 +206,7 @@ describe('Hono App Routes', () => {
 
     describe('MCP auth on /mcp', () => {
         it('should return 401 with WWW-Authenticate when no token', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', { method: 'POST' })
             expect(res.status).toBe(401)
             const text = await res.text()
@@ -217,7 +216,7 @@ describe('Hono App Routes', () => {
         })
 
         it('should return 401 for invalid token prefix', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'POST',
                 headers: { Authorization: 'Bearer bad_token' },
@@ -227,7 +226,7 @@ describe('Hono App Routes', () => {
         })
 
         it('should pass auth check for phx_ tokens (may fail later at init)', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'POST',
                 headers: {
@@ -251,7 +250,7 @@ describe('Hono App Routes', () => {
         })
 
         it('should pass auth check for pha_ tokens (may fail later at init)', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'POST',
                 headers: {
@@ -277,40 +276,40 @@ describe('Hono App Routes', () => {
 
     describe('OAuth redirect routes', () => {
         it('should redirect /.well-known/oauth-authorization-server', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/.well-known/oauth-authorization-server', { redirect: 'manual' })
             expect([301, 302]).toContain(res.status)
             expect(res.headers.get('Location')).toContain('oauth.posthog.com')
         })
 
         it('should redirect /.well-known/jwks.json with 301', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/.well-known/jwks.json', { redirect: 'manual' })
             expect(res.status).toBe(301)
         })
 
         it('should redirect /oauth/* routes with 301', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/oauth/authorize', { redirect: 'manual' })
             expect(res.status).toBe(301)
         })
 
         it('should redirect /register with 307 (preserves POST)', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/register', { method: 'POST', redirect: 'manual' })
             expect(res.status).toBe(307)
             expect(res.headers.get('Location')).toContain('/oauth/register')
         })
 
         it('should redirect /authorize with 302', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/authorize', { redirect: 'manual' })
             expect(res.status).toBe(302)
             expect(res.headers.get('Location')).toContain('/oauth/authorize')
         })
 
         it('should redirect /token with 307 (preserves POST)', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/token', { method: 'POST', redirect: 'manual' })
             expect(res.status).toBe(307)
             expect(res.headers.get('Location')).toContain('/oauth/token')
@@ -319,7 +318,7 @@ describe('Hono App Routes', () => {
 
     describe('Streamable HTTP endpoint', () => {
         it('should return 405 for unsupported method (PUT)', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'PUT',
                 headers: { Authorization: 'Bearer phx_test' },
@@ -328,7 +327,7 @@ describe('Hono App Routes', () => {
         })
 
         it('should return 404 for DELETE with non-existent session', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'DELETE',
                 headers: {
@@ -342,13 +341,13 @@ describe('Hono App Routes', () => {
 
     describe('404 handling', () => {
         it('should return 404 for unknown routes', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/unknown-path')
             expect(res.status).toBe(404)
         })
 
         it('should return 404 for /api paths', async () => {
-            const app = createApp(mockRedis)
+            const { app } = createApp(mockRedis)
             const res = await app.request('/api/anything')
             expect(res.status).toBe(404)
         })
@@ -358,8 +357,8 @@ describe('Hono App Routes', () => {
         it('should create independent app instances with separate session maps', async () => {
             const redis1 = createMockRedis()
             const redis2 = createMockRedis()
-            const app1 = createApp(redis1)
-            const app2 = createApp(redis2)
+            const { app: app1 } = createApp(redis1)
+            const { app: app2 } = createApp(redis2)
 
             const res1 = await app1.request('/healthz')
             const res2 = await app2.request('/healthz')

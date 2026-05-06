@@ -41,12 +41,12 @@ function createInMemoryRedis(): RedisLike & { ping(): Promise<string> } {
     }
 }
 
-let app: ReturnType<typeof createApp>
+let app: ReturnType<typeof createApp>['app']
 
 beforeAll(() => {
     process.env.TEST = '1'
     mswServer.listen({ onUnhandledRequest: 'bypass' })
-    app = createApp(createInMemoryRedis())
+    app = createApp(createInMemoryRedis()).app
 })
 
 afterAll(() => {

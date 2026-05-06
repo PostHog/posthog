@@ -168,13 +168,12 @@ const handleRequest = async (
     // synchronously via `RequestProperties`.
     const clientInfo = await extractClientInfoFromBody(request)
 
+    // /sse → /mcp redirect handler above is the only path SSE clients take;
+    // arrival here means streamable-http (or an unknown path that 404s below).
+    const transport: RequestProperties['transport'] = url.pathname.startsWith('/mcp')
+        ? 'streamable-http'
+        : undefined
     let server: Promise<Response> | null = null
-    let transport: RequestProperties['transport']
-    if (url.pathname.startsWith('/mcp')) {
-        transport = 'streamable-http'
-    } else if (url.pathname.startsWith('/sse')) {
-        transport = 'sse'
-    }
 
     const props = parseRequestProperties(request, clientInfo, transport)
     Object.assign(ctx.props, props)
@@ -206,8 +205,6 @@ const handleRequest = async (
 
     if (transport === 'streamable-http') {
         server = MCP.serve('/mcp').fetch(request, env, ctx)
-    } else if (transport === 'sse') {
-        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 
     if (server !== null) {
