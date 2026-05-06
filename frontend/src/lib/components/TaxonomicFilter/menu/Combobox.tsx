@@ -179,6 +179,61 @@ export function MenuFilterCombobox({
         return fuse.search(q).map((r) => r.item)
     }, [indexed, searchQuery])
 
+    // Active-chip-aware placeholder. When the user has narrowed to a
+    // specific category, use that group's `searchPlaceholder` so the
+    // input reflects the search scope ("Search events" vs. the broad
+    // "Search events, actions, …").
+    const activePlaceholder = useMemo(() => {
+        if (activeChip === 'all') {
+            return placeholder ?? 'Search…'
+        }
+        if (activeChip === 'recent' || activeChip === 'pinned') {
+            return placeholder ?? 'Search…'
+        }
+        const group = groups.find((g) => g.type === activeChip)
+        const phrase = group?.searchPlaceholder ?? group?.name?.toLowerCase()
+        return phrase ? `Search ${phrase}…` : (placeholder ?? 'Search…')
+    }, [activeChip, groups, placeholder])
+
+    // Empty-state message. Three branches:
+    //   - "needs more characters" — when the active chip resolves to a
+    //     single group with `minSearchQueryLength` and the search query
+    //     is shorter than that. Shows the group's `searchDescription`
+    //     to explain what the typing will reach (matching the
+    //     screenshot in the design).
+    //   - "no matches" — search query is long enough but nothing
+    //     resolved. Names the active category for context.
+    //   - "no items" — initial render with no search and no resolved
+    //     entries (rare for finite groups).
+    const emptyState = useMemo<{ title: string; body?: string } | null>(() => {
+        if (filtered.length > 0) {
+            return null
+        }
+        const scope = showChips ? activeChip : drillTo
+        const singleGroup =
+            scope !== 'all' && scope !== 'recent' && scope !== 'pinned'
+                ? (groups.find((g) => g.type === scope) ?? null)
+                : null
+        const minLen = singleGroup?.minSearchQueryLength ?? 0
+        const trimmedLen = searchQuery.trim().length
+        if (singleGroup && minLen > 0 && trimmedLen < minLen) {
+            const description = singleGroup.searchDescription ?? singleGroup.name.toLowerCase()
+            return {
+                title: singleGroup.name,
+                body: `Type at least ${minLen} characters to search ${description} we have seen.`,
+            }
+        }
+        const categoryLabel = singleGroup?.name ?? (showChips ? null : null)
+        if (trimmedLen > 0) {
+            return {
+                title: categoryLabel ? `No "${categoryLabel}" found` : 'No matches',
+            }
+        }
+        return {
+            title: categoryLabel ? `No "${categoryLabel}" found` : 'No items',
+        }
+    }, [filtered.length, showChips, activeChip, drillTo, groups, searchQuery])
+
     const headerTitle =
         title ??
         (drillTo === 'all'
@@ -222,7 +277,14 @@ export function MenuFilterCombobox({
 
     return (
         <div className="flex flex-col flex-1 min-h-0">
-            <MenuFilterHeader title={headerTitle} onBack={onBack} />
+            <MenuFilterHeader
+                title={headerTitle}
+                onBack={onBack}
+                // Tab cycles the chip row — hide the hint when chips
+                // aren't visible (drilled views, Recent / Pinned), since
+                // there's nothing to cycle through.
+                showTabHint={showChips && visibleChipGroups.length > 0}
+            />
             <Autocomplete.Root
                 items={filtered}
                 mode="none"
@@ -251,7 +313,7 @@ export function MenuFilterCombobox({
                                             ref={inputRef}
                                             autoFocus
                                             data-attr="menu-filter-search"
-                                            placeholder={placeholder ?? 'Search…'}
+                                            placeholder={activePlaceholder}
                                             onKeyDown={handleInputKeyDown}
                                         />
                                     }
@@ -287,19 +349,30 @@ export function MenuFilterCombobox({
                             targetGroups.map((g) => <Fetcher key={g.type} group={g} onItems={reportItems} />)}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" showScrollToButton={['bottom']}>
                             <Autocomplete.List data-quill className="p-2 scroll-py-8">
-                                <Autocomplete.Empty className="px-2 py-3 text-xs text-secondary empty:hidden">
-                                    {filtered.length === 0 && searchQuery
-                                        ? 'No matches'
-                                        : filtered.length === 0
-                                          ? 'No items'
-                                          : null}
+                                <Autocomplete.Empty className="empty:hidden">
+                                    {emptyState && (
+                                        <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+                                            <div className="text-sm font-semibold">{emptyState.title}</div>
+                                            {emptyState.body && (
+                                                <div className="text-xs text-secondary leading-relaxed">
+                                                    {emptyState.body}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </Autocomplete.Empty>
                                 <Autocomplete.Collection>
                                     {(entry: MenuFilterEntry) => (
                                         <Row
                                             entry={entry}
-                                            showGroupLabel={activeChip === 'all'}
-                                            showGroupSubtitle={drillTo === 'recent' || drillTo === 'pinned'}
+                                            // Show the category label on mixed-group views (All)
+                                            // and on Recent/Pinned drills — those mix items from
+                                            // multiple categories so the label disambiguates.
+                                            // Drilled-to-one-group views skip it (the panel
+                                            // header / chip already names the category).
+                                            showCategory={
+                                                activeChip === 'all' || drillTo === 'recent' || drillTo === 'pinned'
+                                            }
                                             // DWH rows open the column-config
                                             // form, not a final selection —
                                             // signal that with a chevron.
@@ -325,10 +398,8 @@ export function MenuFilterCombobox({
 
 interface RowProps {
     entry: MenuFilterEntry
-    /** Render the group's name on its own line (mixed-group views only). */
-    showGroupLabel: boolean
-    /** Replace the raw-name subtitle with the source group name. */
-    showGroupSubtitle?: boolean
+    /** Render the category label (mixed-group views always; drilled views skip it since the panel header already names the group). */
+    showCategory: boolean
     /** Show a trailing chevron when click drills to another panel (DWH config). */
     opensSubmenu?: boolean
     /** DOM id of the currently-selected row (for the trailing checkmark). */
@@ -336,55 +407,65 @@ interface RowProps {
     onCommit: CommitFn
 }
 
-function Row({ entry, showGroupLabel, showGroupSubtitle, opensSubmenu, selectedRowId, onCommit }: RowProps): JSX.Element {
-    const { item, group } = entry
+/**
+ * Resolve a row's three normalized cells:
+ *   - name:     human-friendly label (e.g. "Pageview", "/checkout")
+ *   - value:    raw underlying value when distinct from the name
+ *               (e.g. "$pageview", "localhost:8010")
+ *   - category: group name shown as an uppercase tag at the bottom
+ *
+ * URLs split into path (name) + host (value); friendly definitions
+ * surface the friendly label as the name and the raw `$key` as the
+ * value; everything else uses the entry name as the name and omits
+ * the value cell.
+ */
+function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
     const friendly = entry.friendlyLabel
-    // URL detection — if the row's name parses as a URL, show the path
-    // (everything after the TLD) on line one and the host on line two so
-    // long URLs stay readable.
     const url = parseUrl(entry.name)
-    const title = url ? url.pathTail : friendly && friendly.length > 0 ? friendly : entry.name
-    // Subtitle precedence: URL host wins; then group name (Recent/Pinned
-    // need the source group as context); then the raw `$value` when it
-    // differs from the friendly title; otherwise omitted.
-    const subtitle = url
-        ? url.host
-        : showGroupSubtitle
-          ? group.name
-          : friendly && friendly !== entry.name
-            ? entry.name
-            : undefined
+    if (url) {
+        return { name: url.pathTail, value: url.host, category: entry.group.name }
+    }
+    if (friendly && friendly.length > 0 && friendly !== entry.name) {
+        return { name: friendly, value: entry.name, category: entry.group.name }
+    }
+    return { name: entry.name, category: entry.group.name }
+}
+
+function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: RowProps): JSX.Element {
+    const { item, group } = entry
+    const { name, value, category } = resolveRowCells(entry)
     const stableId = `menu-filter-row-${group.type}-${String(group.getValue?.(item) ?? entry.name)}`
     const isSelected = selectedRowId === stableId
     return (
         <Autocomplete.Item
             id={stableId}
             value={entry}
-            data-checked={isSelected || undefined}
             onClick={(e) => {
                 e.preventDefault()
                 onCommit(entry)
             }}
+            data-slot="taxonomic-filter-menu-row"
             className={cn(
                 'flex flex-row items-center gap-2 rounded-sm px-2 py-1 cursor-pointer outline-none',
                 // `data-selected` mirrors base-ui's `highlighted` state via
                 // the render fn below — keyboard / pointer cursor on this
                 // row gets a soft hover tint.
                 'data-[selected]:bg-[var(--fill-hover)]',
+                // Persistent tint for the committed selection. Plain
+                // conditional class — base-ui's `render` override only
+                // forwards its own computed props, so `data-*` extras
+                // passed to `Autocomplete.Item` would be dropped.
+                isSelected && 'bg-[var(--fill-hover)]'
             )}
-            render={(itemProps, state) => (
-                <div
-                    {...itemProps}
-                    data-selected={state.highlighted ? '' : undefined}
-                />
-            )}
+            render={(itemProps, state) => <div {...itemProps} data-selected={state.highlighted ? '' : undefined} />}
         >
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
-                <span className="text-sm leading-tight truncate max-w-full">{title}</span>
-                {subtitle && (
-                    <span className="text-xs text-tertiary/50 leading-tight truncate max-w-full">{subtitle}</span>
-                )}
-                {showGroupLabel && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{group.name}</MenuLabel>}
+                <span className="text-sm leading-tight truncate max-w-full">{name}</span>
+
+                <span className="font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
+                    {value || <span className="opacity-50">N/A</span>}
+                </span>
+                {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
             </div>
             {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}
             {opensSubmenu && <ChevronRight className="size-3.5 text-tertiary shrink-0" />}

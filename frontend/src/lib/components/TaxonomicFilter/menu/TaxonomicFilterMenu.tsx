@@ -23,6 +23,7 @@
  */
 import { useValues } from 'kea'
 import { ChevronRight } from 'lucide-react'
+import posthog from 'posthog-js'
 import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -43,7 +44,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
+import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { MenuFilterHogQLEditor } from './HogQLEditor'
@@ -63,6 +64,12 @@ export interface TaxonomicFilterMenuProps {
     onCommit?: CommitFn
     /** Search input placeholder in the combobox. */
     placeholder?: string
+    /**
+     * Heading shown above the combobox panel. Defaults to "Choose filter".
+     * Consumers like the series picker override this to read e.g.
+     * "Choose series filter" so the panel matches its surrounding context.
+     */
+    comboboxTitle?: string
 }
 
 export interface TriggerState {
@@ -77,9 +84,46 @@ export function TaxonomicFilterMenu({
     trigger,
     onCommit,
     placeholder,
+    comboboxTitle,
 }: TaxonomicFilterMenuProps): JSX.Element {
-    const { groups, selectItem, inputProps } = useTaxonomicFilterContext()
+    const { groups, selectItem, inputProps, searchQuery } = useTaxonomicFilterContext()
     const [state, setState] = useState<MenuFilterState>({ kind: 'closed' })
+
+    // Telemetry — track open dwell + commit funnel so we can compare
+    // against legacy `taxonomic filter *` events. Stored in refs so the
+    // close handler reads the actual session start, not a stale closure.
+    const openedAtRef = useRef<number | null>(null)
+    const hadCommitRef = useRef(false)
+    const lastStateKindRef = useRef<MenuFilterState['kind']>('closed')
+    useEffect(() => {
+        const previous = lastStateKindRef.current
+        const next = state.kind
+        if (previous === 'closed' && next !== 'closed') {
+            openedAtRef.current = Date.now()
+            hadCommitRef.current = false
+            posthog.capture('taxonomic filter menu opened', {
+                openedTo: next,
+                hadSelection: !!selected,
+                triggerLabel,
+            })
+        } else if (previous !== 'closed' && next !== 'closed' && previous !== next) {
+            posthog.capture('taxonomic filter menu drilled', {
+                fromState: previous,
+                toState: next,
+            })
+        } else if (previous !== 'closed' && next === 'closed') {
+            posthog.capture('taxonomic filter menu closed', {
+                dwellMs: openedAtRef.current ? Date.now() - openedAtRef.current : null,
+                hadCommit: hadCommitRef.current,
+                lastState: previous,
+            })
+            openedAtRef.current = null
+        }
+        lastStateKindRef.current = next
+        // We deliberately don't track `selected` / `triggerLabel` — they
+        // shouldn't fire fresh `opened` events on identity churn.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [state.kind])
 
     // -- Transitions -- single source of truth for state changes. Each
     // transition is a single setState call so React batches and there's
@@ -144,11 +188,19 @@ export function TaxonomicFilterMenu({
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
             const itemValue = entry.group.getValue?.(mergedItem) ?? null
+            hadCommitRef.current = true
+            posthog.capture('taxonomic filter menu item selected', {
+                groupType: entry.group.type,
+                hadSearchInput: !!searchQuery,
+                query: searchQuery || undefined,
+                hadExtras: !!extra,
+                fromState: lastStateKindRef.current,
+            })
             selectItem(entry.group, itemValue, mergedItem)
             onCommit?.({ ...entry, item: mergedItem }, extra)
             closeAll()
         },
-        [selectItem, onCommit, closeAll]
+        [selectItem, onCommit, closeAll, searchQuery]
     )
 
     // -- Trigger render --
@@ -284,6 +336,10 @@ export function TaxonomicFilterMenu({
                                       : undefined
                             }
                             placeholder={placeholder ?? inputProps.placeholder}
+                            // Only override the default "Choose filter"
+                            // header when on the All chip — drilled views
+                            // already title themselves with the group name.
+                            title={state.drillTo === 'all' ? comboboxTitle : undefined}
                             selectedEntry={selected ?? null}
                             onCommit={handleCommit}
                             onBack={openMenu}
@@ -362,19 +418,65 @@ export function TaxonomicFilterMenu({
 
 interface ShortcutItem {
     name?: string
+    id?: unknown
     value?: unknown
-    _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType }
+    _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: unknown }
+    _recentContext?: { sourceGroupType?: TaxonomicFilterGroupType; value?: unknown }
+}
+
+/**
+ * Resolve the most appropriate `TaxonomicFilterGroup` for a shortcut
+ * item.
+ *
+ *   1. Recorded `sourceGroupType` if it points at a real content group
+ *      that's available right now.
+ *   2. If the recorded source is a META group (Suggested / Recent /
+ *      Pinned), find a non-meta group in `groups` whose `getValue(item)`
+ *      matches the saved value — that's the underlying definition the
+ *      item really belongs to (e.g. SuggestedFilters → Events).
+ *   3. Fall back to the first non-meta group so the row at least has a
+ *      sensible category subtitle instead of "Suggested filters".
+ */
+function resolveShortcutGroup(
+    item: ShortcutItem,
+    sourceType: TaxonomicFilterGroupType | undefined,
+    sourceValue: unknown,
+    groups: TaxonomicFilterGroup[]
+): TaxonomicFilterGroup | null {
+    if (sourceType && !META_GROUP_TYPES.has(sourceType)) {
+        const direct = groups.find((g) => g.type === sourceType)
+        if (direct) {
+            return direct
+        }
+    }
+    const matchByValue = groups.find((g) => {
+        if (META_GROUP_TYPES.has(g.type)) {
+            return false
+        }
+        try {
+            const candidate = g.getValue?.(item as TaxonomicDefinitionTypes)
+            return candidate != null && candidate === sourceValue
+        } catch {
+            return false
+        }
+    })
+    if (matchByValue) {
+        return matchByValue
+    }
+    return groups.find((g) => !META_GROUP_TYPES.has(g.type)) ?? null
 }
 
 function mapShortcutItems(items: ShortcutItem[], groups: TaxonomicFilterGroup[]): MenuFilterEntry[] {
     return items
         .map((item) => {
-            const sourceType = item._pinnedContext?.sourceGroupType
-            const group = sourceType ? groups.find((g) => g.type === sourceType) : groups[0]
+            const ctx = item._recentContext ?? item._pinnedContext
+            const sourceType = ctx?.sourceGroupType
+            const sourceValue = ctx?.value
+            const group = resolveShortcutGroup(item, sourceType, sourceValue, groups)
             if (!group) {
                 return null
             }
-            const name = group.getName?.(item as TaxonomicDefinitionTypes) ?? item.name ?? ''
+            const name = (item.name as string) ?? group.getName?.(item as TaxonomicDefinitionTypes) ?? ''
             return {
                 item: item as TaxonomicDefinitionTypes,
                 group,

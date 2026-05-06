@@ -6,15 +6,22 @@
  */
 import { ChevronLeftIcon } from 'lucide-react'
 
-import { Button, cn } from '@posthog/quill'
+import { Button, cn, Kbd } from '@posthog/quill'
 
 export interface MenuFilterHeaderProps {
     title: string
     onBack: () => void
     className?: string
+    /**
+     * Whether the Tab keyboard hint should render. Drilled views (single
+     * category, Recent, Pinned) have no chip row to cycle through, so
+     * the hint is misleading there — pass `false` to suppress it.
+     * Defaults to `true` so the All / mixed-group view keeps the hint.
+     */
+    showTabHint?: boolean
 }
 
-export function MenuFilterHeader({ title, onBack, className }: MenuFilterHeaderProps): JSX.Element {
+export function MenuFilterHeader({ title, onBack, className, showTabHint = true }: MenuFilterHeaderProps): JSX.Element {
     return (
         <div
             className={cn('flex items-center gap-2 px-3 py-2 border-b text-sm font-semibold shrink-0', className)}
@@ -32,6 +39,15 @@ export function MenuFilterHeader({ title, onBack, className }: MenuFilterHeaderP
                 <ChevronLeftIcon className="size-4" />
             </Button>
             <span className="flex-1 truncate">{title}</span>
+
+            <div className="flex items-center gap-2 text-xs">
+                {showTabHint && (
+                    <>
+                        <Kbd>Tab</Kbd> <span className="text-tertiary/50 font-normal">Cycle through categories</span>
+                    </>
+                )}
+                <Kbd>Esc</Kbd> <span className="text-tertiary/50 font-normal">Go back one level</span>
+            </div>
         </div>
     )
 }

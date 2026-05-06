@@ -12,7 +12,7 @@
  */
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
-import { Button, DialogFooter, Field, FieldContent, FieldDescription, FieldLabel, Input, Skeleton } from '@posthog/quill'
+import { Button, DialogFooter, Field, FieldContent, FieldDescription, FieldLabel, Skeleton } from '@posthog/quill'
 
 import { Link } from 'lib/lemon-ui/Link'
 
@@ -108,7 +108,11 @@ export function MenuFilterHogQLEditor({
                                     {EXAMPLE_HINTS}
                                 </pre>
                                 <div className="mt-2 text-xs">
-                                    <Link to="https://posthog.com/docs/sql" target="_blank" className="underline text-primary">
+                                    <Link
+                                        to="https://posthog.com/docs/sql"
+                                        target="_blank"
+                                        className="underline text-primary"
+                                    >
                                         Learn more about SQL
                                     </Link>
                                 </div>

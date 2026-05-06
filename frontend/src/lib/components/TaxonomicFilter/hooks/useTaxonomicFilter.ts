@@ -24,6 +24,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
+    hasRecentContext,
+    recentTaxonomicFiltersLogic,
+    stripRecentContext,
+} from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import {
     AllowedProperties,
     ExcludedProperties,
     SelectedProperties,
@@ -33,8 +38,10 @@ import {
     TaxonomicFilterValue,
     META_GROUP_TYPES,
 } from 'lib/components/TaxonomicFilter/types'
+import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyDataNode } from '~/queries/schema/schema-general'
 
@@ -368,6 +375,36 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
 
     const selectItem = useCallback(
         (group: TaxonomicFilterGroup, valueIn: TaxonomicFilterValue | null, item: any) => {
+            // Mirror the legacy `taxonomicFilterLogic.selectItem` recent
+            // recording so menu commits show up in the dropdown's
+            // "Recent" entry. Quick-filter items are skipped (they're
+            // shortcuts, not filterable definitions); pinned/recent
+            // context wrappers get stripped before persisting.
+            if (valueIn != null && item && !isQuickFilterItem(item)) {
+                const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
+                const stripped = hasRecentContext(item) ? stripRecentContext(item) : item
+                const cleanItem = {
+                    name: stripped.name,
+                    ...(stripped.id ? { id: stripped.id } : {}),
+                }
+                const sourceGroupName = hasRecentContext(item) ? item._recentContext.sourceGroupName : group.name
+                const propertyFilterFromRecent = hasRecentContext(item) ? item._recentContext.propertyFilter : undefined
+                // Defer one tick — keeps the recents write off the
+                // commit's render cycle so React doesn't re-render the
+                // closing popover with a stale list.
+                setTimeout(() => {
+                    if (recentTaxonomicFiltersLogic.isMounted()) {
+                        recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                            sourceGroupType,
+                            sourceGroupName,
+                            valueIn,
+                            cleanItem,
+                            teamLogic.values.currentTeamId ?? undefined,
+                            propertyFilterFromRecent
+                        )
+                    }
+                }, 0)
+            }
             onChange?.(group, valueIn, item)
             setSearchQuery('')
         },

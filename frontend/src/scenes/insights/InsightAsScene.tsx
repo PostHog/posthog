@@ -17,7 +17,6 @@ import { teamLogic } from '../teamLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
-import { TaxonomicFilterPreview } from './TaxonomicFilterPreview'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
@@ -80,7 +79,6 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightModals insightLogicProps={insightProps} />
             <SceneContent className={clsx('Insight', isEditing && '!gap-0')}>
-                {isEditing && <TaxonomicFilterPreview />}
                 {isEditing ? (
                     <div className="flex flex-col gap-y-4 shrink-0">
                         <InsightSceneHeader insightLogicProps={insightProps} />

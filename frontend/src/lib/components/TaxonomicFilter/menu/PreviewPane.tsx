@@ -13,11 +13,10 @@ import { Pin } from 'lucide-react'
 
 import { Button, cn, ScrollArea, Separator } from '@posthog/quill'
 
-import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
-
 import { Link } from 'lib/lemon-ui/Link'
-
 import { urls } from 'scenes/urls'
+
+import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
 import { useTaxonomicAutocompleteItemDetails } from '../headless'
 import { TaxonomicFilterGroupType } from '../types'
@@ -32,11 +31,7 @@ export interface PreviewPaneProps {
 
 export function PreviewPane({ entry, className }: PreviewPaneProps): JSX.Element {
     return (
-        <div
-            className={cn("min-w-0 min-h-0", className)}
-            data-slot="menu-filter-preview"
-            aria-live="polite"
-        >
+        <div className={cn('min-w-0 min-h-0', className)} data-slot="menu-filter-preview" aria-live="polite">
             {entry ? <PreviewBody entry={entry} /> : <PreviewEmpty />}
         </div>
     )
@@ -85,7 +80,7 @@ function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null 
                 {details.rawName && details.rawName !== details.title && (
                     <div className="flex flex-col gap-0.5 border-t pt-2">
                         <div className="text-xxs uppercase tracking-wide text-secondary">Sent as</div>
-                        <code className="text-xs break-all">{details.rawName}</code>
+                        <code className="text-xs break-all font-mono">{details.rawName}</code>
                     </div>
                 )}
 
@@ -120,7 +115,12 @@ function PreviewHeader({ details, viewUrl }: PreviewHeaderProps): JSX.Element | 
                     {details.isPinned ? 'Pinned' : 'Pin'}
                 </Button>
                 {viewUrl && (
-                    <Button variant="link" className="text-primary" size="sm" render={<Link to={viewUrl} target="_blank" className="text-xs underline" />}>
+                    <Button
+                        variant="link"
+                        className="text-primary"
+                        size="sm"
+                        render={<Link to={viewUrl} target="_blank" className="text-xs underline" />}
+                    >
                         View
                     </Button>
                 )}
@@ -169,4 +169,3 @@ function resolveViewUrl(entry: MenuFilterEntry): string | undefined {
             return undefined
     }
 }
-

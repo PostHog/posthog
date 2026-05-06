@@ -31,6 +31,13 @@ export interface RecentTaxonomicFilter {
 export interface RecentItemContext {
     sourceGroupType: TaxonomicFilterGroupType
     sourceGroupName: string
+    /**
+     * Canonical value the entry was recorded under (e.g. `action.id`,
+     * `event.name`). Mirrors the pinned context field so consumers can
+     * resolve the underlying definition when the recorded source group
+     * is a META group (Suggested filters) or otherwise unavailable.
+     */
+    value: TaxonomicFilterValue
     teamId?: number
     propertyFilter?: AnyPropertyFilter
 }
@@ -168,6 +175,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                             _recentContext: {
                                 sourceGroupType: f.groupType,
                                 sourceGroupName: f.groupName,
+                                value: f.value,
                                 teamId: f.teamId,
                                 propertyFilter: f.propertyFilter,
                             } as RecentItemContext,
