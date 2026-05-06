@@ -2,12 +2,37 @@
 
 from __future__ import annotations
 
+import sys
+
+import pytest
 from unittest.mock import MagicMock, patch
 
+import click
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli.manifest import get_manifest
 
 runner = CliRunner()
+
+
+def _manifest_click_commands() -> list[str]:
+    manifest = get_manifest()
+    return [
+        cmd_name
+        for cmd_name in manifest.get_all_commands()
+        if (config := manifest.get_command_config(cmd_name)) and config.get("click")
+    ]
+
+
+def _manifest_click_modules() -> list[str]:
+    manifest = get_manifest()
+    modules: set[str] = set()
+    for cmd_name in _manifest_click_commands():
+        click_target = (manifest.get_command_config(cmd_name) or {}).get("click", "")
+        module_name = click_target.split(":", 1)[0]
+        if module_name:
+            modules.add(module_name)
+    return sorted(modules)
 
 
 class TestMainCommand:
@@ -100,6 +125,40 @@ class TestDynamicCommandRegistration:
         # build:schema-json uses direct cmd field
         result = runner.invoke(cli, ["build:schema-json", "--help"])
         assert result.exit_code in (0, 2)
+
+
+class TestLazyClickCommands:
+    @pytest.mark.parametrize("command_name", _manifest_click_commands())
+    def test_lazy_click_command_help_loads(self, command_name: str) -> None:
+        # Click's recommended sanity check: every lazy command's --help must
+        # succeed. Catches bad `click:` import strings, missing modules,
+        # missing attrs, wrong types, and Click-name drift in one shot.
+        result = runner.invoke(cli, [command_name, "--help"])
+        assert result.exit_code == 0, f"{command_name}: {result.output}"
+        assert "Usage:" in result.output
+
+    def test_top_level_help_does_not_import_lazy_command_modules(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        lazy_modules = _manifest_click_modules()
+        assert lazy_modules, "expected at least one lazy click module in the manifest"
+        for module_name in lazy_modules:
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+
+        result = runner.invoke(cli, ["--help"])
+
+        assert result.exit_code == 0
+        for module_name in lazy_modules:
+            assert module_name not in sys.modules, f"{module_name} was imported during top-level --help"
+
+    def test_hidden_lazy_commands_are_hidden_from_help_and_listing(self) -> None:
+        hidden_command = "dev:list-units"
+
+        result = runner.invoke(cli, ["--help"])
+
+        assert result.exit_code == 0
+        assert hidden_command not in result.output
+        with click.Context(cli) as ctx:
+            assert hidden_command not in cli.list_commands(ctx)
+            assert isinstance(cli.get_command(ctx, hidden_command), click.Command)
 
 
 class TestCommandInjectionPrevention:
