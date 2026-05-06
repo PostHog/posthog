@@ -1,6 +1,13 @@
 config:
     description: Unified developer experience for the PostHog monorepo.
     commands_dir: tools/hogli-commands/hogli_commands
+    # Imported once at startup to register precheck handlers, telemetry property
+    # hooks, and post-command hooks. Keep these modules cheap to import — heavy
+    # dependencies must live behind lazy imports inside handler bodies.
+    boot_modules:
+        - hogli_commands.prechecks
+        - hogli_commands.telemetry_props
+        - hogli_commands.hint_hook
     scripts_exclude:
         - mprocs.yaml
         - mprocs-test.yaml
@@ -113,29 +120,85 @@ metadata:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
 devbox:
-    devbox: null
-    devbox:setup: null
-    devbox:start: null
-    devbox:stop: null
-    devbox:restart: null
-    devbox:update: null
-    devbox:list: null
-    devbox:ssh: null
-    devbox:open: null
-    devbox:logs: null
-    devbox:destroy: null
-    devbox:status: null
-    devbox:forward: null
-    devbox:users: null
-    devbox:share: null
-    devbox:cleanup:disk: null
-    devbox:task: null
+    devbox:
+        click: hogli_commands.devbox.cli:devbox_help
+        description: Show available devbox commands
+    devbox:setup:
+        click: hogli_commands.devbox.cli:devbox_setup
+        description: Install and configure local access to Coder devboxes
+    devbox:start:
+        click: hogli_commands.devbox.cli:devbox_start
+        description: Start or create your remote devbox
+    devbox:stop:
+        click: hogli_commands.devbox.cli:devbox_stop
+        description: Stop your devbox (preserves disk, stops billing)
+    devbox:restart:
+        click: hogli_commands.devbox.cli:devbox_restart
+        description: Restart your devbox
+    devbox:update:
+        click: hogli_commands.devbox.cli:devbox_update
+        description: Update devbox to the latest template
+    devbox:list:
+        click: hogli_commands.devbox.cli:devbox_list
+        description: List your devboxes
+    devbox:ssh:
+        click: hogli_commands.devbox.cli:devbox_ssh
+        description: SSH into your devbox
+    devbox:open:
+        click: hogli_commands.devbox.cli:devbox_open
+        description: Open devbox in browser, VS Code, or Cursor
+    devbox:logs:
+        click: hogli_commands.devbox.cli:devbox_logs
+        description: Tail devbox build and agent logs
+    devbox:destroy:
+        click: hogli_commands.devbox.cli:devbox_destroy
+        description: Destroy your devbox and its data
+    devbox:status:
+        click: hogli_commands.devbox.cli:devbox_status
+        description: Show devbox status
+    devbox:forward:
+        click: hogli_commands.devbox.cli:devbox_forward
+        description: Forward PostHog UI to localhost
+    devbox:users:
+        click: hogli_commands.devbox.cli:devbox_users
+        description: List Coder users (for devbox sharing)
+    devbox:share:
+        click: hogli_commands.devbox.cli:devbox_share
+        description: Share your devbox with other users
+    devbox:unshare:
+        click: hogli_commands.devbox.cli:devbox_unshare
+        description: Revoke access to your devbox from other users
+    devbox:cleanup:disk:
+        click: hogli_commands.devbox.cli:devbox_cleanup_disk
+        description: Free disk space by cleaning caches and build artifacts
+    devbox:task:
+        click: hogli_commands.devbox.cli:devbox_task
+        description: Run a background agent task on a fresh devbox
 devenv:
-    dev:setup: null
-    dev:generate: null
-    dev:explain: null
-    dev:intents: null
+    dev:setup:
+        click: hogli_commands.devenv.cli:dev_setup
+        description: Interactive wizard to configure your dev environment
+    dev:generate:
+        click: hogli_commands.devenv.cli:dev_generate
+        description: Regenerate mprocs config from saved settings
+    dev:explain:
+        click: hogli_commands.devenv.cli:dev_explain
+        description: Show what services would be started for intents
+    dev:intents:
+        click: hogli_commands.devenv.cli:dev_intents
+        description: List available intents
+    dev:list-units:
+        click: hogli_commands.devenv.cli:dev_list_units
+        description: List autostart units for given intents (used by phrocs)
+        hidden: true
+    dev:apply:
+        click: hogli_commands.devenv.cli:dev_apply
+        description: Apply intent config non-interactively (used by phrocs)
+        hidden: true
 core:
+    quickstart:
+        click: hogli_commands.quickstart:quickstart
+        description: Show getting started with PostHog development
     categories:
         description: Show all available commands grouped by category
     dev:up:
@@ -317,7 +380,9 @@ deploy:
             \ exports -n     # Dry run exports only"
         prompt: true
 build:
-    build: null # Click-defined command; placed here for help categorization
+    build:
+        click: hogli_commands.build:build
+        description: Run code generation pipelines (smart change detection by default)
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
         description: Build frontend packages and run TypeScript compilation
@@ -405,6 +470,9 @@ build:
         cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
         description: Remove a previously synced skill from .agents/skills/
 docker:
+    docker:services:up:
+        click: hogli_commands.devenv.cli:docker_services_up
+        description: Start Docker services based on your intent config
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
@@ -481,6 +549,21 @@ migrations:
         services:
             - postgresql
             - clickhouse
+    migrations:status:
+        click: hogli_commands.migrations:migrations_status
+        description: Show migration diff between database and code
+    migrations:down:
+        click: hogli_commands.migrations:migrations_down
+        description: Roll back orphaned migrations
+    migrations:up:
+        click: hogli_commands.migrations:migrations_up
+        description: Apply pending migrations
+    migrations:sync:
+        click: hogli_commands.migrations:migrations_sync
+        description: 'Sync migrations: roll back orphaned, apply pending'
+    migrations:cache-sync:
+        click: hogli_commands.migrations:migrations_cache_sync
+        description: Populate cache from currently applied migrations
 db:
     db:pg:
         cmd: psql postgres://posthog:posthog@localhost:5432/posthog
@@ -611,6 +694,9 @@ db:
             - postgresql
             - docker
 tests:
+    test:
+        click: hogli_commands.test_runner:test_command
+        description: Auto-detect test type (Python, Jest, Playwright, Rust, Go) and run it
     test:python:
         cmd: pytest
         description: Run Python test suite
@@ -668,12 +754,37 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 auth:
-    metabase:login: null # Click-defined, placed here for categorization
-    metabase:cookie: null # Click-defined, placed here for categorization
-    metabase:databases: null # Click-defined, placed here for categorization
-    metabase:query: null # Click-defined, placed here for categorization
+    metabase:login:
+        click: hogli_commands.metabase:metabase_login
+        description: Log in to Metabase via SSO and cache the session cookie
+    metabase:cookie:
+        click: hogli_commands.metabase:metabase_cookie
+        description: Print the cached Metabase cookie header
+    metabase:databases:
+        click: hogli_commands.metabase:metabase_databases
+        description: List Metabase databases (id, name, engine) for a region
+    metabase:query:
+        click: hogli_commands.metabase:metabase_query
+        description: Run a SQL query against Metabase /api/dataset; results to stdout
 tools:
-    doctor: null # Click-defined, placed here for categorization
+    doctor:
+        click: hogli_commands.doctor:doctor
+        description: Quick health check for your dev environment
+    doctor:disk:
+        click: hogli_commands.doctor:doctor_disk
+        description: Interactive disk space cleanup for common PostHog dev bloat
+    doctor:zombies:
+        click: hogli_commands.doctor:doctor_zombies
+        description: Find and kill orphaned PostHog dev processes
+    product:bootstrap:
+        click: hogli_commands.product.cli:cmd_bootstrap
+        description: Scaffold a new product with canonical structure
+    product:lint:
+        click: hogli_commands.product.cli:cmd_lint
+        description: Check product structure for misplaced files
+    product:maturity:
+        click: hogli_commands.product.cli:cmd_maturity
+        description: Score product maturity across isolation dimensions
     tool:temporal-codec-server:
         bin_script: temporal-codec-server
         description: Run a local Temporal codec server to decode Fernet payloads for debugging
@@ -850,10 +961,13 @@ environment:
         cmd: uv sync --active
         description: Install Python dependencies to active virtual environment
     telemetry:on:
+        click: hogli_commands.telemetry_commands:telemetry_on
         description: Enable anonymous usage telemetry
     telemetry:off:
+        click: hogli_commands.telemetry_commands:telemetry_off
         description: Disable anonymous usage telemetry
     telemetry:status:
+        click: hogli_commands.telemetry_commands:telemetry_status
         description: Show current telemetry settings
     sandbox:
         bin_script: sandbox
