@@ -11,14 +11,21 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { clustersLogicType } from './clustersLogicType'
-import { FILTER_QUERY_MAX_ROWS, MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID, OUTLIER_COLOR, SAFE_ID_RE } from './constants'
+import {
+    FILTER_QUERY_MAX_ROWS,
+    LLM_ANALYTICS_CLUSTERS_SCENE_TAG,
+    MAX_CLUSTERING_RUNS,
+    NOISE_CLUSTER_ID,
+    OUTLIER_COLOR,
+    SAFE_ID_RE,
+} from './constants'
 import {
     EvaluationItemAttributes,
     EvaluationVerdict,
@@ -295,7 +302,7 @@ export const clustersLogic = kea<clustersLogicType>([
                         // Required for the query runner to populate the `product` ClickHouse
                         // tag — without it the dev-mode `UntaggedQueryError` enforcement 500s
                         // every request.
-                        tags: { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
+                        tags: { productKey: ProductKey.LLM_ANALYTICS, scene: LLM_ANALYTICS_CLUSTERS_SCENE_TAG },
                     }
 
                     const response = await api.query(eventsQuery)
@@ -308,8 +315,6 @@ export const clustersLogic = kea<clustersLogicType>([
                             matched.add(id)
                         }
                     }
-                    // eslint-disable-next-line no-console
-                    console.log('[clusters debug] matched IDs:', matched.size, '/', allIds.length)
                     return matched
                 },
             },
@@ -465,6 +470,10 @@ export const clustersLogic = kea<clustersLogicType>([
         // trace cards on the Generations tab during the load. kea-loaders preserves
         // the previous loader value, so without this check `currentRun` would still
         // be the trace-level run for a few hundred milliseconds.
+        //
+        // Runs emitted before the `clustering_level` event property existed are inferred
+        // as 'trace' by `loadClusteringRun` via `getLevelFromRunId`, so the same default
+        // applies here for any path that bypasses the loader (e.g. test fixtures).
         currentRunMatchesLevel: [
             (s) => [s.currentRun, s.clusteringLevel],
             (currentRun: ClusteringRun | null, level: ClusteringLevel): boolean =>
@@ -837,7 +846,17 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         // Property filter state lives in the shared logic; mirror its updates into a
-        // fresh EventsQuery scoped to the current run's items.
+        // fresh EventsQuery scoped to the current run's items. Both listener entries are
+        // needed because the dispatch path differs by trigger:
+        //   - UI clicks dispatch `setPropertyFilters` / `setShouldFilterTestAccounts`
+        //     directly. The shared logic's `actionToUrl` then echoes the new state into
+        //     the URL, but `applySearchParams` short-circuits because URL and state
+        //     already agree, so `applyUrlState` is *not* fired in this path.
+        //   - Deep links and browser back/forward fire the URL handler first; that
+        //     path detects the divergence and dispatches `applyUrlState` (not
+        //     `setPropertyFilters`) to sync state.
+        // The 150ms breakpoint debounce inside the loader collapses any stray double
+        // dispatches into a single round-trip.
         setPropertyFilters: () => actions.loadPropertyFilteredItemIds(),
         setShouldFilterTestAccounts: () => actions.loadPropertyFilteredItemIds(),
         applyUrlState: () => actions.loadPropertyFilteredItemIds(),

@@ -18,6 +18,7 @@ import type { clusterDetailLogicType } from './clusterDetailLogicType'
 import { loadClusterMetrics } from './clusterMetricsLoader'
 import {
     FILTER_QUERY_MAX_ROWS,
+    LLM_ANALYTICS_CLUSTER_SCENE_TAG,
     LLM_ANALYTICS_CLUSTER_URL_PATTERN,
     NOISE_CLUSTER_ID,
     OUTLIER_COLOR,
@@ -209,7 +210,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                         // Required for the query runner to populate the `product` ClickHouse
                         // tag — without it the dev-mode `UntaggedQueryError` enforcement 500s
                         // every request.
-                        tags: { productKey: 'llm_analytics', scene: 'LLMAnalyticsCluster' },
+                        tags: { productKey: ProductKey.LLM_ANALYTICS, scene: LLM_ANALYTICS_CLUSTER_SCENE_TAG },
                     }
 
                     const response = await api.query(eventsQuery)
@@ -476,7 +477,10 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
         // Filter-change listeners only kick the loader; resetting the page and reloading
         // summaries waits for the loader's success path so we don't burn a round-trip on
-        // summaries for items the user is about to filter out.
+        // summaries for items the user is about to filter out. Both `setPropertyFilters`
+        // and `applyUrlState` are needed: the first covers UI clicks (where actionToUrl
+        // updates the URL but doesn't re-fire applyUrlState), the second covers deep
+        // links and browser back/forward where applyUrlState is the only dispatch.
         setPropertyFilters: () => actions.loadFilteredItemIds(),
         setShouldFilterTestAccounts: () => actions.loadFilteredItemIds(),
         applyUrlState: () => actions.loadFilteredItemIds(),

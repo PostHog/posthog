@@ -498,6 +498,62 @@ describe('clustersLogic', () => {
             })
         })
 
+        describe('currentRunMatchesLevel', () => {
+            it('is false when no run is loaded', () => {
+                expect(logic.values.currentRunMatchesLevel).toBe(false)
+            })
+
+            it('is true when the loaded run matches the active level', () => {
+                logic.actions.setClusteringLevel('generation')
+                logic.actions.loadClusteringRunSuccess({
+                    runId: 'r',
+                    clusters: [],
+                    level: 'generation',
+                } as unknown as ClusteringRun)
+
+                expect(logic.values.currentRunMatchesLevel).toBe(true)
+            })
+
+            it('is false when the loaded run is from a different level (level switch in flight)', () => {
+                logic.actions.setClusteringLevel('trace')
+                logic.actions.loadClusteringRunSuccess({
+                    runId: 'r',
+                    clusters: [],
+                    level: 'trace',
+                } as unknown as ClusteringRun)
+                expect(logic.values.currentRunMatchesLevel).toBe(true)
+
+                // Simulate the user switching tabs — the previous run is still in state
+                // until the new level's first run resolves. The guard should suppress it.
+                logic.actions.setClusteringLevel('generation')
+                expect(logic.values.currentRunMatchesLevel).toBe(false)
+            })
+
+            it('gates sortedClusters during a level switch', () => {
+                logic.actions.setClusteringLevel('trace')
+                logic.actions.loadClusteringRunSuccess({
+                    runId: 'r',
+                    clusters: [
+                        {
+                            cluster_id: 0,
+                            size: 1,
+                            title: 'T',
+                            description: '',
+                            traces: {},
+                            centroid: [],
+                            centroid_x: 0,
+                            centroid_y: 0,
+                        },
+                    ] as Cluster[],
+                    level: 'trace',
+                } as unknown as ClusteringRun)
+                expect(logic.values.sortedClusters).toHaveLength(1)
+
+                logic.actions.setClusteringLevel('generation')
+                expect(logic.values.sortedClusters).toEqual([])
+            })
+        })
+
         describe('evaluation filter logic', () => {
             const sampleAttrs: Record<string, EvaluationItemAttributes> = {
                 'id-pass-a': { evaluatorName: 'Accuracy', verdict: 'pass' },

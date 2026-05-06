@@ -15,6 +15,13 @@ export const MAX_CLUSTERING_RUNS = 20
 // stays in lockstep with the actual route.
 export const LLM_ANALYTICS_CLUSTER_URL_PATTERN = '/llm-analytics/clusters/:runId/:clusterId'
 
+// Scene names used as ClickHouse query tags. These match the route registrations in
+// `manifest.tsx`, and the query runner pulls them off `query.tags.scene` to attach to
+// every executed query for analytics. Centralised so the tags don't drift if the scene
+// names ever change.
+export const LLM_ANALYTICS_CLUSTERS_SCENE_TAG = 'LLMAnalyticsClusters'
+export const LLM_ANALYTICS_CLUSTER_SCENE_TAG = 'LLMAnalyticsCluster'
+
 // Cluster items are keyed by UUIDs from precomputed clustering events. Restrict to
 // hex / dashes before interpolating into a HogQL `IN` literal so a malformed key
 // can't break out of the string. UUIDs already match this character set.
