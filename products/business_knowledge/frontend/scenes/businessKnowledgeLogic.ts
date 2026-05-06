@@ -2,10 +2,18 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
+import {
+    createFileSource,
+    createTextSource,
+    createUrlSource,
+    deleteSource,
+    getSourceText,
+    listSources,
+    refreshSource,
+    updateSource,
+} from '../api'
 import type { businessKnowledgeLogicType } from './businessKnowledgeLogicType'
 
 // Mirror of products.business_knowledge.backend.facade.contracts.KnowledgeSourceDTO.
@@ -65,10 +73,6 @@ export interface FileSourceFormValues {
 export type CreateTab = 'text' | 'url' | 'file'
 
 const MAX_TEXT_BYTES = 1_000_000
-
-function apiUrl(): string {
-    return `api/environments/${getCurrentTeamId()}/business_knowledge/sources`
-}
 
 function validateText({ name, text }: TextSourceFormValues): {
     name: string | undefined
@@ -163,8 +167,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             [] as KnowledgeSource[],
             {
                 loadSources: async () => {
-                    const response = await api.get(apiUrl()) // nosemgrep: prefer-codegen-api
-                    return (response.results ?? response ?? []) as KnowledgeSource[]
+                    return await listSources()
                 },
                 removeSourceFromList: ({ id }: { id: string }) => values.sources.filter((s) => s.id !== id),
                 replaceSourceInList: ({ source }: { source: KnowledgeSource }) =>
@@ -175,8 +178,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             { id: '', text: '' } as { id: string; text: string },
             {
                 loadEditingSourceText: async ({ id }: { id: string }) => {
-                    const response = await api.get<{ text: string }>(`${apiUrl()}/${id}/text`) // nosemgrep: prefer-codegen-api
-                    return { id, text: response.text ?? '' }
+                    return await getSourceText(id)
                 },
                 resetEditingSourceText: () => ({ id: '', text: '' }),
             },
@@ -188,12 +190,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             errors: validateText,
             submit: async ({ name, text }: TextSourceFormValues) => {
                 try {
-                    const created = await api.create<KnowledgeSource>(apiUrl(), {
-                        // nosemgrep: prefer-codegen-api
-                        name,
-                        text,
-                        source_type: 'text',
-                    })
+                    const created = await createTextSource(name, text)
                     lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks`)
                     actions.closeCreateModal()
                     actions.resetTextSource()
@@ -233,7 +230,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                     payload.max_depth = values.max_depth
                 }
                 try {
-                    const created = await api.create<KnowledgeSource>(apiUrl(), payload) // nosemgrep: prefer-codegen-api
+                    const created = await createUrlSource(payload)
                     const pageLabel =
                         created.crawl_mode && created.crawl_mode !== 'single'
                             ? ` (${created.document_count} pages)`
@@ -272,7 +269,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 formData.append('file', file)
                 formData.append('source_type', 'file')
                 try {
-                    const created = await api.create<KnowledgeSource>(apiUrl(), formData) // nosemgrep: prefer-codegen-api
+                    const created = await createFileSource(formData)
                     lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks`)
                     actions.closeCreateModal()
                     actions.resetFileSource()
@@ -314,7 +311,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                     payload.text = text
                 }
                 try {
-                    const updated = await api.update<KnowledgeSource>(`${apiUrl()}/${current.id}`, payload) // nosemgrep: prefer-codegen-api
+                    const updated = await updateSource(current.id, payload)
                     const msg = isText
                         ? `"${updated.name}" re-indexed into ${updated.chunk_count} chunks`
                         : `"${updated.name}" renamed`
@@ -361,7 +358,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                     payload.max_depth = vals.max_depth
                 }
                 try {
-                    const updated = await api.update<KnowledgeSource>(`${apiUrl()}/${current.id}`, payload) // nosemgrep: prefer-codegen-api
+                    const updated = await updateSource(current.id, payload)
                     lemonToast.success(`"${updated.name}" updated`)
                     actions.replaceSourceInList({ source: updated })
                     actions.closeEditModal()
@@ -381,7 +378,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
     listeners(({ actions, values }) => ({
         deleteSource: async ({ id }) => {
             try {
-                await api.delete(`${apiUrl()}/${id}`) // nosemgrep: prefer-codegen-api
+                await deleteSource(id)
                 actions.removeSourceFromList({ id })
                 lemonToast.success('Knowledge source deleted')
             } catch (error: any) {
@@ -390,7 +387,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         },
         refreshSource: async ({ id }) => {
             try {
-                const updated = await api.create<KnowledgeSource>(`${apiUrl()}/${id}/refresh`) // nosemgrep: prefer-codegen-api
+                const updated = await refreshSource(id)
                 actions.replaceSourceInList({ source: updated })
                 if (updated.last_refresh_status === 'not_modified') {
                     lemonToast.info(`"${updated.name}" is already up to date`)
