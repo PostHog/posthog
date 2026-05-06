@@ -11,9 +11,9 @@ import { PersonType } from '~/types'
 import { mergeSplitPersonLogic, SplitMode } from './mergeSplitPersonLogic'
 import { personsLogic } from './personsLogic'
 
-export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
+export function MergeSplitPerson({ person, tabId }: { person: PersonType; tabId?: string }): JSX.Element {
     const { urlId } = useValues(personsLogic)
-    const logicProps = { person, urlId: urlId ?? '' }
+    const logicProps = { person, urlId: urlId ?? '', tabId }
     const { executedLoading, splitMode, distinctIdsToSplit } = useValues(mergeSplitPersonLogic(logicProps))
     const { execute, cancel } = useActions(mergeSplitPersonLogic(logicProps))
 

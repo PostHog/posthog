@@ -1645,6 +1645,25 @@ export const SurveysDuplicateToProjectsCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().nullish(),
 })
 
+export const surveysGenerateTranslationsCreateBodySourceLanguageDefault = `en`
+export const surveysGenerateTranslationsCreateBodyOverwriteDefault = false
+
+export const SurveysGenerateTranslationsCreateBody = /* @__PURE__ */ zod.object({
+    target_language: zod.string().describe('Language code to generate translations for, for example pt-BR.'),
+    source_language: zod
+        .string()
+        .default(surveysGenerateTranslationsCreateBodySourceLanguageDefault)
+        .describe('Source language code for the existing survey copy.'),
+    overwrite: zod
+        .boolean()
+        .default(surveysGenerateTranslationsCreateBodyOverwriteDefault)
+        .describe('Whether to overwrite existing translations for this language.'),
+    survey: zod
+        .record(zod.string(), zod.unknown().nullable().describe('Draft survey field value.'))
+        .optional()
+        .describe('Optional translation-only draft survey payload to translate instead of the last saved survey.'),
+})
+
 /**
  * Archive a single survey response.
  */

@@ -1,6 +1,7 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
+import { NotificationsPanel } from 'lib/components/NotificationsMenu/NotificationsPanel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
@@ -135,6 +136,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                         {activePanelIdentifier === 'People' && (
                             <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
                         )}
+                        {activePanelIdentifier === 'Notifications' && <NotificationsPanel />}
                     </PanelLayoutNavBar>
                 )}
             </div>

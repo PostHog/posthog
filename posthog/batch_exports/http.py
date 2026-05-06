@@ -19,7 +19,7 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
@@ -646,13 +646,19 @@ class BatchExportSerializer(serializers.ModelSerializer):
         config = destination_attrs["config"]
         view = self.context.get("view")
 
+        instance = None
         if self.instance is not None:
-            existing_config = self.instance.destination.config
+            instance = self.instance
+            existing_config = instance.destination.config
         elif view is not None and "pk" in view.kwargs:
             # Running validation for a `detail=True` action.
             instance = view.get_object()
             existing_config = instance.destination.config
         else:
+            existing_config = {}
+
+        if instance is not None and destination_type != instance.destination.type:
+            # Start fresh if this is changing the batch export type
             existing_config = {}
         merged_config = recursive_dict_merge(existing_config, config)
 
@@ -968,6 +974,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             if destination_data:
+                if destination_data.get("type", batch_export.destination.type) != batch_export.destination.type:
+                    # Start fresh if this is changing the destination type
+                    batch_export.destination.config = {}
+
                 batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
@@ -1222,6 +1232,12 @@ class BackfillsCursorPagination(CursorPagination):
     page_size = 50
 
 
+class TooManyConcurrentBackfills(APIException):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_code = "too_many_concurrent_backfills"
+    default_detail = "Too many concurrent batch export backfills for this team."
+
+
 def create_backfill(
     team: Team,
     batch_export: BatchExport,
@@ -1255,6 +1271,20 @@ def create_backfill(
             send_feature_flag_events=False,
         ):
             raise ValidationError("Backfilling from the beginning of time is not enabled for this team.")
+
+    concurrency_limit = settings.BATCH_EXPORT_MAX_CONCURRENT_BACKFILLS_PER_TEAM
+    active_backfills = BatchExportBackfill.objects.filter(
+        team_id=team.pk,
+        status__in=[
+            BatchExportBackfill.Status.STARTING,
+            BatchExportBackfill.Status.RUNNING,
+        ],
+    ).count()
+    if active_backfills >= concurrency_limit:
+        raise TooManyConcurrentBackfills(
+            f"This team already has {concurrency_limit} batch export backfills running. "
+            f"Wait for some to finish or cancel them before creating more."
+        )
 
     temporal = sync_connect()
 

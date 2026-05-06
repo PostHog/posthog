@@ -1,25 +1,33 @@
-from .a1_prep_session_video_asset import prep_session_video_asset_activity
-from .a2_upload_video_to_gemini import upload_video_to_gemini_activity
-from .a3_analyze_video_segment import analyze_video_segment_activity
-from .a4_consolidate_video_segments import consolidate_video_segments_activity
-from .a5_embed_and_store_segments import embed_and_store_segments_activity
-from .a6a_emit_session_problem_signals import emit_session_problem_signals_activity
-from .a6b_store_video_session_summary import store_video_session_summary_activity
-from .a7_tag_and_highlight_session import tag_and_highlight_session_activity
-from .a8_cleanup_gemini_file import cleanup_gemini_file_activity
 from .capture_timing import CaptureTimingInputs, capture_timing_activity
+from .check_summary_exists import check_summary_exists_activity
+from .event_based import fetch_session_data_activity, get_llm_single_session_summary_activity
+from .video_based import (
+    analyze_video_segment_activity,
+    cleanup_gemini_file_activity,
+    consolidate_video_segments_activity,
+    embed_and_store_segments_activity,
+    emit_session_problem_signals_activity,
+    prep_session_video_asset_activity,
+    slice_session_data_for_segments_activity,
+    store_video_session_summary_activity,
+    tag_and_highlight_session_activity,
+    upload_video_to_gemini_activity,
+)
 
 __all__ = [
     "CaptureTimingInputs",
-    "prep_session_video_asset_activity",
-    "upload_video_to_gemini_activity",
     "analyze_video_segment_activity",
+    "capture_timing_activity",
+    "check_summary_exists_activity",
+    "cleanup_gemini_file_activity",
     "consolidate_video_segments_activity",
     "embed_and_store_segments_activity",
     "emit_session_problem_signals_activity",
+    "fetch_session_data_activity",
+    "get_llm_single_session_summary_activity",
+    "prep_session_video_asset_activity",
+    "slice_session_data_for_segments_activity",
     "store_video_session_summary_activity",
     "tag_and_highlight_session_activity",
-    "tag_and_highlight_session_activity",
-    "cleanup_gemini_file_activity",
-    "capture_timing_activity",
+    "upload_video_to_gemini_activity",
 ]

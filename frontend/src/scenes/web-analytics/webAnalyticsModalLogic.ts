@@ -3,6 +3,7 @@ import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
+import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID, WebAnalyticsTile } from './common'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { pageReportsLogic } from './pageReportsLogic'
@@ -28,7 +29,14 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsModalLogic']),
 
     connect(() => ({
-        values: [webAnalyticsLogic, ['tiles as webAnalyticsTiles'], pageReportsLogic, ['tiles as pageReportsTiles']],
+        values: [
+            webAnalyticsLogic,
+            ['tiles as webAnalyticsTiles'],
+            pageReportsLogic,
+            ['tiles as pageReportsTiles'],
+            botAnalyticsLogic,
+            ['tiles as botAnalyticsTiles'],
+        ],
     })),
 
     actions({
@@ -50,10 +58,14 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
     }),
 
     selectors({
-        // Combine tiles from both webAnalyticsLogic and flattened pageReportsLogic section tiles.
+        // Combine tiles from webAnalyticsLogic, flattened pageReportsLogic section tiles, and botAnalyticsLogic.
         combinedTiles: [
-            (s) => [s.webAnalyticsTiles, s.pageReportsTiles],
-            (webAnalyticsTiles: WebAnalyticsTile[], pageReportsTiles: WebAnalyticsTile[]): WebAnalyticsTile[] => {
+            (s) => [s.webAnalyticsTiles, s.pageReportsTiles, s.botAnalyticsTiles],
+            (
+                webAnalyticsTiles: WebAnalyticsTile[],
+                pageReportsTiles: WebAnalyticsTile[],
+                botAnalyticsTiles: WebAnalyticsTile[]
+            ): WebAnalyticsTile[] => {
                 const flattenedPageReportsTiles = pageReportsTiles.flatMap((tile) => {
                     if (tile.kind === 'section' && tile.tiles) {
                         return [tile, ...tile.tiles]
@@ -61,7 +73,7 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
                     return tile
                 })
 
-                return [...webAnalyticsTiles, ...flattenedPageReportsTiles]
+                return [...webAnalyticsTiles, ...flattenedPageReportsTiles, ...botAnalyticsTiles]
             },
         ],
 

@@ -145,7 +145,6 @@
         "@types/chance": "^1.1.7",
         "@types/cors": "^2.8.19",
         "@types/faker": "^5.5.7",
-        "@types/generic-pool": "^3.1.9",
         "@types/ioredis": "^4.26.4",
         "@types/jest": "^30.0.0",
         "@types/jsonwebtoken": "^9.0.10",

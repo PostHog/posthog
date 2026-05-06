@@ -22,11 +22,17 @@ class ResolvePersonsTests(BaseTest):
         result = resolve_persons_for_deletion(self.team.pk, uuids=None, distinct_ids=["did-x"])
         assert [r.uuid for r in result] == [p.uuid]
 
-    def test_resolves_by_mixed_inputs(self):
+    def test_uuids_take_precedence_over_distinct_ids(self):
         p1 = Person.objects.create(team=self.team, distinct_ids=["d1"], properties={})
-        p2 = Person.objects.create(team=self.team, distinct_ids=["d2"], properties={})
+        Person.objects.create(team=self.team, distinct_ids=["d2"], properties={})
         result = resolve_persons_for_deletion(self.team.pk, uuids=[str(p1.uuid)], distinct_ids=["d2"])
-        assert {r.uuid for r in result} == {p1.uuid, p2.uuid}
+        assert {r.uuid for r in result} == {p1.uuid}
+
+    def test_caches_distinct_ids_via_prefetch(self):
+        p = Person.objects.create(team=self.team, distinct_ids=["a", "b"], properties={})
+        [resolved] = resolve_persons_for_deletion(self.team.pk, uuids=[str(p.uuid)], distinct_ids=None)
+        assert hasattr(resolved, "distinct_ids_cache")
+        assert sorted(d.distinct_id for d in resolved.distinct_ids_cache) == ["a", "b"]
 
     def test_returns_empty_when_neither(self):
         assert resolve_persons_for_deletion(self.team.pk, uuids=None, distinct_ids=None) == []

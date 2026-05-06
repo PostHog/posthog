@@ -288,7 +288,9 @@ class TestProvisioningAuthentication(APIBaseTest):
         )
 
         user = User.objects.get(email=email)
-        org = user.organization_memberships.first().organization
+        membership = user.organization_memberships.first()
+        assert membership is not None
+        org = membership.organization
         assert org.name == f"Wizard ({email})"
 
     # --- Token expiry ---

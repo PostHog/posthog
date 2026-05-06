@@ -16,6 +16,7 @@ export type PanelLayoutNavIdentifier =
     | 'DataManagement'
     | 'DataAndPeople'
     | 'Chat'
+    | 'Notifications'
 export type NavExperimentTab = 'home' | 'chat'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
