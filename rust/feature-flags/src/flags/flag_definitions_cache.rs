@@ -119,7 +119,9 @@ impl FlagDefinitionsCache {
         >,
     {
         let start = Instant::now();
-        let result = self.get_or_load_classified(team_id, etag, load_payload).await;
+        let result = self
+            .get_or_load_classified(team_id, etag, load_payload)
+            .await;
         let outcome = match &result {
             Ok((_, _, oc)) => *oc,
             Err(_) => LoadOutcome::MissLoadErr,

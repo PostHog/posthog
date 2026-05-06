@@ -182,9 +182,7 @@ mod tests {
         for phase in Phase::ALL {
             let name = phase.name();
             assert!(!name.is_empty());
-            assert!(name
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c == '_'));
+            assert!(name.chars().all(|c| c.is_ascii_lowercase() || c == '_'));
         }
     }
 

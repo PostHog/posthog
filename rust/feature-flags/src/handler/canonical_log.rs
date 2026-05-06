@@ -910,7 +910,8 @@ mod tests {
                 let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
                 log.team_id = Some(42);
                 log.phases.record(Phase::Auth, Duration::from_millis(3));
-                log.phases.record(Phase::Evaluate, Duration::from_millis(50));
+                log.phases
+                    .record(Phase::Evaluate, Duration::from_millis(50));
                 log.emit_phase_metrics();
             });
 
@@ -940,7 +941,8 @@ mod tests {
             metrics::with_local_recorder(&recorder, || {
                 let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
                 log.team_id = Some(777);
-                log.phases.record(Phase::Cookieless, Duration::from_millis(1));
+                log.phases
+                    .record(Phase::Cookieless, Duration::from_millis(1));
                 log.emit_phase_metrics();
             });
 
@@ -988,9 +990,7 @@ mod tests {
                 log.emit_phase_metrics();
             });
             let metrics = snapshot_metrics(&recorder);
-            assert!(!metrics
-                .iter()
-                .any(|s| s.name == "flags_phase_duration_ms"));
+            assert!(!metrics.iter().any(|s| s.name == "flags_phase_duration_ms"));
         }
     }
 

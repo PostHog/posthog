@@ -59,11 +59,7 @@ pub async fn record_body_read(req: Request, next: Next) -> Response {
         Ok(bytes) => bytes,
         Err(err) => {
             tracing::warn!(error = %err, "failed to buffer request body");
-            return (
-                StatusCode::BAD_REQUEST,
-                "Failed to buffer the request body",
-            )
-                .into_response();
+            return (StatusCode::BAD_REQUEST, "Failed to buffer the request body").into_response();
         }
     };
     let elapsed = start.elapsed();
@@ -102,10 +98,7 @@ mod tests {
         let wait_repr = wait
             .map(|Extension(w)| w.0.as_micros().to_string())
             .unwrap_or_else(|| "missing".to_string());
-        (
-            StatusCode::OK,
-            format!("{wait_repr}|{}", body.len()),
-        )
+        (StatusCode::OK, format!("{wait_repr}|{}", body.len()))
     }
 
     fn make_request(body: &str) -> HttpRequest<Body> {
@@ -157,7 +150,10 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let payload = read_body(resp).await;
         let (wait, len) = payload.split_once('|').unwrap();
-        assert_ne!(wait, "missing", "shim should set BodyReadDuration even for empty bodies");
+        assert_ne!(
+            wait, "missing",
+            "shim should set BodyReadDuration even for empty bodies"
+        );
         assert_eq!(len, "0");
     }
 
