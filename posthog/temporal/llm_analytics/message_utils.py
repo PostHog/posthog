@@ -41,10 +41,7 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
     # Handle single dict message — render it the same way as a one-element
     # list so that role prefixes and tool_call_id correlation are surfaced
     # consistently regardless of the wrapper shape.
-    if isinstance(messages, dict):
-        return _render_message(messages) or ""
-
-    return ""
+    return _render_message(messages) or ""
 
 
 def _render_message(msg: dict) -> str | None:
@@ -210,7 +207,8 @@ def _format_single_tool_definition(tool: dict) -> str:
     # OpenAI nests the spec under `function`; Anthropic / Gemini-unwrapped lay
     # it out at the top level. Read from the nested dict when present, falling
     # back to the top-level tool dict for each individual field.
-    fn = tool.get("function") if isinstance(tool.get("function"), dict) else {}
+    fn_raw = tool.get("function")
+    fn: dict = fn_raw if isinstance(fn_raw, dict) else {}
     name = fn.get("name") or tool.get("name") or ""
     description = fn.get("description") or tool.get("description") or ""
     # Schema lives under different keys across providers: `parameters` for OpenAI
