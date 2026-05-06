@@ -252,7 +252,7 @@ export class ErrorTrackingConsumer {
             pipeline: this.config.pipeline,
             lane: this.config.lane,
         })
-        this.topHog.start()
+        await this.topHog.start()
 
         this.pipeline = createErrorTrackingPipeline({
             outputs: this.deps.outputs,

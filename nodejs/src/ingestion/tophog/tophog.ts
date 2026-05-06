@@ -110,15 +110,15 @@ export class TopHog {
         }
     }
 
-    start(): void {
-        if (this.flushInterval) {
-            return
+    start(): Promise<void> {
+        if (!this.flushInterval) {
+            this.flushInterval = setInterval(() => {
+                void this.flush().catch((error) => {
+                    logger.error('TopHog flush failed', { error })
+                })
+            }, this.config.flushIntervalMs)
         }
-        this.flushInterval = setInterval(() => {
-            void this.flush().catch((error) => {
-                logger.error('TopHog flush failed', { error })
-            })
-        }, this.config.flushIntervalMs)
+        return Promise.resolve()
     }
 
     async stop(): Promise<void> {

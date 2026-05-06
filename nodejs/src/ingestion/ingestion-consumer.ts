@@ -237,7 +237,7 @@ export class IngestionConsumer {
     public async start(): Promise<void> {
         await this.hogTransformer.start()
 
-        this.topHog.start()
+        await this.topHog.start()
 
         const outputs = this.deps.outputs
 

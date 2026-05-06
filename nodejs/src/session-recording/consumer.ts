@@ -319,7 +319,7 @@ export class SessionRecordingIngester {
         })
 
         // Start periodic flushing of TopHog metrics
-        this.topHog.start()
+        await this.topHog.start()
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {

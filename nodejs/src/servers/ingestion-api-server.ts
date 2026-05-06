@@ -312,7 +312,7 @@ export class IngestionApiServer implements NodeServer {
             pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
             lane: this.config.INGESTION_LANE ?? 'unknown',
         })
-        this.topHog.start()
+        await this.topHog.start()
 
         // 7. Create the ingestion pipeline
         const groupId = this.config.INGESTION_CONSUMER_GROUP_ID

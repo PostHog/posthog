@@ -227,7 +227,7 @@ describe('TopHog', () => {
     describe('start and stop', () => {
         it('should flush periodically after start', async () => {
             const tophog = new TopHog(createOptions({ flushIntervalMs: 1000 }))
-            tophog.start()
+            await tophog.start()
 
             tophog.registerSum('metric').record({ id: 'k' }, 1)
             jest.advanceTimersByTime(1000)
@@ -244,7 +244,7 @@ describe('TopHog', () => {
 
         it('should perform a final flush on stop', async () => {
             const tophog = new TopHog(createOptions({ flushIntervalMs: 60_000 }))
-            tophog.start()
+            await tophog.start()
             tophog.registerSum('metric').record({ id: 'k' }, 5)
 
             await tophog.stop()
@@ -254,7 +254,7 @@ describe('TopHog', () => {
 
         it('should not flush periodically after stop', async () => {
             const tophog = new TopHog(createOptions({ flushIntervalMs: 1000 }))
-            tophog.start()
+            await tophog.start()
             await tophog.stop()
 
             tophog.registerSum('metric').record({ id: 'k' }, 1)
@@ -263,10 +263,10 @@ describe('TopHog', () => {
             expect(mockQueueMessages).toHaveBeenCalledTimes(0)
         })
 
-        it('should not start multiple intervals', () => {
+        it('should not start multiple intervals', async () => {
             const tophog = new TopHog(createOptions({ flushIntervalMs: 1000 }))
-            tophog.start()
-            tophog.start()
+            await tophog.start()
+            await tophog.start()
 
             tophog.registerSum('metric').record({ id: 'k' }, 1)
             jest.advanceTimersByTime(1000)
