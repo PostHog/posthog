@@ -3417,6 +3417,43 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "db.example.com"
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_update_blocks_internal_host_with_credentials(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_internal_host_with_creds",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "localhost",
+                    "password": "new_password",
+                },
+            },
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Hosts with internal IP addresses are not allowed"
+
+        source.refresh_from_db()
+        assert source.job_inputs["host"] == "db.example.com"
+
     def test_update_direct_postgres_prefix(self):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,

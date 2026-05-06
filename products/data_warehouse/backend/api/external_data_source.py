@@ -584,11 +584,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
         # If the connection host changed, require credentials to be re-entered.
-        connection_host_changed = (
-            "host" in incoming_job_inputs
-            and "host" in existing_job_inputs
-            and incoming_job_inputs["host"] != existing_job_inputs["host"]
-        )
+        connection_host_changed = "host" in incoming_job_inputs and incoming_job_inputs[
+            "host"
+        ] != existing_job_inputs.get("host")
         if connection_host_changed:
             missing_credentials = [
                 key for key in sensitive_fields if existing_job_inputs.get(key) and not incoming_job_inputs.get(key)
@@ -627,11 +625,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
-            ssh_tunnel_host_changed = (
-                "host" in incoming_ssh_tunnel
-                and "host" in existing_ssh_tunnel
-                and incoming_ssh_tunnel["host"] != existing_ssh_tunnel["host"]
-            )
+            ssh_tunnel_host_changed = "host" in incoming_ssh_tunnel and incoming_ssh_tunnel[
+                "host"
+            ] != existing_ssh_tunnel.get("host")
 
             # Deep-merge: start with existing, overlay incoming top-level keys
             merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
