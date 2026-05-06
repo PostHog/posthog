@@ -15,6 +15,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
@@ -53,7 +54,10 @@ function SnapshotThumbnail({
 
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
-    const hasDiff = snapshot.diff_percentage != null && snapshot.diff_percentage > 0
+    // True iff the SnapshotChangeBadge will actually render. Mirrors
+    // its visibility predicate so we don't show "hasDiff = true but
+    // empty chip area" for sub-display-floor noise rows.
+    const hasDiff = hasSnapshotChangeBadge(snapshot)
 
     const imgSrc = thumbnailSrc ?? fallbackSrc
 
@@ -89,13 +93,13 @@ function SnapshotThumbnail({
                     </span>
                 </>
             )}
-            <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000 relative">
+            <div className="w-[125px] h-[86px] rounded-sm overflow-hidden bg-bg-3000 relative">
                 {imgSrc ? (
                     <img
                         src={imgSrc}
                         alt=""
-                        width={104}
-                        height={72}
+                        width={125}
+                        height={86}
                         loading="lazy"
                         decoding="async"
                         className={`w-full h-full object-contain ${isQuarantined ? 'grayscale opacity-40' : ''}`}
@@ -112,14 +116,9 @@ function SnapshotThumbnail({
                     </span>
                 )}
             </div>
-            <div className="flex items-center gap-1 max-w-[108px] w-full">
+            <div className="flex items-center gap-1 max-w-[130px] w-full">
                 {hasDiff ? (
-                    <span className="shrink-0 bg-warning-highlight rounded-full px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-warning-dark leading-none">
-                        {snapshot.diff_percentage! < 1
-                            ? snapshot.diff_percentage!.toFixed(1)
-                            : Math.round(snapshot.diff_percentage!)}
-                        %
-                    </span>
+                    <SnapshotChangeBadge snapshot={snapshot} size="small" />
                 ) : (
                     <SnapshotStatusIndicator
                         result={snapshot.result || 'unchanged'}
@@ -288,6 +287,8 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
+    const initialSnapshotsLoading = snapshotsLoading && snapshots.length === 0
+
     // Review summary (from loaded snapshots — paginated but covers actionable ones first)
     // Quarantined snapshots don't need review — exclude from pending count
     const reviewPending = snapshots.filter(
@@ -307,6 +308,7 @@ export function VisualReviewRunScene(): JSX.Element {
     // Predict whether recompute would flip the gate — uses client-side quarantine set
     // which updates immediately, unlike summary.unresolved which requires a recompute round-trip
     const allChangesResolved =
+        !initialSnapshotsLoading &&
         run.status === 'completed' &&
         !run.approved &&
         !run.is_stale &&
@@ -381,50 +383,65 @@ export function VisualReviewRunScene(): JSX.Element {
                 {/* Header: summary + thumbnail strip */}
                 <div className="bg-bg-light border-b">
                     <div className="flex items-center justify-between px-3 pt-3 pb-2">
-                        {/* Review summary (left) — what humans decided */}
-                        <span className="text-xs text-muted flex items-center gap-1.5">
-                            <span className="font-semibold text-default">Review</span>
-                            {[
-                                reviewPending > 0 && (
-                                    <span key="pend">
-                                        <span className="font-semibold">{reviewPending}</span>
-                                        {hasMore ? '+' : ''} pending
-                                    </span>
-                                ),
-                                reviewApproved > 0 && (
-                                    <span key="appr" className="text-success">
-                                        {reviewApproved} approved
-                                    </span>
-                                ),
-                                reviewTolerated > 0 && <span key="tol">{reviewTolerated} tolerated</span>,
-                            ]
-                                .filter(Boolean)
-                                .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}
-                        </span>
-                        {/* Diff summary (right) — what the system found */}
-                        <span className="text-xs text-muted flex items-center gap-1.5">
-                            <span className="font-semibold text-default">Diff</span>
-                            {[
-                                diffChanged > 0 && (
-                                    <span key="ch" className="text-warning-dark">
-                                        {diffChanged} changed
-                                    </span>
-                                ),
-                                diffNew > 0 && (
-                                    <span key="new" className="text-success">
-                                        {diffNew} added
-                                    </span>
-                                ),
-                                diffRemoved > 0 && (
-                                    <span key="rm" className="text-danger">
-                                        {diffRemoved} removed
-                                    </span>
-                                ),
-                                diffTolerated > 0 && <span key="tol">{diffTolerated} auto-tolerated</span>,
-                            ]
-                                .filter(Boolean)
-                                .reduce<React.ReactNode[]>((acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]), [])}
-                        </span>
+                        {initialSnapshotsLoading ? (
+                            <>
+                                <LemonSkeleton className="h-4 w-40" />
+                                <LemonSkeleton className="h-4 w-40" />
+                            </>
+                        ) : (
+                            <>
+                                {/* Review summary (left) — what humans decided */}
+                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                    <span className="font-semibold text-default">Review</span>
+                                    {[
+                                        reviewPending > 0 && (
+                                            <span key="pend">
+                                                <span className="font-semibold">{reviewPending}</span>
+                                                {hasMore ? '+' : ''} pending
+                                            </span>
+                                        ),
+                                        reviewApproved > 0 && (
+                                            <span key="appr" className="text-success">
+                                                {reviewApproved} approved
+                                            </span>
+                                        ),
+                                        reviewTolerated > 0 && <span key="tol">{reviewTolerated} tolerated</span>,
+                                    ]
+                                        .filter(Boolean)
+                                        .reduce<React.ReactNode[]>(
+                                            (acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]),
+                                            []
+                                        )}
+                                </span>
+                                {/* Diff summary (right) — what the system found */}
+                                <span className="text-xs text-muted flex items-center gap-1.5">
+                                    <span className="font-semibold text-default">Diff</span>
+                                    {[
+                                        diffChanged > 0 && (
+                                            <span key="ch" className="text-warning-dark">
+                                                {diffChanged} changed
+                                            </span>
+                                        ),
+                                        diffNew > 0 && (
+                                            <span key="new" className="text-success">
+                                                {diffNew} added
+                                            </span>
+                                        ),
+                                        diffRemoved > 0 && (
+                                            <span key="rm" className="text-danger">
+                                                {diffRemoved} removed
+                                            </span>
+                                        ),
+                                        diffTolerated > 0 && <span key="tol">{diffTolerated} auto-tolerated</span>,
+                                    ]
+                                        .filter(Boolean)
+                                        .reduce<React.ReactNode[]>(
+                                            (acc, el, i) => (i === 0 ? [el] : [...acc, ' · ', el]),
+                                            []
+                                        )}
+                                </span>
+                            </>
+                        )}
                     </div>
 
                     {navSnapshots.length > 0 && (

@@ -739,6 +739,151 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"got {len(matching_short_ids)} copies."
         )
 
+    @parameterized.expand(
+        [
+            (
+                "exact match wins over partial matches",
+                ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Weekly Sales", "Unrelated"],
+                "Sales",
+                "Sales",
+                ["Unrelated"],
+            ),
+            (
+                "typo / transposition still matches via trigram",
+                ["Dashboard overview", "Unrelated"],
+                "dahsboard",
+                "Dashboard overview",
+                ["Unrelated"],
+            ),
+            (
+                "prefix-as-you-type",
+                ["Marketing funnel", "Engineering metrics"],
+                "Marke",
+                "Marketing funnel",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: lower",
+                ["Revenue by region", "Engineering metrics"],
+                "revenue",
+                "Revenue by region",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: upper",
+                ["Revenue by region", "Engineering metrics"],
+                "REVENUE",
+                "Revenue by region",
+                ["Engineering metrics"],
+            ),
+        ]
+    )
+    def test_list_filter_by_search_relevance(self, _name, insight_names, search, expected_first, excluded):
+        for name in insight_names:
+            Insight.objects.create(name=name, team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+
+        assert result_names, f"expected at least one match for {search!r}, got nothing"
+        assert result_names[0] == expected_first, f"expected {expected_first!r} first, got {result_names}"
+        for name in excluded:
+            assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
+
+    def test_list_filter_by_search_matches_derived_name(self):
+        named = Insight.objects.create(
+            name="Marketing funnel", team=self.team, filters={"events": [{"id": "$pageview"}]}
+        )
+        derived = Insight.objects.create(
+            name=None, derived_name="Signup conversion", team=self.team, filters={"events": [{"id": "$pageview"}]}
+        )
+        Insight.objects.create(name="Unrelated", team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=signup")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert derived.id in result_ids
+        assert named.id not in result_ids
+
+    def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
+        name_match = Insight.objects.create(name="revenue", team=self.team, filters={"events": [{"id": "$pageview"}]})
+        description_match = Insight.objects.create(
+            name="Q4 review",
+            description="Quarterly revenue breakdown",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+        )
+        Insight.objects.create(name="Unrelated", team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=revenue")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids[:2] == [name_match.id, description_match.id]
+        assert all(r["name"] != "Unrelated" for r in response.json()["results"])
+
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_filter_by_search_blank_returns_all(self, _name, search):
+        a = Insight.objects.create(name="Alpha", team=self.team, filters={"events": [{"id": "$pageview"}]})
+        b = Insight.objects.create(name="Beta", team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = {r["id"] for r in response.json()["results"]}
+
+        assert {a.id, b.id}.issubset(result_ids)
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+        ]
+    )
+    def test_list_filter_by_search_pathological_input_does_not_500(self, _name, search):
+        Insight.objects.create(name="Dashboard overview", team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_filter_by_search_enforces_length_cap(self, _name, length, expected_status):
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": "a" * length})
+        assert response.status_code == expected_status
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
+            assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
+    def test_list_filter_by_search_nul_bytes_do_not_500(self):
+        Insight.objects.create(name="Alpha", team=self.team, filters={"events": [{"id": "$pageview"}]})
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": "\x00\x00\x00"})
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_list_filter_by_search_explicit_order_overrides_relevance(self):
+        older = Insight.objects.create(name="revenue funnel", team=self.team, filters={"events": [{"id": "$pageview"}]})
+        newer = Insight.objects.create(name="revenue trends", team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": "revenue", "order": "-id"})
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+        assert result_ids.index(newer.id) < result_ids.index(older.id), (
+            "explicit order=-id should override relevance ranking and put newer insight first"
+        )
+
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
@@ -3775,12 +3920,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertNotIn("code", response)
         self.assertIsNotNone(response["results"][0]["types"])
 
-    def test_insight_variables_overrides(self):
-        dashboard = Dashboard.objects.create(
-            team=self.team,
-            name="dashboard 1",
-            created_by=self.user,
-        )
+    @parameterized.expand(
+        [
+            ("standalone", False),
+            ("with_dashboard_context", True),
+        ]
+    )
+    def test_insight_variables_overrides(self, _name: str, attach_to_dashboard: bool) -> None:
         variable = InsightVariable.objects.create(
             team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
         )
@@ -3803,22 +3949,27 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             team=self.team,
         )
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        request_data: dict[str, str] = {
+            "variables_override": json.dumps(
+                {
+                    str(variable.id): {
+                        "code_name": variable.code_name,
+                        "variableId": str(variable.id),
+                        "value": "override value!",
+                    }
+                }
+            ),
+        }
+
+        if attach_to_dashboard:
+            dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            request_data["from_dashboard"] = str(dashboard.pk)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.pk}",
-            data={
-                "from_dashboard": str(dashboard.pk),
-                "variables_override": json.dumps(
-                    {
-                        str(variable.id): {
-                            "code_name": variable.code_name,
-                            "variableId": str(variable.id),
-                            "value": "override value!",
-                        }
-                    }
-                ),
-            },
+            data=request_data,
         ).json()
 
         assert isinstance(response["query"], dict)
@@ -3831,6 +3982,44 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "override value!"
+
+    @parameterized.expand(
+        [
+            ("standalone", False),
+            ("with_dashboard_context", True),
+        ]
+    )
+    def test_insight_filters_overrides(self, _name: str, attach_to_dashboard: bool) -> None:
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "dateRange": {"date_from": "-30d"},
+                },
+            },
+            team=self.team,
+        )
+
+        request_data: dict[str, str] = {
+            "filters_override": json.dumps({"date_from": "-7d"}),
+        }
+
+        if attach_to_dashboard:
+            dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            request_data["from_dashboard"] = str(dashboard.pk)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data=request_data,
+        ).json()
+
+        assert isinstance(response["query"], dict)
+        assert isinstance(response["query"]["source"], dict)
+        assert response["query"]["source"]["dateRange"]["date_from"] == "-7d"
 
     def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
         dashboard = Dashboard.objects.create(

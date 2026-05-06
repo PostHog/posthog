@@ -79,11 +79,11 @@ class CIFollowUpDecision(StrEnum):
     NO_PR = "no_pr"
 
 
-# Default 5 min in production. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS
+# Default 2 hours in production. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS
 # for local testing (e.g. `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast
 # shutdown for resume-flow testing). When overridden, the CI follow-up floor
 # below is bypassed so the timer actually fires that fast.
-INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 300)
+INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 2 * 60 * 60)
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
@@ -939,7 +939,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 error=str(e),
             )
-            # Mark the run as failed so _poll_for_turn sees a terminal status
+            # Mark the run as failed so poll_for_turn sees a terminal status
             # immediately instead of waiting for the inactivity timeout.
             self._completion_status = "failed"
             self._completion_error = f"Follow-up delivery failed: {e}"

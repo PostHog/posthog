@@ -37,7 +37,10 @@ from posthog.utils import relative_date_parse
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
-from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.session_group.summarize_session_group import (
+    find_sessions_timestamps,
+    partition_sessions_by_recording_existence,
+)
 from ee.hogai.session_summaries.tracking import (
     capture_session_summary_generated,
     capture_session_summary_started,
@@ -63,6 +66,12 @@ class SessionSummariesSerializer(serializers.Serializer):
 
 
 _PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", re.IGNORECASE)
+
+# Substring used by ``execute_summarize_session`` (via the Temporal workflow) when the workflow
+# finished successfully but produced no summary row — typically because ``fetch_session_data_activity``
+# returned False (no events / recording too short). Kept here as a module-level constant so the coupling
+# between the workflow's exception text and the API-layer classification is explicit and grep-able.
+_NO_READY_SUMMARY_ERROR_SUBSTRING = "No ready summary found in DB"
 
 
 class SessionSummariesConfigSerializer(serializers.ModelSerializer):
@@ -105,17 +114,23 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return user
 
     def _validate_input(self, request: Request) -> tuple[list[str], datetime, datetime, ExtraSummaryContext | None]:
+        """Strict input validation for the group flow — needs all sessions to exist to compute timestamps."""
+        session_ids, extra_summary_context = self._parse_input(request)
+        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self.team)
+        return session_ids, min_timestamp, max_timestamp, extra_summary_context
+
+    def _parse_input(self, request: Request) -> tuple[list[str], ExtraSummaryContext | None]:
+        """Parse and validate request body without checking session existence.
+
+        Used by the individual flow, which surfaces "no recording" as a per-session error rather
+        than failing the whole batch when one ID is bad.
+        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         session_ids = serializer.validated_data["session_ids"]
         focus_area = serializer.validated_data.get("focus_area")
-        # Check that sessions exist and get min/max timestamps for follow-up queries
-        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self.team)
-        # Prepare extra context, if provided
-        extra_summary_context = None
-        if focus_area:
-            extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
-        return session_ids, min_timestamp, max_timestamp, extra_summary_context
+        extra_summary_context = ExtraSummaryContext(focus_area=focus_area) if focus_area else None
+        return session_ids, extra_summary_context
 
     @staticmethod
     async def _get_summary_from_progress_stream(
@@ -222,6 +237,24 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
 
     @staticmethod
+    def _classify_summary_error(err: BaseException) -> tuple[str, str]:
+        """Map an internal exception to a (error_type, error_message) pair returned to the caller.
+
+        We don't surface raw exception strings — they leak internals and aren't actionable. The handful of
+        types below cover the failure modes the API layer can observe today; everything else falls through to
+        a generic ``summary_failed``.
+        """
+        message = str(err)
+        # Raised by execute_summarize_session when the workflow finished but no summary row was written —
+        # in practice that means fetch_session_data_activity returned False (no events / too short).
+        if isinstance(err, ValueError) and _NO_READY_SUMMARY_ERROR_SUBSTRING in message:
+            return (
+                "no_events_or_too_short",
+                "Recording has no usable events to summarize (typically because it is too short).",
+            )
+        return ("summary_failed", "Failed to generate a summary for this session. Please try again later.")
+
+    @staticmethod
     async def _summarize_session(
         session_id: str,
         user: User,
@@ -249,6 +282,12 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         team: Team,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> dict[str, dict[str, Any]]:
+        """Run per-session summaries concurrently. Returns one entry per requested session.
+
+        Successful entries match the existing summary shape (``segments``, ``key_actions``, etc.). Failed
+        entries return ``{"error": <type>, "error_message": <human-readable>}`` so callers can tell
+        "skipped on purpose" from "tool broke" without re-invoking with singletons.
+        """
         tasks = {}
         async with asyncio.TaskGroup() as tg:
             for session_id in session_ids:
@@ -260,19 +299,21 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                         extra_summary_context=extra_summary_context,
                     )
                 )
-        summaries: dict[str, dict[str, Any]] = {}
+        results: dict[str, dict[str, Any]] = {}
         for session_id, task in tasks.items():
             res: SessionSummarySerializer | Exception = task.result()
             if isinstance(res, Exception):
+                error_type, error_message = self._classify_summary_error(res)
                 logger.exception(
                     f"Failed to generate individual session summary for session {session_id} from team {team.pk} by user {user.id}: {res}",
                     team_id=team.pk,
                     user_id=user.id,
+                    error_type=error_type,
                 )
+                results[session_id] = {"error": error_type, "error_message": error_message}
             else:
-                # Return only successful summaries
-                summaries[session_id] = res.data
-        return summaries
+                results[session_id] = res.data
+        return results
 
     @extend_schema(
         operation_id="create_session_summaries_individually",
@@ -283,7 +324,13 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["POST"], detail=False, required_scopes=["session_recording:read"])
     def create_session_summaries_individually(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
-        session_ids, _, _, extra_summary_context = self._validate_input(request)
+        session_ids, extra_summary_context = self._parse_input(request)
+        # Don't fail the whole batch if some sessions have no recording — partition them out and surface
+        # each missing session as a per-session error in the response (matches the partial-success contract
+        # this endpoint already had for downstream summary failures).
+        found_session_ids, missing_session_ids = partition_sessions_by_recording_existence(
+            session_ids=session_ids, team=self.team
+        )
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=user,
@@ -295,12 +342,24 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         )
         # Summarize provided sessions individually
         try:
-            summaries = async_to_sync(self._get_individual_summaries)(
-                session_ids=session_ids,
-                user=user,
-                team=self.team,
-                extra_summary_context=extra_summary_context,
-            )
+            summaries: dict[str, dict[str, Any]] = {}
+            if found_session_ids:
+                summaries.update(
+                    async_to_sync(self._get_individual_summaries)(
+                        session_ids=found_session_ids,
+                        user=user,
+                        team=self.team,
+                        extra_summary_context=extra_summary_context,
+                    )
+                )
+            for missing_id in missing_session_ids:
+                summaries[missing_id] = {
+                    "error": "recording_not_found",
+                    "error_message": (
+                        "No recording found for this session ID. The recording may not have been captured, "
+                        "may have expired, or may belong to a different team."
+                    ),
+                }
             capture_session_summary_generated(
                 user=user,
                 team=self.team,

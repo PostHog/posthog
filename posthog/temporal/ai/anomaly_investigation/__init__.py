@@ -1,7 +1,11 @@
-"""Anomaly investigation agent package.
+from posthog.temporal.ai.anomaly_investigation.workflow import (
+    AnomalyInvestigationWorkflow,
+    AnomalyInvestigationWorkflowInputs,
+    investigate_anomaly_activity,
+)
 
-Pure-python modules: tool toolkit, prompt builder, pydantic report schema,
-chart renderer, notebook builder, and agent runner. Wiring into the Temporal
-workflow lands in a follow-up PR — this package is importable and unit-tested
-in isolation here so the review can focus on the agent logic itself.
-"""
+__all__ = [
+    "AnomalyInvestigationWorkflow",
+    "AnomalyInvestigationWorkflowInputs",
+    "investigate_anomaly_activity",
+]

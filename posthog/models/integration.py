@@ -15,12 +15,13 @@ if TYPE_CHECKING:
     import aiohttp
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.http import HttpRequest
 from django.utils import timezone
 
 import requests
 import structlog
+from anthropic import Anthropic, APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
@@ -42,7 +43,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase, GitHub
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
-from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
+from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
 from posthog.security.url_validation import is_url_allowed
@@ -144,6 +145,7 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
+        ANTHROPIC = "anthropic"
         APPLE_PUSH = "apns"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
@@ -270,22 +272,16 @@ POSTHOG_SLACK_SCOPE = ",".join(
         "groups:read",
         "chat:write",
         "chat:write.customize",
-        *(
-            [  # New scopes that came with the update adding PostHog AI integration with Slack
-                "app_mentions:read",
-                "channels:history",
-                "groups:history",
-                "links:read",
-                "links:write",
-                "reactions:read",
-                "reactions:write",
-                "team:read",
-                "users:read",
-                "users:read.email",
-            ]
-            if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV"
-            else []
-        ),
+        "app_mentions:read",
+        "channels:history",
+        "groups:history",
+        "links:read",
+        "links:write",
+        "reactions:read",
+        "reactions:write",
+        "team:read",
+        "users:read",
+        "users:read.email",
     ]
 )
 
@@ -2240,7 +2236,13 @@ class GitHubRateLimitError(GitHubIntegrationError):
     """GitHub API rate limit exhausted for this installation."""
 
     def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
-        super().__init__(message)
+        # Forward to the base error so backoff filters using `exc.is_rate_limit` /
+        # `exc.retry_after_seconds` continue to work for instances of this subclass.
+        super().__init__(
+            message,
+            is_rate_limit=True,
+            retry_after_seconds=float(retry_after) if retry_after is not None else None,
+        )
         self.reset_at = reset_at
         self.retry_after = retry_after
 
@@ -2448,6 +2450,138 @@ class GitHubIntegration(GitHubIntegrationBase):
         self.integration.errors = ""
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
         oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+
+    @staticmethod
+    def _is_secondary_rate_limit(response: requests.Response) -> bool:
+        """GitHub signals secondary rate limits via 429, or 403 + ``Retry-After`` /
+        ``X-RateLimit-Remaining: 0``, or 403 with a body marker (no headers)."""
+        if response.status_code == 429:
+            return True
+        if response.status_code != 403:
+            return False
+        if response.headers.get("Retry-After"):
+            return True
+        if response.headers.get("X-RateLimit-Remaining") == "0":
+            return True
+        # Some 403s carry the secondary-limit signal only in the body.
+        body = (response.text or "").lower()
+        return "secondary rate limit" in body or "abuse detection" in body
+
+    @staticmethod
+    def _parse_retry_after_seconds(response: requests.Response) -> float | None:
+        header = response.headers.get("Retry-After")
+        if header:
+            try:
+                return max(0.0, float(header))
+            except ValueError:
+                return None
+        reset = response.headers.get("X-RateLimit-Reset")
+        if reset:
+            try:
+                return max(0.0, float(reset) - time.time())
+            except ValueError:
+                return None
+        return None
+
+    def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10) -> dict:
+        """Authenticated GET against ``https://api.github.com`` returning parsed JSON.
+
+        ``endpoint`` is the low-cardinality template label (e.g. ``/repos/{owner}/{repo}``)
+        forwarded to ``_github_api_get`` for prometheus instrumentation.
+        """
+        # 1. Validate path + assemble URL.
+        if not path.startswith("/"):
+            raise ValueError(f"_gh_api_get path must start with '/', got {path!r}")
+        url = f"https://api.github.com{path}"
+        transient_status_codes = {502, 503, 504}
+        # 2. Proactively refresh expiring tokens (failure here is non-fatal — fetch will retry on 401).
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def fetch() -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return self._github_api_get(
+                url,
+                endpoint=endpoint,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=timeout,
+            )
+
+        # 3. Try up to twice — second attempt covers token refresh after 401 or one transient 5xx.
+        last_error_message = "GitHubIntegration: _gh_api_get exhausted retries"
+        for attempt in range(2):
+            # Network call (one retry on connection-level failure).
+            try:
+                response = fetch()
+            except requests.RequestException as exc:
+                if attempt == 0:
+                    logger.info(
+                        "GitHubIntegration: _gh_api_get retrying network error",
+                        path=path,
+                        exc_info=True,
+                    )
+                    continue
+                raise GitHubIntegrationError(f"GitHubIntegration: _gh_api_get network error on {path}") from exc
+            # Auth failure → refresh token and retry once.
+            if response.status_code == 401 and attempt == 0:
+                try:
+                    self.refresh_access_token()
+                except Exception as exc:
+                    raise GitHubIntegrationError(
+                        f"GitHubIntegration: token refresh after 401 failed on {path}"
+                    ) from exc
+                continue
+            # Secondary rate limit → bubble up with retry hint (no in-method retry).
+            if self._is_secondary_rate_limit(response):
+                # When headers don't give us a delay (body-only signal), GitHub recommends ≥60s.
+                retry_after = self._parse_retry_after_seconds(response) or 60.0
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: secondary rate limit on {path}",
+                    status_code=response.status_code,
+                    is_rate_limit=True,
+                    retry_after_seconds=retry_after,
+                )
+            # Transient 5xx → retry once.
+            if response.status_code in transient_status_codes and attempt == 0:
+                logger.info(
+                    "GitHubIntegration: _gh_api_get retrying transient error",
+                    path=path,
+                    status_code=response.status_code,
+                )
+                continue
+            # Any remaining non-2xx is terminal.
+            if response.status_code < 200 or response.status_code >= 300:
+                logger.warning(
+                    "GitHubIntegration: _gh_api_get non-2xx response",
+                    path=path,
+                    status_code=response.status_code,
+                )
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_api_get failed on {path}",
+                    status_code=response.status_code,
+                )
+            # 4. Parse + shape-check the response body.
+            try:
+                body = response.json()
+            except Exception as exc:
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_api_get non-JSON response on {path}",
+                    status_code=response.status_code,
+                ) from exc
+            if not isinstance(body, dict):
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: _gh_api_get unexpected payload on {path}",
+                    status_code=response.status_code,
+                )
+            return body
+        raise GitHubIntegrationError(last_error_message)
 
     @database_sync_to_async
     def list_cached_repositories_async(
@@ -2827,11 +2961,11 @@ class MetaAdsIntegration:
     def refresh_access_token(self):
         oauth_config = OauthIntegration.oauth_config_for_kind(self.integration.kind)
 
-        # check if refresh is necessary (less than 7 days)
+        # skip refresh if more than 7 days until expiry
         if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
             if (
                 time.time()
-                > self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
+                < self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
             ):
                 return
 
@@ -2910,6 +3044,169 @@ class TwilioIntegration:
             integration.save()
 
         return integration
+
+
+ANTHROPIC_MANAGED_AGENTS_BETA_HEADER = "managed-agents-2026-04-01"
+ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX = "workspace-"
+ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH = 100
+ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT = 100
+# 5s connect / 15s read are aggressive enough to keep gunicorn workers from
+# being pinned for ~minutes on a slow Anthropic upstream while still leaving
+# headroom for normal API latency.
+ANTHROPIC_CLIENT_TIMEOUT_SECONDS = 15.0
+
+
+class AnthropicIntegrationError(Exception):
+    """Raised when the AnthropicIntegration is constructed with an invalid Integration row."""
+
+
+def _build_anthropic_client(api_key: str) -> Anthropic:
+    # Tight timeouts and no SDK-side retries: we don't want a slow upstream to
+    # multiply request time by 3 (default `max_retries=2`) inside a Django worker.
+    return Anthropic(api_key=api_key, timeout=ANTHROPIC_CLIENT_TIMEOUT_SECONDS, max_retries=0)
+
+
+class AnthropicIntegration:
+    integration: Integration
+    _client: Anthropic
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.ANTHROPIC.value:
+            # Internal misuse, not a user-input issue.
+            raise AnthropicIntegrationError(
+                f"AnthropicIntegration init called with Integration kind={integration.kind!r}"
+            )
+        self.integration = integration
+        api_key = integration.sensitive_config.get("api_key")
+        if not api_key:
+            raise AnthropicIntegrationError(f"Anthropic integration {integration.id} is missing 'api_key'")
+        self._client = _build_anthropic_client(api_key)
+
+    @staticmethod
+    def validate_key(api_key: str) -> None:
+        # Validate by hitting the actual managed-agents surface so a key without
+        # beta access fails at create time instead of silently failing later.
+        try:
+            client = _build_anthropic_client(api_key)
+            client.get(
+                "/v1/agents",
+                cast_to=dict[str, object],
+                options={
+                    "headers": {"anthropic-beta": ANTHROPIC_MANAGED_AGENTS_BETA_HEADER},
+                    "params": {"limit": 1},
+                },
+            )
+        except AuthenticationError:
+            raise ValidationError({"api_key": "Invalid Anthropic API key"})
+        except PermissionDeniedError:
+            raise ValidationError(
+                {
+                    "api_key": (
+                        "Anthropic API key is missing required permissions. Make sure the key has access to the "
+                        "Managed Agents beta in your Anthropic console."
+                    )
+                }
+            )
+        except APIConnectionError:
+            logger.warning("anthropic_validate_key_connection_error", exc_info=True)
+            raise ValidationError(
+                {"api_key": "Could not reach Anthropic to validate the API key. Check your network and try again."}
+            )
+        except APIStatusError as e:
+            logger.warning("anthropic_validate_key_status_error", status_code=e.status_code, exc_info=True)
+            raise ValidationError(
+                {"api_key": f"Anthropic returned an error validating the API key (HTTP {e.status_code})."}
+            )
+
+    def _managed_agents_get(self, path: str, params: dict[str, Any] | None = None) -> dict:
+        return self._client.get(
+            path,
+            cast_to=dict[str, object],
+            options={
+                "headers": {"anthropic-beta": ANTHROPIC_MANAGED_AGENTS_BETA_HEADER},
+                "params": params or {},
+            },
+        )
+
+    def _list_managed_agents_resource(self, path: str, after: str | None, limit: int) -> tuple[list[dict], str | None]:
+        params: dict[str, Any] = {"limit": min(max(int(limit), 1), ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT)}
+        if after:
+            params["after"] = after
+        response = self._managed_agents_get(path, params=params)
+        raw_data = response.get("data", [])
+        data: list[dict] = [item for item in raw_data if isinstance(item, dict)] if isinstance(raw_data, list) else []
+        next_cursor = response.get("next_cursor")
+        return data, next_cursor if isinstance(next_cursor, str) else None
+
+    def list_managed_agents(
+        self, after: str | None = None, limit: int = ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT
+    ) -> tuple[list[dict], str | None]:
+        return self._list_managed_agents_resource("/v1/agents", after=after, limit=limit)
+
+    def list_managed_agent_environments(
+        self, after: str | None = None, limit: int = ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT
+    ) -> tuple[list[dict], str | None]:
+        return self._list_managed_agents_resource("/v1/environments", after=after, limit=limit)
+
+    def list_managed_agent_vaults(
+        self, after: str | None = None, limit: int = ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT
+    ) -> tuple[list[dict], str | None]:
+        return self._list_managed_agents_resource("/v1/vaults", after=after, limit=limit)
+
+    @classmethod
+    def integration_from_key(
+        cls,
+        api_key: str,
+        team_id: int,
+        created_by: User,
+        workspace_label: str | None = None,
+        force: bool = False,
+    ) -> Integration:
+        cls.validate_key(api_key)
+
+        anthropic_kind: str = Integration.IntegrationKind.ANTHROPIC.value
+        integration_id = workspace_label or f"{ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX}{team_id}"
+        config: dict[str, Any] = {}
+        if workspace_label:
+            config["workspace_label"] = workspace_label
+
+        if force:
+            integration, _ = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind=anthropic_kind,
+                integration_id=integration_id,
+                defaults={
+                    "config": config,
+                    "sensitive_config": {"api_key": api_key},
+                    "created_by": created_by,
+                    "errors": "",
+                },
+            )
+            return integration
+
+        try:
+            # Wrap in a savepoint so the unique-constraint IntegrityError below
+            # aborts only the INSERT, not the surrounding transaction (e.g. the
+            # outer DRF request atomic block, or the test wrapper).
+            with transaction.atomic():
+                return Integration.objects.create(
+                    team_id=team_id,
+                    kind=anthropic_kind,
+                    integration_id=integration_id,
+                    config=config,
+                    sensitive_config={"api_key": api_key},
+                    created_by=created_by,
+                    errors="",
+                )
+        except IntegrityError:
+            raise ValidationError(
+                {
+                    "config": (
+                        f"An integration with id '{integration_id}' already exists for this team. Choose a different "
+                        "workspace label, delete the existing integration and try again, or set 'force' to true to overwrite the existing integration."
+                    )
+                }
+            )
 
 
 class DatabricksIntegrationError(Exception):

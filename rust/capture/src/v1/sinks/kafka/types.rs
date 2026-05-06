@@ -126,13 +126,11 @@ impl KafkaResult {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn with_completed_at(mut self, t: DateTime<Utc>) -> Self {
         self.completed_at = Some(t);
         self
     }
 
-    #[allow(dead_code)]
     pub fn error(&self) -> Option<&KafkaSinkError> {
         self.error.as_ref()
     }

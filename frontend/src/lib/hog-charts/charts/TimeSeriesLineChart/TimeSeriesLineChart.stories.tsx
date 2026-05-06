@@ -1,7 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { TimeSeriesLineChart } from 'lib/hog-charts'
+import { createXAxisTickCallback, TimeSeriesLineChart } from 'lib/hog-charts'
 import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
+import { ciRanges } from 'lib/statistics'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 
@@ -87,6 +88,7 @@ interface DateAxisCellProps {
 
 function DateAxisCell({ title, labels, series, interval, timezone }: DateAxisCellProps): JSX.Element {
     const theme = useReactiveTheme()
+    const tickFormatter = createXAxisTickCallback({ timezone, interval, allDays: labels })
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -97,7 +99,7 @@ function DateAxisCell({ title, labels, series, interval, timezone }: DateAxisCel
                     labels={labels}
                     theme={theme}
                     config={{
-                        xAxis: { timezone, interval },
+                        xAxis: { tickFormatter },
                         yAxis: { showGrid: true },
                     }}
                 />
@@ -163,6 +165,102 @@ export const YAxisFormats: Story = {
             <YFormatCell title="duration_ms" series={DURATION_MS_SERIES} config={{ format: 'duration_ms' }} />
         </div>
     ),
+}
+
+const DERIVED_SERIES: Series[] = [
+    { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] },
+    { key: 'signups', label: 'Sign-ups', data: [4, 8, 6, 14, 11, 19, 13] },
+]
+const [DERIVED_CI_LOWER, DERIVED_CI_UPPER] = ciRanges(DERIVED_SERIES[0].data, 0.95)
+
+export const ConfidenceIntervals: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={DERIVED_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        confidenceIntervals: [
+                            { seriesKey: 'visits', lower: DERIVED_CI_LOWER, upper: DERIVED_CI_UPPER },
+                        ],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const MovingAverage: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={DERIVED_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        movingAverage: [{ seriesKey: 'visits', window: 3 }],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const TrendLines: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={DERIVED_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        trendLines: [
+                            { seriesKey: 'visits', kind: 'linear' },
+                            { seriesKey: 'signups', kind: 'linear' },
+                        ],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const ComparisonOf: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52], color: theme.colors[0] },
+            {
+                key: 'visits-prev',
+                label: 'Visits (previous)',
+                data: [15, 25, 32, 40, 38, 50, 44],
+                color: theme.colors[0],
+            },
+        ]
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        comparisonOf: { 'visits-prev': 'visits' },
+                    }}
+                />
+            </Stage>
+        )
+    },
 }
 
 export const DateAxis: Story = {

@@ -29,7 +29,16 @@ from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .diff_metadata import DiffMetadata
+from .facade.enums import (
+    ChangeKind,
+    ReviewDecision,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    SnapshotResult,
+    ToleratedReason,
+)
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -1996,6 +2005,11 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         full_universe_identifiers = universe_identifiers
 
     # 3a. Tolerate counts in 30d / 90d windows. Single grouped query each.
+    # Scope to HUMAN/AGENT reasons only — AUTO_THRESHOLD rows are auto-minted
+    # by the diff pipeline as a tolerated-hash cache for sub-threshold pixel
+    # jitter and don't represent a deliberate "we accept this drift" decision.
+    # Including them inflated the "Tolerated drift" tile with rendering noise.
+    intentional_tolerate_reasons = (ToleratedReason.HUMAN, ToleratedReason.AGENT)
     tolerate_30d_by_id: dict[str, int] = {}
     tolerate_90d_by_id: dict[str, int] = {}
     if universe_identifiers:
@@ -2005,6 +2019,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             ToleratedHash.objects.filter(
                 repo_id=repo_id,
                 identifier__in=universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
                 created_at__gte=tol_30d_cutoff,
             )
             .values_list("identifier")
@@ -2016,6 +2031,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             ToleratedHash.objects.filter(
                 repo_id=repo_id,
                 identifier__in=universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
                 created_at__gte=tol_90d_cutoff,
             )
             .values_list("identifier")
@@ -2118,8 +2134,9 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         totals_all = len(universe)
 
     # Recently / frequently tolerated — counts of distinct identifiers with
-    # ≥1 (or ≥3) tolerations in the rolling window. Scope across the *full*
-    # universe so the stat row stays correct under truncation.
+    # ≥1 (or ≥3) intentional tolerations in the rolling window. Scope across
+    # the *full* universe so the stat row stays correct under truncation, and
+    # match the per-entry counts above by excluding AUTO_THRESHOLD.
     recent_cutoff = now - timedelta(days=30)
     frequent_cutoff = now - timedelta(days=90)
     recent_ids: set[str] = set()
@@ -2129,6 +2146,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             ToleratedHash.objects.filter(
                 repo_id=repo_id,
                 identifier__in=full_universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
                 created_at__gte=recent_cutoff,
             )
             .values_list("identifier", flat=True)
@@ -2138,6 +2156,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             ToleratedHash.objects.filter(
                 repo_id=repo_id,
                 identifier__in=full_universe_identifiers,
+                reason__in=intentional_tolerate_reasons,
                 created_at__gte=frequent_cutoff,
             )
             .values("identifier")
@@ -2353,6 +2372,9 @@ def update_snapshot_diff(
     diff_artifact: Artifact,
     diff_percentage: float,
     diff_pixel_count: int,
+    ssim_score: float,
+    change_kind: ChangeKind,
+    diff_metadata: DiffMetadata,
     team_id: int | None = None,
 ) -> RunSnapshot:
     qs = RunSnapshot.objects.select_related("run")
@@ -2369,7 +2391,22 @@ def update_snapshot_diff(
     snapshot.diff_artifact = diff_artifact
     snapshot.diff_percentage = diff_percentage
     snapshot.diff_pixel_count = diff_pixel_count
-    snapshot.save(update_fields=["diff_artifact", "diff_percentage", "diff_pixel_count"])
+    snapshot.ssim_score = ssim_score
+    snapshot.change_kind = change_kind.value
+    # The Pydantic dump is the only legal write path into this column; reads
+    # go through DiffMetadata.model_validate. Storage is JSONB; the schema
+    # lives in diff_metadata.py.
+    snapshot.diff_metadata = diff_metadata.model_dump(mode="json")
+    snapshot.save(
+        update_fields=[
+            "diff_artifact",
+            "diff_percentage",
+            "diff_pixel_count",
+            "ssim_score",
+            "change_kind",
+            "diff_metadata",
+        ]
+    )
     return snapshot
 
 
