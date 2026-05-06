@@ -106,9 +106,10 @@ describe('Tool schema snapshots', () => {
     it('snapshots runtime tool schemas as common + version deltas', async () => {
         const shouldUpdateSnapshots = isSnapshotUpdateAll()
         const root = path.resolve(__dirname, '__snapshots__', 'tool-schemas')
-        // Enable flag-gated tools we snapshot here: agent-feedback, tracing (APM spans). Other
+        // Enable flag-gated tools we snapshot here (e.g. agent-feedback). Tracing APM tools are
+        // not PostHog feature-flag gated in MCP; access is enforced via OAuth scope + API.
         // flag-gated tools (logs-alerts, visual-review, etc.) stay off to keep the surface stable.
-        const featureFlags = { 'mcp-feedback-tool': true, tracing: true }
+        const featureFlags = { 'mcp-feedback-tool': true }
         const v1Tools = [...(await getToolsFromContext(context, { version: 1, featureFlags }))].sort((a, b) =>
             a.name.localeCompare(b.name)
         )

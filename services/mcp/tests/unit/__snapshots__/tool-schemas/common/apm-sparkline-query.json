@@ -2,14 +2,10 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "query": {
-            "description": "The tracing spans query to execute.",
+            "description": "Filters and date range for the sparkline aggregation.",
             "properties": {
-                "after": {
-                    "description": "Pagination cursor from previous response.",
-                    "type": "string"
-                },
                 "dateRange": {
-                    "description": "Date range for the query. Defaults to last hour.",
+                    "description": "Date range for the sparkline. Defaults to last hour.",
                     "properties": {
                         "date_from": {
                             "anyOf": [
@@ -38,7 +34,7 @@
                 },
                 "filterGroup": {
                     "default": [],
-                    "description": "Property filters for the query.",
+                    "description": "Property filters (same shape as span query).",
                     "items": {
                         "properties": {
                             "key": {
@@ -81,42 +77,19 @@
                     },
                     "type": "array"
                 },
-                "limit": {
-                    "default": 100,
-                    "description": "Max results (1-1000). Defaults to 100.",
-                    "type": "number"
-                },
-                "orderBy": {
-                    "description": "Order results by timestamp. Defaults to latest.\n\n* `latest` - latest\n* `earliest` - earliest",
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
-                },
-                "prefetchSpans": {
-                    "description": "Number of child spans to prefetch per trace (1-100).",
-                    "type": "number"
-                },
-                "rootSpans": {
-                    "default": true,
-                    "description": "Filter to root spans only. Defaults to true.",
-                    "type": "boolean"
-                },
                 "serviceNames": {
-                    "description": "Filter by service names.",
+                    "description": "Optional filter to one or more service names.",
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
                 },
                 "statusCodes": {
-                    "description": "Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error). For HTTP response codes (e.g. 500), use filterGroup on span_attribute key http.status_code.",
+                    "description": "Filter by OpenTelemetry span status_code (0=Unset, 1=OK, 2=Error).",
                     "items": {
                         "type": "number"
                     },
                     "type": "array"
-                },
-                "traceId": {
-                    "description": "Filter to a specific trace ID (hex string).",
-                    "type": "string"
                 }
             },
             "type": "object"

@@ -29,6 +29,13 @@
             },
             "type": "object"
         },
+        "maxSpans": {
+            "default": 2000,
+            "description": "Maximum spans to return for this trace (default 2000). Lower for agents; raise for deep traces.",
+            "maximum": 5000,
+            "minimum": 1,
+            "type": "number"
+        },
         "trace_id": {
             "pattern": "^[a-zA-Z0-9]+$",
             "type": "string"
