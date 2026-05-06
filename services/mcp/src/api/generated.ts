@@ -13716,6 +13716,11 @@ export namespace Schemas {
       propertiesViaUrl?: boolean | null;
       response?: DataTableNodeResponse;
       /**
+       * Render date-time columns (timestamp, created_at, last_seen, last_seen_at) as absolute date+time instead of relative ("X ago"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.
+       * @nullable
+       */
+      showAbsoluteTime?: boolean | null;
+      /**
        * Show the kebab menu at the end of the row
        * @nullable
        */
@@ -33861,6 +33866,11 @@ export namespace Schemas {
        */
       propertiesViaUrl?: boolean | null;
       shortId: string;
+      /**
+       * Render date-time columns (timestamp, created_at, last_seen, last_seen_at) as absolute date+time instead of relative ("X ago"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.
+       * @nullable
+       */
+      showAbsoluteTime?: boolean | null;
       /**
        * Show the kebab menu at the end of the row
        * @nullable
