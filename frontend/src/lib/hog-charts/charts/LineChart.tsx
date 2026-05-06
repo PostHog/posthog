@@ -161,6 +161,14 @@ function LineChartInner<Meta = unknown>({
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
             }
 
+            // Clip data drawing to the plot area so an overlay series with values outside
+            // the y-domain (e.g. a trendline projecting below 0) doesn't bleed into the
+            // axis-label gutter beneath the chart.
+            ctx.save()
+            ctx.beginPath()
+            ctx.rect(dimensions.plotLeft, dimensions.plotTop, dimensions.plotWidth, dimensions.plotHeight)
+            ctx.clip()
+
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
                     continue
@@ -178,6 +186,8 @@ function LineChartInner<Meta = unknown>({
                     drawPoints(drawCtx, s, yValues)
                 }
             }
+
+            ctx.restore()
         },
         [showGrid, stackedData]
     )
