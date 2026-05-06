@@ -72,6 +72,8 @@ const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
 
 const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
 
+const EMPTY_SUGGESTED_ITEMS: SearchItem[] = []
+
 // ============================================================================
 // Hooks
 // ============================================================================
@@ -259,7 +261,9 @@ function useDebouncedGroupedItems(
 
     useEffect(() => {
         if (!enabled) {
-            setStable(groupedItems)
+            // When disabled, the hook returns `groupedItems` directly below, so
+            // `stable` is unused — skipping the setState here breaks a re-render
+            // loop when `groupedItems` is a fresh reference each render.
             return
         }
         if (searchJustChangedRef.current) {
@@ -380,7 +384,7 @@ function SearchRoot({
     onAskAiClick,
     className = '',
     defaultSearchValue = '',
-    suggestedItems = [],
+    suggestedItems = EMPTY_SUGGESTED_ITEMS,
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
