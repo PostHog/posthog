@@ -103,3 +103,7 @@ export const exporterViewLogic = kea<exporterViewLogicType>([
 export const getCurrentExporterData = (): ExportedData | undefined => {
     return exporterViewLogic.findMounted()?.values.exportedData
 }
+
+export const isSharedView = (): boolean => {
+    return !!getCurrentExporterData()
+}
