@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { Team } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { HeatmapsOutput } from '../analytics/outputs'
 import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
+import { addTeamToContext } from '../common/subpipelines/helpers'
 import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -19,7 +19,6 @@ import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { createSkipEmitEventStep } from '../event-processing/skip-emit-event-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
-import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
 
@@ -35,18 +34,6 @@ interface HeatmapsPipelineInput {
 
 interface HeatmapsPipelineContext {
     message: Message
-}
-
-function addTeamToContext<T extends { team: Team }, C>(
-    element: OkResultWithContext<T, C>
-): OkResultWithContext<T, C & { team: Team }> {
-    return {
-        result: element.result,
-        context: {
-            ...element.context,
-            team: element.result.value.team,
-        },
-    }
 }
 
 export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TContext extends HeatmapsPipelineContext>(
