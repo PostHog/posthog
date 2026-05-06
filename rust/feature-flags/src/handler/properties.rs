@@ -51,18 +51,18 @@ pub fn get_person_property_overrides(
 ) -> Option<HashMap<String, Value>> {
     let mut props = person_properties.unwrap_or_default();
 
+    if !geoip_disabled {
+        if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
+            props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
+        }
+    }
+
     // Match Python local evaluation behavior by always exposing the top-level
     // distinct_id as a person property unless the request explicitly overrides it.
     if let Some(distinct_id) = distinct_id {
         props
             .entry("distinct_id".to_string())
             .or_insert_with(|| Value::String(distinct_id.to_string()));
-    }
-
-    if !geoip_disabled {
-        if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
-            props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
-        }
     }
 
     if props.is_empty() {

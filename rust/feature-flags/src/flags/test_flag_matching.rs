@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_distinct_id_condition_matches_with_local_overrides_only() {
+    async fn test_distinct_id_condition_matches_when_override_contains_distinct_id() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
@@ -244,7 +244,10 @@ mod tests {
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
-                Some(HashMap::from([("distinct_id".to_string(), json!(distinct_id.clone()))])),
+                Some(HashMap::from([(
+                    "distinct_id".to_string(),
+                    json!(distinct_id.clone()),
+                )])),
                 None,
                 None,
                 Uuid::new_v4(),
@@ -258,7 +261,7 @@ mod tests {
         assert_eq!(
             result.flags.get("test_flag").unwrap().to_value(),
             FlagValue::Boolean(true),
-            "distinct_id conditions should match even when evaluation stays on the local override path"
+            "distinct_id conditions should match when request overrides contain distinct_id"
         );
     }
 
