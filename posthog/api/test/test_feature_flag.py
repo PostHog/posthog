@@ -9686,6 +9686,69 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_user_blast_radius_with_groups_created_at_filter(self):
+        from datetime import datetime, timezone
+
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="company",
+            group_type_index=0,
+        )
+
+        old_date = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        new_date = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+        for i in range(5):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"old-company:{i}",
+                properties={"plan_units": i + 10},
+                created_at=old_date,
+            )
+
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"new-company:{i}",
+                properties={"plan_units": i + 10},
+                created_at=new_date,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "plan_units",
+                            "type": "group",
+                            "value": 20,
+                            "operator": "lte",
+                            "group_type_index": 0,
+                        },
+                        {
+                            "key": "created_at",
+                            "type": "group",
+                            "value": "2026-04-01",
+                            "operator": "is_date_after",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertEqual(response_json["affected"], 10)
+        self.assertEqual(response_json["total"], 15)
+
         response_json = response.json()
         self.assertLessEqual(
             {

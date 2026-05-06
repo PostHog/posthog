@@ -878,6 +878,12 @@ def property_to_expr(
         # We pretend elements chain is a property, but it is actually a column on the events table
         if chain == ["properties"] and property.key == "$elements_chain":
             field = ast.Field(chain=["elements_chain"])
+        # Groups table columns (created_at, updated_at, key, index) should be accessed directly, not via properties JSON
+        elif chain == ["properties"] and property.type == "group" and scope == "group" and property.key in (
+            "created_at",
+            "updated_at",
+        ):
+            field = ast.Field(chain=[property.key])
         elif property.key == "":
             field = ast.Field(chain=[*chain])
         else:

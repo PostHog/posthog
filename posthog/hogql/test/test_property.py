@@ -130,6 +130,23 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.arr > 100"),
         )
 
+        # created_at and updated_at should reference the column directly, not properties JSON
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="created_at", operator="gt", value="2026-04-01"),
+                scope="group",
+            ),
+            self._parse_expr("created_at > '2026-04-01'"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="updated_at", operator="lt", value="2026-05-01"),
+                scope="group",
+            ),
+            self._parse_expr("updated_at < '2026-05-01'"),
+        )
+
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
             team=self.team,
