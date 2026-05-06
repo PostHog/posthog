@@ -10,6 +10,7 @@ in the workflow run summary; this command is the per-developer triage path.
 
 from __future__ import annotations
 
+import sys
 import json
 import shutil
 import tempfile
@@ -161,6 +162,23 @@ def _coerce_segment(payload: dict, segment: str | None) -> dict[str, float]:
     return dict(segments.get(segment, {}))
 
 
+def _run_url(run_id: str) -> str:
+    return f"https://github.com/{REPO}/actions/runs/{run_id}"
+
+
+def _run_link(run_id: str) -> str:
+    """OSC 8 hyperlink for `run_id` when stdout is a TTY; plain text otherwise.
+
+    Modern terminals (iTerm2, Wezterm, Ghostty, kitty, recent macOS Terminal)
+    render this as a clickable run id; other surfaces (pipes, files, dumb
+    shells) fall through to the plain id.
+    """
+    if not sys.stdout.isatty():
+        return run_id
+    url = _run_url(run_id)
+    return f"\033]8;;{url}\033\\{run_id}\033]8;;\033\\"
+
+
 def _format_seconds(value: float) -> str:
     return f"{value:>7.2f}s"
 
@@ -177,7 +195,7 @@ def _render_top_n(durations: dict[str, float], *, top: int, run_id: str, segment
         click.echo("no test data available")
         return
     seg_str = f" [segment={segment}]" if segment else ""
-    click.echo(f"\nTop {len(items)} slowest tests for run {run_id}{seg_str}")
+    click.echo(f"\nTop {len(items)} slowest tests for run {_run_link(run_id)}{seg_str}")
     click.echo("-" * 100)
     click.echo(f"{'#':>4}  {'duration':>9}  test")
     click.echo("-" * 100)
@@ -231,7 +249,7 @@ def _render_compare(
     regressions = deltas[:top]
     improvements = sorted(deltas, key=lambda x: x[1])[:top]
 
-    click.echo(f"\nCompare run {run_a} -> {run_b}  (min delta: {min_delta:.2f}s)")
+    click.echo(f"\nCompare run {_run_link(run_a)} -> {_run_link(run_b)}  (min delta: {min_delta:.2f}s)")
     if regressions:
         click.echo("-" * 100)
         click.echo(f"  {'delta':>8}  {'before':>8}  {'after':>8}  test")
@@ -258,7 +276,9 @@ def _render_compare(
     only_a = set(a) - set(b)
     only_b = set(b) - set(a)
     if only_a or only_b:
-        click.echo(f"\nTests only in {run_a}: {len(only_a)}    Tests only in {run_b}: {len(only_b)}")
+        click.echo(
+            f"\nTests only in {_run_link(run_a)}: {len(only_a)}    Tests only in {_run_link(run_b)}: {len(only_b)}"
+        )
 
 
 def _render_regressions(
@@ -291,7 +311,7 @@ def _render_regressions(
     flagged.sort(key=lambda x: x[1] - x[2], reverse=True)
 
     click.echo(
-        f"\nRegressions in run {head_run_id} vs median of {len(baseline)} prior runs "
+        f"\nRegressions in run {_run_link(head_run_id)} vs median of {len(baseline)} prior runs "
         f"(min_delta={min_delta:.2f}s, min_factor={min_factor:.2f}x)"
     )
     if not flagged:
@@ -314,7 +334,7 @@ def _render_regressions(
 @click.option("--shards/--no-shards", default=True, show_default=True, help="show per-shard wall-time imbalance")
 def latest(top: int, segment: str | None, shards: bool) -> None:
     run_id = _find_latest_master_run()
-    click.echo(f"Latest master run: {run_id}")
+    click.echo(f"Latest master run: {_run_link(run_id)}")
     _show_run(run_id, top=top, segment=segment, with_shards=shards)
 
 
@@ -374,7 +394,7 @@ def regressions(baseline: int, top: int, min_delta: float, min_factor: float, se
     head_run = str(runs[0]["id"])
     history_ids = [str(r["id"]) for r in runs[1 : baseline + 1]]
     click.echo(
-        f"Head: master run {head_run}\n"
+        f"Head: master run {_run_link(head_run)}\n"
         f"Baseline: {len(history_ids)} prior master runs (cached after first download in {CACHE_DIR})"
     )
     head = _load_run_durations(head_run, segment=segment)
