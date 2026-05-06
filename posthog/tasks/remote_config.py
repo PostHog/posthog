@@ -3,12 +3,14 @@ from celery import shared_task
 
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
 def update_team_remote_config(team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)
@@ -25,6 +27,7 @@ def update_team_remote_config(team_id: int) -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
 def sync_all_remote_configs() -> None:
     # Meant to ensure we have all configs in sync in case something failed
 

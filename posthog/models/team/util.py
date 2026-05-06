@@ -25,7 +25,7 @@ actions_that_require_current_team = [
 def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
 
-    from posthog.models.cohort import Cohort, CohortPeople
+    from posthog.models.cohort import Cohort
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import PersonlessDistinctId
@@ -46,7 +46,8 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     # Get cohort_ids from the default database first to avoid cross-database join
     # CohortPeople is in persons_db, Cohort is in default db
     cohort_ids = list(Cohort.objects.filter(team_id__in=team_ids).values_list("id", flat=True))
-    _raw_delete(CohortPeople.objects.filter(cohort_id__in=cohort_ids))  # nosemgrep: no-direct-persons-db-orm
+    if cohort_ids:
+        _delete_cohort_members_for_teams(team_ids, cohort_ids)
 
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
     _delete_groups_for_teams(team_ids)
@@ -168,6 +169,21 @@ def _delete_group_type_mappings_for_teams(team_ids: list[int]) -> None:
             operation="delete_group_type_mappings_for_team", source="django_orm", client_name=get_client_name()
         ).inc()
         _raw_delete(GroupTypeMapping.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
+
+
+def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int]) -> None:
+    """Delete CohortPeople rows for teams via personhog RPC.
+
+    Falls back to ORM _raw_delete when personhog is not available.
+    Routes per-team for consistent gate/metrics/fallback behavior.
+    """
+    from posthog.models.cohort import Cohort
+    from posthog.models.cohort.util import delete_cohort_members_bulk
+
+    for team_id in team_ids:
+        team_cohort_ids = list(Cohort.objects.filter(team_id=team_id, id__in=cohort_ids).values_list("id", flat=True))
+        if team_cohort_ids:
+            delete_cohort_members_bulk(team_id, team_cohort_ids)
 
 
 def _raw_delete(queryset: Any):
