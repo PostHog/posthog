@@ -71,6 +71,7 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
         return instance
 
 
+@admin.register(MCPServerTemplate)
 class MCPServerTemplateAdmin(admin.ModelAdmin):
     form = MCPServerTemplateAdminForm
     list_display = (

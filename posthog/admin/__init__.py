@@ -1,6 +1,37 @@
 # Lazy load admin classes to avoid loading all at startup.
 # Admin classes are loaded when Django admin site is first accessed
 
+import importlib
+
+
+def _autodiscover_product_admins() -> None:
+    """Import each `products.*` app's `admin` submodule so its `@admin.register`
+    decorators run.
+
+    Why dynamic imports instead of `from products.X.backend.admin import …`:
+    isolated products (see `tach.toml` interfaces) only expose
+    `backend.facade` and `backend.presentation.views` — `backend.admin` is
+    deliberately not part of the public surface because Django admin requires
+    the concrete `Model`/`ModelAdmin` classes (no facade equivalent for
+    `admin.site.register`). A string-based `importlib.import_module` keeps
+    static interface checks honest: `posthog/` never names the internal
+    module, while Django still gets to load it at admin-site setup time.
+    """
+    from django.apps import apps
+
+    for app_config in apps.get_app_configs():
+        if not app_config.name.startswith("products."):
+            continue
+        module_name = f"{app_config.name}.admin"
+        try:
+            importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            # The product simply has no admin.py — that's fine.
+            if exc.name == module_name:
+                continue
+            # A real import error inside the product's admin.py — surface it.
+            raise
+
 
 def register_all_admin():
     from django.contrib import admin
@@ -28,7 +59,6 @@ def register_all_admin():
         InsightAdmin,
         InstanceSettingAdmin,
         IntegrationAdmin,
-        LinkAdmin,
         OAuthApplicationAdmin,
         OrganizationAdmin,
         OrganizationDomainAdmin,
@@ -84,27 +114,8 @@ def register_all_admin():
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
     from products.dashboards.backend.models.dashboard_tile import Text
-    from products.desktop_recordings.backend.admin import DesktopRecordingAdmin
-    from products.desktop_recordings.backend.models import DesktopRecording
-    from products.endpoints.backend.admin import EndpointAdmin, EndpointVersionAdmin
-    from products.endpoints.backend.models import Endpoint, EndpointVersion
     from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
-    from products.legal_documents.backend.admin import LegalDocumentAdmin
-    from products.legal_documents.backend.models import LegalDocument
-    from products.links.backend.models import Link
-    from products.mcp_store.backend.admin import MCPServerTemplateAdmin
-    from products.mcp_store.backend.models import MCPServerTemplate
-    from products.signals.backend.admin import SignalReportAdmin
-    from products.signals.backend.models import SignalReport
     from products.surveys.backend.models import Survey
-    from products.tasks.backend.admin import (
-        CodeInviteAdmin,
-        CodeInviteRedemptionAdmin,
-        SandboxSnapshotAdmin,
-        TaskAdmin,
-        TaskRunAdmin,
-    )
-    from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxSnapshot, Task, TaskRun
 
     admin.site.register(Organization, OrganizationAdmin)
     admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
@@ -152,29 +163,17 @@ def register_all_admin():
     admin.site.register(HogFlow, HogFlowAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
-    admin.site.register(LegalDocument, LegalDocumentAdmin)
-    admin.site.register(Link, LinkAdmin)
     admin.site.register(BatchImport, BatchImportAdmin)
 
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
     admin.site.register(OAuthApplication, OAuthApplicationAdmin)
 
-    admin.site.register(Task, TaskAdmin)
-    admin.site.register(TaskRun, TaskRunAdmin)
-    admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
-    admin.site.register(CodeInvite, CodeInviteAdmin)
-    admin.site.register(CodeInviteRedemption, CodeInviteRedemptionAdmin)
-
-    admin.site.register(DesktopRecording, DesktopRecordingAdmin)
-
-    admin.site.register(Endpoint, EndpointAdmin)
-    admin.site.register(EndpointVersion, EndpointVersionAdmin)
-
-    admin.site.register(SignalReport, SignalReportAdmin)
-
     admin.site.register(UserProductList, UserProductListAdmin)
 
-    admin.site.register(MCPServerTemplate, MCPServerTemplateAdmin)
+    # Per-product admins live in `products/<name>/backend/admin.py` and
+    # self-register via `@admin.register(...)`. Discover them dynamically so
+    # adding a new product's admin doesn't require touching this file.
+    _autodiscover_product_admins()
 
 
 # :KRUDGE: OAuth models live in the `posthog` app, so by default they appear

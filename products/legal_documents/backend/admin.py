@@ -11,6 +11,7 @@ from posthog.cloud_utils import is_cloud, is_dev_mode
 from .models import LegalDocument
 
 
+@admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
     list_display = (
         "id",
