@@ -13,7 +13,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import patch
 
-from posthog.tasks.usage_report import OrgReport
+from posthog.tasks.usage_report import InstanceMetadata, OrgReport
 from posthog.temporal.usage_report.aggregator import (
     batched,
     build_manifest,
@@ -173,7 +173,9 @@ def test_iter_chunk_lines_emits_id_and_report_with_usage_flag() -> None:
         return {"event_count_in_period": 0, "has_non_zero_usage": False}
 
     with patch("posthog.temporal.usage_report.aggregator.serialize_full_org_report", side_effect=fake_serialize):
-        result = list(iter_chunk_lines(cast(list[OrgReport], [org_a, org_b]), instance_metadata=None))
+        result = list(
+            iter_chunk_lines(cast(list[OrgReport], [org_a, org_b]), instance_metadata=cast(InstanceMetadata, None))
+        )
 
     assert result == [
         ({"organization_id": "org-a", "usage_report": {"event_count_in_period": 10, "has_non_zero_usage": True}}, True),
@@ -190,7 +192,7 @@ def test_iter_chunk_lines_treats_missing_flag_as_falsy() -> None:
         "posthog.temporal.usage_report.aggregator.serialize_full_org_report",
         return_value={"event_count_in_period": 0},  # no has_non_zero_usage
     ):
-        out = list(iter_chunk_lines(cast(list[OrgReport], [org]), instance_metadata=None))
+        out = list(iter_chunk_lines(cast(list[OrgReport], [org]), instance_metadata=cast(InstanceMetadata, None)))
     assert out[0][1] is False
 
 
