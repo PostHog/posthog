@@ -164,6 +164,7 @@ const config: Config = {
         '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
+        '^@mathjax/src/(.*)$': '<rootDir>/src/test/mocks/mathjaxMock.js',
     },
 
     // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader
