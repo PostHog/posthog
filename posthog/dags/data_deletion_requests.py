@@ -939,6 +939,7 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
     request_id = (
         ops_config.get("load_deletion_request", {}).get("config", {}).get("request_id")
         or ops_config.get("load_property_removal_request", {}).get("config", {}).get("request_id")
+        or ops_config.get("load_property_removal_for_replay", {}).get("config", {}).get("request_id")
         or ops_config.get("load_person_removal_request", {}).get("config", {}).get("request_id")
     )
     if not request_id:
@@ -956,7 +957,7 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
     # ``process_shard`` for that shard. We don't know which host that was at this
     # point, so broadcast the DROP to every host in every shard — DROP IF EXISTS
     # is a safe no-op on hosts that don't have it.
-    if ops_config.get("load_property_removal_request"):
+    if ops_config.get("load_property_removal_request") or ops_config.get("load_property_removal_for_replay"):
         try:
             from posthog.clickhouse.cluster import Query, get_cluster
 
@@ -1154,3 +1155,98 @@ def verify_queued_deletion_requests(context: dagster.RunStatusSensorContext):
             context.log.info(f"Deletion request {request.pk} promoted QUEUED → COMPLETED.")
 
     context.log.info(f"verify_queued_deletion_requests: {promoted} request(s) promoted this cycle.")
+
+
+# ---------------------------------------------------------------------------
+# Replay job for property removals that ran before the discover-mat-cols filter
+# fix landed. Re-uses the per-shard temp-table cycle so the heavy work happens
+# on a small local MergeTree, not via ALTER TABLE UPDATE on sharded_events.
+# ---------------------------------------------------------------------------
+
+
+@dagster.op(tags=OWNER_TAG)
+def load_property_removal_for_replay(
+    context: dagster.OpExecutionContext,
+    config: DataDeletionRequestConfig,
+) -> DeletionRequestContext:
+    """Load a PROPERTY_REMOVAL request in any status and bump it to IN_PROGRESS so the
+    standard per-shard cycle can be re-run against it.
+
+    Mirrors ``load_property_removal_request`` but accepts any starting status (not only
+    APPROVED). The intended use is replaying a request that finished before the
+    discover-mat-cols filter fix — the original cycle correctly dropped JSON keys but
+    never reset the associated ``mat_<prop>`` columns, so the rows now have stale
+    materialized values. Operators may also need to replay FAILED or partially-run
+    requests, hence the unrestricted status filter; the only enforced constraint is
+    ``request_type = PROPERTY_REMOVAL``.
+
+    Re-running ``process_property_removal_per_shard`` is naturally idempotent: its
+    presence predicate is ``JSONHas(properties, prop) OR mat_<col> != ''``, so a second
+    pass over a fully-clean request matches zero rows and does no work. Operators are
+    responsible for ensuring no other run is concurrently processing the same request
+    — there is no in-flight lock beyond the brief ``select_for_update`` window of this
+    load op.
+    """
+    from django.db import transaction
+
+    with transaction.atomic():
+        request = (
+            DataDeletionRequest.objects.select_for_update()
+            .filter(
+                pk=config.request_id,
+                request_type=RequestType.PROPERTY_REMOVAL,
+            )
+            .first()
+        )
+
+        if not request:
+            raise dagster.Failure(
+                f"Request {config.request_id} is not a property_removal request.",
+            )
+
+        _record_execution_attempt(request)
+
+    context.log.info(
+        f"Replaying property removal {request.pk} (team_id={request.team_id}, "
+        f"properties={request.properties}, events={request.events}, "
+        f"time_range={request.start_time}–{request.end_time})"
+    )
+    context.add_output_metadata(
+        {
+            "request_id": dagster.MetadataValue.text(str(request.pk)),
+            "team_id": dagster.MetadataValue.int(request.team_id),
+            "properties": dagster.MetadataValue.text(", ".join(request.properties)),
+            "events": dagster.MetadataValue.text(", ".join(request.events)),
+            "attempt_count": dagster.MetadataValue.int(request.attempt_count or 0),
+        }
+    )
+
+    assert request.start_time is not None and request.end_time is not None
+    return DeletionRequestContext(
+        request_id=str(request.pk),
+        team_id=request.team_id,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        events=request.events,
+        properties=request.properties,
+        hogql_predicate=request.hogql_predicate or "",
+    )
+
+
+@dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
+def data_deletion_request_property_removal_replay():
+    """Replay a previously-COMPLETED PROPERTY_REMOVAL through the per-shard temp cycle.
+
+    Use this to clean up materialized-column drift left by the discover-mat-cols filter
+    bug (the cycle dropped JSON keys correctly but never reset the associated
+    ``mat_<prop>`` columns). Trigger manually from the Dagster UI per request_id.
+
+    The job uses the same copy-into-local-temp / mutate-temp / re-insert /
+    lightweight-delete-originals pipeline as the original execution, so it does NOT
+    issue ``ALTER TABLE UPDATE`` against ``sharded_events`` and works on clusters
+    without lightweight UPDATE support. Idempotent — fully-clean rows match no
+    presence predicate and the cycle no-ops.
+    """
+    request = load_property_removal_for_replay()
+    request = process_property_removal_per_shard(request)
+    finalize_deletion_request(request)

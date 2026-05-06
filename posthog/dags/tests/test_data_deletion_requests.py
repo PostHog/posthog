@@ -20,6 +20,7 @@ from posthog.dags.data_deletion_requests import (
     data_deletion_request_person_removal,
     data_deletion_request_pickup_sensor,
     data_deletion_request_property_removal,
+    data_deletion_request_property_removal_replay,
     delete_person_events_op,
     delete_person_profiles_op,
     delete_person_recordings_op,
@@ -1001,6 +1002,176 @@ def test_full_job_property_removal_clears_materialized_columns(
         assert request.status == RequestStatus.COMPLETED
     finally:
         cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()
+
+
+@pytest.mark.django_db
+def test_property_removal_replay_resets_drifted_mat_columns(cluster: ClickhouseCluster):
+    """Reproduce the historical bug (JSON cleaned, mat_<col> stale) and verify the replay
+    job heals it by re-running the per-shard temp cycle against a COMPLETED request.
+    The replay must NOT issue any ALTER TABLE UPDATE against sharded_events.
+    """
+    col_defs = [
+        ("mat_replay_a", "replay_a", "String"),
+        ("mat_replay_b", "replay_b", "Nullable(String)"),
+    ]
+    cluster.any_host(partial(_add_default_mat_columns, col_defs)).result()
+
+    other_team = PROP_TEAM_ID + 1
+    try:
+        now = datetime.now()
+        start_time = now - timedelta(days=7)
+        end_time = now + timedelta(minutes=1)
+
+        target_props = json.dumps({"replay_a": "secret_a", "replay_b": "secret_b", "keep": "yes"})
+        target_events = [
+            (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), target_props) for i in range(10)
+        ]
+        # Control: a different team that the replay must not touch.
+        control_events = [(other_team, "$pageview", uuid4(), now - timedelta(hours=i), target_props) for i in range(5)]
+        cluster.any_host(partial(_insert_events_with_properties, target_events + control_events)).result()
+
+        # Replay the historical bug: drop the keys from JSON, leave mat_<col> alone.
+        # Mirrors what the buggy property-removal cycle did (UPDATE properties only).
+        def _simulate_buggy_jsondrop(client: Client) -> None:
+            from django.conf import settings as ds
+
+            client.execute(
+                f"ALTER TABLE {ds.CLICKHOUSE_DATABASE}.sharded_events "
+                f"UPDATE properties = JSONDropKeys(['replay_a', 'replay_b'])(properties) "
+                f"WHERE team_id = {PROP_TEAM_ID}",
+                settings={"mutations_sync": 2},
+            )
+
+        cluster.any_host(_simulate_buggy_jsondrop).result()
+
+        # Sanity: properties cleaned for target team, but mat columns still stale.
+        for col in ("mat_replay_a", "mat_replay_b"):
+            mats = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col)).result()
+            assert any(v and "secret" in v for v in mats), f"setup: {col} should still be stale"
+        for props in cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result():
+            assert "replay_a" not in props and "replay_b" not in props
+            assert props.get("keep") == "yes"
+
+        # Record the historical execution as a COMPLETED request.
+        request = DataDeletionRequest.objects.create(
+            team_id=PROP_TEAM_ID,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=["replay_a", "replay_b"],
+            start_time=start_time,
+            end_time=end_time,
+            status=RequestStatus.COMPLETED,
+        )
+        # Mimic the original lifecycle counters so we can assert the replay bumps them.
+        DataDeletionRequest.objects.filter(pk=request.pk).update(
+            attempt_count=1, first_executed_at=now, last_executed_at=now
+        )
+
+        # No ALTER TABLE UPDATE on sharded_events is allowed: the temp cycle handles
+        # everything via copy/reinsert + lightweight delete. Patch the class so the test
+        # fails loudly if the replay regresses to direct mutation against the prod table.
+        from posthog.clickhouse import cluster as _cluster_mod
+
+        original_init = _cluster_mod.AlterTableMutationRunner.__init__
+
+        def _guarded_init(self, *args, **kwargs):
+            target = kwargs.get("table", args[0] if args else None)
+            assert target != "sharded_events", (
+                "AlterTableMutationRunner targeted sharded_events directly — "
+                "replay must run mutations on the local temp table only"
+            )
+            return original_init(self, *args, **kwargs)
+
+        with patch.object(_cluster_mod.AlterTableMutationRunner, "__init__", _guarded_init):
+            result = data_deletion_request_property_removal_replay.execute_in_process(
+                run_config={
+                    "ops": {
+                        "load_property_removal_for_replay": {
+                            "config": {"request_id": str(request.pk)},
+                        },
+                    },
+                },
+                resources={"cluster": cluster},
+            )
+        assert result.success
+
+        # Target team: mat columns reset.
+        for col in ("mat_replay_a", "mat_replay_b"):
+            mats = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col)).result()
+            non_empty = [v for v in mats if v]
+            assert not non_empty, f"{col} should be reset, got {set(non_empty)}"
+
+        # Control team untouched.
+        for col in ("mat_replay_a", "mat_replay_b"):
+            mats = cluster.any_host(partial(_get_mat_column_values, other_team, "$pageview", col)).result()
+            assert any(v and "secret" in v for v in mats), f"control {col} should be untouched"
+
+        # Lifecycle: bumped to IN_PROGRESS during run, finalized back to COMPLETED.
+        request.refresh_from_db()
+        assert request.status == RequestStatus.COMPLETED
+        assert request.attempt_count == 2
+        assert request.last_executed_at is not None
+    finally:
+        cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "starting_status",
+    [
+        RequestStatus.DRAFT,
+        RequestStatus.PENDING,
+        RequestStatus.APPROVED,
+        RequestStatus.IN_PROGRESS,
+        RequestStatus.COMPLETED,
+        RequestStatus.FAILED,
+    ],
+)
+def test_property_removal_replay_load_accepts_any_status(starting_status):
+    """Operators may need to replay PROPERTY_REMOVAL requests in any status — the load op
+    must accept all of them and bump to IN_PROGRESS regardless of the starting state.
+    Type is the only enforced constraint.
+    """
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["x"],
+        start_time=datetime.now() - timedelta(days=1),
+        end_time=datetime.now(),
+        status=starting_status,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    ctx = build_op_context()
+
+    from posthog.dags.data_deletion_requests import load_property_removal_for_replay
+
+    result = load_property_removal_for_replay(ctx, config)
+
+    assert result.team_id == PROP_TEAM_ID
+    assert result.properties == ["x"]
+    request.refresh_from_db()
+    assert request.status == RequestStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_property_removal_replay_load_rejects_wrong_request_type():
+    """Type is the only enforced constraint — non-PROPERTY_REMOVAL requests must be
+    rejected even though every other status filter has been removed.
+    """
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=datetime.now() - timedelta(days=1),
+        end_time=datetime.now(),
+        status=RequestStatus.COMPLETED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    from posthog.dags.data_deletion_requests import load_property_removal_for_replay
+
+    with pytest.raises(Exception, match="not a property_removal request"):
+        load_property_removal_for_replay(build_op_context(), config)
 
 
 @pytest.mark.django_db
