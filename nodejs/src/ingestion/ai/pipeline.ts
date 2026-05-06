@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { Team } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
+import { addTeamToContext } from '../common/subpipelines/helpers'
 import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -15,7 +15,6 @@ import { createNormalizeProcessPersonFlagStep } from '../event-processing/normal
 import { createSkipEmitEventStep } from '../event-processing/skip-emit-event-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
-import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
 import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
@@ -32,18 +31,6 @@ interface AiPipelineInput {
 
 interface AiPipelineContext {
     message: Message
-}
-
-function addTeamToContext<T extends { team: Team }, C>(
-    element: OkResultWithContext<T, C>
-): OkResultWithContext<T, C & { team: Team }> {
-    return {
-        result: element.result,
-        context: {
-            ...element.context,
-            team: element.result.value.team,
-        },
-    }
 }
 
 /**
