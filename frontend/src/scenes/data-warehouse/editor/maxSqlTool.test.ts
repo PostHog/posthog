@@ -28,72 +28,70 @@ describe('maxSqlTool', () => {
         })
     })
 
-    it('handles legacy string tool output', () => {
-        const setSourceQuery = jest.fn()
-        const setSuggestedQueryInput = jest.fn()
-
-        applyExecuteSqlToolOutput({
+    it.each([
+        {
+            name: 'handles legacy string tool output',
             toolOutput: 'SELECT event FROM events',
             queryInput: 'SELECT count() FROM events',
-            sourceQuery,
-            setSourceQuery,
-            setSuggestedQueryInput,
-        })
-
-        expect(setSourceQuery).not.toHaveBeenCalled()
-        expect(setSuggestedQueryInput).toHaveBeenCalledWith('SELECT event FROM events', 'max_ai')
-    })
-
-    it('applies filters from HogQL query tool output', () => {
-        const setSourceQuery = jest.fn()
-        const setSuggestedQueryInput = jest.fn()
-
-        applyExecuteSqlToolOutput({
+            expectedSourceQuery: null,
+            expectedSuggestedQueryInput: ['SELECT event FROM events', 'max_ai'],
+        },
+        {
+            name: 'applies filters from HogQL query tool output',
             toolOutput: {
                 kind: NodeKind.HogQLQuery,
                 query: 'SELECT event FROM events WHERE {filters}',
                 filters: { dateRange: { date_from: '-90d' } },
             },
             queryInput: 'SELECT count() FROM events WHERE {filters}',
-            sourceQuery,
-            setSourceQuery,
-            setSuggestedQueryInput,
-        })
-
-        expect(setSourceQuery).toHaveBeenCalledWith({
-            ...sourceQuery,
-            source: {
-                ...sourceQuery.source,
-                filters: { dateRange: { date_from: '-90d' } },
+            expectedSourceQuery: {
+                ...sourceQuery,
+                source: {
+                    ...sourceQuery.source,
+                    filters: { dateRange: { date_from: '-90d' } },
+                },
             },
-        })
-        expect(setSuggestedQueryInput).toHaveBeenCalledWith('SELECT event FROM events WHERE {filters}', 'max_ai')
-    })
-
-    it('clears filters from explicit null tool output', () => {
+            expectedSuggestedQueryInput: ['SELECT event FROM events WHERE {filters}', 'max_ai'],
+        },
+        {
+            name: 'clears filters from empty backend filters payload',
+            toolOutput: {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT count() FROM events WHERE {filters}',
+                filters: {},
+            },
+            queryInput: 'SELECT count() FROM events WHERE {filters}',
+            expectedSourceQuery: {
+                ...sourceQuery,
+                source: {
+                    ...sourceQuery.source,
+                    filters: {},
+                },
+            },
+            expectedSuggestedQueryInput: null,
+        },
+    ])('$name', ({ toolOutput, queryInput, expectedSourceQuery, expectedSuggestedQueryInput }) => {
         const setSourceQuery = jest.fn()
         const setSuggestedQueryInput = jest.fn()
 
         applyExecuteSqlToolOutput({
-            toolOutput: {
-                source: {
-                    query: 'SELECT count() FROM events WHERE {filters}',
-                    filters: null,
-                },
-            },
-            queryInput: 'SELECT count() FROM events WHERE {filters}',
+            toolOutput,
+            queryInput,
             sourceQuery,
             setSourceQuery,
             setSuggestedQueryInput,
         })
 
-        expect(setSourceQuery).toHaveBeenCalledWith({
-            ...sourceQuery,
-            source: {
-                ...sourceQuery.source,
-                filters: undefined,
-            },
-        })
-        expect(setSuggestedQueryInput).not.toHaveBeenCalled()
+        if (expectedSourceQuery) {
+            expect(setSourceQuery).toHaveBeenCalledWith(expectedSourceQuery)
+        } else {
+            expect(setSourceQuery).not.toHaveBeenCalled()
+        }
+
+        if (expectedSuggestedQueryInput) {
+            expect(setSuggestedQueryInput).toHaveBeenCalledWith(...expectedSuggestedQueryInput)
+        } else {
+            expect(setSuggestedQueryInput).not.toHaveBeenCalled()
+        }
     })
 })
