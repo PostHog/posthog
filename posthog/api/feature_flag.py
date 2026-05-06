@@ -2281,6 +2281,107 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
     )
 
 
+class BulkKeysRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        allow_empty=True,
+        help_text=(
+            "Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value "
+            "is reported in the response `warning` field and otherwise ignored."
+        ),
+    )
+
+
+class BulkKeysResponseSerializer(serializers.Serializer):
+    keys = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.",
+    )
+    warning = serializers.CharField(
+        required=False,
+        help_text="Present when some submitted IDs were not numeric and were ignored.",
+    )
+
+
+class BulkDeleteFiltersSerializer(serializers.Serializer):
+    """Allowed filter keys for bulk_delete — same shape as the list endpoint's query params."""
+
+    active = serializers.CharField(
+        required=False,
+        help_text="Filter by active state. Accepts 'true', 'false', or 'STALE'.",
+    )
+    created_by_id = serializers.IntegerField(
+        required=False,
+        help_text="Filter to flags created by a specific user ID.",
+    )
+    search = serializers.CharField(
+        required=False,
+        help_text="Search by feature flag key or name (case-insensitive).",
+    )
+    type = serializers.CharField(
+        required=False,
+        help_text="Filter by flag type. One of 'boolean', 'multivariate', 'experiment', 'remote_config'.",
+    )
+    evaluation_runtime = serializers.CharField(
+        required=False,
+        help_text="Filter by evaluation runtime. One of 'server', 'client', 'both', or 'all'.",
+    )
+    excluded_properties = serializers.CharField(
+        required=False,
+        help_text="JSON-encoded property filter to exclude. Same shape as the list endpoint.",
+    )
+    tags = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of tags to filter by.",
+    )
+    has_evaluation_contexts = serializers.BooleanField(
+        required=False,
+        help_text="When true, only matches flags with at least one evaluation context.",
+    )
+
+
+class BulkDeleteRequestSerializer(serializers.Serializer):
+    filters = BulkDeleteFiltersSerializer(
+        required=False,
+        help_text=(
+            "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. "
+            "Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs."
+        ),
+    )
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        help_text="Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`.",
+    )
+
+
+class BulkDeleteDeletedItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the soft-deleted flag.")
+    key = serializers.CharField(help_text="The flag key at the time of deletion.")
+    rollout_state = serializers.ChoiceField(
+        choices=["fully_rolled_out", "not_rolled_out", "partial"],
+        help_text="Rollout state captured before deletion.",
+    )
+    active_variant = serializers.CharField(
+        allow_null=True,
+        help_text="Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.",
+    )
+
+
+class BulkDeleteErrorItemSerializer(serializers.Serializer):
+    id = serializers.JSONField(
+        help_text="Feature flag ID — integer for valid inputs; the original raw value for invalid inputs."
+    )
+    key = serializers.CharField(required=False, help_text="The flag key, when known.")
+    reason = serializers.CharField(help_text="Human-readable reason the flag could not be deleted.")
+
+
+class BulkDeleteResponseSerializer(serializers.Serializer):
+    deleted = BulkDeleteDeletedItemSerializer(many=True, help_text="Flags successfully soft-deleted.")
+    errors = BulkDeleteErrorItemSerializer(many=True, help_text="Flags that could not be deleted, with reasons.")
+
+
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
 # all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
 # that already tag their queries. If you add a new ClickHouse query reachable from an
@@ -2705,6 +2806,13 @@ class FeatureFlagViewSet(
             for feature_flag in all_serialized_flags
         )
 
+    @extend_schema(
+        request=BulkKeysRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=BulkKeysResponseSerializer),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="No valid IDs supplied."),
+        },
+    )
     @action(methods=["POST"], detail=False)
     def bulk_keys(self, request: request.Request, **kwargs):
         """
@@ -2803,6 +2911,16 @@ class FeatureFlagViewSet(
             }
         )
 
+    @extend_schema(
+        request=BulkDeleteRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=BulkDeleteResponseSerializer),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Invalid input — e.g., both filters and ids supplied, neither supplied, or unknown filter keys.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=False, required_scopes=["feature_flag:write"])
     def bulk_delete(self, request: request.Request, **kwargs):
         """
