@@ -1,6 +1,17 @@
 // Components
+export { BarChart } from './charts/BarChart'
+export type { BarChartProps } from './charts/BarChart'
 export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
+export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
+export type {
+    ConfidenceIntervalConfig,
+    MovingAverageConfig,
+    TimeSeriesLineChartConfig,
+    TimeSeriesLineChartProps,
+    TrendLineConfig,
+    ValueLabelsConfig,
+} from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
@@ -13,6 +24,7 @@ export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue 
 
 // Core types
 export type {
+    BarChartConfig,
     ChartConfig,
     ChartDimensions,
     ChartDrawArgs,
@@ -25,6 +37,7 @@ export type {
     ResolvedSeries,
     ResolveValueFn,
     Series,
+    TooltipConfig,
     TooltipContext,
     YAxisScale,
 } from './core/types'
@@ -49,3 +62,16 @@ export type { ValueLabelsProps } from './overlays/ValueLabels'
 
 // Helper for adapters that need to align with the same x-axis tick selection the chart draws.
 export { computeVisibleXLabels } from './overlays/AxisLabels'
+
+export { AnomalyPointsLayer } from './overlays/AnomalyPointsLayer'
+export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
+export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
+
+// Timeseries utils
+export { createXAxisTickCallback, parseDateForAxis } from './utils/dates'
+export type { TimeInterval } from './utils/dates'
+export { buildYTickFormatter } from './utils/y-formatters'
+export type { YAxisFormat, YFormatterConfig } from './utils/y-formatters'
+export type { XAxisConfig, YAxisConfig } from './utils/use-axis-formatters'
+export { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from './utils/goal-lines'
+export type { GoalLineConfig } from './utils/goal-lines'

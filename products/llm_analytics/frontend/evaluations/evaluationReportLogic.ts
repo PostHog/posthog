@@ -163,6 +163,7 @@ export async function persistReportDraft(
             lemonToast.warning('Scheduled report not saved — add at least one delivery target.')
             return false
         }
+        // nosemgrep: prefer-codegen-api
         await api.update(
             `api/environments/${teamId}/llm_analytics/evaluation_reports/${activeReport.id}/`,
             buildReportUpdatePayload(draft, activeReport, targets)
@@ -176,6 +177,7 @@ export async function persistReportDraft(
     if (targets.length === 0 && draft.reportPromptGuidance.trim().length === 0) {
         return false
     }
+    // nosemgrep: prefer-codegen-api
     await api.create(
         `api/environments/${teamId}/llm_analytics/evaluation_reports/`,
         buildReportCreatePayload(draft, evaluationId, targets)
@@ -272,6 +274,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     if (props.evaluationId === 'new') {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/?evaluation=${props.evaluationId}`
                     )
@@ -306,6 +309,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     if (params.frequency === 'every_n' && params.cooldown_minutes != null) {
                         body.cooldown_minutes = params.cooldown_minutes
                     }
+                    // nosemgrep: prefer-codegen-api
                     const report = await api.create(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/`,
                         body
@@ -313,6 +317,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     return [...values.reports, report]
                 },
                 updateReport: async ({ reportId, data }: { reportId: string; data: Partial<EvaluationReport> }) => {
+                    // nosemgrep: prefer-codegen-api
                     const updated = await api.update(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${reportId}/`,
                         data
@@ -320,6 +325,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     return values.reports.map((r) => (r.id === reportId ? updated : r))
                 },
                 deleteReport: async (reportId: string) => {
+                    // nosemgrep: prefer-codegen-api
                     await api.update(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${reportId}/`,
                         { deleted: true }
@@ -332,6 +338,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             [] as EvaluationReportRun[],
             {
                 loadReportRuns: async (reportId: string) => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${reportId}/runs/`
                     )
@@ -345,6 +352,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             null as null,
             {
                 generateReport: async (reportId: string) => {
+                    // nosemgrep: prefer-codegen-api
                     await api.create(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/${reportId}/generate/`
                     )

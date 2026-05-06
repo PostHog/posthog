@@ -110,10 +110,10 @@ impl DistinctIdLookup for PostgresStorage {
                 sqlx::query_as!(
                     DistinctIdMapping,
                     r#"
-                    SELECT l.person_id, l.distinct_id
+                    SELECT l.person_id, l.distinct_id, l.version
                     FROM UNNEST($2::bigint[]) AS pid(id)
                     CROSS JOIN LATERAL (
-                        SELECT person_id, distinct_id
+                        SELECT person_id, distinct_id, version
                         FROM posthog_persondistinctid
                         WHERE team_id = $1 AND person_id = pid.id
                         LIMIT $3
@@ -130,7 +130,7 @@ impl DistinctIdLookup for PostgresStorage {
                 sqlx::query_as!(
                     DistinctIdMapping,
                     r#"
-                    SELECT person_id, distinct_id
+                    SELECT person_id, distinct_id, version
                     FROM posthog_persondistinctid
                     WHERE team_id = $1 AND person_id = ANY($2)
                     "#,

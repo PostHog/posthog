@@ -39,6 +39,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         summary: 'sent every week',
         next_delivery_date: '2026-04-07T17:00:00Z',
         deleted: false,
+        enabled: true,
     },
     {
         id: 2,
@@ -58,6 +59,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         summary: 'sent every day',
         next_delivery_date: '2026-04-08T09:00:00Z',
         deleted: false,
+        enabled: true,
         integration_id: 1,
     },
     {
@@ -78,6 +80,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         summary: 'sent every month',
         next_delivery_date: null,
         deleted: false,
+        enabled: true,
     },
     {
         id: 4,
@@ -97,6 +100,28 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
         summary: 'sent every week',
         next_delivery_date: '2026-04-14T12:00:00Z',
         deleted: false,
+        enabled: true,
+    },
+    {
+        id: 5,
+        insight: 105,
+        dashboard: null,
+        insight_short_id: 'disabled-insight',
+        resource_name: 'Activation funnel',
+        title: 'Auto-paused after integration broke',
+        dashboard_export_insights: [],
+        target_type: TargetTypeEnumApi.Slack,
+        target_value: 'C99999|#archived-channel',
+        frequency: SubscriptionFrequencyEnumApi.Weekly,
+        interval: 1,
+        start_date: '2022-01-01T00:00:00Z',
+        created_at: '2023-04-27T10:04:37.977401Z',
+        created_by: MOCK_USER,
+        summary: 'sent every week',
+        next_delivery_date: null,
+        deleted: false,
+        enabled: false,
+        integration_id: 1,
     },
 ]
 
@@ -135,6 +160,7 @@ function buildMockSubscriptions(total: number): SubscriptionApi[] {
             summary: 'sent every week',
             next_delivery_date: '2026-04-07T17:00:00Z',
             deleted: false,
+            enabled: true,
             ...(isSlack ? { integration_id: 1 } : {}),
         }
     })

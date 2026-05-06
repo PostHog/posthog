@@ -211,6 +211,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     if (!props.id) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`api/projects/@current/actions/${props.id}/references`)
                     return response
                 },
