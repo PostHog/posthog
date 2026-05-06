@@ -2131,6 +2131,50 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # The prior ciphertext must not survive a downgrade.
         self.assertNotIn("true", flag.filters["payloads"])
 
+    def test_update_encrypted_flag_partial_downgrade_clears_ciphertext(self):
+        # Even when the client sends only the boolean flip and no filters,
+        # the server must strip the leftover ciphertext so it is not served
+        # unredacted on subsequent reads (redaction is gated on
+        # has_encrypted_payloads).
+        flag = self._create_encrypted_flag()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"has_encrypted_payloads": False, "is_remote_configuration": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertFalse(flag.has_encrypted_payloads)
+        self.assertNotIn("true", (flag.filters or {}).get("payloads", {}))
+
+    def test_update_encrypted_flag_encrypts_when_boolean_omitted(self):
+        # A partial PATCH that supplies a fresh `payloads.true` plaintext but
+        # omits `has_encrypted_payloads` must still encrypt; the instance is
+        # already encrypted, and falling through to the un-encrypted branch
+        # would write plaintext on a row marked as encrypted.
+        flag = self._create_encrypted_flag()
+
+        plaintext = '"another-secret"'
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": plaintext},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        stored = flag.filters["payloads"]["true"]
+        self.assertNotEqual(stored, plaintext)
+        decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
+        self.assertEqual(decrypted, plaintext)
+
     def test_update_encrypted_flag_rejects_enabling_without_payload(self):
         flag = FeatureFlag.objects.create(
             team=self.team,

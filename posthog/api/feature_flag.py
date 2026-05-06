@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import copy
 import json
 import math
 import time
@@ -1531,7 +1532,14 @@ class FeatureFlagSerializer(
             filters = validated_data.get("filters", instance.filters) or {}
             validated_data["filters"] = self._update_super_groups_for_key_change(validated_key, old_key, filters)
 
-        if validated_data.get("has_encrypted_payloads", False):
+        # Resolve `has_encrypted_payloads` against the instance so a partial PATCH
+        # that omits the boolean still routes through the right path.
+        effective_has_encrypted = validated_data.get("has_encrypted_payloads", instance.has_encrypted_payloads)
+
+        if effective_has_encrypted:
+            # Ensure downstream helpers (e.g. encrypt_flag_payloads) see the
+            # flag even when the client didn't echo it back in this PATCH.
+            validated_data["has_encrypted_payloads"] = True
             filters = validated_data.get("filters")
             new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
 
@@ -1553,6 +1561,30 @@ class FeatureFlagSerializer(
                     filters["payloads"] = payloads
             else:
                 encrypt_flag_payloads(validated_data)
+
+        elif instance.has_encrypted_payloads:
+            # Downgrading from encrypted to non-encrypted. Strip leftover
+            # ciphertext so a partial PATCH that only flipped the bit doesn't
+            # leave the prior encrypted blob exposed as a normal payload on
+            # subsequent reads (redaction is gated on has_encrypted_payloads).
+            filters = validated_data.get("filters")
+            if filters is None:
+                # Client didn't send filters; inject a copy of instance.filters
+                # with the encrypted "true" payload removed.
+                new_filters = copy.deepcopy(instance.filters or {})
+                payloads = new_filters.get("payloads") or {}
+                payloads.pop("true", None)
+                new_filters["payloads"] = payloads
+                validated_data["filters"] = new_filters
+            else:
+                # Client sent filters. Drop an empty/missing/redacted echo at
+                # "true"; a fresh non-empty plaintext is left alone (the user
+                # explicitly set a new payload during the downgrade).
+                payloads = filters.get("payloads") or {}
+                true_val = payloads.get("true")
+                if not true_val or true_val == REDACTED_PAYLOAD_VALUE:
+                    payloads.pop("true", None)
+                filters["payloads"] = payloads
 
         # Opportunistically strip legacy holdout_groups key (replaced by holdout in Phase 1-4).
         # Uses the same inject-into-validated_data pattern as _update_super_groups_for_key_change.

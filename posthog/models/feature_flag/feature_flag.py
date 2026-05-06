@@ -134,6 +134,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return f"{self.key} ({self.pk})"
 
     def clean(self) -> None:
+        """Reject encrypted payloads on non-remote-config flags.
+
+        Django does not invoke clean() from save(), so this fires only from
+        admin and explicit full_clean() callers. The HTTP path is gated by
+        FeatureFlagSerializer._validate_encrypted_payloads_require_remote_config.
+        """
         super().clean()
         if self.has_encrypted_payloads and not self.is_remote_configuration:
             raise ValidationError("Encrypted payloads require the flag to be a remote configuration.")
