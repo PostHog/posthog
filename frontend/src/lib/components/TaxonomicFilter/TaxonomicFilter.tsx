@@ -149,6 +149,7 @@ export function TaxonomicFilter({
                     !width && 'force-minimum-width'
                 )}
                 data-attr={taxonomicFilterLogicKey}
+                data-feature="taxonomic-filter"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
             >

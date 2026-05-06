@@ -105,7 +105,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
     }
 
     return (
-        <SceneContent className={cn('dashboard')}>
+        <SceneContent className={cn('dashboard')} data-feature="dashboards">
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
             {canEditDashboard && addInsightToDashboardModalVisible && <AddInsightToDashboardModal />}
 
