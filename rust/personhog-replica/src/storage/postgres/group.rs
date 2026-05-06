@@ -485,7 +485,7 @@ impl GroupStorage for PostgresStorage {
               AND group_type_index = $2
               AND (NOT $3 OR group_key ILIKE $4)
               AND (NOT $5 OR (group_properties::text ILIKE $6 OR group_key = $7))
-              AND (NOT $8 OR (created_at, id::bigint) < ($9, $10))
+              AND (NOT $8 OR (created_at, id) < ($9, $10::bigint))
             ORDER BY created_at DESC, id DESC
             LIMIT $11
             "#,

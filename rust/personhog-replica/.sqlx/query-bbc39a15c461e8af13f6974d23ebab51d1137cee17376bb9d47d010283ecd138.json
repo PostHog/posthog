@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                   group_type_index, group_key, group_properties,\n                   created_at,\n                   properties_last_updated_at as \"properties_last_updated_at?: serde_json::Value\",\n                   properties_last_operation as \"properties_last_operation?: serde_json::Value\",\n                   version\n            FROM posthog_group\n            WHERE team_id = $1\n              AND group_type_index = $2\n              AND (NOT $3 OR group_key ILIKE $4)\n              AND (NOT $5 OR (group_properties::text ILIKE $6 OR group_key = $7))\n              AND (NOT $8 OR (created_at, id::bigint) < ($9, $10))\n            ORDER BY created_at DESC, id DESC\n            LIMIT $11\n            ",
+  "query": "\n            SELECT id::bigint as \"id!\", team_id::bigint as \"team_id!\",\n                   group_type_index, group_key, group_properties,\n                   created_at,\n                   properties_last_updated_at as \"properties_last_updated_at?: serde_json::Value\",\n                   properties_last_operation as \"properties_last_operation?: serde_json::Value\",\n                   version\n            FROM posthog_group\n            WHERE team_id = $1\n              AND group_type_index = $2\n              AND (NOT $3 OR group_key ILIKE $4)\n              AND (NOT $5 OR (group_properties::text ILIKE $6 OR group_key = $7))\n              AND (NOT $8 OR (created_at, id) < ($9, $10::bigint))\n            ORDER BY created_at DESC, id DESC\n            LIMIT $11\n            ",
   "describe": {
     "columns": [
       {
@@ -76,5 +76,5 @@
       false
     ]
   },
-  "hash": "25b693f1c313ba805c482e290c2e5620c3d3e5fd5070cd78c526521e62a1ccb0"
+  "hash": "bbc39a15c461e8af13f6974d23ebab51d1137cee17376bb9d47d010283ecd138"
 }
