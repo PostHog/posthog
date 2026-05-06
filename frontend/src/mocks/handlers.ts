@@ -165,6 +165,7 @@ export const defaultMocks: Mocks = {
                     ...MOCK_DEFAULT_ORGANIZATION,
                     available_product_features: getAvailableProductFeatures(),
                 },
+                pending_invites: [],
             },
         ],
         '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],

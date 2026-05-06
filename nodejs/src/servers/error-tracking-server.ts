@@ -1,5 +1,4 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -170,7 +169,6 @@ export class ErrorTrackingServer implements NodeServer {
         )
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         const hogTransformerDeps: HogTransformerServiceDeps = {
             geoipService,
@@ -180,7 +178,6 @@ export class ErrorTrackingServer implements NodeServer {
             integrationManager,
             monitoringOutputs: outputs,
             teamManager,
-            internalCaptureService,
         }
 
         // 3. Error tracking consumer
@@ -206,6 +203,17 @@ export class ErrorTrackingServer implements NodeServer {
                     statefulOverflowLocalCacheTTLSeconds:
                         this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                     pipeline: this.config.INGESTION_PIPELINE ?? 'error_tracking',
+                    rateLimiterEnabled: this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED,
+                    rateLimiterReportingMode: this.config.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
+                    rateLimiterRedisHost: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
+                    rateLimiterRedisPort: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
+                    rateLimiterRedisTls: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
+                    rateLimiterBucketSize: this.config.ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE,
+                    rateLimiterRefillRate: this.config.ERROR_TRACKING_RATE_LIMITER_REFILL_RATE,
+                    rateLimiterTtlSeconds: this.config.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
+                    fallbackRedisUrl: this.config.REDIS_URL,
+                    rateLimiterRedisPoolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                    rateLimiterRedisPoolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                 },
                 {
                     outputs,

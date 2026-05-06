@@ -128,6 +128,36 @@ export const AlertCheckStateEnumApi = {
     Snoozed: 'Snoozed',
 } as const
 
+/**
+ * * `pending` - pending
+ * `running` - running
+ * `done` - done
+ * `failed` - failed
+ * `skipped` - skipped
+ */
+export type InvestigationStatusEnumApi = (typeof InvestigationStatusEnumApi)[keyof typeof InvestigationStatusEnumApi]
+
+export const InvestigationStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Done: 'done',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * * `true_positive` - true_positive
+ * `false_positive` - false_positive
+ * `inconclusive` - inconclusive
+ */
+export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
+
+export const InvestigationVerdictEnumApi = {
+    TruePositive: 'true_positive',
+    FalsePositive: 'false_positive',
+    Inconclusive: 'inconclusive',
+} as const
+
 export interface AlertCheckApi {
     readonly id: string
     readonly created_at: string
@@ -141,6 +171,18 @@ export interface AlertCheckApi {
     /** @nullable */
     readonly interval: string | null
     readonly triggered_metadata: unknown | null
+    readonly investigation_status: InvestigationStatusEnumApi | NullEnumApi | null
+    readonly investigation_verdict: InvestigationVerdictEnumApi | NullEnumApi | null
+    /** @nullable */
+    readonly investigation_summary: string | null
+    /**
+     * Short ID of the Notebook produced by the investigation agent, when the agent ran for this check.
+     * @nullable
+     */
+    readonly investigation_notebook_short_id: string | null
+    /** @nullable */
+    readonly notification_sent_at: string | null
+    readonly notification_suppressed_by_agent: boolean
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
@@ -564,6 +606,18 @@ export interface AlertScheduleRestrictionApi {
     blocked_windows: AlertScheduleRestrictionWindowApi[]
 }
 
+/**
+ * * `notify` - Notify
+ * `suppress` - Suppress
+ */
+export type InvestigationInconclusiveActionEnumApi =
+    (typeof InvestigationInconclusiveActionEnumApi)[keyof typeof InvestigationInconclusiveActionEnumApi]
+
+export const InvestigationInconclusiveActionEnumApi = {
+    Notify: 'notify',
+    Suppress: 'suppress',
+} as const
+
 export interface AlertApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -622,6 +676,15 @@ export interface AlertApi {
      * @nullable
      */
     readonly last_value: number | null
+    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    investigation_agent_enabled?: boolean
+    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    investigation_gates_notifications?: boolean
+    /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+
+* `notify` - Notify
+* `suppress` - Suppress */
+    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
 }
 
 export interface PaginatedAlertListApi {
@@ -691,6 +754,15 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly last_value?: number | null
+    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    investigation_agent_enabled?: boolean
+    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    investigation_gates_notifications?: boolean
+    /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
+
+* `notify` - Notify
+* `suppress` - Suppress */
+    investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
 }
 
 export interface AlertSimulateApi {

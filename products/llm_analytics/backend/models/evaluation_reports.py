@@ -21,7 +21,12 @@ class EvaluationReport(UUIDTModel):
     TRIGGER_THRESHOLD_MAX = 10_000
     TRIGGER_THRESHOLD_DEFAULT = 100
     COOLDOWN_MINUTES_MIN = 60
+    COOLDOWN_MINUTES_MAX = 60 * 24
     COOLDOWN_MINUTES_DEFAULT = 60
+    # Upper bound mirrors the count of 60-minute windows in a day, so values above it are
+    # unreachable in practice (cooldown_minutes is bounded below at 60).
+    DAILY_RUN_CAP_MIN = 1
+    DAILY_RUN_CAP_MAX = (60 * 24) // COOLDOWN_MINUTES_MIN
     DAILY_RUN_CAP_DEFAULT = 10
 
     class Meta:
@@ -38,7 +43,7 @@ class EvaluationReport(UUIDTModel):
         related_name="reports",
     )
 
-    frequency = models.CharField(max_length=16, choices=Frequency.choices, default=Frequency.EVERY_N)
+    frequency = models.CharField(max_length=16, choices=Frequency, default=Frequency.EVERY_N)
     # RRULE string (RFC 5545). Empty for count-triggered reports. Must not contain DTSTART
     # (anchor is stored separately in starts_at); enforced by validate_rrule.
     rrule = models.TextField(blank=True, default="")
@@ -171,7 +176,7 @@ class EvaluationReportRun(UUIDTModel):
     period_end = models.DateTimeField()
     delivery_status = models.CharField(
         max_length=20,
-        choices=DeliveryStatus.choices,
+        choices=DeliveryStatus,
         default=DeliveryStatus.PENDING,
     )
     delivery_errors = models.JSONField(default=list)

@@ -1,17 +1,15 @@
-import asyncio
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
 from unittest.mock import Mock, patch
 
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-
 from posthog.temporal.data_imports.sources.common.rest_source import _make_paginate_dependent_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
     build_dependent_resource,
 )
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import ResolvedParam
 
 
@@ -22,7 +20,6 @@ class _EndpointConfig:
     incremental_fields: list[Any]
     default_incremental_field: str | None = None
     page_size: int = 100
-    primary_key: str | list[str] = "id"
 
 
 class _DummyPaginator(BasePaginator):
@@ -40,14 +37,12 @@ def _build_endpoint_configs() -> dict[str, _EndpointConfig]:
             path="/parents",
             incremental_fields=[],
             page_size=3,
-            primary_key="id",
         ),
         "children": _EndpointConfig(
             name="children",
             path="/parents/{parent_id}/children",
             incremental_fields=[],
             page_size=7,
-            primary_key=["parent_id", "id"],
         ),
     }
 
@@ -206,22 +201,18 @@ def test_paginate_dependent_resource_does_not_leak_params_across_parents() -> No
         db_incremental_field_last_value=None,
     )
 
-    async def run():
-        results = []
-        async for page in paginate_fn(
-            items=[{"id": "parent_a"}, {"id": "parent_b"}],
-            method="get",
-            path="/parents/{parent_id}/children",
-            params={"page_size": 100, "since": "2026-01-01", "until": "2026-03-01"},
-            paginator=None,
-            data_selector="items",
-            hooks=None,
-        ):
-            if isinstance(page, list):
-                results.append(page)
-        return results
-
-    asyncio.run(run())
+    results: list[list[dict[str, Any]]] = []
+    for page in paginate_fn(
+        items=[{"id": "parent_a"}, {"id": "parent_b"}],
+        method="get",
+        path="/parents/{parent_id}/children",
+        params={"page_size": 100, "since": "2026-01-01", "until": "2026-03-01"},
+        paginator=None,
+        data_selector="items",
+        hooks=None,
+    ):
+        if isinstance(page, list):
+            results.append(page)
 
     assert len(captured_initial_params) == 2
     # Parent B's first request must have the original since/until,

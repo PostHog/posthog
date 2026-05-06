@@ -1,12 +1,27 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTableColumns, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconBell } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonSwitch,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { urls } from 'scenes/urls'
+
+import IconSlack from 'public/services/slack.png'
+import IconWebhook from 'public/services/webhook.svg'
 
 import {
+    NotificationDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
     ThresholdOperatorEnumApi,
@@ -14,6 +29,8 @@ import {
 
 import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
+import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
+import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
     const operator = alert.threshold_operator === ThresholdOperatorEnumApi.Below ? '<' : '>'
@@ -21,16 +38,24 @@ function formatThreshold(alert: LogsAlertConfigurationApi): string {
 }
 
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds } = useValues(logsAlertingLogic)
-    const { setEditingAlert, setIsCreating, deleteAlert, toggleAlertEnabled, resetAlert, setViewingHistoryAlert } =
-        useActions(logsAlertingLogic)
+    const { alerts, alertsLoading, resettingAlertIds, creatingAlert } = useValues(logsAlertingLogic)
+    const {
+        setEditingAlert,
+        deleteAlert,
+        toggleAlertEnabled,
+        resetAlert,
+        setViewingHistoryAlert,
+        snoozeAlert,
+        unsnoozeAlert,
+        createAlertAndOpen,
+    } = useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
         {
             title: 'Name',
             dataIndex: 'name',
             render: (_, alert) => (
-                <LemonButton type="tertiary" size="small" onClick={() => setEditingAlert(alert)}>
+                <LemonButton type="tertiary" size="small" to={urls.logsAlertDetail(alert.id)}>
                     {alert.name}
                 </LemonButton>
             ),
@@ -39,7 +64,13 @@ export function LogsAlertList(): JSX.Element {
             title: 'Status',
             dataIndex: 'state',
             render: (_, alert) => (
-                <LogsAlertStateIndicator state={alert.state} lastErrorMessage={alert.last_error_message} />
+                <LogsAlertStateIndicator
+                    state={alert.state}
+                    enabled={alert.enabled ?? true}
+                    firstEnabledAt={alert.first_enabled_at}
+                    lastErrorMessage={alert.last_error_message}
+                    snoozeUntil={alert.snooze_until}
+                />
             ),
         },
         {
@@ -57,6 +88,77 @@ export function LogsAlertList(): JSX.Element {
                 ),
         },
         {
+            title: (
+                <Tooltip title="Alert state over the last 24 hours. Green = OK, red = firing, orange = resolving/errored, grey = snoozed or disabled. Hover to see the state at a point in time.">
+                    <span className="cursor-help">Last 24h</span>
+                </Tooltip>
+            ),
+            render: (_, alert) => <LogsAlertStateTimeline timeline={alert.state_timeline} className="h-6 w-72" />,
+        },
+        {
+            title: 'Notifications',
+            dataIndex: 'destination_types',
+            render: (_, alert) => {
+                const types = alert.destination_types ?? []
+                const notifUrl = urls.logsAlertDetail(alert.id, 'notifications')
+                if (types.length === 0) {
+                    return (
+                        <div className="flex items-center gap-1">
+                            <LemonTag type="warning">None</LemonTag>
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                icon={
+                                    <span className="relative inline-flex text-danger">
+                                        <IconBell />
+                                        <span aria-hidden className="absolute inset-0 flex items-center justify-center">
+                                            <span className="block h-px w-[140%] rotate-45 bg-danger" />
+                                        </span>
+                                    </span>
+                                }
+                                to={notifUrl}
+                                tooltip="No notification destinations configured — click to configure"
+                            />
+                        </div>
+                    )
+                }
+                return (
+                    <div className="flex items-center gap-1">
+                        <div className="flex gap-1">
+                            {types.includes(NotificationDestinationTypeEnumApi.Slack) && (
+                                <LemonTag>
+                                    <img src={IconSlack} alt="" className="h-3 w-3 object-contain" />
+                                    Slack
+                                </LemonTag>
+                            )}
+                            {types.includes(NotificationDestinationTypeEnumApi.Webhook) && (
+                                <LemonTag>
+                                    <img src={IconWebhook} alt="" className="h-3 w-3 object-contain" />
+                                    Webhook
+                                </LemonTag>
+                            )}
+                        </div>
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            icon={<IconBell />}
+                            to={notifUrl}
+                            tooltip="Configure notifications"
+                        />
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Created by',
+            dataIndex: 'created_by',
+            render: (_, alert) => (
+                <span className="text-muted text-xs">
+                    {alert.created_by?.first_name || alert.created_by?.email || '—'}
+                </span>
+            ),
+        },
+        {
             title: 'Enabled',
             dataIndex: 'enabled',
             render: (_, alert) => (
@@ -68,6 +170,7 @@ export function LogsAlertList(): JSX.Element {
                             ? 'Reset this alert to re-enable checks'
                             : undefined
                     }
+                    data-attr="logs-alert-row-toggle"
                 />
             ),
         },
@@ -86,6 +189,18 @@ export function LogsAlertList(): JSX.Element {
                                     label: 'View history',
                                     onClick: () => setViewingHistoryAlert(alert),
                                 },
+                                alert.state === LogsAlertConfigurationStateEnumApi.Snoozed
+                                    ? {
+                                          label: 'Unsnooze',
+                                          onClick: () => unsnoozeAlert(alert.id),
+                                      }
+                                    : {
+                                          label: 'Snooze',
+                                          items: SNOOZE_DURATIONS.map((d) => ({
+                                              label: d.label,
+                                              onClick: () => snoozeAlert(alert.id, d.minutes),
+                                          })),
+                                      },
                                 ...(alert.state === LogsAlertConfigurationStateEnumApi.Broken
                                     ? [
                                           {
@@ -98,6 +213,7 @@ export function LogsAlertList(): JSX.Element {
                                       ]
                                     : []),
                                 {
+                                    'data-attr': 'logs-alert-row-delete',
                                     label: 'Delete',
                                     status: 'danger',
                                     onClick: () => {
@@ -110,6 +226,7 @@ export function LogsAlertList(): JSX.Element {
                                                 type: 'primary',
                                                 status: 'danger',
                                                 onClick: () => deleteAlert(alert.id),
+                                                'data-attr': 'logs-alert-delete-confirm',
                                             },
                                             secondaryButton: {
                                                 children: 'Cancel',
@@ -132,7 +249,13 @@ export function LogsAlertList(): JSX.Element {
     return (
         <div className="space-y-2">
             <div className="flex justify-end">
-                <LemonButton type="primary" size="small" onClick={() => setIsCreating(true)}>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => createAlertAndOpen()}
+                    loading={creatingAlert}
+                    data-attr="logs-alerts-new"
+                >
                     New alert
                 </LemonButton>
             </div>
@@ -143,6 +266,8 @@ export function LogsAlertList(): JSX.Element {
                 loading={alertsLoading}
                 emptyState="No alerts configured yet."
                 size="small"
+                pagination={{ pageSize: 30 }}
+                nouns={['alert', 'alerts']}
             />
         </div>
     )

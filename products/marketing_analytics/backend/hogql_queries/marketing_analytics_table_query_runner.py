@@ -152,7 +152,9 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         don't satisfy this for ad-group / ad levels — two campaigns can both have an
         ad-group named "All Audiences", and renaming an entity between periods would
         appear as "deleted + created". So at AD_GROUP / AD we join by the platform ID
-        + source.
+        + source. This assumes (AD_GROUP_ID, SOURCE) and (AD_ID, SOURCE) are unique
+        per source — true for Meta; future adapters must preserve it or add campaign_id
+        to the join.
         """
         level = self.config.drill_down_level
         campaign_alias = self.config.get_campaign_column_alias()
@@ -310,9 +312,12 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         # Add conversion goal columns using the aggregator.
         # At ad-group / ad levels, events can't be mapped to a specific ad, so
-        # conversion goals are dropped entirely.
+        # conversion goals are dropped entirely. At UTM levels (medium/content/term)
+        # Cost is excluded — we can't attribute platform cost to a UTM value — so
+        # cost-per-conversion must be hidden too.
         if conversion_aggregator and not level_config.get("excludes_conversion_goals"):
-            conversion_columns = conversion_aggregator.get_conversion_goal_columns()
+            include_cost_per = MarketingAnalyticsBaseColumns.COST not in effective_excluded
+            conversion_columns = conversion_aggregator.get_conversion_goal_columns(include_cost_per=include_cost_per)
             all_columns.update(conversion_columns)
 
         return all_columns
@@ -346,9 +351,27 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         # At AD_GROUP / AD level events can't be mapped to a specific ad, so drop
         # the conversion goals join entirely.
         skip_conversion_goals_join = level_config.get("excludes_conversion_goals", False)
+        # Same invariant as _build_select_columns_mapping: if Cost is excluded at this level,
+        # joining campaign_costs buys us nothing but phantom rows from the FULL OUTER JOIN.
+        bypass_campaign_costs = MarketingAnalyticsBaseColumns.COST in level_config["excluded_base_columns"]
 
         # Get conversion goal components
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
+
+        # Bypass campaign_costs when cost isn't computable at this level — select directly
+        # from unified conversions to avoid phantom rows.
+        if conversion_aggregator and bypass_campaign_costs:
+            coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns(campaign_costs_joined=False)
+            for key, coalesce_col in coalesce_columns.items():
+                conversion_columns_mapping[key] = coalesce_col
+
+            return ast.SelectQuery(
+                select=list(conversion_columns_mapping.values()),
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
+                    alias=self.config.unified_conversion_goals_cte_alias,
+                ),
+            )
 
         # Create the FROM clause with base table
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
@@ -359,9 +382,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             if level in (
                 MarketingAnalyticsDrillDownLevel.CHANNEL,
                 MarketingAnalyticsDrillDownLevel.SOURCE,
-                MarketingAnalyticsDrillDownLevel.MEDIUM,
-                MarketingAnalyticsDrillDownLevel.CONTENT,
-                MarketingAnalyticsDrillDownLevel.TERM,
             ):
                 join_type = "FULL OUTER JOIN"
                 join_constraint = ast.JoinConstraint(

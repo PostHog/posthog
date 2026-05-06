@@ -34,7 +34,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="flatpersonoverride",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     ("old_person_id__exact", django.db.models.expressions.F("override_person_id")), _negated=True
                 ),
                 name="flatpersonoverride_check_circular_reference",

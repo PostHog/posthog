@@ -196,6 +196,9 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
+        # Meta's campaign / adset / ad stats schemas all expose `account_currency` (see
+        # meta_ads/schemas.py), so conversion applies at every drill-down level. The
+        # uncoverted fallback only fires for stale tables predating the schema field.
         stats_table = self._level_tables().stats_table
         stats_table_name = stats_table.name
 

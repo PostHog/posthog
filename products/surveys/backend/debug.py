@@ -103,11 +103,11 @@ def fix_team_cache_consistency(team_id_or_token: str) -> dict[str, Any]:
                         remaining_inconsistencies.append(key)
 
                 if all_fixed:
-                    print(f"Verified: Cache now has correct values for all fields")  # noqa: T201
+                    print("Verified: Cache now has correct values for all fields")  # noqa: T201
                 else:
                     print(f"Warning: Cache still has inconsistencies for fields: {remaining_inconsistencies}")  # noqa: T201
             else:
-                print(f"Warning: Team not found in cache after fix attempt")  # noqa: T201
+                print("Warning: Team not found in cache after fix attempt")  # noqa: T201
         except Exception as e:
             print(f"Error fixing cache: {str(e)}")  # noqa: T201
     else:

@@ -18,7 +18,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { applyNestedExclusions, filterSchemaByOperationIds, runOrvalParallel } from '@posthog/openapi-codegen'
+import {
+    applyNestedExclusions,
+    filterSchemaByOperationIds,
+    preprocessSchema,
+    runOrvalParallel,
+} from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
 import { stripEnumMinLength } from './lib/schema-transforms.mjs'
@@ -217,7 +222,14 @@ function postprocessOrvalOutput(outputFile) {
     // Annotate top-level exported Zod expressions with @__PURE__ so esbuild
     // can tree-shake unused schemas out of the bundle.
     const generated = fs.readFileSync(outputFile, 'utf-8')
-    const annotated = generated.replace(/^(export const \w+ =) (zod\.)/gm, '$1 /* @__PURE__ */ $2')
+    const withoutRedundantEnumDescriptions = generated.replace(
+        /\n\s*\.describe\(\n\s*(['"`])\* `(?:\\.|(?!\1)[\s\S])*?\1\n\s*\)(?=\s*(?:\.(?:optional|nullish)\(\)\s*)?\.describe\()/g,
+        ''
+    )
+    const annotated = withoutRedundantEnumDescriptions.replace(
+        /^(export const \w+ =) (zod\.)/gm,
+        '$1 /* @__PURE__ */ $2'
+    )
     fs.writeFileSync(outputFile, annotated)
 }
 
@@ -232,7 +244,7 @@ if (definitions.length === 0) {
     process.exit(0)
 }
 
-const fullSchema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
+const fullSchema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf-8')))
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-orval-'))
 
 // Phase 1: Prepare all modules (filter schemas, write temp files) — synchronous, fast

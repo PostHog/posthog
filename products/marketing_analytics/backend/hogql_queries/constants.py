@@ -655,9 +655,7 @@ def to_marketing_analytics_data(
     # must NOT be coerced to int — the frontend formats numbers in compact form ("120000T").
     string_columns = DRILL_DOWN_STRING_COLUMN_ALIASES | {
         MarketingAnalyticsBaseColumns.ID.value,
-        MarketingAnalyticsBaseColumns.AD_GROUP.value,
         MarketingAnalyticsBaseColumns.AD_GROUP_ID.value,
-        MarketingAnalyticsBaseColumns.AD.value,
         MarketingAnalyticsBaseColumns.AD_ID.value,
     }
     if kind == "unit" and key in string_columns:

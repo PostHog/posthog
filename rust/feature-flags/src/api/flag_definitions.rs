@@ -4,11 +4,10 @@ use crate::{
         errors::{ClientFacingError, FlagError},
     },
     flags::{
-        flag_analytics::{increment_request_count, is_billable_flag_key},
-        flag_request::FlagRequestType,
+        flag_analytics::is_billable_flag_key, flag_request::FlagRequestType,
         flag_service::FlagService,
     },
-    handler::types::Library,
+    handler::{billing::record_billing_increment, types::Library},
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
@@ -236,21 +235,14 @@ pub async fn flags_definitions(
     // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
-        if let Err(e) = increment_request_count(
+        record_billing_increment(
             state.redis_client.clone(),
+            state.billing_aggregator.as_ref(),
             team.id,
-            1,
             FlagRequestType::FlagDefinitions,
-            Some(library),
+            library,
         )
-        .await
-        {
-            inc(
-                "flag_request_redis_error",
-                &[("error".to_string(), e.to_string())],
-                1,
-            );
-        }
+        .await;
     }
 
     Ok(ok_response_with_etag(
@@ -384,6 +376,7 @@ fn flag_service(state: &AppState) -> FlagService {
         state.database_pools.non_persons_reader.clone(),
         state.team_hypercache_reader.clone(),
         state.flags_hypercache_reader.clone(),
+        state.flag_definitions_cache.clone(),
         state.team_negative_cache.clone(),
         *state.config.skip_pg_team_fallback,
     )

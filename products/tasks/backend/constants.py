@@ -1,6 +1,6 @@
 from typing import Literal, get_args
 
-ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
+ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
 

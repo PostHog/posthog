@@ -1885,7 +1885,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
         ),
         "teams_with_group_types_total": list(
-            GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+            GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
+            .annotate(total=Count("id"))
+            .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
         ),
         "teams_with_dashboard_count": list(
             Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")

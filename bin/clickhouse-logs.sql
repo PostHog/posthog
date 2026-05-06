@@ -299,7 +299,48 @@ ENGINE = AggregatingMergeTree
 PARTITION BY toDate(time_bucket)
 ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value);
 
-drop view if exists trace_span_to_resource_attributes;
+CREATE OR REPLACE TABLE trace_attributes_distributed AS trace_attributes ENGINE = Distributed('posthog', 'default', 'trace_attributes');
+
+drop view if exists trace_span_to_span_attributes;
+CREATE MATERIALIZED VIEW trace_span_to_span_attributes TO trace_attributes
+(
+    `team_id` Int32,
+    `time_bucket` DateTime64(0),
+    `service_name` LowCardinality(String),
+    `resource_fingerprint` UInt64,
+    `attribute_key` LowCardinality(String),
+    `attribute_value` String,
+    `attribute_type` LowCardinality(String),
+    `attribute_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS SELECT
+    team_id,
+    time_bucket,
+    service_name,
+    resource_fingerprint,
+    attribute_key,
+    attribute_value,
+    'span' as attribute_type,
+    attribute_count
+FROM
+(
+    SELECT
+        team_id AS team_id,
+        toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+        service_name AS service_name,
+        resource_fingerprint,
+        'name' AS attribute_key,
+        `name` AS attribute_value,
+        sumSimpleState(1) AS attribute_count
+    FROM trace_spans
+    GROUP BY
+        team_id,
+        time_bucket,
+        service_name,
+        resource_fingerprint,
+        `name`
+);
+
 CREATE MATERIALIZED VIEW trace_span_to_resource_attributes TO trace_attributes
 (
     `team_id` Int32,
@@ -318,7 +359,7 @@ AS SELECT
     resource_fingerprint,
     attribute_key,
     attribute_value,
-    'resource' as attribute_type,
+    'span_resource_attribute' as attribute_type,
     attribute_count
 FROM
 (
@@ -340,8 +381,8 @@ FROM
         attribute
 );
 
-drop view if exists trace_span_to_trace_attributes;
-CREATE MATERIALIZED VIEW trace_span_to_trace_attributes TO trace_attributes
+drop view if exists trace_span_to_attributes;
+CREATE MATERIALIZED VIEW trace_span_to_attributes TO trace_attributes
 (
     `team_id` Int32,
     `time_bucket` DateTime64(0),
@@ -359,7 +400,7 @@ AS SELECT
     resource_fingerprint,
     attribute_key,
     attribute_value,
-    'span' as attribute_type,
+    'span_attribute' as attribute_type,
     attribute_count
 FROM
 (

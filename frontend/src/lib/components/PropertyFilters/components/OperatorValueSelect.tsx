@@ -7,6 +7,7 @@ import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSe
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
@@ -33,6 +34,65 @@ import {
 } from '~/types'
 
 import { PropertyValue } from './PropertyValue'
+
+// OTel span.kind enum (https://opentelemetry.io/docs/specs/otel/trace/api/#spankind).
+const SPAN_KIND_OPTIONS: { key: number; label: string }[] = [
+    { key: 0, label: 'Unspecified' },
+    { key: 1, label: 'Internal' },
+    { key: 2, label: 'Server' },
+    { key: 3, label: 'Client' },
+    { key: 4, label: 'Producer' },
+    { key: 5, label: 'Consumer' },
+]
+
+// OTel status_code. 'Unset' (0) is conflated with 'OK' (1) in the filter UI per product decision.
+const STATUS_CODE_OPTIONS: { key: number; label: string }[] = [
+    { key: 1, label: 'OK' },
+    { key: 2, label: 'Error' },
+]
+
+function SpanEnumValueSelect({
+    options,
+    value,
+    onChange,
+    isMultiSelect,
+    size,
+}: {
+    options: { key: number; label: string }[]
+    value?: PropertyFilterValue
+    onChange: (value: PropertyFilterValue) => void
+    isMultiSelect: boolean
+    size?: 'xsmall' | 'small' | 'medium'
+}): JSX.Element {
+    // Filter value stores labels (e.g. "Server", "OK") so the applied-filter chip renders
+    // human text. The backend maps labels back to ints before building the HogQL query.
+    const labels = new Set(options.map((o) => o.label))
+    const selectedRaw = value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]
+    const selectedLabels = selectedRaw.map((v) => String(v)).filter((v) => labels.has(v))
+
+    return (
+        <LemonInputSelect
+            data-attr="prop-val"
+            mode={isMultiSelect ? 'multiple' : 'single'}
+            singleValueAsSnack
+            allowCustomValues={false}
+            value={selectedLabels}
+            onChange={(next) => {
+                const valid = next.map((v) => String(v)).filter((v) => labels.has(v))
+                if (isMultiSelect) {
+                    onChange(valid)
+                } else {
+                    onChange(valid.length > 0 ? valid[0] : null)
+                }
+            }}
+            options={options.map((o) => ({
+                key: o.label,
+                label: o.label,
+            }))}
+            size={size}
+        />
+    )
+}
 
 export interface OperatorValueSelectProps {
     type?: PropertyFilterType
@@ -208,6 +268,25 @@ export function OperatorValueSelect({
             )
         }
 
+        // Restrict span name to string equality/contains operators
+        if (propertyKey === 'name' && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) =>
+                [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IsNot,
+                    PropertyOperator.IContains,
+                    PropertyOperator.NotIContains,
+                    PropertyOperator.Regex,
+                    PropertyOperator.NotRegex,
+                ].includes(op)
+            )
+        }
+
+        // Restrict span kind and status_code (fixed int enums) to equality operators
+        if ((propertyKey === 'kind' || propertyKey === 'status_code') && type === PropertyFilterType.Span) {
+            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
+        }
+
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
@@ -276,28 +355,50 @@ export function OperatorValueSelect({
                     className="shrink grow-[1000] min-w-[10rem] overflow-hidden"
                     data-attr="taxonomic-value-select"
                 >
-                    <PropertyValue
-                        type={type}
-                        key={propertyKey}
-                        propertyKey={propertyKey}
-                        endpoint={endpoint}
-                        operator={currentOperator || PropertyOperator.Exact}
-                        placeholder={placeholder}
-                        value={value}
-                        eventNames={eventNames}
-                        onSet={(newValue: string | number | string[] | null) => {
-                            onChange(currentOperator || PropertyOperator.Exact, newValue)
-                        }}
-                        // open automatically only if new filter
-                        autoFocus={!isMobile() && value === null}
-                        addRelativeDateTimeOptions={addRelativeDateTimeOptions}
-                        groupTypeIndex={groupTypeIndex}
-                        groupKeyNames={groupKeyNames}
-                        editable={editable}
-                        size={size}
-                        forceSingleSelect={forceSingleSelect}
-                        validationError={validationError}
-                    />
+                    {type === PropertyFilterType.Span && (propertyKey === 'kind' || propertyKey === 'status_code') ? (
+                        editable ? (
+                            <SpanEnumValueSelect
+                                options={propertyKey === 'kind' ? SPAN_KIND_OPTIONS : STATUS_CODE_OPTIONS}
+                                value={value}
+                                isMultiSelect={
+                                    forceSingleSelect
+                                        ? false
+                                        : isOperatorMulti(currentOperator || PropertyOperator.Exact)
+                                }
+                                size={size}
+                                onChange={(newValue) => onChange(currentOperator || PropertyOperator.Exact, newValue)}
+                            />
+                        ) : (
+                            <span>
+                                {(Array.isArray(value) ? value : value == null ? [] : [value])
+                                    .map((v) => String(v))
+                                    .join(' or ')}
+                            </span>
+                        )
+                    ) : (
+                        <PropertyValue
+                            type={type}
+                            key={propertyKey}
+                            propertyKey={propertyKey}
+                            endpoint={endpoint}
+                            operator={currentOperator || PropertyOperator.Exact}
+                            placeholder={placeholder}
+                            value={value}
+                            eventNames={eventNames}
+                            onSet={(newValue: string | number | string[] | null) => {
+                                onChange(currentOperator || PropertyOperator.Exact, newValue)
+                            }}
+                            // open automatically only if new filter
+                            autoFocus={!isMobile() && value === null}
+                            addRelativeDateTimeOptions={addRelativeDateTimeOptions}
+                            groupTypeIndex={groupTypeIndex}
+                            groupKeyNames={groupKeyNames}
+                            editable={editable}
+                            size={size}
+                            forceSingleSelect={forceSingleSelect}
+                            validationError={validationError}
+                        />
+                    )}
                 </div>
             )}
             {validationError && (

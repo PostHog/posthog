@@ -1,13 +1,16 @@
 import re
 from dataclasses import dataclass
-
-from django.db import transaction
+from typing import Any
 
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+class _RelayAlreadyRecorded(Exception):
+    """Raised when a relay was already recorded while holding the row lock."""
 
 
 def _markdown_to_slack_mrkdwn(text: str) -> str:
@@ -155,15 +158,16 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     handler.post_thread_message(f"{mention_prefix}{text}")
     handler.update_reaction(input.reaction_emoji)
 
-    with transaction.atomic():
-        locked_task_run = TaskRun.objects.select_for_update().get(id=input.run_id)
-        locked_state = locked_task_run.state or {}
-        sent_relay_ids = locked_state.get("slack_sent_relay_ids") or []
+    def _record_sent_relay(state: dict[str, Any]) -> None:
+        sent_relay_ids = state.get("slack_sent_relay_ids") or []
         if input.relay_id in sent_relay_ids:
-            return
+            raise _RelayAlreadyRecorded
 
         sent_relay_ids.append(input.relay_id)
         # Keep a rolling window to bound state size while preserving idempotency for recent relays.
-        locked_state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
-        locked_task_run.state = locked_state
-        locked_task_run.save(update_fields=["state", "updated_at"])
+        state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
+
+    try:
+        TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
+    except _RelayAlreadyRecorded:
+        logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)

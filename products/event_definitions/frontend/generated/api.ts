@@ -12,11 +12,13 @@ import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     EnterpriseEventDefinitionApi,
-    EventDefinitionApi,
+    EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
+    EventDefinitionsPrimaryPropertiesRetrieveParams,
     PaginatedEnterpriseEventDefinitionListApi,
     PatchedEnterpriseEventDefinitionApi,
+    PrimaryPropertiesResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -211,8 +213,8 @@ export const eventDefinitionsByNameRetrieve = async (
     projectId: string,
     params: EventDefinitionsByNameRetrieveParams,
     options?: RequestInit
-): Promise<EventDefinitionApi> => {
-    return apiMutator<EventDefinitionApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
+): Promise<EventDefinitionRecordApi> => {
+    return apiMutator<EventDefinitionRecordApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -227,6 +229,46 @@ export const eventDefinitionsGolangRetrieve = async (projectId: string, options?
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * Resolve team-configured primary properties for event definitions.
+
+The response only contains entries where a non-null primary_property is set on the
+EventDefinition. Callers should fall back to the core taxonomy defaults client-side
+for names not present in the response.
+ */
+export const getEventDefinitionsPrimaryPropertiesRetrieveUrl = (
+    projectId: string,
+    params?: EventDefinitionsPrimaryPropertiesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/primary_properties/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/primary_properties/`
+}
+
+export const eventDefinitionsPrimaryPropertiesRetrieve = async (
+    projectId: string,
+    params?: EventDefinitionsPrimaryPropertiesRetrieveParams,
+    options?: RequestInit
+): Promise<PrimaryPropertiesResponseApi> => {
+    return apiMutator<PrimaryPropertiesResponseApi>(
+        getEventDefinitionsPrimaryPropertiesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getEventDefinitionsPythonRetrieveUrl = (projectId: string) => {

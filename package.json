@@ -57,7 +57,8 @@
         "fuse.js": "catalog:",
         "husky": "catalog:",
         "lint-staged": "catalog:",
-        "uuid": "^10.0.0"
+        "uuid": "^10.0.0",
+        "zod": "^4.3.6"
     },
     "devDependencies": {
         "@parcel/packager-ts": "catalog:",
@@ -72,7 +73,7 @@
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.4",
         "syncpack": "^13.0.4",
-        "turbo": "^2.4.2"
+        "turbo": "^2.9.6"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.3"
@@ -90,8 +91,8 @@
             "bin/hogli lint:feature-flags:fix",
             "bin/hogli format:js"
         ],
-        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
-        "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
+        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
+        "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",

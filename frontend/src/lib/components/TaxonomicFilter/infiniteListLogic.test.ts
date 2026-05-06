@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -9,11 +10,13 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
-import { AppContext, PropertyDefinition, PropertyType } from '~/types'
+import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { infiniteListLogic } from './infiniteListLogic'
+import { hasRecentContext, recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 window.POSTHOG_APP_CONTEXT = {
     current_team: { id: MOCK_TEAM_ID },
@@ -730,6 +733,247 @@ describe('infiniteListLogic', () => {
 
         await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
             localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
+        })
+    })
+
+    describe('keyword shortcuts', () => {
+        let keySuffix = 0
+        const mountEventsLogic = (enableKeywordShortcuts: boolean): ReturnType<typeof infiniteListLogic.build> => {
+            // Unique key per test so kea doesn't hand us a logic instance that was already mounted
+            // with a previous test's mock data.
+            keySuffix += 1
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `keywordShortcutsTest-${enableKeywordShortcuts}-${keySuffix}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                enableKeywordShortcuts,
+            })
+            listLogic.mount()
+            return listLogic
+        }
+
+        it('surfaces matching shortcut items when enableKeywordShortcuts is true', async () => {
+            const listLogic = mountEventsLogic(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: partial([
+                        partial({
+                            _type: 'quick_filter',
+                            name: 'Click (autocapture)',
+                            filterValue: 'click',
+                            eventName: '$autocapture',
+                        }),
+                    ]),
+                })
+        })
+
+        it('places shortcuts at the TOP of the list so they are prominent and Enter picks them', async () => {
+            const listLogic = mountEventsLogic(true)
+            await expectLogic(listLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            // First result is the shortcut; real matches follow.
+            const results = listLogic.values.items.results
+            expect(results[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
+        })
+
+        it('contributes shortcuts to topMatchesForQuery so they flow into the SuggestedFilters aggregate', async () => {
+            const listLogic = mountEventsLogic(true)
+            await expectLogic(listLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            const topMatches = listLogic.values.topMatchesForQuery
+            expect(topMatches[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
+        })
+
+        it('returns no shortcut items when enableKeywordShortcuts is false', async () => {
+            const listLogic = mountEventsLogic(false)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: [],
+                })
+        })
+
+        it('returns no shortcut items when the search query does not match a keyword', async () => {
+            const listLogic = mountEventsLogic(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('xyzabc'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: [],
+                })
+        })
+    })
+
+    describe('`taxonomic filter empty result` capture', () => {
+        // Every list runs the same search in parallel — without an active-tab gate, one keystroke
+        // can fire 4-8 empty events from background tabs the user never sees. Pin the gate.
+        const taxonomicFilterLogicKey = 'emptyResultGateTest'
+        const props = {
+            taxonomicFilterLogicKey,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            showNumericalPropsOnly: false,
+        }
+
+        it.each([
+            {
+                name: 'fires when the empty list is the active tab',
+                activeTab: TaxonomicFilterGroupType.Events,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: true,
+            },
+            {
+                name: 'does not fire when the empty list is a background tab',
+                activeTab: TaxonomicFilterGroupType.EventProperties,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                expectFire: false,
+            },
+        ])('$name', async ({ activeTab, listGroupType, expectFire }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+
+            const parent = taxonomicFilterLogic(props)
+            parent.mount()
+            parent.actions.setActiveTab(activeTab)
+
+            const listLogic = infiniteListLogic({ ...props, listGroupType })
+            listLogic.mount()
+
+            // Tripwire: the gate reads `isActiveTab` from the parent. If anyone refactors
+            // `isActiveTab` to be self-contained, this assertion catches it before the
+            // empty-result expectations silently start passing for the wrong reason.
+            expect(listLogic.values.isActiveTab).toBe(activeTab === listGroupType)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('mcp tool call'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            const emptyCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter empty result')
+            if (expectFire) {
+                expect(emptyCalls).toHaveLength(1)
+                expect(emptyCalls[0][1]).toMatchObject({
+                    groupType: listGroupType,
+                    searchQuery: 'mcp tool call',
+                })
+            } else {
+                expect(emptyCalls).toHaveLength(0)
+            }
+        })
+    })
+
+    describe('contextFilteredRecentItems with selectingKeyOnly mode', () => {
+        beforeEach(() => {
+            localStorage.clear()
+            recentTaxonomicFiltersLogic.mount()
+        })
+
+        afterEach(() => {
+            recentTaxonomicFiltersLogic.unmount()
+        })
+
+        const recordKeyOnly = (key: string, item: Record<string, any> = { name: key }): void => {
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: key,
+                item: item,
+                selectingKeyOnly: true,
+            })
+        }
+
+        const recordComplete = (key: string, value: string): void => {
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: key,
+                item: { name: key },
+                propertyFilter: {
+                    type: PropertyFilterType.Event,
+                    key,
+                    operator: PropertyOperator.Exact,
+                    value,
+                },
+            })
+        }
+
+        it('strips propertyFilter from recents and dedups by key when selectingKeyOnly is set', () => {
+            recordComplete('$browser', 'Chrome')
+            recordComplete('$browser', 'Safari')
+            recordKeyOnly('$os')
+
+            const listLogic = logicWith({
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                selectingKeyOnly: true,
+            })
+
+            const items = listLogic.values.contextFilteredRecentItems
+            expect(items).toHaveLength(2)
+            for (const item of items) {
+                expect(hasRecentContext(item)).toBe(true)
+                if (hasRecentContext(item)) {
+                    expect(item._recentContext.propertyFilter).toBeUndefined()
+                }
+            }
+            expect(items.map((i) => ('name' in i ? i.name : null))).toEqual(['$os', '$browser'])
+        })
+
+        it('preserves complete recents (with their propertyFilter) when selectingKeyOnly is not set', () => {
+            recordComplete('$browser', 'Chrome')
+
+            const listLogic = logicWith({
+                listGroupType: TaxonomicFilterGroupType.EventProperties,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            })
+
+            const items = listLogic.values.contextFilteredRecentItems
+            expect(items).toHaveLength(1)
+            const [item] = items
+            expect(hasRecentContext(item) && item._recentContext.propertyFilter).toBeTruthy()
+        })
+
+        it('dedups by storage value, not by display name (cohorts/actions style)', () => {
+            // Two cohorts have been recorded with the same display name ("Power users") but
+            // distinct ids — they are genuinely different recents. A name-based dedup would
+            // collapse them into one row; sourceValue-based dedup keeps them apart.
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 42,
+                item: { name: 'Power users' },
+                selectingKeyOnly: true,
+            })
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 43,
+                item: { name: 'Power users' },
+                selectingKeyOnly: true,
+            })
+
+            const listLogic = logicWith({
+                listGroupType: TaxonomicFilterGroupType.Cohorts,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+                selectingKeyOnly: true,
+            })
+
+            const items = listLogic.values.contextFilteredRecentItems
+            expect(items).toHaveLength(2)
+            const sourceValues = items.map((i) => hasRecentContext(i) && i._recentContext.sourceValue)
+            expect(new Set(sourceValues)).toEqual(new Set([42, 43]))
         })
     })
 })

@@ -1,6 +1,7 @@
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { MutableRefObject, memo } from 'react'
+import React, { MutableRefObject, memo, useEffect, useMemo } from 'react'
 
 import { IconComment } from '@posthog/icons'
 
@@ -11,6 +12,7 @@ import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichConte
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
+import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import {
     InspectorListItem,
     InspectorListItemComment,
@@ -18,6 +20,8 @@ import {
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
+
+import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 
 import { UserActivity } from './UserActivity'
 
@@ -52,17 +56,22 @@ function PlayerSeekbarTick({
     endTimeMs,
     zIndex,
     onClick,
+    primaryProperties,
 }: {
     item: InspectorListItemComment | InspectorListItemNotebookComment | InspectorListItemEvent
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
+    primaryProperties: Record<string, string>
 }): JSX.Element | null {
     const position = (item.timeInRecording / endTimeMs) * 100
 
     if (position < 0 || position > 100) {
         return null
     }
+
+    const primaryPropertyKey = isEventItem(item) ? getPrimaryPropertyForEvent(item.data.event, primaryProperties) : null
+    const primaryValue = primaryPropertyKey && isEventItem(item) ? item.data.properties?.[primaryPropertyKey] : null
 
     return (
         <div
@@ -98,11 +107,8 @@ function PlayerSeekbarTick({
                                     value={item.data.event}
                                 />
                             )}
-                            {item.data.event === '$pageview' &&
-                            (item.data.properties.$pathname || item.data.properties.$current_url) ? (
-                                <span className="ml-2 opacity-75">
-                                    {item.data.properties.$pathname || item.data.properties.$current_url}
-                                </span>
+                            {primaryValue != null && primaryValue !== '' ? (
+                                <span className="ml-2 opacity-75">{String(primaryValue)}</span>
                             ) : null}
                         </>
                     ) : isNotebookComment(item) ? (
@@ -136,17 +142,19 @@ function PlayerSeekbarTick({
     )
 }
 
-export const PlayerSeekbarTicks = memo(
-    function PlayerSeekbarTicks({
+const MemoisedPlayerSeekbarTicks = memo(
+    function PlayerSeekbarTicksInner({
         seekbarItems,
         endTimeMs,
         seekToTime,
         hoverRef,
+        primaryProperties,
     }: {
         seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
         hoverRef: MutableRefObject<HTMLDivElement | null>
+        primaryProperties: Record<string, string>
     }): JSX.Element {
         return (
             <div className="PlayerSeekbarTicks">
@@ -162,6 +170,7 @@ export const PlayerSeekbarTicks = memo(
                                 e.stopPropagation()
                                 seekToTime(item.timeInRecording)
                             }}
+                            primaryProperties={primaryProperties}
                         />
                     )
                 })}
@@ -173,6 +182,43 @@ export const PlayerSeekbarTicks = memo(
             prev.seekbarItems.length === next.seekbarItems.length &&
             prev.seekbarItems.every((item, i) => item.data.id === next.seekbarItems[i].data.id)
 
-        return seekbarItemsAreEqual && prev.endTimeMs === next.endTimeMs && prev.seekToTime === next.seekToTime
+        return (
+            seekbarItemsAreEqual &&
+            prev.endTimeMs === next.endTimeMs &&
+            prev.seekToTime === next.seekToTime &&
+            prev.primaryProperties === next.primaryProperties
+        )
     }
 )
+
+export function PlayerSeekbarTicks({
+    seekbarItems,
+    endTimeMs,
+    seekToTime,
+    hoverRef,
+}: {
+    seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
+    endTimeMs: number
+    seekToTime: (timeInMilliseconds: number) => void
+    hoverRef: MutableRefObject<HTMLDivElement | null>
+}): JSX.Element {
+    const { primaryProperties } = useValues(primaryEventPropertiesModel)
+    const { ensureLoadedForEvents } = useActions(primaryEventPropertiesModel)
+    const distinctEventNames = useMemo(
+        () => Array.from(new Set(seekbarItems.filter(isEventItem).map((i) => i.data.event))),
+        [seekbarItems]
+    )
+    useEffect(() => {
+        ensureLoadedForEvents(distinctEventNames)
+    }, [distinctEventNames, ensureLoadedForEvents])
+
+    return (
+        <MemoisedPlayerSeekbarTicks
+            seekbarItems={seekbarItems}
+            endTimeMs={endTimeMs}
+            seekToTime={seekToTime}
+            hoverRef={hoverRef}
+            primaryProperties={primaryProperties}
+        />
+    )
+}

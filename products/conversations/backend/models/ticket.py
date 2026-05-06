@@ -39,12 +39,12 @@ class Ticket(UUIDTModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket_number = models.PositiveIntegerField()
-    channel_source = models.CharField(max_length=20, choices=Channel.choices, default=Channel.WIDGET)
-    channel_detail = models.CharField(max_length=30, choices=ChannelDetail.choices, null=True, blank=True)
+    channel_source = models.CharField(max_length=20, choices=Channel, default=Channel.WIDGET)
+    channel_detail = models.CharField(max_length=30, choices=ChannelDetail, null=True, blank=True)
     widget_session_id = models.CharField(max_length=64, db_index=True)  # Random UUID for access control
     distinct_id = models.CharField(max_length=400)  # PostHog distinct_id for Person linking only
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
-    priority = models.CharField(max_length=20, choices=Priority.choices, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status, default=Status.NEW)
+    priority = models.CharField(max_length=20, choices=Priority, null=True, blank=True)
     anonymous_traits = models.JSONField(default=dict, blank=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
@@ -62,6 +62,16 @@ class Ticket(UUIDTModel):
     slack_channel_id = models.CharField(max_length=64, null=True, blank=True)  # Slack channel ID
     slack_thread_ts = models.CharField(max_length=64, null=True, blank=True)  # Slack thread timestamp (thread ID)
     slack_team_id = models.CharField(max_length=64, null=True, blank=True)  # Slack workspace/team ID
+
+    # Teams channel fields (only set for channel_source="teams")
+    teams_channel_id = models.CharField(max_length=128, null=True, blank=True)
+    teams_conversation_id = models.CharField(max_length=256, null=True, blank=True)  # Reply chain / thread ID
+    teams_service_url = models.URLField(max_length=512, null=True, blank=True)  # Bot Connector endpoint for replies
+    teams_tenant_id = models.CharField(max_length=64, null=True, blank=True)
+
+    # GitHub channel fields (only set for channel_source="github")
+    github_repo = models.CharField(max_length=256, null=True, blank=True)  # owner/repo
+    github_issue_number = models.PositiveIntegerField(null=True, blank=True)
 
     # Email channel fields (only set for channel_source="email")
     email_config = models.ForeignKey(
@@ -101,6 +111,11 @@ class Ticket(UUIDTModel):
                 fields=["team", "slack_channel_id", "slack_thread_ts"],
                 name="posthog_con_slack_thread_idx",
             ),
+            # Teams thread lookup: find ticket by (team, teams_channel_id, teams_conversation_id)
+            models.Index(
+                fields=["team", "teams_channel_id", "teams_conversation_id"],
+                name="posthog_con_teams_thread_idx",
+            ),
             # Dashboard ordering optimization
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
             # Dashboard filtered + ordered queries
@@ -118,6 +133,11 @@ class Ticket(UUIDTModel):
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),
+            models.UniqueConstraint(
+                fields=["team", "github_repo", "github_issue_number"],
+                condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
+                name="posthog_con_github_issue_uniq",
+            ),
         ]
 
     def __str__(self):

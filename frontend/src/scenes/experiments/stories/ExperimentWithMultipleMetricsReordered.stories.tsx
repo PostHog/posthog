@@ -37,6 +37,7 @@ const meta: Meta = {
                     {},
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MULTIPLE_METRICS_REORDERED.feature_flag.id}/status/`]:
                     {},
+                [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
                 '/api/environments/:team_id/query/:kind': (req, res, ctx) => {

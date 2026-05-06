@@ -10,14 +10,7 @@ from dateutil.parser import isoparse
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-
-
-def make_filter(serializer_klass=AppMetricsRequestSerializer, **kwargs) -> AppMetricsRequestSerializer:
-    filter = serializer_klass(data=kwargs)
-    filter.is_valid(raise_exception=True)
-    return filter
 
 
 class SessionReplaySummaryQuery:

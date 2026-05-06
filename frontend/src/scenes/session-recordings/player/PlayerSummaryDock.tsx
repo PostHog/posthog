@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconChevronDown, IconMagicWand } from '@posthog/icons'
+import { IconChevronDown, IconMagicWand, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -34,7 +34,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
     } = useValues(playerMetaLogic(logicProps))
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
     const { openBySessionId } = useValues(sessionSummaryProgressLogic)
-    const { setSummaryOpen } = useActions(sessionSummaryProgressLogic)
+    const { setSummaryOpen, cancelSummarization } = useActions(sessionSummaryProgressLogic)
     const { reportAISessionSummaryViewed } = useActions(sessionRecordingEventUsageLogic)
 
     const dockRef = useRef<HTMLDivElement>(null)
@@ -45,7 +45,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
     }
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerProps))
 
-    const isEnabled = featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]
+    const isEnabled = featureFlags[FEATURE_FLAGS.REPLAY_VIDEO_BASED_SUMMARIZATION]
     const hasSummary = !!sessionSummary
     const isOpen = !!openBySessionId[sessionRecordingId]
     const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)
@@ -83,17 +83,25 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         <IconMagicWand className="text-primary" />
                         AI summary
                     </div>
+                ) : sessionSummaryLoading ? (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconX />}
+                        onClick={() => cancelSummarization(sessionRecordingId)}
+                        tooltip="Stop summarizing this session"
+                        data-attr="cancel-session-summary"
+                    >
+                        Cancel summarization
+                    </LemonButton>
                 ) : (
                     <LemonButton
                         size="small"
                         type="primary"
                         icon={<IconMagicWand />}
-                        loading={sessionSummaryLoading}
                         disabledReason={summaryDisabledReason}
                         onClick={() => {
-                            if (!sessionSummaryLoading) {
-                                summarizeSession()
-                            }
+                            summarizeSession()
                             setIsOpen(true)
                         }}
                         data-attr="load-session-summary"

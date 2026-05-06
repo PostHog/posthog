@@ -45,6 +45,7 @@
         "posthog-js-lite": "4.2.2",
         "posthog-node": "^5.25.0",
         "uuid": "^11.1.0",
+        "yaml": "^2.8.2",
         "zod": "^4.3.6"
     },
     "devDependencies": {
@@ -61,6 +62,7 @@
         "ajv-formats": "^3.0.1",
         "chokidar": "^3.6.0",
         "dotenv": "^16.4.7",
+        "msw": "^2.12.14",
         "oxfmt": "^0.33.0",
         "oxlint": "^1.8.0",
         "react": "^18.2.0",
@@ -72,7 +74,6 @@
         "vite-plugin-singlefile": "^2.3.0",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
-        "wrangler": "^4.59.0",
-        "yaml": "^2.8.2"
+        "wrangler": "^4.59.0"
     }
 }

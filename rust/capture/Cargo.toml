@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+test-utils = []
+
 [lints]
 workspace = true
 
@@ -59,6 +62,7 @@ futures = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+capture = { path = ".", features = ["test-utils"] }
 assert-json-diff = { workspace = true }
 brotli = "8"
 zstd = "0.13"
@@ -70,6 +74,7 @@ httparse = "1.8"
 metrics-util = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
+rstest = "0.26"
 rdkafka = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
 serde_json = { workspace = true }

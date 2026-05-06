@@ -1,8 +1,8 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, type RenderResult } from '@testing-library/react'
 import React from 'react'
 
 import type { BaseChartContext } from '../core/chart-context'
-import { ChartContext } from '../core/chart-context'
+import { makeOverlayContext, renderOverlayInChart } from '../testing'
 import { ReferenceLine, ReferenceLines } from './ReferenceLine'
 
 const DIMENSIONS = {
@@ -17,20 +17,20 @@ const DIMENSIONS = {
 // Simple linear y-scale: 0 -> plotBottom (368), 100 -> plotTop (16)
 const yScale = (v: number): number => 368 - (v / 100) * 352
 
-const CONTEXT: BaseChartContext = {
-    dimensions: DIMENSIONS,
-    labels: ['Mon', 'Tue', 'Wed'],
-    series: [],
-    scales: {
+const CONTEXT: BaseChartContext = makeOverlayContext(
+    {
         x: (label: string) => (({ Mon: 100, Tue: 400, Wed: 700 }) as Record<string, number | undefined>)[label],
         y: yScale,
         yTicks: () => [0, 50, 100],
     },
-    hoverIndex: -1,
-}
+    {
+        dimensions: DIMENSIONS,
+        labels: ['Mon', 'Tue', 'Wed'],
+    }
+)
 
-function renderInChart(node: React.ReactNode): ReturnType<typeof render> {
-    return render(<ChartContext.Provider value={CONTEXT}>{node}</ChartContext.Provider>)
+function renderInChart(node: React.ReactNode, ctx: BaseChartContext = CONTEXT): RenderResult {
+    return renderOverlayInChart(node, ctx)
 }
 
 function lineDiv(container: HTMLElement, side: 'top' | 'left'): HTMLDivElement | null {
@@ -113,11 +113,7 @@ describe('ReferenceLine', () => {
                     },
                 },
             }
-            const { container } = render(
-                <ChartContext.Provider value={multiAxisContext}>
-                    <ReferenceLine value={500} yAxisId="y1" />
-                </ChartContext.Provider>
-            )
+            const { container } = renderInChart(<ReferenceLine value={500} yAxisId="y1" />, multiAxisContext)
             const line = lineDiv(container, 'top')
             expect(line).not.toBeNull()
             // rightScale(500) = 192; width 2 → top = 191
@@ -190,6 +186,40 @@ describe('ReferenceLine', () => {
             const { container } = renderInChart(<ReferenceLine value={50} style={{ width: 4 }} />)
             const line = lineDiv(container, 'top')!
             expect(line.style.borderTopWidth).toBe('4px')
+        })
+
+        // var() literals are deliberately not in this table: jsdom doesn't store CSS
+        // custom properties and reads back as the empty string, so we can only assert
+        // the no-crash path for var() — see the dedicated test below. Real browsers
+        // resolve the variable natively.
+        it.each([
+            ['hex literal', '#ff8800'],
+            ['rgb literal', 'rgb(10, 20, 30)'],
+        ])('passes %s color through to inline styles without resolving', (_name, color) => {
+            const { container } = renderInChart(<ReferenceLine value={50} style={{ color }} />)
+            const line = lineDiv(container, 'top')!
+            expect(line.style.borderTopColor).toBe(color)
+        })
+
+        it('renders a var(...) color without throwing (browser-resolved at runtime)', () => {
+            const { container } = renderInChart(<ReferenceLine value={50} style={{ color: 'var(--danger)' }} />)
+            const line = lineDiv(container, 'top')
+            // We're asserting the component mounts and exposes the line — the actual color
+            // resolution happens in the browser's CSSOM, which jsdom doesn't implement.
+            expect(line).not.toBeNull()
+        })
+
+        it('uses style.fillColor when provided, falling back to color', () => {
+            const { container } = renderInChart(
+                <ReferenceLine
+                    value={50}
+                    fillSide="above"
+                    style={{ color: '#111', fillColor: 'rgb(50, 60, 70)', fillOpacity: 0.3 }}
+                />
+            )
+            const fill = container.querySelectorAll<HTMLDivElement>('div')[0]
+            expect(fill.style.backgroundColor).toBe('rgb(50, 60, 70)')
+            expect(fill.style.opacity).toBe('0.3')
         })
     })
 

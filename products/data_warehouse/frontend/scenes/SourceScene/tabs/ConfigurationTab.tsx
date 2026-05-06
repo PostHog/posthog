@@ -79,7 +79,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     initialAccessMethod={source.access_method ?? 'warehouse'}
                     setSourceConfigValue={setSourceConfigValue}
                 />
-                <div className="mt-4 flex flex-row justify-end gap-2">
+                <div className="my-4 flex flex-row justify-end gap-2">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.ExternalDataSource}
                         minAccessLevel={AccessControlLevel.Editor}

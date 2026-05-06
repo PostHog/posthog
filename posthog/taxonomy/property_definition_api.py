@@ -824,17 +824,20 @@ class PropertyDefinitionViewSet(
         serializer = SeenTogetherQuerySerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
+        event_names = serializer.validated_data["event_names"]
         matches = EventProperty.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
             effective_project_id=self.project_id,
-            event__in=serializer.validated_data["event_names"],
+            event__in=event_names,
             property=serializer.validated_data["property_name"],
         )
 
-        results = {}
-        for event_name in serializer.validated_data["event_names"]:
-            results[event_name] = matches.filter(event=event_name).exists()
+        # Single aggregated query instead of one EXISTS per event name — avoids an N+1
+        # pattern against posthog_eventproperty that can exceed gateway timeouts on
+        # projects with large event-property tables and multi-event filters.
+        seen_events = set(matches.values_list("event", flat=True).distinct())
+        results = {event_name: event_name in seen_events for event_name in event_names}
 
         return response.Response(results)
 

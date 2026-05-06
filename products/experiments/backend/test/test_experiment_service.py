@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
@@ -189,6 +190,38 @@ class TestExperimentService(APIBaseTest):
 
         assert experiment.stats_config is not None
         assert experiment.stats_config["bayesian"]["ci_level"] == 0.99
+
+    # ------------------------------------------------------------------
+    # Only count matured users defaults
+    # ------------------------------------------------------------------
+
+    def test_only_count_matured_users_defaults_from_team(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-default")
+        service = self._service()
+
+        experiment = service.create_experiment(name="Matured Default", feature_flag_key="matured-default")
+
+        assert experiment.only_count_matured_users is True
+
+    def test_only_count_matured_users_explicit_override(self):
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.default_only_count_matured_users = True
+        config.save()
+
+        self._create_flag(key="matured-override")
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Matured Override",
+            feature_flag_key="matured-override",
+            only_count_matured_users=False,
+        )
+
+        assert experiment.only_count_matured_users is False
 
     # ------------------------------------------------------------------
     # Metric fingerprints
@@ -1101,6 +1134,80 @@ class TestExperimentService(APIBaseTest):
         assert metrics[0]["uuid"] == "explicit-uuid"
         assert "explicit-uuid" in (getattr(updated, ordering_attr) or [])
 
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_create_experiment_does_not_mutate_input_metrics(self, _name, field):
+        self._create_flag(key=f"no-mutate-create-flag-{_name}")
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+        metric_kwargs: dict[str, Any] = {field: input_metrics}
+
+        service.create_experiment(
+            name=f"No Mutate Create {_name}",
+            feature_flag_key=f"no-mutate-create-flag-{_name}",
+            allow_unknown_events=True,
+            **metric_kwargs,
+        )
+
+        assert input_metrics == snapshot
+
+    @parameterized.expand(
+        [
+            ("primary", "metrics"),
+            ("secondary", "metrics_secondary"),
+        ]
+    )
+    def test_update_experiment_does_not_mutate_input_metrics(self, _name, field):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        input_metrics = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            }
+        ]
+        snapshot = deepcopy(input_metrics)
+
+        service.update_experiment(experiment, {field: input_metrics}, allow_unknown_events=True)
+
+        assert input_metrics == snapshot
+
+    def test_update_experiment_does_not_mutate_flag_filters_in_place(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+
+        original_filters = experiment.feature_flag.filters
+        snapshot = deepcopy(original_filters)
+
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 75,
+                }
+            },
+        )
+
+        assert original_filters == snapshot
+
     def test_update_experiment_replaces_saved_metrics(self):
         experiment = self._create_draft_experiment()
         sm1 = ExperimentSavedMetric.objects.create(
@@ -1618,6 +1725,28 @@ class TestExperimentService(APIBaseTest):
         assert "must be ended" in str(ctx.exception)
 
     # ------------------------------------------------------------------
+    # Unarchive
+    # ------------------------------------------------------------------
+
+    def test_unarchive_experiment_success(self):
+        experiment = self._create_ended_experiment(name="Unarchive Test", feature_flag_key="unarchive-flag")
+        service = self._service()
+        service.archive_experiment(experiment)
+
+        unarchived = service.unarchive_experiment(experiment)
+
+        assert unarchived.archived is False
+        assert unarchived.status == Experiment.Status.STOPPED
+
+    def test_unarchive_experiment_not_archived_raises(self):
+        experiment = self._create_ended_experiment(name="Not Archived", feature_flag_key="not-archived-flag")
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().unarchive_experiment(experiment)
+
+        assert "not archived" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
     # End
     # ------------------------------------------------------------------
 
@@ -1767,10 +1896,27 @@ class TestExperimentService(APIBaseTest):
         self._service().launch_experiment(experiment)
         return experiment
 
+    def test_is_paused_false_for_draft_with_inactive_flag(self) -> None:
+        # Inactive flag alone does not make an experiment paused — must also be running.
+        draft = self._create_launchable_experiment(name="Draft Inactive", feature_flag_key="draft-inactive-flag")
+        draft.feature_flag.active = False
+        draft.feature_flag.save()
+        assert draft.is_paused is False
+
+    def test_is_paused_false_for_stopped_with_inactive_flag(self) -> None:
+        # Inactive flag alone does not make an experiment paused — must also be running.
+        stopped = self._create_running_experiment(name="Stopped Inactive", feature_flag_key="stopped-inactive-flag")
+        self._service().end_experiment(stopped, request=MagicMock())
+        stopped.feature_flag.active = False
+        stopped.feature_flag.save()
+        stopped.refresh_from_db()
+        assert stopped.is_paused is False
+
     def test_pause_experiment_success(self):
         experiment = self._create_running_experiment(name="Pause Test", feature_flag_key="pause-flag")
 
         assert experiment.feature_flag.active is True
+        assert experiment.is_paused is False
 
         paused = self._service().pause_experiment(experiment)
 
@@ -1778,6 +1924,8 @@ class TestExperimentService(APIBaseTest):
         assert paused.feature_flag.active is False
         assert paused.start_date is not None
         assert paused.end_date is None
+        assert paused.is_paused is True
+        assert paused.is_running is True  # status remains running while paused
 
     def test_resume_experiment_success(self):
         experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
@@ -2416,10 +2564,11 @@ class TestExperimentService(APIBaseTest):
         [
             ("draft", {"status": "draft"}, {"Draft"}),
             ("running", {"status": "running"}, {"Running"}),
+            ("paused", {"status": "paused"}, {"Paused"}),
             ("stopped", {"status": "stopped"}, {"Stopped"}),
             ("complete", {"status": "complete"}, {"Stopped"}),
-            ("all", {"status": "all"}, {"Draft", "Running", "Stopped"}),
-            ("invalid", {"status": "bogus"}, {"Draft", "Running", "Stopped"}),
+            ("all", {"status": "all"}, {"Draft", "Running", "Paused", "Stopped"}),
+            ("invalid", {"status": "bogus"}, {"Draft", "Running", "Paused", "Stopped"}),
         ]
     )
     def test_filter_experiments_queryset_filters_by_status(
@@ -2433,6 +2582,13 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="status-running",
             start_date=now - timedelta(days=2),
         )
+        paused = service.create_experiment(
+            name="Paused",
+            feature_flag_key="status-paused",
+            start_date=now - timedelta(days=2),
+        )
+        paused.feature_flag.active = False
+        paused.feature_flag.save()
         service.create_experiment(
             name="Stopped",
             feature_flag_key="status-stopped",
@@ -3419,6 +3575,165 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="no-metrics-flag",
         )
         assert experiment.metrics == []
+
+    # Shared cases for blank/whitespace event regression tests across create and update.
+    # Regression: pydantic permits event="" but it's not a queryable event name.
+    # Treat blank/whitespace events like None / "All events" instead of producing
+    # the misleading "Event(s) '' not found" error customers were hitting.
+    _BLANK_EVENT_CASES = [
+        (
+            "empty_mean",
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": ""},
+            },
+        ),
+        (
+            "whitespace_ratio",
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "ratio",
+                "numerator": {"kind": "EventsNode", "event": "   "},
+                "denominator": {"kind": "EventsNode", "event": ""},
+            },
+        ),
+        (
+            "empty_funnel_step",
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": ""}],
+            },
+        ),
+    ]
+
+    @parameterized.expand(_BLANK_EVENT_CASES)
+    def test_blank_event_names_pass_validation_on_create(self, name: str, metric: dict) -> None:
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Blank Event Create {name}",
+            feature_flag_key=f"blank-event-create-{name.replace('_', '-')}-flag",
+            metrics=[metric],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    @parameterized.expand(_BLANK_EVENT_CASES)
+    def test_blank_event_names_pass_validation_on_update(self, name: str, metric: dict) -> None:
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Blank Event Update {name}",
+            feature_flag_key=f"blank-event-update-{name.replace('_', '-')}-flag",
+        )
+        # Should not raise — both paths share the same validator but go through
+        # separate functions (create_experiment vs update_experiment).
+        service.update_experiment(experiment, {"metrics": [metric]})
+
+    @parameterized.expand(
+        [
+            ("int", 42, "int"),
+            ("json_object", {"kind": "EventsNode", "event": "nested"}, "dict"),
+            ("list", ["a", "b"], "list"),
+        ]
+    )
+    def test_unexpected_event_shape_is_skipped_and_logged(
+        self, _: str, malformed_event: object, expected_type_name: str
+    ) -> None:
+        # Pydantic should reject anything other than str/None for the `event` field
+        # in the incoming payload. If a malformed payload (e.g. int, dict, list)
+        # bypasses that check, we want to skip the value (don't crash, don't add a
+        # non-string to the lookup set) and log so we can find the offending caller.
+        # This is purely about the *incoming* payload shape — no DB lookup happens
+        # in `_extract_entity_nodes`.
+        from products.experiments.backend.experiment_service import logger as service_logger
+
+        service = self._service()
+        with patch.object(service_logger, "warning") as mock_warning:
+            event_names = service._extract_entity_nodes(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": malformed_event},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ]
+            )[0]
+
+        # Malformed value was skipped, "$pageview" kept
+        assert event_names == {"$pageview"}
+        mock_warning.assert_called_once()
+        kwargs = mock_warning.call_args.kwargs
+        assert kwargs.get("event_type") == expected_type_name
+
+    def test_event_validation_uses_project_scope(self):
+        # Regression: the frontend event picker queries EventDefinition by project_id
+        # (see posthog/api/event_definition.py), so users in multi-team projects see
+        # events ingested by sibling teams. Validation must match that scope or it
+        # rejects legitimate selections (e.g. "$pageview not found" reports).
+        sibling_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            name="Sibling team in same project",
+        )
+        EventDefinition.objects.create(team=sibling_team, project=self.project, name="purchase_v2")
+        # Note: NOT creating purchase_v2 on self.team — only the sibling team has it,
+        # but they share a project so the picker would show it.
+
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Cross-team Event",
+            feature_flag_key="cross-team-event-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "purchase_v2"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_sibling_team_can_use_legacy_primary_team_event(self):
+        # Regression: the legacy fallback in validate_metric_event_names uses
+        #     team_id = project_id  (NOT team_id = self.team.id)
+        # because legacy EventDefinitions (project_id IS NULL) belong to the
+        # *primary* team — and by convention, primary_team.id == project.id.
+        # The picker mirrors this exact predicate (posthog/api/event_definition.py),
+        # so a sibling-team user must be able to validate against legacy events
+        # tied to the primary team. Swapping `team_id = project_id` for
+        # `team_id = self.team.id` would silently exclude those rows for sibling
+        # teams, even though the picker shows them.
+        primary_team = self.team  # APIBaseTest sets primary_team.id == project.id
+        assert primary_team.id == primary_team.project_id, "test fixture invariant: self.team is primary"
+
+        sibling_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            name="Sibling team in same project",
+        )
+        # A legacy event tied to the primary team — no project_id set.
+        EventDefinition.objects.create(team=primary_team, project=None, name="legacy_event")
+
+        # Run validation as the SIBLING team (not the primary). Without the
+        # legacy fallback's team_id=project_id semantics, this would raise.
+        sibling_service = ExperimentService(team=sibling_team, user=self.user)
+        experiment = sibling_service.create_experiment(
+            name="Sibling Legacy Event",
+            feature_flag_key="sibling-legacy-event-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "legacy_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
 
     def test_action_nodes_not_checked_for_event_existence(self):
         action = Action.objects.create(team=self.team, name="valid action for event test")

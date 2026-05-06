@@ -8,21 +8,29 @@ use std::time::Instant;
 use metrics::{counter, histogram};
 use personhog_common::grpc::{current_client_name, ClientInFlightGuard};
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
-    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
+    PersonsResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::Status;
 
@@ -336,6 +344,46 @@ impl PersonHogRouter {
         )
     }
 
+    pub async fn count_cohort_members(
+        &self,
+        request: CountCohortMembersRequest,
+    ) -> Result<CountCohortMembersResponse, Status> {
+        call_backend!(self, "CountCohortMembers", count_cohort_members, request)
+    }
+
+    pub async fn delete_cohort_member(
+        &self,
+        request: DeleteCohortMemberRequest,
+    ) -> Result<DeleteCohortMemberResponse, Status> {
+        call_backend!(self, "DeleteCohortMember", delete_cohort_member, request)
+    }
+
+    pub async fn delete_cohort_members_bulk(
+        &self,
+        request: DeleteCohortMembersBulkRequest,
+    ) -> Result<DeleteCohortMembersBulkResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteCohortMembersBulk",
+            delete_cohort_members_bulk,
+            request
+        )
+    }
+
+    pub async fn insert_cohort_members(
+        &self,
+        request: InsertCohortMembersRequest,
+    ) -> Result<InsertCohortMembersResponse, Status> {
+        call_backend!(self, "InsertCohortMembers", insert_cohort_members, request)
+    }
+
+    pub async fn list_cohort_member_ids(
+        &self,
+        request: ListCohortMemberIdsRequest,
+    ) -> Result<ListCohortMemberIdsResponse, Status> {
+        call_backend!(self, "ListCohortMemberIds", list_cohort_member_ids, request)
+    }
+
     // ============================================================
     // Groups - Non-person data
     // ============================================================
@@ -403,6 +451,88 @@ impl PersonHogRouter {
             self,
             "GetGroupTypeMappingsByProjectIds",
             get_group_type_mappings_by_project_ids,
+            request
+        )
+    }
+
+    pub async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        request: GetGroupTypeMappingByDashboardIdRequest,
+    ) -> Result<GetGroupTypeMappingByDashboardIdResponse, Status> {
+        call_backend!(
+            self,
+            "GetGroupTypeMappingByDashboardId",
+            get_group_type_mapping_by_dashboard_id,
+            request
+        )
+    }
+
+    // ============================================================
+    // Group writes - Non-person data
+    // ============================================================
+
+    pub async fn create_group(
+        &self,
+        request: CreateGroupRequest,
+    ) -> Result<CreateGroupResponse, Status> {
+        call_backend!(self, "CreateGroup", create_group, request)
+    }
+
+    pub async fn update_group(
+        &self,
+        request: UpdateGroupRequest,
+    ) -> Result<UpdateGroupResponse, Status> {
+        call_backend!(self, "UpdateGroup", update_group, request)
+    }
+
+    pub async fn delete_groups_batch_for_team(
+        &self,
+        request: DeleteGroupsBatchForTeamRequest,
+    ) -> Result<DeleteGroupsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteGroupsBatchForTeam",
+            delete_groups_batch_for_team,
+            request
+        )
+    }
+
+    // ============================================================
+    // Group type mapping writes - Non-person data
+    // ============================================================
+
+    pub async fn update_group_type_mapping(
+        &self,
+        request: UpdateGroupTypeMappingRequest,
+    ) -> Result<UpdateGroupTypeMappingResponse, Status> {
+        call_backend!(
+            self,
+            "UpdateGroupTypeMapping",
+            update_group_type_mapping,
+            request
+        )
+    }
+
+    pub async fn delete_group_type_mapping(
+        &self,
+        request: DeleteGroupTypeMappingRequest,
+    ) -> Result<DeleteGroupTypeMappingResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteGroupTypeMapping",
+            delete_group_type_mapping,
+            request
+        )
+    }
+
+    pub async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        request: DeleteGroupTypeMappingsBatchForTeamRequest,
+    ) -> Result<DeleteGroupTypeMappingsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteGroupTypeMappingsBatchForTeam",
+            delete_group_type_mappings_batch_for_team,
             request
         )
     }

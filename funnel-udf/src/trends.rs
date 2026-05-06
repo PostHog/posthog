@@ -78,27 +78,34 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     excluded: false,
 };
 
-pub fn process_line(line: &str) -> Value {
-    let args = parse_args(line);
+pub fn run(args: &Args) -> Vec<ResultStruct> {
     if args.funnel_order_type == "unordered" {
-        let mut aggregate_funnel_row = AggregateFunnelRowUnordered {
+        let mut row = AggregateFunnelRowUnordered {
             breakdown_step: Option::None,
         };
-        let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-        return json!({ "result": result });
+        return row.calculate_funnel_from_user_events(args);
     }
-    let mut aggregate_funnel_row = AggregateFunnelRow {
+    let mut row = AggregateFunnelRow {
         breakdown_step: Option::None,
     };
-    let result: Vec<ResultStruct> = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-    json!({ "result": result })
+    row.calculate_funnel_from_user_events(args)
+}
+
+pub fn process_line(line: &str) -> Value {
+    match parse_args(line) {
+        Ok(args) => json!({ "result": run(&args) }),
+        Err(e) => {
+            eprintln!(
+                "funnels error: invalid JSON input while parsing trends Args: {e}. Input: {line}"
+            );
+            json!({ "error": format!("invalid JSON input: {e}") })
+        }
+    }
 }
 
 #[inline(always)]
-fn parse_args(line: &str) -> Args {
-    serde_json::from_str(line).unwrap_or_else(|e| {
-        panic!("Invalid JSON input while parsing Args: {e}. Input: {line}");
-    })
+fn parse_args(line: &str) -> Result<Args, serde_json::Error> {
+    serde_json::from_str(line)
 }
 
 impl AggregateFunnelRow {
@@ -348,7 +355,7 @@ mod tests {
         #[case] expected_window_limit: u64,
         #[case] expected_interval_start: u64,
     ) {
-        let args = parse_args(input);
+        let args = parse_args(input).unwrap();
 
         assert_eq!(args.conversion_window_limit, expected_window_limit);
         assert_eq!(args.value.len(), 1);
@@ -359,10 +366,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Invalid JSON input while parsing Args: missing field `to_step` at line 1 column 16. Input: {\"from_step\": 1}"
-    )]
-    fn parse_args_panics_on_invalid_json() {
-        let _ = parse_args(r#"{"from_step": 1}"#);
+    fn parse_args_errors_on_invalid_json() {
+        let err = parse_args(r#"{"from_step": 1}"#)
+            .err()
+            .expect("expected Err");
+        assert!(err.to_string().contains("to_step"));
     }
 }

@@ -41,6 +41,7 @@ describe('ClickhouseGroupRepository', () => {
                         version,
                     })
                 ),
+                teamId,
             },
         ])
     })

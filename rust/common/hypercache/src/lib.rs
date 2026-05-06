@@ -64,6 +64,11 @@ const TOMBSTONE_COUNTER_NAME: &str = "posthog_tombstone_total";
 /// This value is written by Django's HyperCache when a team has no flags.
 pub const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
 
+/// Suffix appended to a hypercache key to address its companion ETag entry. Mirrors
+/// Django's `HyperCache.get_etag_key` (`{cache_key}:etag`). Shared with
+/// `HyperCacheWriter` so the read and write paths can never disagree on the layout.
+pub(crate) const ETAG_KEY_SUFFIX: &str = ":etag";
+
 /// Cache key type matching Django's KeyType = Team | str | int
 #[derive(Debug)]
 pub enum KeyType {
@@ -183,6 +188,10 @@ pub struct HyperCacheConfig {
     pub token_based: bool,
     pub enable_etag: bool,
     pub django_cache_version: String,
+    /// When set, `HyperCacheWriter::set` records each successful write into this Redis
+    /// sorted set with an expiry-timestamp score, mirroring Python's
+    /// `HyperCache._track_expiry`. `None` disables expiry tracking.
+    pub expiry_sorted_set_key: Option<String>,
 }
 
 impl HyperCacheConfig {
@@ -204,6 +213,7 @@ impl HyperCacheConfig {
             token_based: false,
             enable_etag: false,
             django_cache_version: "1".to_string(),
+            expiry_sorted_set_key: None,
         }
     }
 
@@ -226,6 +236,7 @@ impl HyperCacheConfig {
             token_based: false,
             enable_etag: false,
             django_cache_version,
+            expiry_sorted_set_key: None,
         }
     }
 
@@ -240,9 +251,11 @@ impl HyperCacheConfig {
         self.get_base_cache_key(key)
     }
 
-    /// Generate base cache key (used by both Redis and S3, but Redis adds prefix)
-    fn get_base_cache_key(&self, key: &KeyType) -> String {
-        let key_str = if self.token_based {
+    /// Mirror Python's `HyperCache.get_cache_identifier`: api_token for token-based
+    /// caches, team_id as string otherwise. Used for both key generation and
+    /// expiry-tracking sorted-set membership.
+    pub fn get_cache_identifier(&self, key: &KeyType) -> String {
+        if self.token_based {
             match key {
                 KeyType::Team(team) => team.api_token().to_string(),
                 KeyType::String(s) => s.clone(),
@@ -254,19 +267,21 @@ impl HyperCacheConfig {
                 KeyType::String(s) => s.clone(),
                 KeyType::Int(i) => i.to_string(),
             }
-        };
-
-        if self.token_based {
-            format!(
-                "cache/team_tokens/{}/{}/{}",
-                key_str, self.namespace, self.object_name
-            )
-        } else {
-            format!(
-                "cache/teams/{}/{}/{}",
-                key_str, self.namespace, self.object_name
-            )
         }
+    }
+
+    /// Generate base cache key (used by both Redis and S3, but Redis adds prefix)
+    fn get_base_cache_key(&self, key: &KeyType) -> String {
+        let key_str = self.get_cache_identifier(key);
+        let scope = if self.token_based {
+            "team_tokens"
+        } else {
+            "teams"
+        };
+        format!(
+            "cache/{}/{}/{}/{}",
+            scope, key_str, self.namespace, self.object_name
+        )
     }
 }
 
@@ -678,6 +693,32 @@ impl HyperCacheReader {
     ) -> Result<Option<T>, HyperCacheError> {
         let (data, _source) = self.get_typed_with_source::<T>(key).await?;
         Ok(data)
+    }
+
+    /// Read the companion ETag string for `key` from Redis, if present.
+    ///
+    /// The ETag is written atomically alongside the payload by `HyperCacheWriter::set_with_etag`
+    /// and Django's `HyperCache._set_cache_value_redis` (when `enable_etag=True`). It serves as a
+    /// cheap version tag for downstream in-memory caches that want to skip the payload fetch +
+    /// deserialization on a hit.
+    ///
+    /// Returns `Ok(None)` when the ETag key is genuinely absent — the team uses the
+    /// `__missing__` sentinel, the hypercache entry was created before `enable_etag` was on, or
+    /// payload/etag TTLs drifted apart. Returns `Err` for infrastructure errors so callers can
+    /// distinguish "no version available" from "couldn't reach Redis".
+    pub async fn get_etag(&self, key: &KeyType) -> Result<Option<String>, HyperCacheError> {
+        let etag_key = format!(
+            "{}{}",
+            self.config.get_redis_cache_key(key),
+            ETAG_KEY_SUFFIX
+        );
+        match timeout(self.config.redis_timeout, self.redis_client.get(etag_key)).await {
+            Ok(Ok(s)) if !s.is_empty() => Ok(Some(s)),
+            Ok(Ok(_)) => Ok(None),
+            Ok(Err(common_redis::CustomRedisError::NotFound)) => Ok(None),
+            Ok(Err(e)) => Err(HyperCacheError::Redis(e)),
+            Err(_) => Err(HyperCacheError::Timeout("etag redis timeout".to_string())),
+        }
     }
 
     // ── Internal helpers ──
@@ -1807,5 +1848,58 @@ mod tests {
             .unwrap();
 
         assert_eq!(data, Some(expected));
+    }
+
+    /// Verifies the ETag round-trips through `get_etag` against the same suffix
+    /// `HyperCacheWriter::set_with_etag` writes to. Pinning the suffix here
+    /// guards against a future split between the writer and reader: if either
+    /// side drifts off `:etag`, `FlagDefinitionsCache` would silently turn into
+    /// a perma-miss cache, which is the failure mode this test exists to catch.
+    #[tokio::test]
+    async fn test_get_etag_returns_value_when_present() {
+        let mut mock_redis = MockRedisClient::new();
+        let etag_key = format!(
+            "{}{}",
+            create_test_config().get_redis_cache_key(&KeyType::int(42)),
+            ETAG_KEY_SUFFIX
+        );
+        mock_redis.get_ret(&etag_key, Ok("0123456789abcdef".to_string()));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let etag = reader.get_etag(&KeyType::int(42)).await.unwrap();
+
+        assert_eq!(etag.as_deref(), Some("0123456789abcdef"));
+    }
+
+    /// `__missing__` writes call `delete_etag`, so the etag key is absent for
+    /// teams with no flags. Returning `Ok(None)` lets `FlagDefinitionsCache`
+    /// take the no-cache path without surfacing this as an error.
+    #[tokio::test]
+    async fn test_get_etag_returns_none_when_key_absent() {
+        let mock_redis = MockRedisClient::new();
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+
+        let etag = reader.get_etag(&KeyType::int(42)).await.unwrap();
+        assert!(etag.is_none());
+    }
+
+    /// Infrastructure errors (timeout, connection refused) must propagate so the
+    /// caller can decide whether to fall through to the payload path or surface
+    /// the error. Returning `Ok(None)` here would silently degrade the version-
+    /// key fast path without any signal in metrics.
+    #[tokio::test]
+    async fn test_get_etag_propagates_redis_error() {
+        let mut mock_redis = MockRedisClient::new();
+        let etag_key = format!(
+            "{}{}",
+            create_test_config().get_redis_cache_key(&KeyType::int(42)),
+            ETAG_KEY_SUFFIX
+        );
+        mock_redis.get_ret(&etag_key, Err(common_redis::CustomRedisError::Timeout));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let result = reader.get_etag(&KeyType::int(42)).await;
+
+        assert!(matches!(result, Err(HyperCacheError::Redis(_))));
     }
 }
