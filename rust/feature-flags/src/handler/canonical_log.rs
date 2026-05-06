@@ -1,8 +1,9 @@
 use crate::api::errors::FlagError;
 use crate::flags::flag_matching::EvaluationType;
+use crate::handler::phases::PhaseDurations;
 use crate::metrics::consts::{
-    FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST, FLAG_PRE_HANDLER_TIME_MS,
-    FLAG_QUEUE_TIME_MS,
+    FLAG_BODY_READ_TIME_MS, FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST,
+    FLAG_PHASE_DURATION_MS, FLAG_PRE_HANDLER_TIME_MS, FLAG_QUEUE_TIME_MS,
 };
 use std::cell::RefCell;
 use std::future::Future;
@@ -269,6 +270,19 @@ pub struct FlagsCanonicalLogLine {
     /// phase ships; while None, `emit_timing_metrics` skips emission.
     pub concurrency_limit_wait_ms: Option<u64>,
 
+    /// Wall-clock duration of inbound POST body buffering. Captured by
+    /// the `record_body_read` middleware shim, populated on the request
+    /// extensions, and seeded onto the canonical log at handler entry.
+    /// `None` for GET / HEAD / OPTIONS where the shim was bypassed or the
+    /// extractor short-circuited on an empty body.
+    pub body_read_ms: Option<u64>,
+
+    /// Per-phase wall-clock breakdown of `process_request_inner`.
+    /// Populated by [`crate::handler::phases::PhaseGuard`] drops; emitted
+    /// as a labeled histogram by [`Self::emit_phase_metrics`] once the
+    /// `team_id` is resolved.
+    pub phases: PhaseDurations,
+
     /// Duration of the synchronous Redis HINCRBY billing increment in
     /// milliseconds. Only populated from endpoints that run inside a canonical
     /// log scope (currently `/flags` and `/decide`). `None` when billing was
@@ -326,6 +340,8 @@ impl Default for FlagsCanonicalLogLine {
             queue_time_ms: None,
             pre_handler_duration_ms: None,
             concurrency_limit_wait_ms: None,
+            body_read_ms: None,
+            phases: PhaseDurations::default(),
             billing_duration_ms: None,
             team_cache_source: None,
             http_status: 200,
@@ -498,6 +514,46 @@ impl FlagsCanonicalLogLine {
 
         if let Some(wait) = self.concurrency_limit_wait_ms {
             common_metrics::histogram(FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, &[], wait as f64);
+        }
+
+        if let Some(body_read) = self.body_read_ms {
+            // No `team_id` label — body buffering happens before
+            // authentication, mirroring `concurrency_limit_wait_ms`.
+            common_metrics::histogram(FLAG_BODY_READ_TIME_MS, &[], body_read as f64);
+        }
+    }
+
+    /// Emit `flags_phase_duration_ms` histograms for every phase that ran.
+    ///
+    /// Each entry is labeled `phase=<name>` and `team_id=<id>` (filtered
+    /// through the existing team allowlist; non-allowlisted teams collapse
+    /// to `unknown`). Phases that never ran on this request — e.g.
+    /// `record_billing` for a non-billable request, `cookieless` for a
+    /// quota-limited request — are silently skipped.
+    ///
+    /// Call once per request, after `team_id` has been resolved (i.e.
+    /// after `process_request` returns). Idempotent only in the trivial
+    /// sense: calling twice would double-count, so callers must not.
+    pub fn emit_phase_metrics(&self) {
+        let team_id_label_value = self
+            .team_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        for (phase, elapsed) in self.phases.iter() {
+            // Allocate the labels once per emission. The team-id allowlist
+            // filter applied inside `common_metrics::histogram` will
+            // collapse non-allowlisted values, so cardinality stays
+            // bounded by `phase_count × allowlist_size`.
+            let labels = [
+                ("phase".to_string(), phase.name().to_string()),
+                ("team_id".to_string(), team_id_label_value.clone()),
+            ];
+            common_metrics::histogram(
+                FLAG_PHASE_DURATION_MS,
+                &labels,
+                elapsed.as_secs_f64() * 1000.0,
+            );
         }
     }
 

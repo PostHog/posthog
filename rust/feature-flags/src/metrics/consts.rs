@@ -75,6 +75,43 @@ pub const FLAG_TOKEN_EXTRACT_TIME_MS: &str = "flags_token_extract_ms";
 // because permit wait is a property of pod-level load, not of any one team.
 pub const FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS: &str = "flags_concurrency_limit_wait_ms";
 
+// Wall-clock time spent buffering the inbound POST body. Captured by a
+// middleware shim placed between `record_concurrency_wait` and the handler
+// so the duration excludes permit wait but includes any slow-client
+// upload or large-compressed-payload buffering. No `team_id` label
+// because this measurement happens before the request is authenticated.
+pub const FLAG_BODY_READ_TIME_MS: &str = "flags_body_read_ms";
+
+// Per-phase wall-clock duration inside `process_request_inner`. Phases
+// match handler-level state transitions:
+// `auth → billing_check → cookieless → fetch_and_filter → evaluate →
+// record_billing → config_response`. Together they reconstruct the
+// majority of the post-pre-handler request budget so a spike in any one
+// phase is attributable to the responsible await site.
+//
+// Labels: `phase` (one of the canonical phase names, see
+// `handler::phases::Phase::name`), `team_id` (filtered through the
+// existing team allowlist).
+pub const FLAG_PHASE_DURATION_MS: &str = "flags_phase_duration_ms";
+
+// Per-phase in-flight gauge. Incremented when a `PhaseGuard` enters a
+// phase and decremented on drop. When `flags_tokio_alive_tasks` jumps,
+// exactly one phase gauge climbs in lockstep — direct localization of
+// the parking site without waiting for the histogram to rebucket.
+//
+// Pod-level by design: only a `phase` label, no `team_id`.
+pub const FLAG_INFLIGHT_BY_PHASE: &str = "flags_inflight_by_phase";
+
+// In-memory `FlagDefinitionsCache::get_or_load` total wall-clock time.
+// Labels: `outcome` ∈ {`hit`, `miss_load_ok`, `miss_load_err`,
+// `etag_missing`, `sentinel`}. A spike in `miss_load_*` means the
+// loader (HyperCache fetch + Pickle/JSON decode + regex compile) is
+// stalling; a spike in `hit` would indicate Moka itself is slow (very
+// unlikely). Concurrent first-misses are not coalesced today, so
+// thunder-herd events on etag rollover show up as `miss_load_ok` p99
+// climbing while the hit rate stays normal.
+pub const FLAG_DEFINITIONS_INMEM_LOAD_MS: &str = "flags_definitions_inmem_load_ms";
+
 // Performance monitoring
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
 pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle_total";
