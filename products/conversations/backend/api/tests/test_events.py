@@ -273,41 +273,36 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is False
         assert "$groups" not in call_kwargs["properties"]
 
-    @patch("products.conversations.backend.events.capture_internal")
-    @patch("products.conversations.backend.events._has_identified_person_by_email", return_value=True)
-    @patch("products.conversations.backend.events.get_persons_by_distinct_ids", return_value=[])
-    def test_capture_ticket_created_email_fallback_finds_person(
-        self, mock_get_persons, mock_email_fallback, mock_capture
-    ):
-        capture_ticket_created(self.ticket)
-
-        mock_email_fallback.assert_called_once_with(self.team.id, "test@example.com")
-        call_kwargs = mock_capture.call_args.kwargs
-        assert call_kwargs["process_person_profile"] is True
-        assert "$groups" in call_kwargs["properties"]
-
-    @patch("products.conversations.backend.events.capture_internal")
-    @patch("products.conversations.backend.events._has_identified_person_by_email", return_value=False)
-    @patch("products.conversations.backend.events.get_persons_by_distinct_ids", return_value=[])
-    def test_capture_ticket_created_email_fallback_no_match(self, mock_get_persons, mock_email_fallback, mock_capture):
-        capture_ticket_created(self.ticket)
-
-        mock_email_fallback.assert_called_once_with(self.team.id, "test@example.com")
-        call_kwargs = mock_capture.call_args.kwargs
-        assert call_kwargs["process_person_profile"] is False
-        assert "$groups" not in call_kwargs["properties"]
-
+    @parameterized.expand(
+        [
+            ("email_match", True, True, True),
+            ("email_no_match", True, False, False),
+            ("no_email_trait", False, None, False),
+        ]
+    )
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events._has_identified_person_by_email")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids", return_value=[])
-    def test_capture_ticket_created_skips_email_fallback_without_email_trait(
-        self, mock_get_persons, mock_email_fallback, mock_capture
+    def test_capture_ticket_created_email_fallback(
+        self, _name, has_email, fallback_result, expect_groups, mock_get_persons, mock_email_fallback, mock_capture
     ):
-        self.ticket.anonymous_traits = {"name": "No Email"}
-        self.ticket.save()
+        if fallback_result is not None:
+            mock_email_fallback.return_value = fallback_result
+
+        if not has_email:
+            self.ticket.anonymous_traits = {"name": "No Email"}
+            self.ticket.save()
 
         capture_ticket_created(self.ticket)
 
-        mock_email_fallback.assert_not_called()
+        if has_email:
+            mock_email_fallback.assert_called_once_with(self.team.id, "test@example.com")
+        else:
+            mock_email_fallback.assert_not_called()
+
         call_kwargs = mock_capture.call_args.kwargs
-        assert call_kwargs["process_person_profile"] is False
+        assert call_kwargs["process_person_profile"] is expect_groups
+        if expect_groups:
+            assert "$groups" in call_kwargs["properties"]
+        else:
+            assert "$groups" not in call_kwargs["properties"]
