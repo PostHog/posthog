@@ -700,6 +700,9 @@ importers:
       '@posthog/products-revenue-analytics':
         specifier: workspace:*
         version: link:../products/revenue_analytics
+      '@posthog/products-session-replay':
+        specifier: workspace:*
+        version: link:../products/session_replay
       '@posthog/products-session-summaries':
         specifier: workspace:*
         version: link:../products/session_summaries
@@ -3199,6 +3202,18 @@ importers:
       kea-router:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+
+  products/session_replay:
+    dependencies:
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
