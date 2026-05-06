@@ -1,12 +1,12 @@
 """
-Team mixin for product models on separate databases.
+Abstract model for product models on separate databases.
 
 Multi-DB counterpart of RootTeamMixin. Provides:
 - team_id as a plain BigIntegerField (no FK to Team — can't cross databases)
 - save() rewrites team_id to canonical (parent if child env, else self) so
   data always lives at the canonical team_id — symmetric with reads
-- Auto-scoping fail-closed manager
-- unscoped() escape hatch for intentional cross-team queries
+- Auto-scoping fail-closed manager via `TeamScopedManager` (the same
+  manager main-DB models use)
 
 Usage:
 
@@ -21,8 +21,8 @@ Usage:
     # Explicit cross-team:
     Repo.objects.unscoped().all()   # No filtering
 
-    # Background jobs (caller passes canonical team_id):
-    with team_scope(canonical_team_id):
+    # Background jobs (auto-resolves to canonical):
+    with team_scope(team_id):
         Repo.objects.all()
 """
 
@@ -32,26 +32,7 @@ from typing import Any
 
 from django.db import models
 
-from posthog.models.scoping.manager import TeamScopedManager, TeamScopedQuerySet, resolve_effective_team_id
-
-
-class ProductTeamQuerySet(TeamScopedQuerySet):
-    """QuerySet for product models on separate databases.
-
-    Inherits unscoped() and _apply_team_filter from TeamScopedQuerySet.
-    The shared filter just does `filter(team_id=team_id)` so there's no
-    cross-DB JOIN — works fine for separate-DB models.
-    """
-
-    def unscoped(self) -> ProductTeamQuerySet:
-        """Return a queryset that bypasses automatic team scoping."""
-        return ProductTeamQuerySet(self.model, using=self._db)  # type: ignore[attr-defined]
-
-
-class ProductTeamManager(TeamScopedManager):
-    """Fail-closed manager for product models on separate databases."""
-
-    _queryset_class = ProductTeamQuerySet
+from posthog.models.scoping.manager import TeamScopedManager, resolve_effective_team_id
 
 
 class ProductTeamModel(models.Model):
@@ -65,7 +46,7 @@ class ProductTeamModel(models.Model):
     RootTeamMixin for main-DB models.
 
     Two managers:
-    - `objects` (ProductTeamManager): fail-closed, auto-scopes by context.
+    - `objects` (TeamScopedManager): fail-closed, auto-scopes by context.
       Raises TeamScopeError when no context is set. This is the manager
       Django admin / Model.objects / `_default_manager` resolves to.
     - `all_teams` (plain Manager): bypass for admin / migrations / contexts
@@ -77,7 +58,7 @@ class ProductTeamModel(models.Model):
 
     team_id = models.BigIntegerField(db_index=True)
 
-    objects = ProductTeamManager()
+    objects = TeamScopedManager()
     all_teams = models.Manager()  # noqa: DJ012 — both are managers, ruff misclassifies this
 
     class Meta:

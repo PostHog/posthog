@@ -119,8 +119,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         Set team scope context to the canonical team_id (parent if the URL
         team is a child environment, the URL team itself otherwise). This is
         the single source of truth for team scoping in DRF request flows —
-        any code path that reads through TeamScopedManager / ProductTeamManager
-        during this request filters by this id.
+        any code path that reads through TeamScopedManager (used by both
+        main-DB models and ProductTeamModel-based product models) during
+        this request filters by this id.
 
         Sourcing from the URL (not user.current_team_id) avoids the org-level
         bug from #50899: user.current_team_id is a UI preference that can

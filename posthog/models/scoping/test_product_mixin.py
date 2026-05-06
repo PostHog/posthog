@@ -1,30 +1,35 @@
+"""Smoke tests for ProductTeamModel + TeamScopedManager integration.
+
+The manager mechanics are covered exhaustively in test_manager.py
+(against FeatureFlag). These tests verify the ProductTeamModel
+abstract base wires `objects = TeamScopedManager()` correctly for
+separate-DB models (visual_review's Repo).
+"""
+
 import pytest
 
 from django.test import SimpleTestCase
 
 from posthog.models.scoping import team_scope, unscoped
-from posthog.models.scoping.manager import TeamScopeError
-from posthog.models.scoping.product_mixin import ProductTeamManager, ProductTeamQuerySet
+from posthog.models.scoping.manager import TeamScopedManager, TeamScopedQuerySet, TeamScopeError
 
 
-class TestProductTeamQuerySet(SimpleTestCase):
-    def test_unscoped_returns_fresh_queryset(self) -> None:
+class TestProductTeamModelManager(SimpleTestCase):
+    def _make_manager(self) -> TeamScopedManager:
         from products.visual_review.backend.models import Repo
 
-        qs: ProductTeamQuerySet = ProductTeamQuerySet(model=Repo)
-        unscoped_qs = qs.unscoped()
-        self.assertIsInstance(unscoped_qs, ProductTeamQuerySet)
-        self.assertIsNot(qs, unscoped_qs)
-
-
-class TestProductTeamManagerScoping(SimpleTestCase):
-    def _make_manager(self) -> ProductTeamManager:
-        from products.visual_review.backend.models import Repo
-
-        mgr: ProductTeamManager = ProductTeamManager()
+        mgr: TeamScopedManager = TeamScopedManager()
         mgr.model = Repo
         mgr.auto_created = True
         return mgr
+
+    def test_unscoped_queryset_returns_fresh_unfiltered_queryset(self) -> None:
+        from products.visual_review.backend.models import Repo
+
+        qs: TeamScopedQuerySet = TeamScopedQuerySet(model=Repo)
+        unscoped_qs = qs.unscoped()
+        self.assertIsInstance(unscoped_qs, TeamScopedQuerySet)
+        self.assertIsNot(qs, unscoped_qs)
 
     def test_no_context_raises_team_scope_error(self) -> None:
         with pytest.raises(TeamScopeError, match="No team context set"):
