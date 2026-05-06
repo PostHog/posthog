@@ -11,7 +11,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "$SCRIPT_DIR/.."
 
 COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
-SERVICES=(zookeeper kafka clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions)
+SERVICES=(zookeeper kafka db redis7 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions)
 
 case "${1:-up}" in
     up)

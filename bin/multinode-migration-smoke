@@ -20,7 +20,8 @@ cd "$SCRIPT_DIR/.."
 
 COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
 CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions)
-ALL_SERVICES=(zookeeper kafka "${CH_SERVICES[@]}")
+INFRA_SERVICES=(zookeeper kafka db redis7)
+ALL_SERVICES=("${INFRA_SERVICES[@]}" "${CH_SERVICES[@]}")
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 
 dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
@@ -69,11 +70,14 @@ wait_for_healthy() {
 }
 
 if [ "${SKIP_BOOT:-0}" != "1" ]; then
+    echo "==> Tearing down any previous multinode stack (clears Zookeeper state)..."
+    dc down -v --remove-orphans >/dev/null 2>&1 || true
+
     echo "==> Booting multinode ClickHouse stack..."
     dc up -d "${ALL_SERVICES[@]}"
 
-    echo "==> Waiting for ClickHouse nodes to become healthy..."
-    for svc in "${CH_SERVICES[@]}"; do
+    echo "==> Waiting for Postgres + Redis + ClickHouse nodes to become healthy..."
+    for svc in db redis7 "${CH_SERVICES[@]}"; do
         wait_for_healthy "$svc"
     done
 fi
@@ -90,6 +94,9 @@ export CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 export CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
 export CLICKHOUSE_SECURE="${CLICKHOUSE_SECURE:-false}"
 export CLICKHOUSE_VERIFY="${CLICKHOUSE_VERIFY:-false}"
+export DATABASE_URL="${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog}"
+export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
+export SECRET_KEY="${SECRET_KEY:-multinode-smoke-not-a-real-secret}"
 
 python manage.py migrate_clickhouse
 

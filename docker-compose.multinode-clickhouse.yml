@@ -10,6 +10,13 @@
 # docker/clickhouse/config.d/multinode/. Ports are offset to avoid clashing with a
 # single-node `clickhouse` container that may be running on 9000/8123.
 #
+# A distinct compose project name keeps volumes / networks separate from
+# `bin/start` (which uses the default `posthog` project), so Zookeeper/Kafka
+# state from a previous dev run can't leak DDL queue entries that reference
+# the old single-node `clickhouse:9000` host.
+#
+
+name: posthog-multinode-smoke
 
 services:
     zookeeper:
@@ -23,6 +30,20 @@ services:
             service: kafka
         depends_on:
             - zookeeper
+
+    db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        ports:
+            - '5432:5432'
+
+    redis7:
+        extends:
+            file: docker-compose.base.yml
+            service: redis7
+        ports:
+            - '6379:6379'
 
     clickhouse-data: &clickhouse-multinode
         extends:
