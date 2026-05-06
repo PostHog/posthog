@@ -4,6 +4,7 @@ from typing import Any, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 
@@ -73,16 +74,6 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
 
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
-    def test_empty_filters_payload_is_accepted(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
-        mock_preflight.return_value = self._make_response([])
-
-        response = self.client.post(self.URL, {}, content_type="application/json")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"results": []}
-        assert mock_heavy.call_count == 0
-
-    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
-    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
     def test_invalid_filters_returns_400(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         response = self.client.post(
             self.URL,
@@ -93,33 +84,53 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
         assert mock_preflight.call_count == 0
         assert mock_heavy.call_count == 0
 
+    @parameterized.expand(
+        [
+            ("missing_filters_key", {}),
+            ("empty_filters_dict", {"filters": {}}),
+        ]
+    )
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
-    def test_empty_preflight_skips_heavy_query(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
+    def test_empty_preflight_skips_heavy_query(
+        self,
+        _name: str,
+        payload: dict[str, Any],
+        mock_preflight: MagicMock,
+        mock_heavy: MagicMock,
+    ) -> None:
         mock_preflight.return_value = self._make_response([])
 
-        response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
+        response = self.client.post(self.URL, payload, content_type="application/json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": []}
         assert mock_heavy.call_count == 0
 
+    @parameterized.expand(
+        [
+            ("preflight", "preflight"),
+            ("heavy", "heavy"),
+        ]
+    )
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
-    def test_preflight_failure_returns_500(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
-        mock_preflight.side_effect = RuntimeError("clickhouse boom")
+    def test_clickhouse_failure_returns_500(
+        self,
+        _name: str,
+        failing_stage: str,
+        mock_preflight: MagicMock,
+        mock_heavy: MagicMock,
+    ) -> None:
+        if failing_stage == "preflight":
+            mock_preflight.side_effect = RuntimeError("clickhouse boom")
+        else:
+            mock_preflight.return_value = self._make_response([self._preflight_row()])
+            mock_heavy.side_effect = RuntimeError("clickhouse boom")
 
         response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert mock_heavy.call_count == 0
-
-    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
-    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
-    def test_heavy_failure_returns_500(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
-        mock_preflight.return_value = self._make_response([self._preflight_row()])
-        mock_heavy.side_effect = RuntimeError("clickhouse boom")
-
-        response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        if failing_stage == "preflight":
+            assert mock_heavy.call_count == 0
 
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
