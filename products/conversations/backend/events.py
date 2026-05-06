@@ -42,8 +42,7 @@ def capture_ticket_created(ticket: Ticket) -> None:
     if ticket.distinct_id:
         try:
             persons = get_persons_by_distinct_ids(team_id, [ticket.distinct_id])
-            identified = [p for p in persons if p.is_identified]
-            if identified:
+            if any(p.is_identified for p in persons):
                 process_person = True
                 properties["$groups"] = build_groups(team.organization, team)
         except Exception:
