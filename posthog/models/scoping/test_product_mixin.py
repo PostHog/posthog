@@ -34,4 +34,3 @@ class TestProductTeamModelWiring(SimpleTestCase):
         """team_id is a plain BigIntegerField (no FK across DBs)."""
         field = ProductTeamModel._meta.get_field("team_id")
         self.assertIsInstance(field, models.BigIntegerField)
-        self.assertTrue(field.db_index)

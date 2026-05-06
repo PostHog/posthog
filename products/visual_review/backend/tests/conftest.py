@@ -26,27 +26,54 @@ PRODUCT_DATABASES = {"default", "visual_review_db_writer", "visual_review_db_rea
 
 @pytest.fixture(autouse=True)
 def _set_team_scope(request):
-    """Set team context for visual_review tests that use the database.
+    """Set team context for raw pytest tests that use the database.
 
     ProductTeamModel is fail-closed — queries without context raise
-    TeamScopeError. Activates for two cases:
-    - Tests marked with @pytest.mark.django_db (raw pytest tests).
-    - Tests inheriting Django TestCase / APIBaseTest (which get DB access
-      automatically via pytest-django without needing the marker).
+    TeamScopeError. Only activates for tests marked with @pytest.mark.django_db.
 
-    Pure unit tests that touch neither path skip this fixture so we
-    don't pull in DB access just to set up scoping context.
+    TestCase / APIBaseTest subclasses are skipped here even when the
+    marker is present, because they create their own team in setUp()
+    and `getfixturevalue("team")` would duplicate-create with the same
+    api_token (collision on `posthog_team_api_token_a9a1df8a_uniq`).
+    Those tests use VisualReviewTeamScopedTestMixin (below) which
+    wraps setUp/tearDown with team_scope using the test's own
+    self.team — no extra team creation.
     """
-    has_django_db_marker = request.node.get_closest_marker("django_db") is not None
-    is_django_testcase = request.cls is not None and any(cls.__name__ == "TestCase" for cls in request.cls.__mro__)
-    if not has_django_db_marker and not is_django_testcase:
+    if request.node.get_closest_marker("django_db") is None:
         yield
         return
 
-    # Get team from the shared fixture (only when DB is available)
+    is_django_testcase = request.cls is not None and any(cls.__name__ == "TestCase" for cls in request.cls.__mro__)
+    if is_django_testcase:
+        yield
+        return
+
     team = request.getfixturevalue("team")
     with team_scope(team.id):
         yield
+
+
+class VisualReviewTeamScopedTestMixin:
+    """Mixin for TestCase / APIBaseTest tests that use ProductTeamModel.
+
+    Wraps setUp/tearDown with team_scope so the test body's queries to
+    Repo, Run, RunSnapshot etc. find a scope. Place this BEFORE
+    APIBaseTest in the MRO so its setUp runs first (creating self.team)
+    and our setUp can use it:
+
+        class TestFoo(VisualReviewTeamScopedTestMixin, APIBaseTest):
+            def test_thing(self):
+                Repo.objects.create(...)  # auto-scoped
+    """
+
+    def setUp(self) -> None:
+        super().setUp()  # type: ignore[misc]
+        self._team_scope_cm = team_scope(self.team.id)  # type: ignore[attr-defined]
+        self._team_scope_cm.__enter__()
+
+    def tearDown(self) -> None:
+        self._team_scope_cm.__exit__(None, None, None)
+        super().tearDown()  # type: ignore[misc]
 
 
 # --- Local Git Repo Fixtures ---
