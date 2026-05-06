@@ -82,10 +82,9 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = await self._create_tool()
 
         assert tool.description is not None
-        self.assertIn("Cross-project querying is enabled", tool.description)
-        self.assertIn(f"team_id={self.team.id}", tool.description)
-        self.assertIn(f"team_id={other_team.id}", tool.description)
-        self.assertIn("Use `team_id` only when the user explicitly asks", tool.description)
+        self.assertIn("This project queries across all projects in the organization by default.", tool.description)
+        self.assertIn("Only use `team_id` for per-project filtering or breakdowns.", tool.description)
+        self.assertIn("If you need project IDs or names, query `system.teams`.", tool.description)
 
     async def test_successful_sql_execution_can_set_chart_axis_labels(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")
