@@ -187,19 +187,19 @@ export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
     /**
-     * Human-readable name for this alert.
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
      * @maxLength 255
      */
-    name: string
+    name?: string
     /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
-    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
-    filters: unknown
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+    filters?: unknown
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
      * @minimum 1
      */
-    threshold_count: number
+    threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
 
 * `above` - Above
@@ -266,6 +266,11 @@ export interface LogsAlertConfigurationApi {
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
+    /**
+     * When the alert was first enabled. Null means the alert is still in draft state.
+     * @nullable
+     */
+    readonly first_enabled_at: string | null
     /** When the alert was created. */
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -289,16 +294,16 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id?: string
     /**
-     * Human-readable name for this alert.
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
      * @maxLength 255
      */
     name?: string
     /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
-    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
     filters?: unknown
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
      * @minimum 1
      */
     threshold_count?: number
@@ -368,6 +373,11 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly NotificationDestinationTypeEnumApi[]
+    /**
+     * When the alert was first enabled. Null means the alert is still in draft state.
+     * @nullable
+     */
+    readonly first_enabled_at?: string | null
     /** When the alert was created. */
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -466,6 +476,12 @@ export interface LogsAlertSimulateRequestApi {
     threshold_operator: ThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
+    /**
+     * How often the alert is evaluated, in minutes.
+     * @minimum 1
+     * @maximum 60
+     */
+    check_interval_minutes?: number
     /**
      * Total check periods in the N-of-M evaluation window (M).
      * @minimum 1
@@ -607,10 +623,31 @@ export interface _LogPropertyFilterApi {
     value?: unknown | null
 }
 
+/**
+ * * `key` - key
+ * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
 export interface _LogAttributeEntryApi {
     name: string
     /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
     propertyFilterType: string
+    /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+
+* `key` - key
+* `value` - value */
+    matchedOn: MatchedOnEnumApi
+    /**
+     * Sample matching value — only set when matchedOn is "value".
+     * @nullable
+     */
+    matchedValue?: string | null
 }
 
 export interface _LogsAttributesResponseApi {
@@ -660,6 +697,46 @@ export interface _LogsCountRequestApi {
 export interface _LogsCountResponseApi {
     /** Number of log entries matching the filters. */
     count: number
+}
+
+export interface _LogsCountRangesBodyApi {
+    /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
+    dateRange?: _DateRangeApi
+    /**
+     * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    targetBuckets?: number
+    /** Filter by log severity levels. Applied before bucketing. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. Applied before bucketing. */
+    serviceNames?: string[]
+    /** Full-text search across log bodies. Applied before bucketing. */
+    searchTerm?: string
+    /** Property filters applied before bucketing. Same shape as `query-logs`. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsCountRangesRequestApi {
+    /** The bucketed-count query to execute. */
+    query: _LogsCountRangesBodyApi
+}
+
+export interface _LogsCountRangeBucketApi {
+    /** Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in. */
+    date_from: string
+    /** Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in. */
+    date_to: string
+    /** Log entries matching the filters within this bucket. */
+    count: number
+}
+
+export interface _LogsCountRangesResponseApi {
+    /** Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`. */
+    ranges: _LogsCountRangeBucketApi[]
+    /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
+    interval: string
 }
 
 /**
@@ -758,6 +835,136 @@ export interface _LogsQueryResponseApi {
     maxExportableLogs: number
 }
 
+/**
+ * * `severity_sampling` - Severity-based reduction
+ * `path_drop` - Path exclusion
+ * `rate_limit` - Rate limit
+ */
+export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
+
+export const RuleTypeEnumApi = {
+    SeveritySampling: 'severity_sampling',
+    PathDrop: 'path_drop',
+    RateLimit: 'rate_limit',
+} as const
+
+export type LogsSamplingRuleApiScopeAttributeFiltersItem = { [key: string]: unknown }
+
+export interface LogsSamplingRuleApi {
+    /** Unique identifier for this sampling rule. */
+    readonly id: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+
+* `severity_sampling` - Severity-based reduction
+* `path_drop` - Path exclusion
+* `rate_limit` - Rate limit */
+    rule_type: RuleTypeEnumApi
+    /**
+     * If set, the rule applies only to this service name; null means all services.
+     * @maxLength 512
+     * @nullable
+     */
+    scope_service?: string | null
+    /**
+     * Optional regex matched against a path-like log attribute when present.
+     * @maxLength 1024
+     * @nullable
+     */
+    scope_path_pattern?: string | null
+    /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+    scope_attribute_filters?: LogsSamplingRuleApiScopeAttributeFiltersItem[]
+    /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+    config: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version: number
+    readonly created_by: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsSamplingRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsSamplingRuleApi[]
+}
+
+export type PatchedLogsSamplingRuleApiScopeAttributeFiltersItem = { [key: string]: unknown }
+
+export interface PatchedLogsSamplingRuleApi {
+    /** Unique identifier for this sampling rule. */
+    readonly id?: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name?: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+
+* `severity_sampling` - Severity-based reduction
+* `path_drop` - Path exclusion
+* `rate_limit` - Rate limit */
+    rule_type?: RuleTypeEnumApi
+    /**
+     * If set, the rule applies only to this service name; null means all services.
+     * @maxLength 512
+     * @nullable
+     */
+    scope_service?: string | null
+    /**
+     * Optional regex matched against a path-like log attribute when present.
+     * @maxLength 1024
+     * @nullable
+     */
+    scope_path_pattern?: string | null
+    /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+    scope_attribute_filters?: PatchedLogsSamplingRuleApiScopeAttributeFiltersItem[]
+    /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+    config?: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version?: number
+    readonly created_by?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface LogsSamplingRuleSimulateResponseApi {
+    /** Rough percent of log volume this rule would drop (0–100). Stub until ClickHouse-backed estimate ships. */
+    estimated_reduction_pct: number
+    /** Human-readable caveats for the estimate. */
+    notes: string
+}
+
+export interface LogsSamplingRuleReorderApi {
+    /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+    ordered_ids: string[]
+}
+
 export interface _LogsServicesBodyApi {
     /** Date range for the services aggregation. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -776,6 +983,19 @@ export interface _LogsServicesRequestApi {
     query: _LogsServicesBodyApi
 }
 
+export interface _LogsServiceSeverityBreakdownApi {
+    debug: number
+    info: number
+    warn: number
+    error: number
+}
+
+export interface _LogsServiceActiveRuleApi {
+    rule_id: string
+    rule_name: string
+    summary_string: string
+}
+
 export interface _LogsServiceAggregateApi {
     /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
     service_name: string
@@ -785,6 +1005,12 @@ export interface _LogsServiceAggregateApi {
     error_count: number
     /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
     error_rate: number
+    /** Share of total log volume in the window for this service (0–100). */
+    volume_share_pct?: number
+    /** Counts by coarse severity bucket (debug, info, warn, error+fatal). */
+    severity_breakdown?: _LogsServiceSeverityBreakdownApi
+    /** Enabled sampling rules whose scope includes this service. */
+    active_rules?: _LogsServiceActiveRuleApi[]
 }
 
 export interface _LogsServicesSparklineBucketApi {
@@ -794,11 +1020,20 @@ export interface _LogsServicesSparklineBucketApi {
     count: number
 }
 
+export interface _LogsServicesSummaryApi {
+    /** Number of top services included in the volume_share aggregate (up to 5). */
+    top_services_count: number
+    /** Combined volume share (percent) of the top services by log_count. */
+    top_services_volume_share_pct: number
+}
+
 export interface _LogsServicesResponseApi {
     /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
     services: _LogsServiceAggregateApi[]
     /** Time-bucketed counts broken down by service, for plotting volume over time. */
     sparkline: _LogsServicesSparklineBucketApi[]
+    /** Roll-up stats for the Services tab header. */
+    summary?: _LogsServicesSummaryApi
 }
 
 /**
@@ -982,6 +1217,10 @@ export type LogsAttributesRetrieveParams = {
      */
     search?: string
     /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean
+    /**
      * Filter attributes to those appearing in logs from these services.
      */
     serviceNames?: string[]
@@ -998,6 +1237,28 @@ export const LogsAttributesRetrieveAttributeType = {
 export type LogsExportCreate201 = { [key: string]: unknown }
 
 export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
+
+export type LogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type LogsValuesRetrieveParams = {
     /**

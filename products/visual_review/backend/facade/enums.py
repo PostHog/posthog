@@ -69,6 +69,23 @@ class ClassificationReason(StrEnum):
     BELOW_THRESHOLD = "below_threshold"  # Diffed this run, below pixel/SSIM threshold
 
 
+class ChangeKind(StrEnum):
+    """What kind of change a CHANGED snapshot represents.
+
+    Set when a snapshot's `result` is CHANGED. The two-tier classifier
+    distinguishes a pixel-level diff (lots of pixels differ) from a
+    structural shift caught by SSIM (few pixels but a measurable layout
+    change). Empty for snapshots that haven't been diffed yet (legacy data).
+
+    Size mismatch is *not* a kind here — a snapshot can have a different
+    viewport AND a content change. The flag lives in `diff_metadata`
+    instead so it composes with whichever kind the classifier picks.
+    """
+
+    PIXEL = "pixel"  # Pixel diff above threshold — a chunk of pixels visibly changed
+    STRUCTURAL = "structural"  # SSIM caught a layout/structural shift; pixel diff was below threshold
+
+
 class ActorType(StrEnum):
     """Who performed an action — human user, AI agent, or automated system."""
 

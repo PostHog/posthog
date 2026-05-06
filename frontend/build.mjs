@@ -43,7 +43,7 @@ await buildInParallel(
         {
             name: 'PostHog App',
             globalName: 'posthogApp',
-            entryPoints: ['src/index.tsx'],
+            entryPoints: ['src/index.tsx', 'src/sharedChunkAnchors.ts'],
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),

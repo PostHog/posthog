@@ -1,5 +1,5 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSSProperties, useRef } from 'react'
+import { CSSProperties, useEffect, useRef, useState } from 'react'
 
 import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
 
@@ -195,31 +195,99 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
     )
 }
 
+export type TreeDropPosition = 'before' | 'after' | 'onto'
+
 type DroppableProps = DragAndDropProps & {
     isDroppable: boolean
     className?: string
     isDragging?: boolean
     isRoot?: boolean
     style?: CSSProperties
+    // When 'reorder', render an insertion line above/below the row based on pointer position
+    // and report which side was targeted. Defaults to 'onto' (ring highlight on the whole row).
+    dropMode?: 'onto' | 'reorder'
+    onPositionChange?: (id: string, position: TreeDropPosition) => void
 }
 
 export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
     const { setNodeRef, isOver } = useDroppable({ id: props.id })
+    const nodeRef = useRef<HTMLDivElement | null>(null)
+    const [reorderSide, setReorderSide] = useState<'before' | 'after' | null>(null)
+
+    const setRefs = (el: HTMLDivElement | null): void => {
+        nodeRef.current = el
+        setNodeRef(el)
+    }
+
+    const isReorder = props.dropMode === 'reorder' && props.isDroppable
+    const onPositionChange = props.onPositionChange
+    const propsId = props.id
+
+    // While the user is hovering this row mid-drag, track the pointer at the document
+    // level so we reliably know whether they're over the top or bottom half — React's
+    // onPointerMove on the node can miss updates if the pointer barely moves or the
+    // drag preview briefly covers the row.
+    useEffect(() => {
+        if (!isReorder || !isOver) {
+            setReorderSide(null)
+            return
+        }
+        // 2px deadband around the midpoint so hovering exactly on the line doesn't
+        // flip-flop the indicator back and forth on every sub-pixel of movement.
+        const DEADBAND = 2
+        const updateFromClientY = (clientY: number): void => {
+            if (!nodeRef.current) {
+                return
+            }
+            const rect = nodeRef.current.getBoundingClientRect()
+            const midY = rect.top + rect.height / 2
+            if (Math.abs(clientY - midY) < DEADBAND) {
+                return
+            }
+            const side: 'before' | 'after' = clientY < midY ? 'before' : 'after'
+            setReorderSide((prev) => {
+                if (prev !== side) {
+                    onPositionChange?.(propsId, side)
+                    return side
+                }
+                return prev
+            })
+        }
+        const handleMove = (e: PointerEvent): void => updateFromClientY(e.clientY)
+        document.addEventListener('pointermove', handleMove)
+        return () => document.removeEventListener('pointermove', handleMove)
+    }, [isReorder, isOver, onPositionChange, propsId])
+
+    const showRing = props.isDroppable && isOver && !isReorder
+    const showLineBefore = isReorder && isOver && reorderSide === 'before'
+    const showLineAfter = isReorder && isOver && reorderSide === 'after'
 
     return (
         <div
-            ref={setNodeRef}
+            ref={setRefs}
             className={cn(
-                'flex flex-col transition-all duration-150 rounded relative z-2 ',
+                'flex flex-col rounded relative z-2 ',
+                // Keep the ring mode transition for existing consumers; skip it in reorder mode
+                // so the insertion indicator appears/moves instantly and doesn't tween width.
+                !isReorder && 'transition-all duration-150',
                 props.className,
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
+                // In reorder mode force full row width so the insertion line has a
+                // consistent visible length across rows with different label widths.
+                isReorder && 'w-full',
+                showRing && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
                 // If the item is a root item and it's dragging, make it take up the full height
                 props.isRoot && props.isDragging && 'h-full'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={props.style}
         >
+            {showLineBefore && (
+                <div className="pointer-events-none absolute -top-px left-2 right-2 h-0.5 bg-accent z-10" />
+            )}
             {props.children}
+            {showLineAfter && (
+                <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 bg-accent z-10" />
+            )}
         </div>
     )
 }

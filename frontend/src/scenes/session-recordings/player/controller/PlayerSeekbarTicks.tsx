@@ -12,7 +12,7 @@ import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichConte
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
-import { getPromotedPropertyForEvent } from 'lib/utils/promotedEventProperty'
+import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import {
     InspectorListItem,
     InspectorListItemComment,
@@ -21,7 +21,7 @@ import {
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
-import { promotedEventPropertiesModel } from '~/models/promotedEventPropertiesModel'
+import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 
 import { UserActivity } from './UserActivity'
 
@@ -56,13 +56,13 @@ function PlayerSeekbarTick({
     endTimeMs,
     zIndex,
     onClick,
-    promotedProperties,
+    primaryProperties,
 }: {
     item: InspectorListItemComment | InspectorListItemNotebookComment | InspectorListItemEvent
     endTimeMs: number
     zIndex: number
     onClick: (e: React.MouseEvent) => void
-    promotedProperties: Record<string, string>
+    primaryProperties: Record<string, string>
 }): JSX.Element | null {
     const position = (item.timeInRecording / endTimeMs) * 100
 
@@ -70,10 +70,8 @@ function PlayerSeekbarTick({
         return null
     }
 
-    const promotedPropertyKey = isEventItem(item)
-        ? getPromotedPropertyForEvent(item.data.event, promotedProperties)
-        : null
-    const promotedValue = promotedPropertyKey && isEventItem(item) ? item.data.properties?.[promotedPropertyKey] : null
+    const primaryPropertyKey = isEventItem(item) ? getPrimaryPropertyForEvent(item.data.event, primaryProperties) : null
+    const primaryValue = primaryPropertyKey && isEventItem(item) ? item.data.properties?.[primaryPropertyKey] : null
 
     return (
         <div
@@ -109,8 +107,8 @@ function PlayerSeekbarTick({
                                     value={item.data.event}
                                 />
                             )}
-                            {promotedValue != null && promotedValue !== '' ? (
-                                <span className="ml-2 opacity-75">{String(promotedValue)}</span>
+                            {primaryValue != null && primaryValue !== '' ? (
+                                <span className="ml-2 opacity-75">{String(primaryValue)}</span>
                             ) : null}
                         </>
                     ) : isNotebookComment(item) ? (
@@ -150,13 +148,13 @@ const MemoisedPlayerSeekbarTicks = memo(
         endTimeMs,
         seekToTime,
         hoverRef,
-        promotedProperties,
+        primaryProperties,
     }: {
         seekbarItems: (InspectorListItemEvent | InspectorListItemComment | InspectorListItemNotebookComment)[]
         endTimeMs: number
         seekToTime: (timeInMilliseconds: number) => void
         hoverRef: MutableRefObject<HTMLDivElement | null>
-        promotedProperties: Record<string, string>
+        primaryProperties: Record<string, string>
     }): JSX.Element {
         return (
             <div className="PlayerSeekbarTicks">
@@ -172,7 +170,7 @@ const MemoisedPlayerSeekbarTicks = memo(
                                 e.stopPropagation()
                                 seekToTime(item.timeInRecording)
                             }}
-                            promotedProperties={promotedProperties}
+                            primaryProperties={primaryProperties}
                         />
                     )
                 })}
@@ -188,7 +186,7 @@ const MemoisedPlayerSeekbarTicks = memo(
             seekbarItemsAreEqual &&
             prev.endTimeMs === next.endTimeMs &&
             prev.seekToTime === next.seekToTime &&
-            prev.promotedProperties === next.promotedProperties
+            prev.primaryProperties === next.primaryProperties
         )
     }
 )
@@ -204,8 +202,8 @@ export function PlayerSeekbarTicks({
     seekToTime: (timeInMilliseconds: number) => void
     hoverRef: MutableRefObject<HTMLDivElement | null>
 }): JSX.Element {
-    const { promotedProperties } = useValues(promotedEventPropertiesModel)
-    const { ensureLoadedForEvents } = useActions(promotedEventPropertiesModel)
+    const { primaryProperties } = useValues(primaryEventPropertiesModel)
+    const { ensureLoadedForEvents } = useActions(primaryEventPropertiesModel)
     const distinctEventNames = useMemo(
         () => Array.from(new Set(seekbarItems.filter(isEventItem).map((i) => i.data.event))),
         [seekbarItems]
@@ -220,7 +218,7 @@ export function PlayerSeekbarTicks({
             endTimeMs={endTimeMs}
             seekToTime={seekToTime}
             hoverRef={hoverRef}
-            promotedProperties={promotedProperties}
+            primaryProperties={primaryProperties}
         />
     )
 }
