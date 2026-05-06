@@ -1,5 +1,4 @@
-import type { YAxisConfig } from 'lib/hog-charts'
-import { YFormatterConfig } from 'lib/hog-charts/charts/TimeSeriesLineChart/utils/y-formatters'
+import type { YAxisConfig, YFormatterConfig } from 'lib/hog-charts'
 
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 
