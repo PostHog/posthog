@@ -157,6 +157,7 @@ def sync_external_data_job_workflow(
             create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
         except ScheduleAlreadyRunningError:
             update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
@@ -177,6 +178,7 @@ async def a_sync_external_data_job_workflow(
             )
         except ScheduleAlreadyRunningError:
             await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            await a_trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
