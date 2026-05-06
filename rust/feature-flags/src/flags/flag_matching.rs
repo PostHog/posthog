@@ -363,10 +363,8 @@ impl FlagSnapshot {
     }
 }
 
-/// Surface the request's `distinct_id` as a `distinct_id` person property
-/// unless the caller already supplied one. Mirrors Python local evaluation
-/// (`add_local_person_and_group_properties`), keeping flag conditions that
-/// match on `distinct_id` evaluable without a DB lookup. Empty strings are
+/// Mirrors Python's `add_local_person_and_group_properties` so flag conditions
+/// matching on `distinct_id` evaluate without a DB lookup. Empty strings are
 /// skipped so a `distinct_id == ""` flag does not match every empty-distinct_id
 /// request that slips past the request decoder.
 fn merge_distinct_id_into_person_properties(
@@ -2564,9 +2562,6 @@ mod tests {
 
     #[test]
     fn test_merge_distinct_id_skips_empty_string() {
-        // An empty distinct_id reaches us when the request decoder accepts it
-        // (see flag_request::extract_distinct_id). Skip the injection so a
-        // `distinct_id == ""` flag does not match every empty-distinct_id request.
         assert_eq!(merge_distinct_id_into_person_properties("", None), None);
 
         let overrides = HashMap::from([("foo".to_string(), Value::String("bar".to_string()))]);
