@@ -5,7 +5,6 @@ import uuid
 import asyncio
 import logging
 from collections.abc import Sequence
-from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -185,9 +184,6 @@ async def SandboxedEval(
                 sandboxed_demo_data.make_context,
                 eval_case.name,
             )
-            if not eval_case.repo_fixture:
-                sandbox_context = replace(sandbox_context, repository=None)
-
             seed_result: dict[str, Any] = {}
             if original_case is not None and original_case.setup is not None:
                 try:
