@@ -413,7 +413,13 @@ procs:
             tech: Python
 
     migrate-postgres:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=postgres'
+        # bin/hogli db:restore-schema-if-fresh is a dev-only fast path that restores the
+        # latest CI migrated-schema artifact when the local DB is empty, instead of
+        # replaying Django migrations from scratch. Gated on POSTHOG_SCHEMA_RESTORE_IN_DEV
+        # (auto/on/off; defaults to auto in bin/start, unset elsewhere → off → no-op).
+        # Safe in either order with bin/migrate: on a freshly-restored DB Django sees
+        # all migrations already applied and exits quickly.
+        shell: 'bin/wait-for-docker && bin/hogli db:restore-schema-if-fresh && bin/migrate --scope=postgres'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
         groups:

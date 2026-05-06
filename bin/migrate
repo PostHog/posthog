@@ -83,14 +83,6 @@ if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
 fi
 
 if [ "$RUN_POSTGRES" = "1" ]; then
-    # Opt-in fast path: when POSTHOG_SCHEMA_RESTORE_IN_DEV is auto/on, try to restore the
-    # CI-published migrated schema instead of replaying Django migrations. The hogli
-    # command refuses unless the local DB is empty, and `auto` falls back silently
-    # to normal migrations on any failure. CI/prod don't set the var → no-op.
-    if [ "${POSTHOG_SCHEMA_RESTORE_IN_DEV:-off}" != "off" ]; then
-        "$SCRIPT_DIR/hogli" db:restore-schema-if-fresh
-    fi
-
     # Run postgres migrations with retry logic
     # If POSTHOG_POSTGRES_DIRECT_HOST is set, use direct connection (bypasses PgBouncer)
     # which allows lock_timeout to be set in Django database OPTIONS
