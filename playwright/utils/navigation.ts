@@ -41,21 +41,17 @@ export class Navigation {
     }
 
     async openMenuItem(name: string): Promise<void> {
-        // Use navbar-specific selector for items that have duplicates in LemonTree
-        const navbarSelector = this.page.getByTestId(`navbar-${name}`)
-        const menuSelector = this.page.getByTestId(`menu-item-${name}`)
-        const navItemSelector = this.page.getByTestId(`nav-item-${name === 'projecthomepage' ? 'home' : name}`)
-
-        // Prefer navbar selector, then menu-item, then ai-first nav-item
-        let element = navbarSelector
-        if ((await navbarSelector.count()) === 0) {
-            element = (await menuSelector.count()) > 0 ? menuSelector : navItemSelector
-        }
-
-        if ((await element.count()) === 0 && IDENTIFIER_URL_FALLBACKS[name]) {
-            // No nav element exists in the AI-first navigation for this scene; navigate by URL
+        // The legacy PanelLayoutNavBar exposed every scene as `menu-item-<name>` /
+        // `navbar-<name>`. The AI-first navbar only renders a few `nav-item-*` test-ids
+        // (and only when the parent collapsible section is expanded), so for known scenes
+        // we navigate by URL — that's the most reliable cross-layout behavior.
+        if (IDENTIFIER_URL_FALLBACKS[name]) {
             await this.page.goto(IDENTIFIER_URL_FALLBACKS[name])
         } else {
+            // Fall back to legacy selectors for scenes we haven't mapped yet.
+            const navbarSelector = this.page.getByTestId(`navbar-${name}`)
+            const menuSelector = this.page.getByTestId(`menu-item-${name}`)
+            const element = (await navbarSelector.count()) > 0 ? navbarSelector : menuSelector
             await element.click()
         }
         // Wait for navigation to complete and page to be ready
