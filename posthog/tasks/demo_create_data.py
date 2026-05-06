@@ -4,11 +4,13 @@ from celery import shared_task
 
 from posthog.demo.matrix import manager
 from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
+from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def create_data_for_demo_team(team_id: int, user_id: int, cache_key: str) -> None:
     team = Team.objects.get(pk=team_id)
     user = User.objects.get(pk=user_id)

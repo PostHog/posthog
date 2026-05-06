@@ -3,12 +3,14 @@ from celery import shared_task
 
 from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def backfill_vercel_connectable_resources() -> None:
     """One-shot task to create missing Integration resources for connectable Vercel installations."""
     from ee.vercel.client import VercelAPIClient

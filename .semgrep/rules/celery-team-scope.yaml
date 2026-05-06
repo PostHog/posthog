@@ -47,6 +47,14 @@ rules:
                 @with_team_scope(...)
                 def $FUNC(...):
                     ...
+          # Tasks that legitimately need to bypass the audit (model still uses
+          # RootTeamManager, task is genuinely cross-team, etc.) tag themselves
+          # with @skip_team_scope_audit. The marker is a no-op at runtime; its
+          # only purpose is to silence this rule for the marked function.
+          - pattern-not-inside: |
+                @skip_team_scope_audit
+                def $FUNC(...):
+                    ...
           - pattern-not: $MODEL.objects.unscoped()
           - pattern-not: $MODEL.objects.unscoped().$METHOD(...)
       message: |
@@ -70,14 +78,12 @@ rules:
       languages: [python]
       severity: WARNING
       paths:
-          # Scope to products that have adopted TeamScopedManager / ProductTeamModel.
-          # Expand this list as more products migrate. The rule would otherwise
-          # over-match Celery tasks across the whole codebase, including tasks
-          # against models that haven't adopted the new manager (FeatureFlag, etc.
-          # still use RootTeamManager which auto-rewrites on save and doesn't
-          # care about ContextVar).
-          include:
-              - 'products/visual_review/**'
+          # Default-on: rule runs across the whole codebase. Pre-existing tasks
+          # that query models still using RootTeamManager (or default Manager)
+          # are tagged with @skip_team_scope_audit, which is a no-op at runtime
+          # and silences this rule. New tasks must either use @with_team_scope,
+          # use .unscoped(), or explicitly skip with @skip_team_scope_audit —
+          # forcing a deliberate decision per task. See README for guidance.
           exclude:
               - '**/test/**'
               - '**/tests/**'

@@ -19,6 +19,7 @@ from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
+from posthog.models.scoping import skip_team_scope_audit
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.slo.context import SloSpec, slo_operation
@@ -66,6 +67,7 @@ def checks_cleanup_task() -> None:
     ignore_result=True,
     expires=60 * 60,
 )
+@skip_team_scope_audit
 def alerts_backlog_task() -> None:
     """
     This runs every 5min to check backlog for alerts
@@ -118,6 +120,7 @@ def alerts_backlog_task() -> None:
     ignore_result=True,
     expires=60 * 60,
 )
+@skip_team_scope_audit
 def reset_stuck_alerts_task() -> None:
     now = datetime.now(UTC)
 
@@ -146,6 +149,7 @@ def reset_stuck_alerts_task() -> None:
     ignore_result=True,
     expires=60 * 60,
 )
+@skip_team_scope_audit
 def check_alerts_task() -> None:
     """
     This runs every 2min to check for alerts that are due to recalculate
