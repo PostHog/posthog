@@ -5194,6 +5194,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "user_integration_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_integration_id",
+                  "id": null,
+                  "name": "user_integration_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "full_name": {
                   "chain": null,
                   "fields": null,
@@ -12374,6 +12384,16 @@
                   "hogql_value": "integration_id",
                   "id": null,
                   "name": "integration_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "user_integration_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_integration_id",
+                  "id": null,
+                  "name": "user_integration_id",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
