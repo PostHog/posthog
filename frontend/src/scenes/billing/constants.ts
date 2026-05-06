@@ -29,6 +29,7 @@ export const CODE_PRODUCT_KEY = 'posthog_code'
 // TODO: Replace hardcoded plan keys with dynamic plan metadata from billing service
 export const CODE_PLAN_FREE = 'posthog-code-free-20260301'
 export const CODE_PLAN_PRO = 'posthog-code-pro-200-20260301'
+export const CODE_PLAN_ALPHA_PRO = 'posthog-code-pro-0-20260422'
 
 export const CODE_PRO_PLAN_PREFIX = 'posthog-code-pro-'
 export const CODE_FREE_PLAN_PREFIX = 'posthog-code-free'

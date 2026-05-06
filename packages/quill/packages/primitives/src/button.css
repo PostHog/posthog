@@ -112,12 +112,13 @@
         position: relative;
         color: var(--primary-foreground);
         background-color: var(--primary);
-        box-shadow: 0 2px 0 -1px color-mix(in oklab, var(--primary) 80%, transparent);
+        box-shadow: 0 2px 0 -1px color-mix(in oklab, var(--primary) 50%, transparent);
+        translate: 0 -1px;
     }
 
     .quill-button--variant-primary::after {
         position: absolute;
-        top: 2px;
+        top: 3px;
         bottom: 0;
         left: 0;
         width: 100%;
@@ -130,14 +131,15 @@
     }
 
     .quill-button--variant-primary:not(:disabled):active {
-        box-shadow: 0 1px 0 -1px color-mix(in oklab, var(--primary) 80%, transparent);
+        box-shadow: 0 1px 0 -1px color-mix(in oklab, var(--primary) 50%, transparent);
+        translate: 0 0;
     }
 
     /* =========================================================================
        Variant: outline
        ========================================================================= */
     .quill-button--variant-outline {
-        background-color: color-mix(in oklab, var(--accent) 30%, transparent);
+        background-color: color-mix(in oklab, var(--muted) 30%, transparent);
         border-color: color-mix(in oklab, var(--foreground) 10%, transparent);
     }
 
@@ -147,7 +149,7 @@
 
     .quill-button--variant-outline:not(:disabled):hover {
         color: var(--foreground);
-        background-color: color-mix(in oklab, var(--accent) 50%, transparent);
+        background-color: color-mix(in oklab, var(--muted) 50%, transparent);
     }
 
     :is(.dark, [theme='dark']) .quill-button--variant-outline:hover {

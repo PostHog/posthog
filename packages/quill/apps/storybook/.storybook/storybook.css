@@ -32,6 +32,9 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/inter';
 
+/* Edge-fade utilities (`scroll-mask-*`) for scrollable lists/popups. */
+@import 'tailwindcss-scroll-mask';
+
 /* Design tokens — CSS custom property values + the @theme inline block. */
 @import '@posthog/quill-tokens/color-system.css';
 @import '@posthog/quill-tokens/tailwind-lib.css';
@@ -57,6 +60,10 @@
 @layer base {
     * {
         @apply border-border outline-ring/50;
+    }
+
+    body {
+        @apply bg-background text-foreground;
     }
 }
 
