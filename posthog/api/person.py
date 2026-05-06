@@ -941,7 +941,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"])
         if person is None:
             raise NotFound()
-        cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
+        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team.pk)
 
         # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)

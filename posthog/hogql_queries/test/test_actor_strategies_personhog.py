@@ -133,7 +133,7 @@ class TestPersonStrategyGetActors(PersonhogTestMixin, BaseTest):
         assert uuids_in_order == [str(p_new.uuid), str(p_mid.uuid), str(p_old.uuid)]
 
     def test_cross_team_isolation(self):
-        other_team = self.create_team(organization=self.organization)
+        other_team = self.create_team_with_organization(organization=self.organization)
         other_person = self._seed_person(team=other_team, distinct_ids=["other"], properties={})
         own_person = self._seed_person(team=self.team, distinct_ids=["own"], properties={})
 

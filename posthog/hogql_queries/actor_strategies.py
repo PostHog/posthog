@@ -19,7 +19,6 @@ from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team
 from posthog.models.person import Person, PersonDistinctId
 from posthog.person_db_router import PERSONS_DB_FOR_READ
-from posthog.personhog_client.client import get_personhog_client
 from posthog.personhog_client.metrics import (
     PERSONHOG_ROUTING_ERRORS_TOTAL,
     PERSONHOG_ROUTING_TOTAL,
@@ -72,6 +71,8 @@ class PersonStrategy(ActorStrategy):
     BATCH_SIZE = 1000
 
     def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
+        from posthog.personhog_client.client import get_personhog_client
+
         client = get_personhog_client()
         if client is not None:
             try:
@@ -121,9 +122,9 @@ class PersonStrategy(ActorStrategy):
         person_ids = [p.id for p in all_persons]
         distinct_ids_by_person: dict[int, list[str]] = {}
         for i in range(0, len(person_ids), self.BATCH_SIZE):
-            batch = person_ids[i : i + self.BATCH_SIZE]
+            did_batch = person_ids[i : i + self.BATCH_SIZE]
             did_resp = client.get_distinct_ids_for_persons(
-                GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=batch)
+                GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=did_batch)
             )
             for pd in did_resp.person_distinct_ids:
                 distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
