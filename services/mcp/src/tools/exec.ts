@@ -19,16 +19,9 @@ export interface ExecInnerCallProperties {
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
-const OUTPUT_FORMAT_DESCRIPTION =
-    "Output format for `call <tool>` and `info <tool>`. `optimized` (default) returns a token-efficient view (TOON-formatted result for `call`, YAML envelope with the input schema embedded as a JSON string for `info`). `json` returns the inner tool's raw JSON result for `call`, and the full info envelope as JSON (with `inputSchema` as a real object) for `info`. Some tools force `json` for `call` regardless via their own metadata. Ignored for `tools`, `search`, `schema`."
-
-function makeExecSchema(commandReference: string): z.ZodObject<{
-    command: z.ZodString
-    output_format: z.ZodOptional<z.ZodEnum<{ optimized: 'optimized'; json: 'json' }>>
-}> {
+function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
     return z.object({
         command: z.string().describe(commandReference),
-        output_format: z.enum(['optimized', 'json']).optional().describe(OUTPUT_FORMAT_DESCRIPTION),
     })
 }
 
@@ -133,17 +126,15 @@ export function createExecTool(
 
                 case 'info': {
                     if (!rest) {
-                        throw new Error(
-                            'Usage: info <tool_name>  (pass `output_format: "json"` as a sibling parameter for raw JSON)'
-                        )
+                        throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    if (rest.startsWith('--json ') || rest === '--json') {
-                        throw new Error(
-                            'The `--json` flag in `command` is no longer supported. Pass `output_format: "json"` as a sibling parameter instead.'
-                        )
+                    const forceJson = rest.startsWith('--json ') || rest === '--json'
+                    const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    if (!infoArgs) {
+                        throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, rest)
-                    const useJson = params.output_format === 'json'
+                    const tool = findTool(allTools, infoArgs)
+                    const useJson = forceJson
                     const fullSchema = z.toJSONSchema(tool.schema)
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
@@ -207,14 +198,14 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new Error('Usage: call <tool_name> [<json_input>]  (output format via `output_format`)')
+                        throw new Error('Usage: call [--json] <tool_name> [<json_input>]')
                     }
-                    if (rest.startsWith('--json ') || rest === '--json') {
-                        throw new Error(
-                            'The `--json` flag in `command` is no longer supported. Pass `output_format: "json"` as a sibling parameter instead.'
-                        )
+                    const forceJson = rest.startsWith('--json ') || rest === '--json'
+                    const callArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    if (!callArgs) {
+                        throw new Error('Usage: call [--json] <tool_name> [<json_input>]')
                     }
-                    const { verb: toolName, rest: jsonBody } = parseCommand(rest)
+                    const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
                     let input: Record<string, unknown>
                     if (!jsonBody) {
@@ -228,8 +219,7 @@ export function createExecTool(
                         }
                     }
 
-                    const useJson =
-                        params.output_format === 'json' || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
                     const startedAt = Date.now()
                     let result: unknown
                     try {

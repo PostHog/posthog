@@ -24,7 +24,7 @@ posthog:exec({ "command": "schema <tool_name> <field_path>" })
 
 # 4. Call the tool. Pass arguments as inline JSON in `command`:
 posthog:exec({ "command": "call <tool_name> {<json_input>}" })
-posthog:exec({ "command": "call <tool_name> {<json_input>}", "output_format": "json" })
+posthog:exec({ "command": "call --json <tool_name> {<json_input>}" })
 ```
 
 **Schema drill-down:**

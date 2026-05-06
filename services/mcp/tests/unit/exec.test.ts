@@ -50,14 +50,14 @@ describe('exec tool', () => {
             expect(result).not.toBe(JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] }))
         })
 
-        it('returns raw JSON when output_format is "json"', async () => {
+        it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
-            const result = await exec.handler(mockContext, { command: 'call mock-tool', output_format: 'json' })
+            const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('returns JSON for tool with outputFormat json even without output_format param', async () => {
+        it('returns JSON for tool with outputFormat json even without --json flag', async () => {
             const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } } })
             const exec = createExec([tool])
             const result = await exec.handler(mockContext, { command: 'call mock-tool' })
@@ -65,40 +65,26 @@ describe('exec tool', () => {
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('returns JSON when both output_format=json and tool meta outputFormat=json are present', async () => {
+        it('returns JSON when both --json flag and tool meta outputFormat=json are present', async () => {
             const tool = makeMockTool({ _meta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } } })
             const exec = createExec([tool])
-            const result = await exec.handler(mockContext, { command: 'call mock-tool', output_format: 'json' })
+            const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
-        })
-
-        it('rejects the legacy --json flag in `command` and points at the output_format param', async () => {
-            const exec = createExec()
-            await expect(exec.handler(mockContext, { command: 'call --json mock-tool' })).rejects.toThrow(
-                /`--json` flag in `command` is no longer supported/
-            )
         })
 
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call <tool_name> [<json_input>]  (output format via `output_format`)'
+                'Usage: call [--json] <tool_name> [<json_input>]'
             )
         })
 
-        it('passes inline JSON whose values collide with the legacy --json flag literal', async () => {
-            const tool = makeMockTool({
-                schema: z.object({ tag: z.string() }),
-                handler: async (_ctx, params) => params,
-            })
-            const exec = createExec([tool])
-            const result = await exec.handler(mockContext, {
-                command: 'call mock-tool {"tag":"--json"}',
-            })
-            // Without the flag in `command`, output is TOON-formatted regardless of
-            // payload values.
-            expect(result).toContain('tag:')
+        it('throws usage error for call --json with no tool name', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
+                'Usage: call [--json] <tool_name> [<json_input>]'
+            )
         })
 
         it('propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app and consumer is posthog-code', async () => {
@@ -165,7 +151,7 @@ describe('exec tool', () => {
                 undefined,
                 tracker
             )
-            await exec.handler(mockContext, { command: 'call mock-tool', output_format: 'json' })
+            await exec.handler(mockContext, { command: 'call --json mock-tool' })
             expect(calls).toHaveLength(1)
             expect(calls[0]!.toolName).toBe('mock-tool')
             expect(calls[0]!.properties.success).toBe(true)
@@ -180,8 +166,7 @@ describe('exec tool', () => {
             })
             const exec = createExec([tool])
             const result = await exec.handler(mockContext, {
-                command: 'call mock-tool {"name":"foo","tags":["a","b"]}',
-                output_format: 'json',
+                command: 'call --json mock-tool {"name":"foo","tags":["a","b"]}',
             })
             expect(JSON.parse(result as string)).toEqual({ name: 'foo', tags: ['a', 'b'] })
         })
@@ -195,8 +180,7 @@ describe('exec tool', () => {
             const content = '# Title\n\nLine with "double quotes", \'single quotes\', and `backticks` — also unicode ☃.'
             const payload = JSON.stringify({ name: 'skill', content })
             const result = await exec.handler(mockContext, {
-                command: `call mock-tool ${payload}`,
-                output_format: 'json',
+                command: `call --json mock-tool ${payload}`,
             })
             expect(JSON.parse(result as string)).toEqual({ name: 'skill', content })
         })
@@ -256,11 +240,10 @@ describe('exec tool', () => {
             expect(parsedSchema.properties.name.description).toBe('Person name')
         })
 
-        it('returns JSON when output_format is "json"', async () => {
+        it('returns JSON when --json flag is passed in command', async () => {
             const exec = createExec()
             const result = (await exec.handler(mockContext, {
-                command: 'info mock-tool',
-                output_format: 'json',
+                command: 'info --json mock-tool',
             })) as string
             const parsed = JSON.parse(result)
             expect(parsed.name).toBe('mock-tool')
@@ -273,17 +256,14 @@ describe('exec tool', () => {
         it('throws usage error for bare info', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(
-                'Usage: info <tool_name>  (pass `output_format: "json"` as a sibling parameter for raw JSON)'
+                'Usage: info [--json] <tool_name>'
             )
         })
 
-        it('rejects the legacy --json flag in `command` and points at the output_format param', async () => {
+        it('throws usage error for info --json with no tool name', async () => {
             const exec = createExec()
-            await expect(exec.handler(mockContext, { command: 'info --json mock-tool' })).rejects.toThrow(
-                /`--json` flag in `command` is no longer supported/
-            )
             await expect(exec.handler(mockContext, { command: 'info --json' })).rejects.toThrow(
-                /`--json` flag in `command` is no longer supported/
+                'Usage: info [--json] <tool_name>'
             )
         })
     })
