@@ -162,8 +162,6 @@ describe('ErrorTrackingConsumer', () => {
             rateLimiterRedisHost: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
             rateLimiterRedisPort: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
             rateLimiterRedisTls: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
-            rateLimiterBucketSize: hub.ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE,
-            rateLimiterRefillRate: hub.ERROR_TRACKING_RATE_LIMITER_REFILL_RATE,
             rateLimiterTtlSeconds: hub.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
             fallbackRedisUrl: hub.REDIS_URL,
             rateLimiterRedisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,

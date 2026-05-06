@@ -59,8 +59,6 @@ export interface ErrorTrackingConsumerOptions {
     rateLimiterRedisHost: string
     rateLimiterRedisPort: number
     rateLimiterRedisTls: boolean
-    rateLimiterBucketSize: number
-    rateLimiterRefillRate: number
     rateLimiterTtlSeconds: number
     /** Fallback Redis URL when no dedicated host is configured. Required when rateLimiterEnabled. */
     fallbackRedisUrl?: string
@@ -198,8 +196,8 @@ export class ErrorTrackingConsumer {
             this.rateLimiter = new KeyedRateLimiterService(
                 {
                     name: 'error-tracking-rate-limiter',
-                    bucketSize: config.rateLimiterBucketSize,
-                    refillRate: config.rateLimiterRefillRate,
+                    // bucketSize/refillRate are intentionally omitted — every request supplies
+                    // them via getBucketConfig (per-team), so service-level defaults are unused.
                     ttlSeconds: config.rateLimiterTtlSeconds,
                 },
                 this.rateLimiterRedis
@@ -287,23 +285,29 @@ export class ErrorTrackingConsumer {
                 rateLimiter: this.rateLimiter,
                 appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
                 appSource: 'exceptions',
-                getKey: (input) => `${input.team.id}:exceptions:global`,
+                // Skip rate limiting entirely when the team hasn't configured a project-wide
+                // limit (no row, null value, or non-positive value — the API rejects the
+                // latter but legacy rows or manual edits could slip through). Returning null
+                // here makes the rate-limiter step pass the input through as `ok()`.
+                getKey: (input) => {
+                    const value = input.errorTrackingSettings?.projectRateLimitValue
+                    if (value == null || value <= 0) {
+                        return null
+                    }
+                    return `${input.team.id}:exceptions:global`
+                },
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:team_global',
                 getBucketConfig: (input) => {
-                    // User model: "N events per M minutes". Token bucket: bucketSize=N (max burst),
-                    // refillRate=N/(M*60) per second (steady state). Falls back to env defaults
-                    // when the team has no row or hasn't set a project-wide value. We also treat
-                    // non-positive values as unset — the API serializer rejects these, but legacy
-                    // rows or manual edits could slip through and a zero/negative minutes value
-                    // would otherwise produce a divide-by-zero or negative refill rate.
-                    const settings = input.errorTrackingSettings
-                    const value = settings?.projectRateLimitValue
-                    if (value == null || value <= 0) {
-                        return {}
-                    }
-                    const minutes = settings?.projectRateLimitBucketSizeMinutes
+                    // Only called for inputs where getKey returned non-null, so the team has a
+                    // valid project_rate_limit_value. User model: "N events per M minutes".
+                    // Token bucket: bucketSize=N (max burst), refillRate=N/(M*60) per second.
+                    // Defensive `safeMinutes` handles the edge case where the row exists but
+                    // bucket_size_minutes is null/zero.
+                    const settings = input.errorTrackingSettings!
+                    const value = settings.projectRateLimitValue!
+                    const minutes = settings.projectRateLimitBucketSizeMinutes
                     const safeMinutes = minutes != null && minutes > 0 ? minutes : 60
                     return {
                         bucketSize: value,
