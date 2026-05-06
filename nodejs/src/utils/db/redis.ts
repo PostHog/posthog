@@ -53,7 +53,7 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
  * Sanitizes a Redis URL for safe logging by extracting only the host portion.
  * This prevents leaking credentials that may be embedded in the URL.
  */
-function getRedisHost(url: string, options?: RedisOptions): string {
+export function getRedisHost(url: string, options?: RedisOptions): string {
     try {
         const parsed = new URL(url)
         return parsed.host || '[sanitized-redis-host]'

@@ -1,7 +1,11 @@
+import type { z } from 'zod'
+
 import { HogQLSchemaInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = HogQLSchemaInputSchema
+
+type Params = z.infer<typeof schema>
 
 interface DatabaseSchemaField {
     name: string
@@ -36,11 +40,17 @@ interface SchemaResult {
     joins: DataWarehouseViewLink[]
 }
 
-export const hogqlSchemaHandler: ToolBase<typeof schema, SchemaResult>['handler'] = async (context: Context) => {
+export const hogqlSchemaHandler: ToolBase<typeof schema, SchemaResult>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
+    const { connectionId } = params
     const projectId = await context.stateManager.getProjectId()
-    const result = await context.api.insights({ projectId }).query({
-        query: { kind: 'DatabaseSchemaQuery' },
-    })
+    const queryBody: Record<string, unknown> = { kind: 'DatabaseSchemaQuery' }
+    if (connectionId) {
+        queryBody.connectionId = connectionId
+    }
+    const result = await context.api.insights({ projectId }).query({ query: queryBody })
     if (!result.success) {
         throw new Error(`Failed to fetch HogQL schema: ${result.error.message}`)
     }

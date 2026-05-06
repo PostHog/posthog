@@ -50,6 +50,7 @@ def _build_context(
     github_integration_id: int | None,
     repository: str | None = "posthog/posthog-js",
     state: dict | None = None,
+    use_modal_resume_snapshots: bool = True,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -63,6 +64,7 @@ def _build_context(
         create_pr=True,
         state=state or {},
         _branch="feature-branch",
+        use_modal_resume_snapshots=use_modal_resume_snapshots,
     )
 
 
@@ -495,3 +497,142 @@ class TestProcessTaskWorkflowUnit:
         await workflow._get_sandbox_for_repository()
 
         assert inject_fresh_tokens_on_resume not in activity_calls
+
+    @pytest.mark.parametrize(
+        "use_modal_resume_snapshots, mode, expect_resume_snapshot_call",
+        [
+            (True, "interactive", True),
+            (False, "interactive", False),
+            (True, "background", False),
+            (False, "background", False),
+        ],
+    )
+    async def test_finally_block_resume_snapshot_gating(
+        self, monkeypatch, use_modal_resume_snapshots, mode, expect_resume_snapshot_call
+    ):
+        """`_create_resume_snapshot` runs only when interactive AND flag is on.
+
+        Disabling the Modal-snapshot flag (e.g. for EU compliance) must skip the
+        snapshot creation activity in the workflow's finally block, regardless of
+        mode. The flag value is set on the context (captured at workflow start)
+        so a mid-run flip can't introduce replay nondeterminism.
+        """
+        workflow = ProcessTaskWorkflow()
+        get_task_processing_context_mock = AsyncMock(
+            return_value=_build_context(
+                github_integration_id=123,
+                state={"mode": mode},
+                use_modal_resume_snapshots=use_modal_resume_snapshots,
+            )
+        )
+        update_task_run_status_mock = AsyncMock()
+        track_workflow_event_mock = AsyncMock()
+        post_slack_update_mock = AsyncMock()
+        read_sandbox_logs_mock = AsyncMock()
+        cleanup_sandbox_mock = AsyncMock()
+        create_resume_snapshot_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
+        monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", read_sandbox_logs_mock)
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", create_resume_snapshot_mock)
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+
+        # Force the workflow into the finally block with a sandbox to clean up.
+        async def fail_after_sandbox_creation() -> GetSandboxForRepositoryOutput:
+            workflow._sandbox_id_for_cleanup = "sandbox-123"
+            raise RuntimeError("forced failure to reach finally block")
+
+        monkeypatch.setattr(workflow, "_get_sandbox_for_repository", fail_after_sandbox_creation)
+
+        await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+        if expect_resume_snapshot_call:
+            create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123")
+        else:
+            create_resume_snapshot_mock.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "use_modal_resume_snapshots, prior_snapshot_external_id, expect_used_snapshot, expect_inject_tokens",
+        [
+            # Flag on: a stale snapshot id propagated via state still gets used,
+            # and the post-resume token-injection activity runs to refresh the
+            # snapshotted .git/config.
+            (True, "im-abc123", True, True),
+            # Flag off: snapshot id is ignored even if state still carries it,
+            # and the token-injection activity is skipped (no snapshotted creds).
+            (False, "im-abc123", False, False),
+        ],
+    )
+    async def test_get_sandbox_respects_modal_resume_flag(
+        self,
+        monkeypatch,
+        use_modal_resume_snapshots,
+        prior_snapshot_external_id,
+        expect_used_snapshot,
+        expect_inject_tokens,
+    ):
+        """`_get_sandbox_for_repository` honors TASKS_USE_MODAL_RESUME_SNAPSHOTS.
+
+        Verified via the prepared-output the workflow receives: when the flag is
+        off, the workflow doesn't see a `snapshot_external_id` and therefore
+        doesn't schedule the `inject_fresh_tokens_on_resume` activity.
+        """
+        monkeypatch.setattr(settings, "TASKS_USE_MODAL_RESUME_SNAPSHOTS", use_modal_resume_snapshots)
+
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            state={"snapshot_external_id": prior_snapshot_external_id, "resume_from_run_id": "previous-run-id"},
+        )
+
+        # Mirror what `prepare_sandbox_for_repository` would produce given the flag.
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog-js",
+            github_token="ghs_fresh",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=prior_snapshot_external_id if expect_used_snapshot else None,
+            used_snapshot=expect_used_snapshot,
+            should_create_snapshot=not expect_used_snapshot,
+            shallow_clone=True,
+            image_source="resume_snapshot" if expect_used_snapshot else "base_image",
+            image_source_label="resume snapshot" if expect_used_snapshot else "published sandbox base image",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        activity_calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn, *args, **kwargs):
+            activity_calls.append(activity_fn)
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is inject_fresh_tokens_on_resume:
+                return None
+            if activity_fn is emit_progress_activity:
+                return None
+            if activity_fn is clone_repository_in_sandbox:
+                return None
+            if activity_fn is checkout_branch_in_sandbox:
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._get_sandbox_for_repository()
+
+        if expect_inject_tokens:
+            assert inject_fresh_tokens_on_resume in activity_calls
+        else:
+            assert inject_fresh_tokens_on_resume not in activity_calls

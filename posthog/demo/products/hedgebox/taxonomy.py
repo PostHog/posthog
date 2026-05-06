@@ -78,6 +78,11 @@ FLAG_RETENTION_NUDGE_EXPERIMENT = "retention-nudge-v1"
 # Completed experiment (stopped early)
 FLAG_TEAM_COLLAB_EXPERIMENT = "team-collab-v1"
 
+# Running experiment intentionally configured to trigger the multi-variant exclusion bias warning
+# (90/10 split + EXCLUDE handling + ~2% of users exposed to multiple variants)
+FLAG_BIAS_WARNING_DEMO_EXPERIMENT = "bias-warning-demo-uneven-split"
+BIAS_WARNING_FLIP_PROBABILITY = 0.02  # share of users that re-pick variant mid-experiment
+
 # Fallback signup rate (used outside experiments)
 SIGNUP_SUCCESS_RATE_CONTROL = 0.4887
 

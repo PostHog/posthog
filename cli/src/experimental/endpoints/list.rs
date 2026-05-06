@@ -3,7 +3,7 @@ use colored::Colorize;
 
 use crate::invocation_context::context;
 
-use super::{fetch_all_endpoints, EndpointResponse, ListArgs};
+use super::{data_freshness_seconds_to_schedule, fetch_all_endpoints, EndpointResponse, ListArgs};
 
 pub fn list_endpoints(args: &ListArgs) -> Result<()> {
     context().capture_command_invoked("endpoints_list");
@@ -49,10 +49,9 @@ pub fn list_endpoints(args: &ListArgs) -> Result<()> {
 fn print_endpoint_summary(endpoint: &EndpointResponse) {
     let status = if endpoint.is_materialized {
         let schedule = endpoint
-            .materialization
-            .as_ref()
-            .and_then(|m| m.sync_frequency.as_ref())
-            .map(|s| format_sync_frequency(s))
+            .data_freshness_seconds
+            .and_then(data_freshness_seconds_to_schedule)
+            .map(format_sync_frequency)
             .unwrap_or_else(|| "scheduled".to_string());
         format!("Materialized ({schedule})").green().to_string()
     } else {
@@ -82,20 +81,16 @@ fn print_endpoint_summary(endpoint: &EndpointResponse) {
     }
 }
 
-/// Format sync frequency for display
+/// Format a bucket schedule string for display.
 fn format_sync_frequency(freq: &str) -> String {
     match freq {
-        "5min" => "every 5 min".to_string(),
         "15min" => "every 15 min".to_string(),
         "30min" => "every 30 min".to_string(),
         "1hour" => "hourly".to_string(),
-        "2hour" => "every 2 hours".to_string(),
-        "4hour" => "every 4 hours".to_string(),
         "6hour" => "every 6 hours".to_string(),
         "12hour" => "every 12 hours".to_string(),
         "24hour" => "daily".to_string(),
         "7day" => "weekly".to_string(),
-        "30day" => "monthly".to_string(),
         _ => freq.to_string(),
     }
 }

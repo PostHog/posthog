@@ -284,3 +284,76 @@ class TestSnapchatAdsPaginator:
 
         with pytest.raises(ValueError, match="non-retryable"):
             paginator.update_state(response)
+
+    @parameterized.expand(
+        [
+            ("fresh_paginator", None, None),
+            (
+                "after_update_with_next_link",
+                {
+                    "request_status": "SUCCESS",
+                    "paging": {"next_link": "https://api.snapchat.com/v1/stats?cursor=abc123&limit=1000"},
+                },
+                {"next_link": "https://api.snapchat.com/v1/stats?cursor=abc123&limit=1000"},
+            ),
+            (
+                "after_terminal_page",
+                {"request_status": "SUCCESS", "paging": {}},
+                None,
+            ),
+        ]
+    )
+    def test_get_resume_state(self, _name, response_body, expected):
+        paginator = SnapchatAdsPaginator()
+        if response_body is not None:
+            response = self._create_mock_response(response_body)
+            paginator.update_state(response)
+
+        assert paginator.get_resume_state() == expected
+
+    def test_set_resume_state_round_trip(self):
+        paginator = SnapchatAdsPaginator()
+        paginator.set_resume_state({"next_link": "https://api.snapchat.com/v1/stats?cursor=xyz&limit=1000"})
+
+        assert paginator.has_next_page is True
+        assert paginator.get_resume_state() == {"next_link": "https://api.snapchat.com/v1/stats?cursor=xyz&limit=1000"}
+
+    def test_set_resume_state_ignores_missing_next_link(self):
+        paginator = SnapchatAdsPaginator()
+        paginator.set_resume_state({})
+
+        assert paginator.has_next_page is False
+        assert paginator.get_resume_state() is None
+
+    def test_init_request_injects_cursor_from_seed(self):
+        paginator = SnapchatAdsPaginator()
+        paginator.set_resume_state({"next_link": "https://api.snapchat.com/v1/stats?cursor=abc123&limit=1000"})
+
+        mock_request = Mock()
+        mock_request.params = {"limit": 1000}
+
+        paginator.init_request(mock_request)
+
+        assert mock_request.params["cursor"] == "abc123"
+
+    def test_init_request_creates_params_dict_when_missing(self):
+        paginator = SnapchatAdsPaginator()
+        paginator.set_resume_state({"next_link": "https://api.snapchat.com/v1/stats?cursor=abc123"})
+
+        mock_request = Mock()
+        mock_request.params = None
+
+        paginator.init_request(mock_request)
+
+        assert mock_request.params == {"cursor": "abc123"}
+
+    def test_init_request_without_seed_is_noop(self):
+        paginator = SnapchatAdsPaginator()
+
+        mock_request = Mock()
+        original_params = {"limit": 1000}
+        mock_request.params = original_params
+
+        paginator.init_request(mock_request)
+
+        assert mock_request.params == original_params

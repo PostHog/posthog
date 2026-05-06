@@ -1,4 +1,5 @@
 import time
+import base64
 import socket
 from datetime import UTC, datetime, timedelta
 from typing import Optional
@@ -193,6 +194,57 @@ class TestOauthIntegrationModel(BaseTest):
                 "id_token": None,
             }
 
+    @parameterized.expand(
+        [
+            (
+                "json_error_body",
+                400,
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Authorization code does not exist or has expired.",
+                },
+                None,
+                '{"error":"invalid_grant","error_description":"Authorization code does not exist or has expired."}',
+                ["invalid_grant", "Authorization code does not exist"],
+            ),
+            (
+                "non_json_error_body",
+                502,
+                None,
+                ValueError("not json"),
+                "<html>Bad Gateway</html>",
+                ["salesforce"],
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.requests.post")
+    def test_oauth_token_exchange_failure_raises_validation_error(
+        self, _name, status_code, json_return, json_side_effect, body_text, expected_in_message, mock_post
+    ):
+        """A failed token exchange must surface a ValidationError (→ DRF 400 with `detail`) so the
+        frontend toast renders something useful. Covers both well-formed JSON error bodies (where
+        we extract `error_description`) and non-JSON bodies (where the helper falls back to the
+        raw text or a status-only message)."""
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = status_code
+            if json_side_effect is not None:
+                mock_post.return_value.json.side_effect = json_side_effect
+            else:
+                mock_post.return_value.json.return_value = json_return
+            mock_post.return_value.text = body_text
+
+            with pytest.raises(ValidationError) as e:
+                OauthIntegration.integration_from_oauth_response(
+                    "salesforce",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+
+            message = str(e.value).lower()
+            for fragment in expected_in_message:
+                assert fragment.lower() in message
+
     @patch("posthog.models.integration.requests.post")
     def test_integration_errors_if_id_cannot_be_generated(self, mock_post):
         with self.settings(**self.mock_settings):
@@ -275,7 +327,6 @@ class TestOauthIntegrationModel(BaseTest):
         so we extract user info from the id_token JWT instead.
         """
         import json
-        import base64
 
         # Create a mock JWT id_token with sub and email in the payload
         jwt_payload = {"sub": "linkedin_user_123", "email": "user@example.com", "iat": 1704110400}
@@ -699,7 +750,7 @@ class TestOauthIntegrationModel(BaseTest):
             STRIPE_APP_SECRET_KEY="sk_live_secret",
             STRIPE_APP_SANDBOX_SECRET_KEY="",
         ):
-            with pytest.raises(Exception, match="Oauth error"):
+            with pytest.raises(ValidationError, match="OAuth failed"):
                 OauthIntegration.integration_from_oauth_response(
                     "stripe",
                     self.team.id,
@@ -727,7 +778,7 @@ class TestOauthIntegrationModel(BaseTest):
             STRIPE_APP_SECRET_KEY="sk_live_secret",
             STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
         ):
-            with pytest.raises(Exception, match="Oauth error"):
+            with pytest.raises(ValidationError, match="OAuth failed"):
                 OauthIntegration.integration_from_oauth_response(
                     "stripe",
                     self.team.id,
@@ -758,6 +809,80 @@ class TestOauthIntegrationModel(BaseTest):
         assert call.kwargs["auth"].password == ""
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_oauth_persists_is_sandbox_false_for_live_install(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "FAKE_ACCESS",
+            "refresh_token": "FAKE_REFRESH",
+            "stripe_user_id": "acct_live_1",
+            "account_name": "Live Account",
+            "expires_in": 3600,
+        }
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+        ):
+            integration = OauthIntegration.integration_from_oauth_response(
+                "stripe",
+                self.team.id,
+                self.user,
+                {"code": "ac_live_code"},
+            )
+
+        assert integration.config.get("is_sandbox") is False
+
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_oauth_persists_is_sandbox_true_after_sandbox_fallback(self, mock_post):
+        first_response = MagicMock(
+            status_code=400,
+            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
+        )
+        first_response.json.return_value = {"error": "invalid_grant"}
+        second_response = MagicMock(status_code=200)
+        second_response.json.return_value = {
+            "access_token": "FAKE_SANDBOX_ACCESS",
+            "refresh_token": "FAKE_SANDBOX_REFRESH",
+            "stripe_user_id": "acct_sandbox_1",
+            "account_name": "Sandbox Account",
+            "expires_in": 3600,
+        }
+        mock_post.side_effect = [first_response, second_response]
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
+        ):
+            integration = OauthIntegration.integration_from_oauth_response(
+                "stripe",
+                self.team.id,
+                self.user,
+                {"code": "ac_sandbox_code"},
+            )
+
+        assert integration.config.get("is_sandbox") is True
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_refresh_access_token_uses_sandbox_secret_when_flag_set(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED", "expires_in": 1000}
+
+        integration = self.create_integration(kind="stripe", config={"expires_in": 1000, "is_sandbox": True})
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert mock_post.call_args.kwargs["auth"].username == "sk_test_sandbox_secret"
 
 
 class TestGoogleCloudIntegrationModel(BaseTest):
@@ -1788,6 +1913,97 @@ class TestGitHubIntegrationModel(BaseTest):
 
         with pytest.raises(GitHubIntegrationError, match="Access token unavailable"):
             github.get_access_token()
+
+
+class TestGitHubIntegrationGhApiGet(BaseTest):
+    def _create_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+        )
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_returns_parsed_json_body(self, _mock_expired, mock_get):
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.json.return_value = {"default_branch": "main"}
+        mock_get.return_value = ok
+
+        integration = self._create_integration()
+        body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        assert body == {"default_branch": "main"}
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_retries_once_on_transient_5xx(self, _mock_expired, mock_get):
+        transient = MagicMock()
+        transient.status_code = 503
+        transient.json.return_value = {}
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.json.return_value = {"ok": True}
+        mock_get.side_effect = [transient, ok]
+
+        integration = self._create_integration()
+        body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        assert body == {"ok": True}
+        assert mock_get.call_count == 2
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_raises_rate_limit_error_on_secondary_limit(self, _mock_expired, mock_get):
+        resp = MagicMock()
+        resp.status_code = 403
+        resp.headers = {"Retry-After": "5"}
+        resp.json.return_value = {"message": "secondary rate limit"}
+        mock_get.return_value = resp
+
+        integration = self._create_integration()
+        with pytest.raises(GitHubIntegrationError) as excinfo:
+            GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        assert excinfo.value.is_rate_limit is True
+        assert excinfo.value.retry_after_seconds == 5.0
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_detects_secondary_limit_from_body_when_headers_missing(self, _mock_expired, mock_get):
+        resp = MagicMock()
+        resp.status_code = 403
+        resp.headers = {}
+        resp.text = '{"message": "You have exceeded a secondary rate limit."}'
+        resp.json.return_value = {"message": "You have exceeded a secondary rate limit."}
+        mock_get.return_value = resp
+
+        integration = self._create_integration()
+        with pytest.raises(GitHubIntegrationError) as excinfo:
+            GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        assert excinfo.value.is_rate_limit is True
+        assert excinfo.value.retry_after_seconds == 60.0
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.refresh_access_token")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_refreshes_token_on_401(self, _mock_expired, mock_refresh, mock_get):
+        unauth = MagicMock()
+        unauth.status_code = 401
+        unauth.json.return_value = {}
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.json.return_value = {"after_refresh": True}
+        mock_get.side_effect = [unauth, ok]
+
+        integration = self._create_integration()
+        body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        assert body == {"after_refresh": True}
+        assert mock_refresh.called
+
+    def test_rejects_path_without_leading_slash(self):
+        integration = self._create_integration()
+        with pytest.raises(ValueError, match="must start with"):
+            GitHubIntegration(integration)._gh_api_get("repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
 
 
 class TestDatabricksIntegrationModel(BaseTest):

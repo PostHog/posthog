@@ -37,6 +37,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         setRepository: (repository: string) => ({ repository }),
         setStatus: (status: 'all' | TaskRunStatus) => ({ status }),
         setCreatedBy: (createdBy: number | null) => ({ createdBy }),
+        setShowInternal: (showInternal: boolean) => ({ showInternal }),
         openCreateModal: true,
         closeCreateModal: true,
         setNewTaskData: (data: Partial<TaskCreateForm>) => ({ data }),
@@ -78,6 +79,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 loadTasks: () => true,
             },
         ],
+        showInternal: [
+            false,
+            {
+                setShowInternal: (_, { showInternal }) => showInternal,
+            },
+        ],
         isCreateModalOpen: [
             false,
             {
@@ -115,11 +122,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     selectors({
+        isStaff: [(s) => [s.user], (user): boolean => user?.is_staff ?? false],
         // All filters are pushed down to the backend via `loadTasks(listParams)` so results are
         // not limited by list pagination. The scene renders `tasks` (the loader output) directly.
         listParams: [
-            (s) => [s.searchQuery, s.repository, s.status, s.createdBy],
-            (searchQuery, repository, status, createdBy): TaskListParams => {
+            (s) => [s.searchQuery, s.repository, s.status, s.createdBy, s.showInternal, s.isStaff],
+            (searchQuery, repository, status, createdBy, showInternal, isStaff): TaskListParams => {
                 const params: TaskListParams = {}
                 if (searchQuery.trim()) {
                     params.search = searchQuery.trim()
@@ -132,6 +140,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
                 if (createdBy !== null) {
                     params.created_by = createdBy
+                }
+                if (showInternal && isStaff) {
+                    params.internal = true
                 }
                 return params
             },
@@ -158,6 +169,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             actions.loadTasks(values.listParams)
         },
         setCreatedBy: () => {
+            cache.listLoadRequested = true
+            actions.loadTasks(values.listParams)
+        },
+        setShowInternal: () => {
             cache.listLoadRequested = true
             actions.loadTasks(values.listParams)
         },
@@ -221,6 +236,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     actions.setCreatedBy(createdByValue)
                 }
             }
+            if (params.showInternal !== undefined) {
+                const showInternalValue = params.showInternal === 'true' || params.showInternal === true
+                if (!equal(showInternalValue, values.showInternal)) {
+                    actions.setShowInternal(showInternalValue)
+                }
+            }
         }
         return {
             '/tasks': urlToAction,
@@ -250,6 +271,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (values.createdBy !== null) {
                 params.createdBy = values.createdBy.toString()
             }
+            if (values.showInternal) {
+                params.showInternal = 'true'
+            }
 
             return ['/tasks', params, {}, { replace: false }]
         }
@@ -259,6 +283,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             setRepository: () => buildURL(),
             setStatus: () => buildURL(),
             setCreatedBy: () => buildURL(),
+            setShowInternal: () => buildURL(),
         }
     }),
 

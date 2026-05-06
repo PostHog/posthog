@@ -532,6 +532,75 @@ export interface ClusteringRunRequestApi {
 }
 
 /**
+ * * `unknown` - Unknown
+ * `ok` - Ok
+ * `invalid` - Invalid
+ * `error` - Error
+ */
+export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
+
+export const LLMProviderKeyStateEnumApi = {
+    Unknown: 'unknown',
+    Ok: 'ok',
+    Invalid: 'invalid',
+    Error: 'error',
+} as const
+
+export interface LLMProviderKeyApi {
+    readonly id: string
+    provider: LLMProviderEnumApi
+    /** @maxLength 255 */
+    name: string
+    readonly state: LLMProviderKeyStateEnumApi
+    /** @nullable */
+    readonly error_message: string | null
+    api_key?: string
+    readonly api_key_masked: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display: string | null
+    set_as_active?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly last_used_at: string | null
+}
+
+export interface EvaluationConfigApi {
+    /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+    readonly trial_eval_limit: number
+    /** Number of llm_judge runs already consumed against the trial credit pool. */
+    readonly trial_evals_used: number
+    /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
+    readonly trial_evals_remaining: number
+    /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
+    readonly active_provider_key: LLMProviderKeyApi | null
+    /** Timestamp when the evaluation config row was created. */
+    readonly created_at: string
+    /** Timestamp when the evaluation config row was last modified. */
+    readonly updated_at: string
+}
+
+export interface EvaluationConfigSetActiveKeyRequestApi {
+    /** UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide. */
+    key_id: string
+}
+
+/**
  * * `scheduled` - Scheduled
  * `every_n` - Every N
  */
@@ -787,53 +856,16 @@ export interface EvaluationSummaryResponseApi {
     statistics: EvaluationSummaryStatisticsApi
 }
 
-/**
- * * `unknown` - Unknown
- * `ok` - Ok
- * `invalid` - Invalid
- * `error` - Error
- */
-export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
+export interface LLMModelInfoApi {
+    /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
+    id: string
+    /** Whether this model is available on PostHog's trial credits without bringing a provider key. */
+    posthog_available: boolean
+}
 
-export const LLMProviderKeyStateEnumApi = {
-    Unknown: 'unknown',
-    Ok: 'ok',
-    Invalid: 'invalid',
-    Error: 'error',
-} as const
-
-export interface LLMProviderKeyApi {
-    readonly id: string
-    provider: LLMProviderEnumApi
-    /** @maxLength 255 */
-    name: string
-    readonly state: LLMProviderKeyStateEnumApi
-    /** @nullable */
-    readonly error_message: string | null
-    api_key?: string
-    readonly api_key_masked: string
-    /** Azure OpenAI endpoint URL */
-    azure_endpoint?: string
-    /**
-     * Azure OpenAI API version
-     * @maxLength 20
-     */
-    api_version?: string
-    /**
-     * Azure endpoint (read-only, for display)
-     * @nullable
-     */
-    readonly azure_endpoint_display: string | null
-    /**
-     * Azure API version (read-only, for display)
-     * @nullable
-     */
-    readonly api_version_display: string | null
-    set_as_active?: boolean
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly last_used_at: string | null
+export interface LLMModelsListResponseApi {
+    /** Models supported for the requested provider. */
+    models: LLMModelInfoApi[]
 }
 
 export interface PaginatedLLMProviderKeyListApi {
@@ -1131,7 +1163,7 @@ export const SentimentRequestAnalysisLevelEnumApi = {
 
 export interface SentimentRequestApi {
     /**
-     * Trace IDs or generation IDs to classify, depending on analysis_level.
+     * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
      * @minItems 1
      * @maxItems 5
      */
@@ -1179,6 +1211,21 @@ export type SentimentBatchResponseApiResults = { [key: string]: SentimentResultA
 
 export interface SentimentBatchResponseApi {
     results: SentimentBatchResponseApiResults
+}
+
+/**
+ * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
+
+`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+path used (dateRange, filterTestAccounts, properties), so the migration is
+behaviour-preserving for callers that pass a request unchanged.
+ */
+export interface SentimentGenerationsRequestApi {
+    filters?: unknown
+}
+
+export interface SentimentGenerationsResponseApi {
+    results: unknown[][]
 }
 
 /**
@@ -1942,6 +1989,75 @@ export interface LLMSkillResolveResponseApi {
     has_more: boolean
 }
 
+/**
+ * * `llm` - LLM
+ * `hog` - Hog
+ */
+export type TaggerTypeEnumApi = (typeof TaggerTypeEnumApi)[keyof typeof TaggerTypeEnumApi]
+
+export const TaggerTypeEnumApi = {
+    Llm: 'llm',
+    Hog: 'hog',
+} as const
+
+export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
+
+export interface TaggerConditionApi {
+    /**
+     * Stable identifier for this condition
+     * @maxLength 100
+     */
+    id: string
+    /**
+     * Percentage of matching events to apply this condition to
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage?: number
+    /** Property filters that scope when this condition fires */
+    properties?: TaggerConditionApiPropertiesItem[]
+}
+
+/**
+ * Nested serializer for model configuration.
+ */
+export interface TaggerModelConfigurationApi {
+    provider: LLMProviderEnumApi
+    /** @maxLength 100 */
+    model: string
+    /** @nullable */
+    provider_key_id?: string | null
+    /** @nullable */
+    readonly provider_key_name: string | null
+}
+
+export interface TaggerApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    tagger_type?: TaggerTypeEnumApi
+    /** Tagger configuration (varies by tagger_type) */
+    tagger_config: unknown
+    /** Conditions that scope when the tagger runs */
+    conditions?: TaggerConditionApi[]
+    model_configuration?: TaggerModelConfigurationApi | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    deleted?: boolean
+}
+
+export interface PaginatedTaggerListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaggerApi[]
+}
+
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
@@ -2097,10 +2213,6 @@ export type LlmAnalyticsClusteringJobsListParams = {
     offset?: number
 }
 
-export type LlmAnalyticsEvaluationConfigRetrieve200 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = { [key: string]: unknown }
-
 export type LlmAnalyticsEvaluationReportsListParams = {
     /**
      * Number of results to return per page.
@@ -2131,7 +2243,29 @@ export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
 
-export type LlmAnalyticsModelsRetrieve200 = { [key: string]: unknown }
+export type LlmAnalyticsModelsRetrieveParams = {
+    /**
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     */
+    key_id?: string
+    /**
+     * LLM provider to list models for. Must be one of the supported providers.
+     */
+    provider: LlmAnalyticsModelsRetrieveProvider
+}
+
+export type LlmAnalyticsModelsRetrieveProvider =
+    (typeof LlmAnalyticsModelsRetrieveProvider)[keyof typeof LlmAnalyticsModelsRetrieveProvider]
+
+export const LlmAnalyticsModelsRetrieveProvider = {
+    Anthropic: 'anthropic',
+    AzureOpenai: 'azure_openai',
+    Fireworks: 'fireworks',
+    Gemini: 'gemini',
+    Openai: 'openai',
+    Openrouter: 'openrouter',
+    TogetherAi: 'together_ai',
+} as const
 
 export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
@@ -2227,6 +2361,10 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 
@@ -2440,6 +2578,40 @@ export type LlmSkillsResolveNameRetrieveParams = {
      * Exact skill version UUID to resolve.
      */
     version_id?: string
+}
+
+export type TaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+* `name` - Name
+* `-name` - Name (descending)
+ */
+    order_by?: string[]
+    /**
+     * Search in name or description
+     */
+    search?: string
 }
 
 export type DatasetItemsListParams = {

@@ -138,6 +138,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         const conditions = evaluation.conditions
                             .filter((c) => c.properties && c.properties.length > 0)
                             .map((c) => ({ properties: c.properties }))
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.create(`/api/environments/${teamId}/evaluations/test_hog/`, {
                             source: evaluation.evaluation_config.source,
                             sample_count: 5,
@@ -189,6 +190,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     const requestFilter = values.evaluationSummaryFilter
 
                     // Backend fetches data server-side by ID - we just pass the filter
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
                         evaluation_id: props.evaluationId,
                         filter: requestFilter,
@@ -369,6 +371,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const evaluation = await api.get(`/api/environments/${teamId}/evaluations/${props.evaluationId}/`)
                     actions.loadEvaluationSuccess(evaluation)
                 } catch (error) {
@@ -529,8 +532,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                 const isNew = props.evaluationId === 'new'
                 const response = isNew
-                    ? await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
-                    : await api.update(
+                    ? // nosemgrep: prefer-codegen-api
+                      await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
+                    : // nosemgrep: prefer-codegen-api
+                      await api.update(
                           `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
                           values.evaluation!
                       )
@@ -622,7 +627,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const hasValidName = evaluation.name.length > 0
                 const hasValidConditions =
                     evaluation.conditions.length > 0 &&
-                    evaluation.conditions.every((c) => c.rollout_percentage > 0 && c.rollout_percentage <= 100)
+                    evaluation.conditions.every(
+                        (c) => (c.rollout_percentage ?? 0) > 0 && (c.rollout_percentage ?? 0) <= 100
+                    )
 
                 let hasValidConfig = false
                 if (evaluation.evaluation_type === 'hog') {

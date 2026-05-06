@@ -151,41 +151,43 @@ export function FixedRangeWithTimePicker({
                             className: 'rounded-none',
                             'data-attr': `${timeProps.value}-${timeProps.unit}`,
                             onClick: () => {
-                                if (currentValue) {
-                                    let newDate = currentValue
-                                    if (timeProps.unit === 'h') {
-                                        if (use24HourFormat) {
-                                            newDate = currentValue.hour(Number(timeProps.value))
-                                        } else {
-                                            const isPM = currentValue.format('a') === 'pm'
-                                            newDate = currentValue.hour(
-                                                isPM && timeProps.value !== 12
-                                                    ? Number(timeProps.value) + 12
-                                                    : !isPM && timeProps.value === 12
-                                                      ? 0
-                                                      : Number(timeProps.value)
-                                            )
-                                        }
-                                    } else if (timeProps.unit === 'm') {
-                                        newDate = currentValue.minute(Number(timeProps.value))
-                                    } else if (timeProps.unit === 'a') {
-                                        const currentHour = currentValue.hour()
-                                        if (timeProps.value === 'am' && currentHour >= 12) {
-                                            newDate = currentValue.subtract(12, 'hour')
-                                        } else if (timeProps.value === 'pm' && currentHour < 12) {
-                                            newDate = currentValue.add(12, 'hour')
-                                        }
-                                    }
-                                    if (selectingStart) {
-                                        setLocalFrom(newDate)
-                                        if (localTo && newDate.isAfter(localTo)) {
-                                            setLocalTo(newDate.add(1, 'hour'))
-                                        }
+                                // Fall back to today so the user can set the time
+                                // before picking a date — otherwise clicking time
+                                // buttons in start mode silently does nothing
+                                // when no start date is selected yet.
+                                let newDate = currentValue ?? dayjs()
+                                if (timeProps.unit === 'h') {
+                                    if (use24HourFormat) {
+                                        newDate = newDate.hour(Number(timeProps.value))
                                     } else {
-                                        setLocalTo(newDate)
-                                        if (localFrom && newDate.isBefore(localFrom)) {
-                                            setLocalFrom(newDate.subtract(1, 'hour'))
-                                        }
+                                        const isPM = newDate.format('a') === 'pm'
+                                        newDate = newDate.hour(
+                                            isPM && timeProps.value !== 12
+                                                ? Number(timeProps.value) + 12
+                                                : !isPM && timeProps.value === 12
+                                                  ? 0
+                                                  : Number(timeProps.value)
+                                        )
+                                    }
+                                } else if (timeProps.unit === 'm') {
+                                    newDate = newDate.minute(Number(timeProps.value))
+                                } else if (timeProps.unit === 'a') {
+                                    const currentHour = newDate.hour()
+                                    if (timeProps.value === 'am' && currentHour >= 12) {
+                                        newDate = newDate.subtract(12, 'hour')
+                                    } else if (timeProps.value === 'pm' && currentHour < 12) {
+                                        newDate = newDate.add(12, 'hour')
+                                    }
+                                }
+                                if (selectingStart) {
+                                    setLocalFrom(newDate)
+                                    if (localTo && newDate.isAfter(localTo)) {
+                                        setLocalTo(newDate.add(1, 'hour'))
+                                    }
+                                } else {
+                                    setLocalTo(newDate)
+                                    if (localFrom && newDate.isBefore(localFrom)) {
+                                        setLocalFrom(newDate.subtract(1, 'hour'))
                                     }
                                 }
                             },
