@@ -395,6 +395,28 @@ class TestModalSandboxAgentServer:
         assert result is False
         assert mock_sandbox.execute.call_count == 1
 
+    def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
+        events: list[str] = []
+        exec_process = MagicMock()
+        exec_process.wait.side_effect = lambda: events.append("wait")
+        image = MagicMock()
+        image.object_id = "snapshot-123"
+
+        def snapshot_filesystem() -> Any:
+            events.append("snapshot")
+            return image
+
+        mock_sandbox._sandbox.exec.return_value = exec_process
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = snapshot_filesystem
+
+        result = mock_sandbox.create_snapshot()
+
+        assert result == "snapshot-123"
+        mock_sandbox._sandbox.exec.assert_called_once_with("true", timeout=30)
+        exec_process.wait.assert_called_once_with()
+        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with()
+        assert events == ["wait", "snapshot"]
+
 
 class TestModalSandboxProvisionDiagnostics:
     @pytest.mark.parametrize(

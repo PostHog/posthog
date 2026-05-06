@@ -32761,8 +32761,8 @@
                 },
                 "aggregationPropertyType": {
                     "default": "event",
-                    "description": "The type of property to aggregate on (event or person). Defaults to event.",
-                    "enum": ["event", "person"],
+                    "description": "The type of property to aggregate on (event, person or data_warehouse). Defaults to event.",
+                    "enum": ["event", "person", "data_warehouse"],
                     "type": "string"
                 },
                 "aggregationType": {
