@@ -9,6 +9,10 @@ interface AnnotationsLayerProps {
     insightNumericId: number | 'new'
     /** Per-data-point date strings; used for grouping annotations. */
     dates: string[]
+    /** Series key whose bar should anchor annotations in compare-against-previous grouped
+     *  bar layouts. Without it, annotations land on the band center (between current
+     *  and previous bars) instead of the current-period bar. */
+    seriesKey?: string
 }
 
 const WRAPPER_STYLE: React.CSSProperties = {
@@ -22,13 +26,17 @@ const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
     e.stopPropagation()
 }
 
-export function AnnotationsLayer({ insightNumericId, dates }: AnnotationsLayerProps): React.ReactElement | null {
+export function AnnotationsLayer({
+    insightNumericId,
+    dates,
+    seriesKey,
+}: AnnotationsLayerProps): React.ReactElement | null {
     const { scales, dimensions, labels, axis } = useChartLayout()
     const xTickFormatter = axis.xTickFormatter
 
     const chartLike = useMemo(() => {
         const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)
-        const points = labels.map((label) => ({ x: scales.x(label) ?? 0, y: 0 }))
+        const points = labels.map((label) => ({ x: scales.x(label, seriesKey) ?? 0, y: 0 }))
         const ticks = visibleXLabels.map((v) => ({ value: v.index }))
         return {
             scales: {
@@ -40,7 +48,16 @@ export function AnnotationsLayer({ insightNumericId, dates }: AnnotationsLayerPr
             },
             _metasets: [{ data: points }],
         }
-    }, [labels, scales.x, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight, xTickFormatter])
+    }, [
+        labels,
+        scales.x,
+        seriesKey,
+        dimensions.plotLeft,
+        dimensions.plotTop,
+        dimensions.plotHeight,
+        xTickFormatter,
+        scales,
+    ])
 
     if (chartLike.scales.x.ticks.length < 2) {
         return null
