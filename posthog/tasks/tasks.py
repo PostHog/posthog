@@ -53,6 +53,16 @@ COHORT_DELETION_RUN_FAILURE_COUNTER = Counter(
     "Times cohort deletion run failed",
 )
 
+STALE_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
+    "posthog_task_run_stale_queued_swept_total",
+    "TaskRuns marked FAILED by the stale-queued cleanup sweep",
+)
+
+STALE_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
+    "posthog_task_run_stale_queued_errors_total",
+    "Errors raised while marking a TaskRun FAILED in the stale-queued cleanup sweep",
+)
+
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
@@ -151,15 +161,20 @@ def kill_stale_queued_task_runs() -> None:
         try:
             run.mark_failed(REASON)
             swept += 1
+            STALE_QUEUED_TASK_RUN_SWEPT_COUNTER.inc()
         except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
             errors += 1
+            STALE_QUEUED_TASK_RUN_ERRORS_COUNTER.inc()
             capture_exception(exc)
-    logger.info(
+    saturated = len(stale_ids) >= BATCH_SIZE
+    log = logger.warning if saturated else logger.info
+    log(
         "kill_stale_queued_task_runs.sweep_done",
         candidates=len(stale_ids),
         swept=swept,
         errors=errors,
         batch_size=BATCH_SIZE,
+        saturated=saturated,
     )
 
 

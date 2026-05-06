@@ -20,7 +20,7 @@ class TestKillStaleQueuedTaskRuns(TestCase):
     task: ClassVar[Task]
 
     @classmethod
-    def setUpTestData(cls):
+    def setUpTestData(cls) -> None:
         cls.organization = Organization.objects.create(name="Test Org")
         cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
         cls.task = Task.objects.create(
@@ -37,7 +37,7 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         run.refresh_from_db()
         return run
 
-    def test_marks_stale_queued_run_as_failed(self):
+    def test_marks_stale_queued_run_as_failed(self) -> None:
         run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=25))
 
         kill_stale_queued_task_runs()
@@ -47,7 +47,7 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         self.assertIn("stuck in QUEUED", run.error_message or "")
         self.assertIsNotNone(run.completed_at)
 
-    def test_leaves_recently_queued_run_alone(self):
+    def test_leaves_recently_queued_run_alone(self) -> None:
         run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=23, minutes=59))
 
         kill_stale_queued_task_runs()
@@ -57,7 +57,7 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         self.assertIsNone(run.completed_at)
         self.assertIsNone(run.error_message)
 
-    def test_leaves_re_queued_run_with_old_created_at_alone(self):
+    def test_leaves_re_queued_run_with_old_created_at_alone(self) -> None:
         # prepare_for_cloud_handoff re-queues an existing run without resetting
         # created_at. A staleness check keyed on created_at would mistakenly mark
         # the freshly re-queued run as FAILED; updated_at (auto_now) protects it.
@@ -80,7 +80,7 @@ class TestKillStaleQueuedTaskRuns(TestCase):
             (TaskRun.Status.CANCELLED,),
         ]
     )
-    def test_leaves_non_queued_runs_alone(self, status):
+    def test_leaves_non_queued_runs_alone(self, status: str) -> None:
         run = self._make_run(status, datetime.timedelta(hours=48))
 
         kill_stale_queued_task_runs()
@@ -88,7 +88,7 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, status)
 
-    def test_caps_work_at_batch_size(self):
+    def test_caps_work_at_batch_size(self) -> None:
         for _ in range(550):
             self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=25))
 
@@ -99,14 +99,14 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         self.assertEqual(failed_count, 500)
         self.assertEqual(remaining_queued, 50)
 
-    def test_one_failure_does_not_block_the_sweep(self):
+    def test_one_failure_does_not_block_the_sweep(self) -> None:
         run_a = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=25))
         run_b = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=26))
 
         original_mark_failed = TaskRun.mark_failed
         call_count = {"n": 0}
 
-        def flaky_mark_failed(self, error: str):
+        def flaky_mark_failed(self: TaskRun, error: str) -> None:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("synthetic failure")
@@ -124,12 +124,12 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         statuses = sorted([run_a.status, run_b.status])
         self.assertEqual(statuses, sorted([TaskRun.Status.QUEUED, TaskRun.Status.FAILED]))
 
-    def test_skips_run_whose_status_changed_between_select_and_update(self):
+    def test_skips_run_whose_status_changed_between_select_and_update(self) -> None:
         run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=25))
 
         original_filter = TaskRun.objects.filter
 
-        def stealing_filter(*args, **kwargs):
+        def stealing_filter(*args: object, **kwargs: object) -> object:
             qs = original_filter(*args, **kwargs)
             if kwargs.get("status") == TaskRun.Status.QUEUED and "pk" in kwargs:
                 TaskRun.objects.filter(pk=run.pk).update(status=TaskRun.Status.IN_PROGRESS)
