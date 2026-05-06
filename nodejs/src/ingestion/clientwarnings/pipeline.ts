@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { Team } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
+import { addTeamToContext } from '../common/subpipelines/helpers'
 import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -16,7 +16,6 @@ import { createDropOldEventsStep } from '../event-processing/drop-old-events-ste
 import { createHandleClientIngestionWarningStep } from '../event-processing/handle-client-ingestion-warning-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
-import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
 
@@ -32,18 +31,6 @@ interface ClientWarningsPipelineInput {
 
 interface ClientWarningsPipelineContext {
     message: Message
-}
-
-function addTeamToContext<T extends { team: Team }, C>(
-    element: OkResultWithContext<T, C>
-): OkResultWithContext<T, C & { team: Team }> {
-    return {
-        result: element.result,
-        context: {
-            ...element.context,
-            team: element.result.value.team,
-        },
-    }
 }
 
 export function createClientWarningsPipeline<
