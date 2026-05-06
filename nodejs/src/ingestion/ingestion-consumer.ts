@@ -5,7 +5,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { CommonConfig } from '../common/config'
-import { KafkaConsumer } from '../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -115,7 +115,7 @@ export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
     protected topic: string
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
     public hogTransformer: HogTransformerService
     private overflowRedirectService?: OverflowRedirectService
@@ -215,7 +215,7 @@ export class IngestionConsumer {
             }
         )
 
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
         })

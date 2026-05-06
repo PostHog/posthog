@@ -6,6 +6,9 @@
 name: E2E CI Playwright
 on:
     pull_request:
+        # `labeled` lets developers opt in via the `run-playwright` label.
+        # Unrelated label changes are filtered out in the `changes` job.
+        types: [opened, synchronize, reopened, labeled]
     workflow_dispatch:
     push:
         branches:
@@ -63,61 +66,87 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Only run on PRs from the same repo (not forks) or on master push
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        # Run on master push, manual dispatch, and on internal-repo PRs. Skip the
+        # entire workflow when the only thing that changed is some other label (avoids
+        # noisy runs on every label add/remove unrelated to Playwright).
+        if: |
+            github.event_name == 'push' ||
+            github.event_name == 'workflow_dispatch' ||
+            (
+              github.event.pull_request.head.repo.full_name == github.repository &&
+              (github.event.action != 'labeled' || github.event.label.name == 'run-playwright')
+            )
         name: Determine need to run E2E checks
-        # Set job outputs to values from filter step
         outputs:
-            shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
+            shouldRun: ${{ steps.decide.outputs.shouldRun }}
+            shouldSuggest: ${{ steps.changes.outputs.shouldSuggest }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
+            schema_cache_key: ${{ steps.schema-key.outputs.key }}
         steps:
-            # For pull requests it's not necessary to check out the code
+            # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
+            # (PR branch tip) is reachable for the merge-base step below without the
+            # cost of fetching blobs.
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+                  clean: false
+
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: changes
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skip the path filter when the `run-playwright` label is set or on master push —
+              # both already imply we want to run.
+              if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'run-playwright')
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
-                      shouldRun:
-                        # Avoid running E2E tests for irrelevant changes
-                        # NOTE: we are at risk of missing a dependency here. We could make
-                        # the dependencies more clear if we separated the backend/frontend
-                        # code completely
+                      mustRun:
+                        # Real triggers — only this workflow runs Playwright tests, so changes
+                        # to the tests, page models, utils, snapshots, or this workflow itself
+                        # need to validate before merge.
+                        - playwright/**
+                        - .github/workflows/ci-e2e-playwright.yml
+                      shouldSuggest:
+                        # Wider net — code that *could* affect E2E behavior. We don't auto-run
+                        # Playwright on these (most failures are flakes, real bugs are caught
+                        # elsewhere or fix-forward from master). Instead the `suggest-label` job
+                        # nudges the author to add the `run-playwright` label if they want a
+                        # full sweep before merging.
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
                         - frontend/**/*
-                        - playwright/snapshots.yml
-                        - requirements.txt
-                        - requirements-dev.txt
                         - package.json
                         - pnpm-lock.yaml
-                        # Make sure we run if someone is explicitly changes the workflow
-                        - .github/workflows/ci-e2e-playwright.yml
-                        - .github/actions/build-n-cache-image/action.yml
+                        - uv.lock
                         - .github/clickhouse-versions.json
-                        # We use docker compose for tests, make sure we rerun on
-                        # changes to docker-compose.dev.yml e.g. dependency
-                        # version changes
                         - docker-compose.dev.yml
                         - Dockerfile
-                        - playwright/**
 
-            - uses: actions/checkout@v6
-              if: github.event_name == 'push' || steps.changes.outputs.shouldRun == 'true'
-              with:
-                  sparse-checkout: .github/clickhouse-versions.json
-                  sparse-checkout-cone-mode: false
+            - name: Decide whether to run Playwright
+              id: decide
+              env:
+                  IS_PUSH: ${{ github.event_name == 'push' }}
+                  IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+                  HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-playwright') }}
+                  MUST_RUN: ${{ steps.changes.outputs.mustRun }}
+              run: |
+                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$HAS_LABEL" == "true" || "$MUST_RUN" == "true" ]]; then
+                      echo "shouldRun=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "shouldRun=false" >> "$GITHUB_OUTPUT"
+                  fi
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
-              if: github.event_name == 'push' || steps.changes.outputs.shouldRun == 'true'
+              if: steps.decide.outputs.shouldRun == 'true'
               run: |
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
@@ -126,12 +155,108 @@ jobs:
                   fi
                   echo "oldest_supported=$oldest_supported" >> $GITHUB_OUTPUT
 
+            - name: Fetch base branch for merge-base computation
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              # Scoped, blob-less, no-tags — matches ci-backend / ci-dagster.
+              # Without an explicit refspec, `git fetch --deepen` would fall back to
+              # remote.origin.fetch and pull every branch.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache key from merge-base
+              id: schema-key
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -n "$MERGE_BASE" ]; then
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  else
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                  fi
+
+    # Nudge the author to add the `run-playwright` label when their PR touches code
+    # that *could* affect E2E behavior but doesn't trigger a real run on its own.
+    # Also handles cleanup: if the PR later qualifies for a real run (label added,
+    # narrow paths matched), remove the suggestion comment so it doesn't linger.
+    suggest-label:
+        name: Suggest run-playwright label
+        needs: [changes]
+        if: |
+            github.event_name == 'pull_request' && (
+              needs.changes.outputs.shouldSuggest == 'true' ||
+              needs.changes.outputs.shouldRun == 'true'
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            pull-requests: write
+        steps:
+            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  SHOULD_RUN: ${{ needs.changes.outputs.shouldRun }}
+                  SHOULD_SUGGEST: ${{ needs.changes.outputs.shouldSuggest }}
+                  HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-playwright') }}
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const marker = '<!-- playwright-suggest-label -->';
+                      const shouldRun = process.env.SHOULD_RUN === 'true';
+                      const shouldSuggest = process.env.SHOULD_SUGGEST === 'true';
+                      const hasLabel = process.env.HAS_LABEL === 'true';
+                      const wantSuggestion = !shouldRun && shouldSuggest && !hasLabel;
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+
+                      if (wantSuggestion) {
+                          const body = [
+                              marker,
+                              "🎭 **Playwright didn't run on this PR** — your changes touch code that *could* affect E2E behavior, but Playwright is opt-in via label now to keep CI cost down.",
+                              "",
+                              "Add the **`run-playwright`** label if you want an E2E sweep before merging — CI will pick it up automatically.",
+                              "",
+                              "_Most PRs don't need this. Real regressions still get caught on master and fix-forward._",
+                          ].join('\n');
+                          if (existing) {
+                              await github.rest.issues.updateComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: existing.id,
+                                  body,
+                              });
+                          } else {
+                              await github.rest.issues.createComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  issue_number: context.issue.number,
+                                  body,
+                              });
+                          }
+                      } else if (existing) {
+                          await github.rest.issues.deleteComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                          });
+                      }
+
     playwright:
         name: Playwright E2E tests
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
-        # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
-        runs-on: depot-ubuntu-latest-16
+        # 8-core depot: 18% avg / 30% peak memory observed on 16-core runs (#46853 noted
+        # the workload "is not resource constrained" even after sharding was removed).
+        # Talk to #team-devex before changing.
+        runs-on: depot-ubuntu-latest-8
         timeout-minutes: 45
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
@@ -347,10 +472,37 @@ jobs:
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
+            - name: Restore schema cache from master
+              # Cache key is the merge-base SHA — produced by ci-backend on master push.
+              # Cache miss falls through to a full migrate below.
+              if: github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              id: schema-cache
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.changes.outputs.schema_cache_key }}
+
+            - name: Prime posthog_e2e_test from cached schema
+              # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
+              # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db, restores the
+              # schema, and runs ensure_migration_defaults to seed RunPython data that's
+              # missing from a schema-only dump. The migrate step below still runs and
+              # layers any PR-added migrations on top — the cache just skips the bulk of
+              # the historical migration work.
+              if: steps.schema-cache.outputs.cache-hit == 'true'
+              env:
+                  TARGET_DB: posthog_e2e_test
+              run: |
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-schema-fresh
+
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
                   # Postgres migrations must run first — ClickHouse migration 0026
-                  # depends on the posthog_instancesetting table in Postgres
+                  # depends on the posthog_instancesetting table in Postgres.
+                  # On cache hit this is near no-op; on cache miss it's a full migrate.
+                  # Either way, any PR-added migrations get applied here.
                   python manage.py migrate --noinput
 
                   # Run Rust migrations for persons e2e test database

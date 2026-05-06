@@ -2,12 +2,18 @@
 
 import io
 
+import pytest
+
 import numpy as np
 from PIL import Image, ImageDraw
 
 from products.visual_review.backend.diff import compare_images
-from products.visual_review.backend.diffing import PIXEL_DIFF_THRESHOLD_PERCENT, SSIM_DISSIMILARITY_THRESHOLD
-from products.visual_review.backend.ssim import compute_ssim
+from products.visual_review.backend.diffing import (
+    PIXEL_DIFF_THRESHOLD_PERCENT,
+    SSIM_DISSIMILARITY_THRESHOLD,
+    classify_compare_result,
+)
+from products.visual_review.backend.facade.enums import ChangeKind
 
 
 def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:
@@ -49,47 +55,10 @@ def _make_tall_settings_page(width: int = 400, height: int = 3000, extra_element
     return buf.getvalue()
 
 
-def _classify(baseline_bytes: bytes, current_bytes: bytes) -> str:
-    """Run the same two-tier classification logic as _diff_snapshot."""
+def _classify(baseline_bytes: bytes, current_bytes: bytes) -> ChangeKind | None:
+    """Run the production classifier on a fresh compare result."""
     result = compare_images(baseline_bytes, current_bytes, with_thumbnail=False)
-
-    if result.diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
-        return "changed_by_pixelmatch"
-
-    ssim_dissimilarity = 1.0 - result.ssim_score
-
-    if ssim_dissimilarity >= SSIM_DISSIMILARITY_THRESHOLD:
-        return "changed_by_ssim"
-
-    return "unchanged"
-
-
-class TestComputeSSIM:
-    def test_identical_images_score_one(self):
-        img = _make_png(100, 100, (200, 100, 50, 255))
-        assert compute_ssim(img, img) > 0.999
-
-    def test_completely_different_images_low_score(self):
-        img1 = _make_png(100, 100, (255, 0, 0, 255))
-        img2 = _make_png(100, 100, (0, 0, 255, 255))
-        assert compute_ssim(img1, img2) < 0.8
-
-    def test_slight_difference_high_score(self):
-        img1 = _make_png(100, 100, (100, 100, 100, 255))
-        img2 = _make_png(100, 100, (105, 100, 100, 255))
-        assert compute_ssim(img1, img2) > 0.99
-
-    def test_small_images_below_window_size(self):
-        img1 = _make_png(5, 5, (255, 0, 0, 255))
-        img2 = _make_png(5, 5, (255, 0, 0, 255))
-        assert compute_ssim(img1, img2) > 0.999
-
-    def test_different_sizes_pads_to_larger(self):
-        small = _make_png(50, 50, (200, 200, 200, 255))
-        large = _make_png(100, 100, (200, 200, 200, 255))
-        score = compute_ssim(small, large)
-        # 75% of padded area is black vs gray — significant structural difference
-        assert 0.0 < score < 1.0
+    return classify_compare_result(result)
 
 
 class TestTwoTierClassification:
@@ -101,10 +70,23 @@ class TestTwoTierClassification:
     shift that SSIM catches.
     """
 
-    def test_obvious_change_caught_by_pixelmatch(self):
-        red = _make_png(100, 100, (255, 0, 0, 255))
-        blue = _make_png(100, 100, (0, 0, 255, 255))
-        assert _classify(red, blue) == "changed_by_pixelmatch"
+    @pytest.mark.parametrize(
+        "baseline_color, current_color, expected_kind",
+        [
+            pytest.param((255, 0, 0, 255), (0, 0, 255, 255), ChangeKind.PIXEL, id="obvious_pixel_change"),
+            pytest.param((100, 100, 100, 255), (100, 100, 100, 255), None, id="identical"),
+            pytest.param((100, 100, 100, 255), (105, 100, 100, 255), None, id="subtle_noise"),
+        ],
+    )
+    def test_solid_color_classification(
+        self,
+        baseline_color: tuple[int, int, int, int],
+        current_color: tuple[int, int, int, int],
+        expected_kind: ChangeKind | None,
+    ):
+        baseline = _make_png(100, 100, baseline_color)
+        current = _make_png(100, 100, current_color)
+        assert _classify(baseline, current) == expected_kind
 
     def test_tall_page_change_caught_by_ssim(self):
         baseline = _make_tall_settings_page(extra_element=False)
@@ -116,13 +98,91 @@ class TestTwoTierClassification:
         ssim_dissimilarity = 1.0 - result.ssim_score
         assert ssim_dissimilarity > SSIM_DISSIMILARITY_THRESHOLD
 
-        assert _classify(baseline, current) == "changed_by_ssim"
+        assert _classify(baseline, current) == ChangeKind.STRUCTURAL
 
-    def test_identical_images_classified_unchanged(self):
-        page = _make_tall_settings_page(extra_element=False)
-        assert _classify(page, page) == "unchanged"
+    def test_size_mismatch_still_classifies_normally(self):
+        # Pixelhog pads to the bigger size and runs metrics over the
+        # padded buffers — we still get a real pixel-tier classification
+        # (the new content area shows up as differing pixels). The fact
+        # that sizes differed is recorded separately on diff_metadata.
+        small = _make_png(100, 100, (200, 200, 200, 255))
+        large = _make_png(200, 100, (200, 200, 200, 255))
+        result = compare_images(small, large, with_thumbnail=False)
+        assert result.size_mismatch
+        assert _classify(small, large) == ChangeKind.PIXEL
 
-    def test_subtle_noise_classified_unchanged(self):
-        img1 = _make_png(100, 100, (100, 100, 100, 255))
-        img2 = _make_png(100, 100, (105, 100, 100, 255))
-        assert _classify(img1, img2) == "unchanged"
+    def test_compare_images_populates_ssim_score_for_every_path(self):
+        # ssim_score is now the source of truth for structural similarity —
+        # not derived after the fact, not overwritten by the classifier.
+        # A pixel-tier diff still has a meaningful SSIM number alongside.
+        red = _make_png(100, 100, (255, 0, 0, 255))
+        blue = _make_png(100, 100, (0, 0, 255, 255))
+        result = compare_images(red, blue, with_thumbnail=False)
+        assert 0.0 <= result.ssim_score <= 1.0
+        assert result.ssim_score < 0.8  # red vs blue is structurally different
+
+
+class TestClusterSummary:
+    """Cluster output is meaningful for localized diffs only — not for
+    full inversions, not for identical pairs.
+    """
+
+    def test_localized_change_yields_clusters(self):
+        # Same baseline and current except for a small block in the middle.
+        base = _make_png(200, 200, (240, 240, 240, 255))
+        cur_img = Image.open(io.BytesIO(base))
+        ImageDraw.Draw(cur_img).rectangle([90, 90, 110, 110], fill=(255, 0, 0, 255))
+        buf = io.BytesIO()
+        cur_img.save(buf, format="PNG")
+
+        result = compare_images(base, buf.getvalue(), with_thumbnail=False)
+        assert result.cluster_summary is not None
+        assert result.cluster_summary.total >= 1
+        assert len(result.cluster_summary.items) >= 1
+        # Bbox should land near the drawn rectangle (90,90)+20×20, with
+        # tolerance for the dilation that grows the bbox outward in
+        # every direction.
+        c = result.cluster_summary.items[0]
+        x, y, w, h = c.bbox
+        assert 76 <= x <= 92 and 76 <= y <= 92
+        assert 18 <= w <= 40 and 18 <= h <= 40
+        assert c.px > 0
+        assert 0 <= c.centroid[0] <= 200 and 0 <= c.centroid[1] <= 200
+
+    def test_size_mismatch_yields_clusters_for_new_content_area(self):
+        # Pixelhog pads to the bigger size; the new content area
+        # surfaces as a cluster of its own. That's the right answer
+        # ("here's the new region") rather than something to hide.
+        small = _make_png(100, 100, (200, 200, 200, 255))
+        large = _make_png(200, 100, (200, 200, 200, 255))
+        result = compare_images(small, large, with_thumbnail=False)
+        assert result.size_mismatch
+        assert result.cluster_summary is not None
+        assert result.cluster_summary.total >= 1
+
+    def test_identical_images_have_no_clusters(self):
+        img = _make_png(100, 100, (200, 200, 200, 255))
+        result = compare_images(img, img, with_thumbnail=False)
+        assert result.cluster_summary is None  # diff_pixel_count is 0, skipped
+
+    def test_with_clusters_false_skips_computation(self):
+        red = _make_png(100, 100, (255, 0, 0, 255))
+        blue = _make_png(100, 100, (0, 0, 255, 255))
+        result = compare_images(red, blue, with_thumbnail=False, with_clusters=False)
+        assert result.cluster_summary is None
+
+    def test_diff_metadata_pydantic_round_trip(self):
+        # Storage round-trip: dump -> load yields the same shape.
+        from products.visual_review.backend.diff_metadata import DiffMetadata
+
+        base = _make_png(200, 200, (240, 240, 240, 255))
+        cur_img = Image.open(io.BytesIO(base))
+        ImageDraw.Draw(cur_img).rectangle([90, 90, 110, 110], fill=(255, 0, 0, 255))
+        buf = io.BytesIO()
+        cur_img.save(buf, format="PNG")
+
+        result = compare_images(base, buf.getvalue(), with_thumbnail=False)
+        original = DiffMetadata(cluster_summary=result.cluster_summary)
+        dumped = original.model_dump(mode="json")
+        roundtripped = DiffMetadata.model_validate(dumped)
+        assert roundtripped == original

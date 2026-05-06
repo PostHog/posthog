@@ -155,6 +155,9 @@ export interface ChartConfig {
     showCrosshair?: boolean
     /** `vertical` (default): categories on x, values on y. `horizontal`: swapped. */
     axisOrientation?: 'vertical' | 'horizontal'
+    /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced
+     *  on layout context so overlays can default to a percent formatter. */
+    isPercent?: boolean
 }
 
 export interface TooltipConfig {

@@ -42,6 +42,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -290,7 +291,6 @@ export function FeatureFlagReleaseConditions({
                     {!readOnly && (
                         <FeatureFlagConditionWarning
                             properties={properties}
-                            filterGroups={filterGroups}
                             evaluationRuntime={evaluationRuntime}
                             className="mt-3 mb-3"
                         />
@@ -390,7 +390,7 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
-                                exactMatchFeatureFlagCohortOperators={true}
+                                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>

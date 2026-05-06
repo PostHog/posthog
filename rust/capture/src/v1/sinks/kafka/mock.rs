@@ -54,7 +54,6 @@ pub struct MockProducer {
     ack_error: Option<fn() -> ProduceError>,
     ack_delay: Option<Duration>,
     ready_override: Option<bool>,
-    #[allow(dead_code)]
     handle: lifecycle::Handle,
 }
 
@@ -72,7 +71,6 @@ impl MockProducer {
         }
     }
 
-    #[allow(dead_code)]
     pub fn with_send_error(mut self, f: fn() -> ProduceError) -> Self {
         self.send_error = Some(f);
         self
@@ -80,36 +78,30 @@ impl MockProducer {
 
     /// Limit send errors to the first `n` calls. After `n` errors the
     /// send_error function is bypassed and sends succeed normally.
-    #[allow(dead_code)]
     pub fn with_send_error_count(mut self, n: u32) -> Self {
         self.send_error_remaining = Arc::new(AtomicU32::new(n));
         self
     }
 
-    #[allow(dead_code)]
     pub fn with_ack_error(mut self, f: fn() -> ProduceError) -> Self {
         self.ack_error = Some(f);
         self
     }
 
-    #[allow(dead_code)]
     pub fn with_ack_delay(mut self, d: Duration) -> Self {
         self.ack_delay = Some(d);
         self
     }
 
-    #[allow(dead_code)]
     pub fn with_not_ready(mut self) -> Self {
         self.ready_override = Some(false);
         self
     }
 
-    #[allow(dead_code)]
     pub fn record_count(&self) -> usize {
         self.records.lock().unwrap().len()
     }
 
-    #[allow(dead_code)]
     pub fn with_records<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&[OwnedProduceRecord]) -> R,
@@ -118,7 +110,6 @@ impl MockProducer {
         f(&guard)
     }
 
-    #[allow(dead_code)]
     pub fn clear(&self) {
         self.records.lock().unwrap().clear();
     }
