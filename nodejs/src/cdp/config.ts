@@ -75,6 +75,8 @@ export type CdpConfig = {
     CDP_VALKEY_READER_HOST: string
     CDP_VALKEY_READER_PORT: number
     CDP_VALKEY_DUAL_ENABLED: boolean
+    // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
+    CDP_VALKEY_TLS: boolean
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
@@ -177,6 +179,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_READER_HOST: '',
         CDP_VALKEY_READER_PORT: 6379,
         CDP_VALKEY_DUAL_ENABLED: false,
+        CDP_VALKEY_TLS: false,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',

@@ -109,6 +109,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_DUAL_ENABLED'
+        | 'CDP_VALKEY_TLS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -226,6 +227,7 @@ export function createCdpValkeyShadowPools(
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_DUAL_ENABLED'
+        | 'CDP_VALKEY_TLS'
         | 'REDIS_POOL_MIN_SIZE'
         | 'REDIS_POOL_MAX_SIZE'
     >,
@@ -245,6 +247,8 @@ export function createCdpValkeyShadowPools(
     // race-timeout (which only stops awaiting); together they prevent leaks on bad shadow health.
     const shadowCommandTimeoutMs = 1000
 
+    const tls = config.CDP_VALKEY_TLS ? {} : undefined
+
     const writer = createRedisV2PoolFromConfig({
         connection: {
             url: config.CDP_VALKEY_HOST,
@@ -252,6 +256,7 @@ export function createCdpValkeyShadowPools(
                 port: config.CDP_VALKEY_PORT,
                 password: config.CDP_VALKEY_PASSWORD,
                 commandTimeout: shadowCommandTimeoutMs,
+                tls,
             },
             name: `${name}-shadow`,
         },
@@ -279,6 +284,7 @@ export function createCdpValkeyShadowPools(
                     port: config.CDP_VALKEY_READER_PORT,
                     password: config.CDP_VALKEY_PASSWORD,
                     commandTimeout: shadowCommandTimeoutMs,
+                    tls,
                 },
                 name: `${name}-shadow-reader`,
             },
