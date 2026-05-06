@@ -137,6 +137,7 @@
           ExternalDataSourceType.PARDOT: PardotSourceConfig,
           ExternalDataSourceType.PAYPAL: PayPalSourceConfig,
           ExternalDataSourceType.PENDO: PendoSourceConfig,
+          ExternalDataSourceType.PGANALYZE: PgAnalyzeSourceConfig,
           ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
           ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
           ExternalDataSourceType.PLAID: PlaidSourceConfig,
