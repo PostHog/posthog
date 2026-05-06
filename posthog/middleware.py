@@ -21,6 +21,7 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
+from django.utils.deprecation import MiddlewareMixin
 
 import structlog
 from django_prometheus.middleware import Metrics
@@ -555,7 +556,7 @@ class CustomPrometheusMetrics(Metrics):
         return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
 
 
-class PostHogTokenCookieMiddleware:
+class PostHogTokenCookieMiddleware(MiddlewareMixin):
     """
     Adds secure cookies that let the website auto-fill the current project token / login method on docs.
 
@@ -567,13 +568,6 @@ class PostHogTokenCookieMiddleware:
     against the fresh store, which N+1 query-count tests would catch. The session is already saved by
     the SessionMiddleware higher in the stack; this middleware only needs to set response cookies.
     """
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        response = self.get_response(request)
-        return self.process_response(request, response)
 
     def process_response(self, request, response):
         if settings.TEST:

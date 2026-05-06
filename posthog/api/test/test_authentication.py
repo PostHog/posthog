@@ -13,14 +13,17 @@ from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
+from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.http import HttpResponse
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
+from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
@@ -44,7 +47,7 @@ from posthog.helpers.user_devices import (
     has_valid_known_device_cookie,
 )
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
-from posthog.models import User
+from posthog.models import FeatureFlag, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
@@ -2429,12 +2432,6 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
     and re-reads the session that PostHogTokenCookieMiddleware reset mid-chain, flipping
     `accessed=True` and opening the gate against the non-User principal.
     """
-    from django.core.asgi import get_asgi_application
-
-    from asgiref.sync import sync_to_async
-    from httpx import ASGITransport, AsyncClient
-
-    from posthog.models import FeatureFlag, Organization, Team, User
 
     @sync_to_async
     def setup_team_and_flag():
@@ -2471,5 +2468,5 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
             headers={"authorization": f"Bearer {team.secret_api_token}"},
         )
 
-    assert response.status_code == status.HTTP_200_OK
+    assert response.status_code == status.HTTP_200_OK, response.text
     assert not any(name.startswith("ph_device_") for name in response.cookies)
