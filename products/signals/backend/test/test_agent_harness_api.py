@@ -72,14 +72,12 @@ class TestAgentHarnessRunsAPI(APIBaseTest):
         run = _make_run(
             self.team,
             findings=[{"finding_id": "f1", "emitted": True}],
-            tool_call_log=[{"tool": "search_recent_runs"}],
         )
         response = self.client.get(self._detail_url(str(run.id)))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["run_id"] == str(run.id)
         assert body["findings"] == [{"finding_id": "f1", "emitted": True}]
-        assert body["tool_call_log"] == [{"tool": "search_recent_runs"}]
 
     def test_retrieve_unknown_id_returns_404(self) -> None:
         response = self.client.get(self._detail_url("00000000-0000-0000-0000-000000000000"))
@@ -339,5 +337,3 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-

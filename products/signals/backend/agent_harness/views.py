@@ -99,7 +99,7 @@ class SignalAgentRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Get a run by ID",
         description=(
             "Return the full `SignalAgentRun` row including `summary`, `findings`, "
-            "`hypotheses_considered`, `tool_call_log`, and `metadata`. Strictly team-scoped — "
+            "`hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — "
             "a UUID belonging to another team returns 404."
         ),
     )

@@ -56,16 +56,12 @@ class SignalAgentRunDetailSerializer(serializers.Serializer):
         child=serializers.DictField(),
         help_text="Hypotheses the run considered, including ones it explicitly skipped.",
     )
-    tool_call_log = serializers.ListField(
-        child=serializers.DictField(),
-        help_text="Per-tool-call log entries for this run.",
-    )
-    budget_used = serializers.DictField(
+    run_metrics = serializers.DictField(
         child=serializers.FloatField(),
-        help_text="{tool_calls, cost_usd, runtime_s, findings} — actual usage.",
+        help_text="Measured quantities about how the run went, e.g. {runtime_s, findings}.",
     )
     metadata = serializers.DictField(
-        help_text="Run metadata snapshot (budget caps, skill id, allowed_tools resolution).",
+        help_text="Run metadata snapshot (limits, skill id, allowed_tools resolution).",
     )
 
 
@@ -265,5 +261,3 @@ class EmitFindingResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="`shadow_mode` | `already_emitted` | null when emitted normally.",
     )
-
-

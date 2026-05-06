@@ -35,13 +35,13 @@ class Command(BaseCommand):
         parser.add_argument("--verbose", action="store_true")
 
     def handle(self, *args, **options):
-        budget_overrides = None
+        limit_overrides = None
         if options["budget"]:
             try:
-                budget_overrides = json.loads(options["budget"])
+                limit_overrides = json.loads(options["budget"])
             except json.JSONDecodeError as exc:
                 raise CommandError(f"--budget is not valid JSON: {exc}")
-            if not isinstance(budget_overrides, dict):
+            if not isinstance(limit_overrides, dict):
                 raise CommandError("--budget must be a JSON object")
 
         try:
@@ -49,7 +49,7 @@ class Command(BaseCommand):
                 team_id=options["team_id"],
                 skill_name=options["skill_name"],
                 skill_version=options["skill_version"],
-                budget_overrides=budget_overrides,
+                limit_overrides=limit_overrides,
                 repository=options["repository"],
                 verbose=options["verbose"],
             )

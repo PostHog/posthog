@@ -11,8 +11,8 @@ from django.utils import timezone
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.agent_harness.budgets import BudgetCaps, resolve_budget
 from products.signals.backend.agent_harness.lazy_seed import seed_canonical_skills
+from products.signals.backend.agent_harness.limits import RunLimits, resolve_limits
 from products.signals.backend.agent_harness.prompt import SignalAgentRunSummary, build_run_prompt
 from products.signals.backend.agent_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.models import SignalAgentConfig, SignalAgentRun
@@ -54,7 +54,7 @@ def run_signals_agent(
     team_id: int,
     skill_name: str,
     skill_version: int | None = None,
-    budget_overrides: dict[str, Any] | None = None,
+    limit_overrides: dict[str, Any] | None = None,
     repository: str | None = None,
     verbose: bool = False,
 ) -> RunResult:
@@ -68,7 +68,7 @@ def run_signals_agent(
             team_id=team_id,
             skill_name=skill_name,
             skill_version=skill_version,
-            budget_overrides=budget_overrides,
+            limit_overrides=limit_overrides,
             repository=repository,
             verbose=verbose,
         )
@@ -80,7 +80,7 @@ async def arun_signals_agent(
     team_id: int,
     skill_name: str,
     skill_version: int | None = None,
-    budget_overrides: dict[str, Any] | None = None,
+    limit_overrides: dict[str, Any] | None = None,
     repository: str | None = None,
     verbose: bool = False,
 ) -> RunResult:
@@ -100,7 +100,7 @@ async def arun_signals_agent(
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
         team, skill_name, version=skill_version
     )
-    budget = _budget_for_run(config, budget_overrides)
+    limits = _limits_for_run(config, limit_overrides)
 
     # Skip-if-running guard. Best-effort — there is a TOCTOU window between this check
     # and the row insert below; we accept that until a claim/lease primitive lands.
@@ -120,7 +120,7 @@ async def arun_signals_agent(
         )
 
     run = await database_sync_to_async(_create_run_row, thread_sensitive=False)(
-        team=team, config=config, skill=skill, budget=budget
+        team=team, config=config, skill=skill, limits=limits
     )
     started = time.monotonic()
     try:
@@ -128,7 +128,7 @@ async def arun_signals_agent(
             team=team,
             run=run,
             skill=skill,
-            budget=budget,
+            limits=limits,
             repository=repository,
             verbose=verbose,
         )
@@ -155,7 +155,7 @@ async def arun_signals_agent(
             run_id=run.id,
             exc=exc,
             runtime_s=runtime_s,
-            budget=budget,
+            limits=limits,
             skill=skill,
         )
         return RunResult(
@@ -173,7 +173,7 @@ async def _spawn_and_run(
     team: Team,
     run: SignalAgentRun,
     skill: LoadedSkill,
-    budget: BudgetCaps,
+    limits: RunLimits,
     repository: str | None,
     verbose: bool,
 ) -> str:
@@ -208,9 +208,11 @@ async def _spawn_and_run(
         origin_product=Task.OriginProduct.SIGNALS_AGENT,
     )
     try:
-        # Budget is captured on the run row but not enforced here — the spawn path is one-shot,
-        # so per-tool-call iteration will gate against the budget once the agent-SDK glue lands.
-        _ = budget
+        # Limits are captured on the run row but only `max_runtime_s` is actually
+        # enforced (via the sandbox poll-loop timeout). `max_findings` is a soft
+        # target the agent self-respects via emit-finding idempotency. Per-tool-call
+        # iteration would let us gate further but isn't wired today.
+        _ = limits
         return result.summary
     finally:
         await session.end()
@@ -239,7 +241,7 @@ def _create_run_row(
     team: Team,
     config: SignalAgentConfig,
     skill: LoadedSkill,
-    budget: BudgetCaps,
+    limits: RunLimits,
 ) -> SignalAgentRun:
     return SignalAgentRun.objects.create(
         team=team,
@@ -248,7 +250,7 @@ def _create_run_row(
         skill_version=skill.version,
         status=SignalAgentRun.Status.RUNNING,
         metadata={
-            "budget": budget.as_dict(),
+            "limits": limits.as_dict(),
             "skill_id": skill.skill_id,
             "allowed_tools": skill.allowed_tools_resolution.as_dict(),
         },
@@ -256,11 +258,15 @@ def _create_run_row(
 
 
 def _finalize_completed(*, run_id: str, summary: str, runtime_s: float) -> None:
+    # Count findings on the row at finalize — emits during the run pushed onto
+    # `findings` via `signals-agent-runs-findings-create`. Reading once here
+    # avoids the caller having to thread the count down through the async path.
+    findings_count = _read_findings_count(run_id)
     SignalAgentRun.objects.filter(id=run_id).update(
         status=SignalAgentRun.Status.COMPLETED,
         completed_at=timezone.now(),
         summary=summary,
-        budget_used={"runtime_s": runtime_s},
+        run_metrics={"runtime_s": runtime_s, "findings": findings_count},
     )
 
 
@@ -269,16 +275,17 @@ def _finalize_failed(
     run_id: str,
     exc: BaseException,
     runtime_s: float,
-    budget: BudgetCaps,
+    limits: RunLimits,
     skill: LoadedSkill,
 ) -> None:
+    findings_count = _read_findings_count(run_id)
     SignalAgentRun.objects.filter(id=run_id).update(
         status=SignalAgentRun.Status.FAILED,
         completed_at=timezone.now(),
         summary=f"Run failed: {exc!s}",
-        budget_used={"runtime_s": runtime_s},
+        run_metrics={"runtime_s": runtime_s, "findings": findings_count},
         metadata={
-            "budget": budget.as_dict(),
+            "limits": limits.as_dict(),
             "skill_id": skill.skill_id,
             "allowed_tools": skill.allowed_tools_resolution.as_dict(),
             "error_type": type(exc).__name__,
@@ -286,13 +293,18 @@ def _finalize_failed(
     )
 
 
-def _budget_for_run(config: SignalAgentConfig, overrides: dict[str, Any] | None) -> BudgetCaps:
+def _read_findings_count(run_id: str) -> int:
+    findings = SignalAgentRun.objects.filter(id=run_id).values_list("findings", flat=True).first() or []
+    return len(findings)
+
+
+def _limits_for_run(config: SignalAgentConfig, overrides: dict[str, Any] | None) -> RunLimits:
     # Three-level merge: harness defaults < per-team config < caller-provided overrides.
-    # Merging at the dict layer (not via two stacked `resolve_budget` calls) keeps a
+    # Merging at the dict layer (not via two stacked `resolve_limits` calls) keeps a
     # caller's `max_runtime_s=900` override from silently dropping the team's
-    # `max_findings=3` config — `resolve_budget` only reads the keys it sees.
-    merged: dict[str, Any] = {**(config.budget_overrides or {}), **(overrides or {})}
-    return resolve_budget(merged or None)
+    # `max_findings=3` config — `resolve_limits` only reads the keys it sees.
+    merged: dict[str, Any] = {**(config.limit_overrides or {}), **(overrides or {})}
+    return resolve_limits(merged or None)
 
 
 def _step_name(skill: LoadedSkill) -> str:

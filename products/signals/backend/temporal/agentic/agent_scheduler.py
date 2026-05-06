@@ -10,7 +10,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.signals.backend.agent_harness.budgets import DEFAULT_MAX_RUNTIME_S
+from products.signals.backend.agent_harness.limits import DEFAULT_MAX_RUNTIME_S
 from products.signals.backend.agent_harness.runner import RunResult, arun_signals_agent
 
 logger = structlog.get_logger(__name__)
@@ -26,7 +26,7 @@ class RunSignalsAgentInput:
     skill_name: str
     skill_version: int | None = None
     repository: str | None = None
-    budget_overrides: dict[str, Any] | None = None
+    limit_overrides: dict[str, Any] | None = None
 
 
 @dataclass
@@ -63,7 +63,7 @@ async def run_signals_agent_activity(input: RunSignalsAgentInput) -> RunSignalsA
             team_id=input.team_id,
             skill_name=input.skill_name,
             skill_version=input.skill_version,
-            budget_overrides=input.budget_overrides,
+            limit_overrides=input.limit_overrides,
             repository=input.repository,
         )
     logger.info(

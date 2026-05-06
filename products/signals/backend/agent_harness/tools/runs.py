@@ -50,8 +50,7 @@ class RunDetail:
     summary: str
     findings: list[Any] = field(default_factory=list)
     hypotheses_considered: list[Any] = field(default_factory=list)
-    tool_call_log: list[Any] = field(default_factory=list)
-    budget_used: dict[str, Any] = field(default_factory=dict)
+    run_metrics: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -119,8 +118,7 @@ def _to_detail(row: SignalAgentRun) -> RunDetail:
         summary=row.summary or "",
         findings=list(row.findings or []),
         hypotheses_considered=list(row.hypotheses_considered or []),
-        tool_call_log=list(row.tool_call_log or []),
-        budget_used=dict(row.budget_used or {}),
+        run_metrics=dict(row.run_metrics or {}),
         metadata=dict(row.metadata or {}),
     )
 

@@ -117,8 +117,7 @@ class TestGetRun(BaseTest):
             self.team,
             findings=[{"id": "f1"}],
             hypotheses_considered=[{"text": "thought about it"}],
-            tool_call_log=[{"tool": "search_memory"}],
-            budget_used={"runtime_s": 3.2},
+            run_metrics={"runtime_s": 3.2},
             metadata={"skill_id": "abc"},
         )
 
@@ -128,8 +127,7 @@ class TestGetRun(BaseTest):
         assert detail.run_id == str(run.id)
         assert detail.findings == [{"id": "f1"}]
         assert detail.hypotheses_considered == [{"text": "thought about it"}]
-        assert detail.tool_call_log == [{"tool": "search_memory"}]
-        assert detail.budget_used == {"runtime_s": 3.2}
+        assert detail.run_metrics == {"runtime_s": 3.2}
         assert detail.metadata == {"skill_id": "abc"}
 
     def test_returns_none_for_unknown_id(self) -> None:

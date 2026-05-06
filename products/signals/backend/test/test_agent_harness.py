@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import random
-import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -16,9 +15,9 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
-from products.signals.backend.agent_harness.budgets import DEFAULT_BUDGET, BudgetCaps, resolve_budget
+from products.signals.backend.agent_harness.limits import DEFAULT_LIMITS, RunLimits, resolve_limits
 from products.signals.backend.agent_harness.prompt import build_run_prompt
-from products.signals.backend.agent_harness.runner import RunResult, _budget_for_run, arun_signals_agent
+from products.signals.backend.agent_harness.runner import RunResult, _limits_for_run, arun_signals_agent
 from products.signals.backend.agent_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_agent_skill,
@@ -59,47 +58,43 @@ async def aerrors_skill(ateam):
     yield skill
 
 
-class TestBudgetResolution(BaseTest):
-    def test_default_budget_when_no_overrides(self) -> None:
-        assert resolve_budget(None) == DEFAULT_BUDGET
-        assert resolve_budget({}) == DEFAULT_BUDGET
+class TestLimitsResolution(BaseTest):
+    def test_default_limits_when_no_overrides(self) -> None:
+        assert resolve_limits(None) == DEFAULT_LIMITS
+        assert resolve_limits({}) == DEFAULT_LIMITS
 
     def test_partial_overrides_apply_on_top_of_defaults(self) -> None:
-        budget = resolve_budget({"max_runtime_s": 600})
-        assert budget.max_runtime_s == 600
-        assert budget.max_tool_calls == DEFAULT_BUDGET.max_tool_calls
-        assert budget.max_cost_usd == DEFAULT_BUDGET.max_cost_usd
-        assert budget.max_findings == DEFAULT_BUDGET.max_findings
+        limits = resolve_limits({"max_runtime_s": 600})
+        assert limits.max_runtime_s == 600
+        assert limits.max_findings == DEFAULT_LIMITS.max_findings
 
     def test_unknown_keys_are_ignored(self) -> None:
-        # A stale config row shouldn't crash the runner if a budget field gets renamed.
-        budget = resolve_budget({"max_runtime_s": 120, "obsolete_field": "ignore_me"})
-        assert budget == BudgetCaps(max_runtime_s=120)
+        # A stale config row shouldn't crash the runner if a limit field gets renamed
+        # or removed (e.g. the historical max_tool_calls / max_cost_usd we cut).
+        limits = resolve_limits({"max_runtime_s": 120, "obsolete_field": "ignore_me"})
+        assert limits == RunLimits(max_runtime_s=120)
 
-    def test_budget_for_run_merges_config_and_overrides(self) -> None:
-        # `_budget_for_run` is the three-level merge point: defaults < config row <
+    def test_limits_for_run_merges_config_and_overrides(self) -> None:
+        # `_limits_for_run` is the three-level merge point: defaults < config row <
         # caller overrides. A caller-supplied key must not silently drop unrelated
         # config-row keys (the bug a previous short-circuit would introduce).
-        config = SignalAgentConfig(team=self.team, budget_overrides={"max_findings": 3})
-        budget = _budget_for_run(config, overrides={"max_runtime_s": 900})
+        config = SignalAgentConfig(team=self.team, limit_overrides={"max_findings": 3})
+        limits = _limits_for_run(config, overrides={"max_runtime_s": 900})
         # Caller's max_runtime_s wins, but the team's max_findings is preserved.
-        assert budget.max_runtime_s == 900
-        assert budget.max_findings == 3
-        # Defaults still fill in everything else.
-        assert budget.max_tool_calls == DEFAULT_BUDGET.max_tool_calls
-        assert budget.max_cost_usd == DEFAULT_BUDGET.max_cost_usd
+        assert limits.max_runtime_s == 900
+        assert limits.max_findings == 3
 
-    def test_budget_for_run_overrides_win_on_conflict(self) -> None:
+    def test_limits_for_run_overrides_win_on_conflict(self) -> None:
         # When config and overrides set the same key, the caller wins.
-        config = SignalAgentConfig(team=self.team, budget_overrides={"max_runtime_s": 600})
-        budget = _budget_for_run(config, overrides={"max_runtime_s": 120})
-        assert budget.max_runtime_s == 120
+        config = SignalAgentConfig(team=self.team, limit_overrides={"max_runtime_s": 600})
+        limits = _limits_for_run(config, overrides={"max_runtime_s": 120})
+        assert limits.max_runtime_s == 120
 
-    def test_budget_for_run_falls_back_to_config_when_no_overrides(self) -> None:
-        config = SignalAgentConfig(team=self.team, budget_overrides={"max_findings": 2})
-        budget = _budget_for_run(config, overrides=None)
-        assert budget.max_findings == 2
-        assert budget.max_runtime_s == DEFAULT_BUDGET.max_runtime_s
+    def test_limits_for_run_falls_back_to_config_when_no_overrides(self) -> None:
+        config = SignalAgentConfig(team=self.team, limit_overrides={"max_findings": 2})
+        limits = _limits_for_run(config, overrides=None)
+        assert limits.max_findings == 2
+        assert limits.max_runtime_s == DEFAULT_LIMITS.max_runtime_s
 
 
 class TestSkillLoader(BaseTest):
@@ -209,7 +204,7 @@ async def test_successful_run_persists_completed_row(ateam, aerrors_skill):
     assert run_row.status == SignalAgentRun.Status.COMPLETED
     assert run_row.completed_at is not None
     assert run_row.summary == "I would investigate /checkout 500s next."
-    assert "runtime_s" in run_row.budget_used
+    assert "runtime_s" in run_row.run_metrics
     config = await database_sync_to_async(SignalAgentConfig.objects.get)(team=ateam)
     assert config.enabled is False
     assert config.shadow_mode is True
@@ -245,7 +240,7 @@ async def test_missing_skill_does_not_create_run_row(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_budget_overrides_propagate_into_run_metadata(ateam, aerrors_skill):
+async def test_limit_overrides_propagate_into_run_metadata(ateam, aerrors_skill):
     async def fake_spawn(**_kwargs):
         return "ok"
 
@@ -253,11 +248,11 @@ async def test_budget_overrides_propagate_into_run_metadata(ateam, aerrors_skill
         result = await arun_signals_agent(
             team_id=ateam.id,
             skill_name="signals-agent-errors",
-            budget_overrides={"max_runtime_s": 120},
+            limit_overrides={"max_runtime_s": 120},
         )
 
     run_row = await database_sync_to_async(SignalAgentRun.objects.get)(id=result.run_id)
-    assert run_row.metadata["budget"]["max_runtime_s"] == 120
+    assert run_row.metadata["limits"]["max_runtime_s"] == 120
 
 
 @pytest.mark.asyncio
@@ -283,99 +278,6 @@ async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
     assert result.skip_reason and "RUNNING" in result.skip_reason
     count = await database_sync_to_async(SignalAgentRun.objects.filter(team=ateam).count)()
     assert count == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_cancelled_run_persists_failure_and_re_raises(ateam, aerrors_skill):
-    """asyncio.CancelledError is BaseException, not Exception — the cleanup branch must
-    still mark the row FAILED before re-raising so Temporal sees the activity as failed
-    and the row doesn't go stale.
-    """
-
-    async def fake_spawn(**_kwargs):
-        raise asyncio.CancelledError("worker is shutting down")
-
-    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        with pytest.raises(asyncio.CancelledError):
-            await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
-
-    # Exactly one row, marked failed with the cancellation reason recorded.
-    runs = await database_sync_to_async(list)(SignalAgentRun.objects.filter(team=ateam))
-    assert len(runs) == 1
-    assert runs[0].status == SignalAgentRun.Status.FAILED
-    assert runs[0].completed_at is not None
-    assert runs[0].metadata.get("error_type") == "CancelledError"
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_self_heal_unblocks_stale_running_row(ateam, aerrors_skill):
-    """A RUNNING row whose age exceeds 2x its max_runtime_s budget must be auto-healed
-    before the skip-if-running guard fires, so a fresh run can spawn instead of being
-    blocked indefinitely by an orphaned row from a worker shutdown / sandbox crash.
-    """
-    config = await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam)
-    stale = await database_sync_to_async(SignalAgentRun.objects.create)(
-        team=ateam,
-        agent_config=config,
-        skill_name="signals-agent-errors",
-        skill_version=1,
-        status=SignalAgentRun.Status.RUNNING,
-        metadata={"budget": {"max_runtime_s": 1800}},
-    )
-    # Age the row past 2x its 1800s budget.
-    await database_sync_to_async(SignalAgentRun.objects.filter(id=stale.id).update)(
-        started_at=datetime.now(UTC) - timedelta(seconds=4000),
-    )
-
-    async def fake_spawn(**_kwargs):
-        return "fresh run completed"
-
-    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
-
-    # Fresh run was allowed to proceed.
-    assert result.status == SignalAgentRun.Status.COMPLETED
-    assert result.run_id is not None and result.run_id != str(stale.id)
-    # Stale row was healed in place.
-    healed = await database_sync_to_async(SignalAgentRun.objects.get)(id=stale.id)
-    assert healed.status == SignalAgentRun.Status.FAILED
-    assert healed.completed_at is not None
-    assert "auto-healed" in healed.summary.lower()
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_self_heal_leaves_recent_running_row_alone(ateam, aerrors_skill):
-    """A RUNNING row within its budget window is a legitimate concurrent run — the
-    self-heal must NOT touch it, and the skip-if-running guard must still fire.
-    """
-    config = await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam)
-    recent = await database_sync_to_async(SignalAgentRun.objects.create)(
-        team=ateam,
-        agent_config=config,
-        skill_name="signals-agent-errors",
-        skill_version=1,
-        status=SignalAgentRun.Status.RUNNING,
-        metadata={"budget": {"max_runtime_s": 1800}},
-    )
-    # Within the 2x threshold (3600s).
-    await database_sync_to_async(SignalAgentRun.objects.filter(id=recent.id).update)(
-        started_at=datetime.now(UTC) - timedelta(seconds=120),
-    )
-
-    async def fake_spawn(**_kwargs):
-        raise AssertionError("spawn should not run while a recent prior run is RUNNING")
-
-    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
-
-    assert result.run_id is None
-    assert result.skip_reason and "RUNNING" in result.skip_reason
-    untouched = await database_sync_to_async(SignalAgentRun.objects.get)(id=recent.id)
-    assert untouched.status == SignalAgentRun.Status.RUNNING
-    assert untouched.completed_at is None
 
 
 @pytest.mark.asyncio

@@ -37,7 +37,7 @@ class PlannedRun:
 
     team_id: int
     skill_name: str
-    budget_overrides: dict[str, Any] = field(default_factory=dict)
+    limit_overrides: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -110,7 +110,7 @@ def _collect_planned_runs() -> list[PlannedRun]:
                 PlannedRun(
                     team_id=team_id,
                     skill_name=skill_name,
-                    budget_overrides=dict(config.budget_overrides or {}),
+                    limit_overrides=dict(config.limit_overrides or {}),
                 )
             )
     # Stable order: team_id then skill_name. Keeps child workflow IDs predictable
@@ -222,7 +222,7 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
             RunSignalsAgentInput(
                 team_id=planned.team_id,
                 skill_name=planned.skill_name,
-                budget_overrides=planned.budget_overrides or None,
+                limit_overrides=planned.limit_overrides or None,
             ),
             id=child_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
