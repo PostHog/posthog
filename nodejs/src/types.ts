@@ -173,6 +173,7 @@ export interface PluginServerCapabilities {
     evaluationScheduler?: boolean
     cdpCyclotronV2Janitor?: boolean
     cdpHogflowScheduler?: boolean
+    cdpHogflowSubscriptionMatcher?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean
 }
