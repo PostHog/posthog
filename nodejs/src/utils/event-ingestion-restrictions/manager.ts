@@ -70,6 +70,16 @@ export class EventIngestionRestrictionManager {
         })
     }
 
+    start(): Promise<void> {
+        // No startup work — the dynamic config refresher is initialized in the constructor.
+        return Promise.resolve()
+    }
+
+    stop(): Promise<void> {
+        // No shutdown work — the refresher is GC'd with the instance.
+        return Promise.resolve()
+    }
+
     async forceRefresh(): Promise<void> {
         await this.dynamicConfigRefresher.refresh()
     }
