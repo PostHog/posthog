@@ -17,9 +17,9 @@ from celery import shared_task
 
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
 from products.conversations.backend.events import capture_ticket_status_changed

@@ -1,7 +1,7 @@
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.scoping import skip_team_scope_audit
+from posthog.scoping_audit import skip_team_scope_audit
 
 
 @shared_task(ignore_result=True, rate_limit="5/s")

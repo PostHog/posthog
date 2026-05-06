@@ -8,9 +8,9 @@ from structlog import get_logger
 
 from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.action.action import Action
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.redis import get_client
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)

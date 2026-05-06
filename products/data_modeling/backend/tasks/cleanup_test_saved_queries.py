@@ -6,7 +6,7 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
-from posthog.models.scoping import skip_team_scope_audit
+from posthog.scoping_audit import skip_team_scope_audit
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery

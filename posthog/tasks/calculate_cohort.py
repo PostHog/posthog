@@ -28,9 +28,9 @@ from posthog.models.cohort.util import (
     get_clickhouse_query_stats,
     sort_cohorts_topologically,
 )
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(

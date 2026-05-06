@@ -1,8 +1,8 @@
 import structlog
 from celery import shared_task
 
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.ph_client import get_client
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 

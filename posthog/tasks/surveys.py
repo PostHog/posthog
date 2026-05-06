@@ -1,8 +1,8 @@
 import structlog
 from celery import shared_task
 
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.surveys.backend.models import surveys_hypercache

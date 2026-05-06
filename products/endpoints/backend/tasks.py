@@ -5,7 +5,7 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
-from posthog.models.scoping import skip_team_scope_audit
+from posthog.scoping_audit import skip_team_scope_audit
 
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion

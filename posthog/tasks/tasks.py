@@ -24,9 +24,9 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 

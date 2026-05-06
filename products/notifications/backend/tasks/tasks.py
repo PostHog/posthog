@@ -5,7 +5,7 @@ from django.utils import timezone
 import structlog
 from celery import shared_task
 
-from posthog.models.scoping import skip_team_scope_audit
+from posthog.scoping_audit import skip_team_scope_audit
 
 from products.notifications.backend.models import NotificationEvent
 

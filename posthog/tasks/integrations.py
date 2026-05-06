@@ -6,7 +6,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     defer_repository_cache_fields,
 )
-from posthog.models.scoping import skip_team_scope_audit
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 

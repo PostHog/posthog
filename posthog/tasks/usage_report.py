@@ -39,9 +39,9 @@ from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionTy
 from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.property.util import get_property_string_expr
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue

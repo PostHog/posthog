@@ -4,9 +4,9 @@ from celery import shared_task
 
 from posthog.demo.matrix import manager
 from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.scoping_audit import skip_team_scope_audit
 
 
 @shared_task(ignore_result=True)

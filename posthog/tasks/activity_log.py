@@ -3,7 +3,7 @@ from celery import shared_task
 
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.models import Team
-from posthog.models.scoping import skip_team_scope_audit
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 

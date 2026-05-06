@@ -15,8 +15,8 @@ from django.dispatch import receiver
 import structlog
 from celery import shared_task
 
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import (
     cleanup_stale_expiry_tracking,

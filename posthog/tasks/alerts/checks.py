@@ -19,9 +19,9 @@ from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.alerts.detector import check_trends_alert_with_detector

@@ -9,7 +9,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.cloud_utils import is_cloud
-from posthog.models.scoping import skip_team_scope_audit
+from posthog.scoping_audit import skip_team_scope_audit
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 

@@ -39,9 +39,9 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.messaging import MessagingRecord, get_email_hash
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
 from products.conversations.backend.models import Ticket

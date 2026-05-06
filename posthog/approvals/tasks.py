@@ -8,7 +8,7 @@ from structlog import get_logger
 
 from posthog.approvals.models import ChangeRequest, ChangeRequestState, ValidationStatus
 from posthog.approvals.notifications import send_approval_expired_notification
-from posthog.models.scoping import skip_team_scope_audit
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = get_logger(__name__)
 

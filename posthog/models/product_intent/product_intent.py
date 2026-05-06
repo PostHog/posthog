@@ -14,10 +14,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
 

@@ -6,9 +6,9 @@ from celery import shared_task
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
-from posthog.models.scoping import skip_team_scope_audit
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
+from posthog.scoping_audit import skip_team_scope_audit
 
 from ee.api.sentry_stats import get_stats_for_timerange
 

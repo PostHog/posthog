@@ -4,7 +4,7 @@ import structlog
 from celery import shared_task
 
 from posthog.models import Person
-from posthog.models.scoping import skip_team_scope_audit
+from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
 
