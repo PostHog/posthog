@@ -1052,10 +1052,7 @@ mod tests {
     #[case("$pageview", Destination::AnalyticsMain)]
     #[case("custom_event", Destination::AnalyticsMain)]
     #[case("$autocapture", Destination::AnalyticsMain)]
-    fn destination_for_event_name_mapping(
-        #[case] event_name: &str,
-        #[case] expected: Destination,
-    ) {
+    fn destination_for_event_name_mapping(#[case] event_name: &str, #[case] expected: Destination) {
         assert_eq!(destination_for_event_name(event_name), expected);
     }
 
