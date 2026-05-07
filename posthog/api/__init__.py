@@ -712,6 +712,12 @@ organizations_router.register(
     "organization_welcome",
     ["organization_id"],
 )
+organizations_router.register(
+    r"advanced_activity_logs",
+    advanced_activity_logs.OrganizationAdvancedActivityLogsViewSet,
+    "organization_advanced_activity_logs",
+    ["organization_id"],
+)
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")

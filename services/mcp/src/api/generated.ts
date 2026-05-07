@@ -42783,6 +42783,74 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type OrgOrganizationsAdvancedActivityLogsListParams = {
+    /**
+     * Filter by activity types (e.g. "created", "updated", "deleted").
+     */
+    activities?: string[];
+    /**
+     * Filter by API clients that generated the activity (from x-posthog-client header).
+     */
+    clients?: string[];
+    /**
+     * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
+     */
+    detail_filters?: string;
+    /**
+     * Upper bound on `created_at` (inclusive), ISO-8601.
+     */
+    end_date?: string;
+    /**
+     * Reserved for future HogQL-based filtering.
+     */
+    hogql_filter?: string;
+    /**
+     * When set, filters rows authored by the system (no user).
+     * @nullable
+     */
+    is_system?: boolean | null;
+    /**
+     * Filter by the `item_id` of the affected resource(s).
+     */
+    item_ids?: string[];
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number;
+    /**
+     * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
+     */
+    scopes?: string[];
+    /**
+     * Free-text search across the `detail` JSON column.
+     */
+    search_text?: string;
+    /**
+     * Lower bound on `created_at` (inclusive), ISO-8601.
+     */
+    start_date?: string;
+    /**
+     * Filter by project (team) IDs. Only honored on the organization-scoped endpoint; ignored on the project-scoped endpoint.
+     */
+    team_ids?: number[];
+    /**
+     * Filter by users who performed the activity (user UUIDs).
+     */
+    users?: string[];
+    /**
+     * When set, filters rows where the actor was impersonating another user.
+     * @nullable
+     */
+    was_impersonated?: boolean | null;
+    };
+
     export type OrgOrganizationsBatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -43355,15 +43423,34 @@ export namespace Schemas {
     } as const;
 
     export type AdvancedActivityLogsListParams = {
+    /**
+     * Filter by activity types (e.g. "created", "updated", "deleted").
+     */
     activities?: string[];
+    /**
+     * Filter by API clients that generated the activity (from x-posthog-client header).
+     */
     clients?: string[];
+    /**
+     * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
+     */
     detail_filters?: string;
+    /**
+     * Upper bound on `created_at` (inclusive), ISO-8601.
+     */
     end_date?: string;
+    /**
+     * Reserved for future HogQL-based filtering.
+     */
     hogql_filter?: string;
     /**
+     * When set, filters rows authored by the system (no user).
      * @nullable
      */
     is_system?: boolean | null;
+    /**
+     * Filter by the `item_id` of the affected resource(s).
+     */
     item_ids?: string[];
     /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
@@ -43376,11 +43463,28 @@ export namespace Schemas {
      * @maximum 1000
      */
     page_size?: number;
+    /**
+     * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
+     */
     scopes?: string[];
+    /**
+     * Free-text search across the `detail` JSON column.
+     */
     search_text?: string;
+    /**
+     * Lower bound on `created_at` (inclusive), ISO-8601.
+     */
     start_date?: string;
+    /**
+     * Filter by project (team) IDs. Only honored on the organization-scoped endpoint; ignored on the project-scoped endpoint.
+     */
+    team_ids?: number[];
+    /**
+     * Filter by users who performed the activity (user UUIDs).
+     */
     users?: string[];
     /**
+     * When set, filters rows where the actor was impersonating another user.
      * @nullable
      */
     was_impersonated?: boolean | null;
