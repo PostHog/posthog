@@ -272,14 +272,17 @@ pub struct FlagsCanonicalLogLine {
     /// phase ships; while None, `emit_timing_metrics` skips emission.
     pub concurrency_limit_wait_ms: Option<u64>,
 
-    /// Wall-clock duration of inbound POST body buffering, in
+    /// Wall-clock duration of inbound request body buffering, in
     /// milliseconds with sub-ms precision. Captured by the
     /// `record_body_read` middleware shim, populated on the request
     /// extensions, and seeded onto the canonical log at handler entry.
-    /// `None` for GET / HEAD / OPTIONS where the shim was bypassed or the
-    /// extractor short-circuited on an empty body. `f64` (not `u64`)
-    /// because `BODY_READ_BUCKETS_MS` has sub-ms boundaries — integer-ms
-    /// truncation would hide warm in-memory POSTs in the bottom bucket.
+    /// `None` only when the shim is absent on the route that reached the
+    /// handler (the production wiring installs it on `/flags|/decide`,
+    /// so this is the rollout-safety / test fallback path); the shim
+    /// itself records a duration for every method, including empty
+    /// bodies. `f64` (not `u64`) because `BODY_READ_BUCKETS_MS` has
+    /// sub-ms boundaries — integer-ms truncation would hide warm
+    /// in-memory POSTs in the bottom bucket.
     pub body_read_ms: Option<f64>,
 
     /// Per-phase wall-clock breakdown of `process_request_inner`.
