@@ -157,7 +157,7 @@ class ClusterSummary:
     """Spatial clustering of differing pixels for a snapshot.
 
     `total` is the count before any per-snapshot cap (so the FE can show
-    "+N more" or pick a categorical label like 'Layout shift' for highly
+    "+N more" or pick a categorical label like 'Perceptible change' for highly
     scattered diffs even when only the top-N items are shipped).
     `truncated` is True when `len(items) < total`.
     """
@@ -326,7 +326,7 @@ class SnapshotHistoryEntry:
     review_state: str = ""
     current_artifact: Artifact | None = None
     # Diff classification — see ChangeKind enum. Lets the history view
-    # render categorical chips ('Layout shift' / 'Size changed') instead
+    # render categorical chips ('Perceptible change' / 'Size changed') instead
     # of conflating SSIM dissimilarity with pixel diff %. `cluster_summary`
     # deliberately omitted here — bbox overlays don't apply to a
     # list-of-history-rows view; load the full snapshot for those.

@@ -74,12 +74,13 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, WrappedEvent>, Error> {
-    let mut events: HashMap<Uuid, WrappedEvent> = HashMap::with_capacity(batch.batch.len());
+fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
+    let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch.batch.len());
+    let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
 
     for event in batch.batch.into_iter() {
         let uuid = Uuid::parse_str(event.uuid()).map_err(|_| Error::MissingEventUuid)?;
-        if events.contains_key(&uuid) {
+        if !seen.insert(uuid) {
             return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
         }
 
@@ -87,48 +88,42 @@ fn validate_events(context: &Context, batch: Batch) -> Result<HashMap<Uuid, Wrap
             Ok(raw_ts) => {
                 metrics::counter!(CAPTURE_V1_PARSED_EVENTS, "result" => "valid").increment(1);
                 let adjusted = normalize_timestamp(context, &event, raw_ts);
-                events.insert(
+                events.push(WrappedEvent {
+                    event,
                     uuid,
-                    WrappedEvent {
-                        event,
-                        uuid,
-                        adjusted_timestamp: Some(adjusted),
-                        result: EventResult::Ok,
-                        details: None,
-                        destination: Destination::default(),
-                        force_disable_person_processing: false,
-                    },
-                );
+                    adjusted_timestamp: Some(adjusted),
+                    result: EventResult::Ok,
+                    details: None,
+                    destination: Destination::default(),
+                    force_disable_person_processing: false,
+                });
             }
             Err(err) => {
-                events.insert(
+                events.push(WrappedEvent {
+                    event,
                     uuid,
-                    WrappedEvent {
-                        event,
-                        uuid,
-                        adjusted_timestamp: None,
-                        result: EventResult::Drop,
-                        details: Some(err.tag()),
-                        destination: Destination::default(),
-                        force_disable_person_processing: false,
-                    },
-                );
+                    adjusted_timestamp: None,
+                    result: EventResult::Drop,
+                    details: Some(err.tag()),
+                    destination: Destination::default(),
+                    force_disable_person_processing: false,
+                });
             }
         }
     }
 
-    if events.values().any(|e| e.result != EventResult::Ok) {
+    if events.iter().any(|e| e.result != EventResult::Ok) {
         observe_malformed_events(context, &events);
     }
 
     Ok(events)
 }
 
-fn observe_malformed_events(context: &Context, events: &HashMap<Uuid, WrappedEvent>) {
+fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
     let mut illegal_distinct_ids: HashSet<&str> = HashSet::new();
 
-    for event in events.values() {
+    for event in events.iter() {
         if let Some(tag) = event.details {
             *malformed.entry(tag).or_insert(0) += 1;
             if tag == "invalid_distinct_id" {
@@ -217,9 +212,9 @@ fn normalize_timestamp(
 fn apply_historical_rerouting(
     cfg: &router::HistoricalConfig,
     context: &Context,
-    events: &mut HashMap<Uuid, WrappedEvent>,
+    events: &mut [WrappedEvent],
 ) {
-    for event in events.values_mut() {
+    for event in events.iter_mut() {
         if event.result != EventResult::Ok || event.destination != Destination::AnalyticsMain {
             continue;
         }
@@ -250,9 +245,9 @@ async fn apply_restrictions(
     service: &EventRestrictionService,
     token: &str,
     now_ts: i64,
-    events: &mut HashMap<Uuid, WrappedEvent>,
+    events: &mut [WrappedEvent],
 ) {
-    for event in events.values_mut() {
+    for event in events.iter_mut() {
         if event.result != EventResult::Ok {
             continue;
         }
@@ -295,12 +290,12 @@ async fn apply_restrictions(
 async fn apply_token_distinct_id_limits(
     limiter: &GlobalRateLimiter,
     context: &Context,
-    events: &mut HashMap<Uuid, WrappedEvent>,
+    events: &mut [WrappedEvent],
 ) {
     let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
     let mut allowed_count: u64 = 0;
 
-    for event in events.values_mut() {
+    for event in events.iter_mut() {
         if event.result != EventResult::Ok {
             continue;
         }
@@ -364,8 +359,8 @@ mod tests {
     use crate::v1::analytics::types::{Batch, Event, Options};
     use crate::v1::sinks::Destination;
     use crate::v1::test_utils::{
-        self, events_map, find_by_did, malformed_wrapped_event, raw_obj, valid_event,
-        wrapped_event, wrapped_event_at,
+        self, find_by_did, malformed_wrapped_event, raw_obj, valid_event, wrapped_event,
+        wrapped_event_at,
     };
     use crate::v1::Error;
 
@@ -578,10 +573,13 @@ mod tests {
         let batch = valid_batch(vec![perf, normal]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
-        let p = events.get(&perf_uuid).unwrap();
+        // Vec preserves input order: perf first, normal second.
+        let p = &events[0];
+        assert_eq!(p.uuid, perf_uuid);
         assert_eq!(p.result, EventResult::Drop);
         assert_eq!(p.details, Some("dropped_performance_event"));
-        let n = events.get(&normal_uuid).unwrap();
+        let n = &events[1];
+        assert_eq!(n.uuid, normal_uuid);
         assert_eq!(n.result, EventResult::Ok);
     }
 
@@ -599,7 +597,7 @@ mod tests {
         let batch = valid_batch(vec![p1, p2]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
-        for ev in events.values() {
+        for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
             assert_eq!(ev.details, Some("dropped_performance_event"));
         }
@@ -678,7 +676,8 @@ mod tests {
         };
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
-        let event = events.get(&uuid).unwrap();
+        let event = &events[0];
+        assert_eq!(event.uuid, uuid);
         assert_eq!(event.result, EventResult::Drop);
         assert_eq!(event.details, Some("malformed_event_properties"));
     }
@@ -818,7 +817,7 @@ mod tests {
             EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
 
-        let mut events = events_map(vec![wrapped_event("$pageview", "user-1")]);
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
@@ -841,15 +840,15 @@ mod tests {
         )
         .await;
 
-        let mut events = events_map(vec![
+        let mut events = vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$identify", "user-2"),
-        ]);
+        ];
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
 
-        for ev in events.values() {
+        for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
             assert_eq!(ev.destination, Destination::Drop);
         }
@@ -869,7 +868,7 @@ mod tests {
 
         let malformed = malformed_wrapped_event();
         let malformed_did = malformed.event.distinct_id.clone();
-        let mut events = events_map(vec![malformed, wrapped_event("$pageview", "user-valid")]);
+        let mut events = vec![malformed, wrapped_event("$pageview", "user-valid")];
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
@@ -896,7 +895,7 @@ mod tests {
         )
         .await;
 
-        let mut events = events_map(vec![wrapped_event("$pageview", "user-1")]);
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
@@ -918,7 +917,7 @@ mod tests {
         )
         .await;
 
-        let mut events = events_map(vec![wrapped_event("$pageview", "user-1")]);
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
@@ -940,7 +939,7 @@ mod tests {
         )
         .await;
 
-        let mut events = events_map(vec![wrapped_event("$pageview", "user-1")]);
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
@@ -965,7 +964,7 @@ mod tests {
         )
         .await;
 
-        let mut events = events_map(vec![wrapped_event("$pageview", "user-1")]);
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
@@ -1000,7 +999,7 @@ mod tests {
         )
         .await;
 
-        let mut events = events_map(vec![wrapped_event("$pageview", "user-1")]);
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
@@ -1022,7 +1021,7 @@ mod tests {
         )
         .await;
 
-        let mut events = events_map(vec![wrapped_event("$pageview", "user-1")]);
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
         let now_ts = Utc::now().timestamp();
 
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
@@ -1103,14 +1102,14 @@ mod tests {
     async fn td_limits_under_limit_all_pass() {
         let limiter = mock_limiter(vec![]);
         let ctx = td_context();
-        let mut events = events_map(vec![
+        let mut events = vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$identify", "user-2"),
-        ]);
+        ];
 
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
-        for ev in events.values() {
+        for ev in &events {
             assert_eq!(ev.result, EventResult::Ok);
             assert_eq!(ev.destination, Destination::AnalyticsMain);
             assert!(ev.details.is_none());
@@ -1121,10 +1120,10 @@ mod tests {
     async fn td_limits_one_distinct_id_over_limit() {
         let limiter = mock_limiter(vec!["phc_tok:user-2"]);
         let ctx = td_context();
-        let mut events = events_map(vec![
+        let mut events = vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$identify", "user-2"),
-        ]);
+        ];
 
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
@@ -1146,11 +1145,11 @@ mod tests {
     async fn td_limits_skips_already_invalid_events() {
         let limiter = mock_limiter(vec!["phc_tok:user-1"]);
         let ctx = td_context();
-        let mut events = events_map(vec![malformed_wrapped_event()]);
+        let mut events = vec![malformed_wrapped_event()];
 
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
-        let ev = events.values().next().unwrap();
+        let ev = &events[0];
         assert_eq!(ev.result, EventResult::Drop);
         assert_eq!(ev.destination, Destination::default());
         assert!(ev.details.is_some());
@@ -1160,15 +1159,15 @@ mod tests {
     async fn td_limits_multiple_events_same_distinct_id_all_limited() {
         let limiter = mock_limiter(vec!["phc_tok:user-1"]);
         let ctx = td_context();
-        let mut events = events_map(vec![
+        let mut events = vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$identify", "user-1"),
             wrapped_event("$click", "user-1"),
-        ]);
+        ];
 
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
-        for ev in events.values() {
+        for ev in &events {
             assert_eq!(ev.result, EventResult::Ok, "should stay Ok");
             assert_eq!(
                 ev.destination,
@@ -1193,10 +1192,11 @@ mod tests {
         let ctx = td_context();
         let pre_drop = wrapped_event("$pageview", "user-1");
         let pre_drop_uuid = pre_drop.uuid;
-        let mut events = events_map(vec![pre_drop, wrapped_event("$identify", "user-2")]);
+        let mut events = vec![pre_drop, wrapped_event("$identify", "user-2")];
         // Simulate event already dropped by restrictions
-        events.get_mut(&pre_drop_uuid).unwrap().result = EventResult::Drop;
-        events.get_mut(&pre_drop_uuid).unwrap().destination = Destination::Drop;
+        let pd = events.iter_mut().find(|e| e.uuid == pre_drop_uuid).unwrap();
+        pd.result = EventResult::Drop;
+        pd.destination = Destination::Drop;
 
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
@@ -1219,14 +1219,14 @@ mod tests {
         let cfg = router::HistoricalConfig::new(false, 1);
         let mut ctx = test_utils::test_context();
         ctx.historical_migration = true;
-        let mut events = events_map(vec![
+        let mut events = vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$identify", "user-2"),
-        ]);
+        ];
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
-        for ev in events.values() {
+        for ev in &events {
             assert_eq!(ev.destination, Destination::AnalyticsHistorical);
         }
     }
@@ -1236,11 +1236,11 @@ mod tests {
         let cfg = router::HistoricalConfig::new(true, 30);
         let ctx = test_utils::test_context();
         let old_ts = Utc::now() - Duration::days(60);
-        let mut events = events_map(vec![wrapped_event_at(old_ts)]);
+        let mut events = vec![wrapped_event_at(old_ts)];
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
-        let ev = events.values().next().unwrap();
+        let ev = &events[0];
         assert_eq!(ev.destination, Destination::AnalyticsHistorical);
     }
 
@@ -1249,11 +1249,11 @@ mod tests {
         let cfg = router::HistoricalConfig::new(true, 30);
         let ctx = test_utils::test_context();
         let recent_ts = Utc::now() - Duration::hours(1);
-        let mut events = events_map(vec![wrapped_event_at(recent_ts)]);
+        let mut events = vec![wrapped_event_at(recent_ts)];
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
-        let ev = events.values().next().unwrap();
+        let ev = &events[0];
         assert_eq!(ev.destination, Destination::AnalyticsMain);
     }
 
@@ -1262,11 +1262,11 @@ mod tests {
         let cfg = router::HistoricalConfig::new(false, 30);
         let ctx = test_utils::test_context();
         let old_ts = Utc::now() - Duration::days(60);
-        let mut events = events_map(vec![wrapped_event_at(old_ts)]);
+        let mut events = vec![wrapped_event_at(old_ts)];
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
-        let ev = events.values().next().unwrap();
+        let ev = &events[0];
         assert_eq!(ev.destination, Destination::AnalyticsMain);
     }
 
@@ -1277,13 +1277,21 @@ mod tests {
         ctx.historical_migration = true;
         let ev = wrapped_event("$pageview", "user-1");
         let ev_uuid = ev.uuid;
-        let mut events = events_map(vec![ev]);
-        events.get_mut(&ev_uuid).unwrap().destination = Destination::Overflow;
+        let mut events = vec![ev];
+        events
+            .iter_mut()
+            .find(|e| e.uuid == ev_uuid)
+            .unwrap()
+            .destination = Destination::Overflow;
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
         assert_eq!(
-            events.get(&ev_uuid).unwrap().destination,
+            events
+                .iter()
+                .find(|e| e.uuid == ev_uuid)
+                .unwrap()
+                .destination,
             Destination::Overflow
         );
     }
@@ -1295,14 +1303,21 @@ mod tests {
         ctx.historical_migration = true;
         let ev = wrapped_event("$pageview", "user-1");
         let ev_uuid = ev.uuid;
-        let mut events = events_map(vec![ev]);
-        let e = events.get_mut(&ev_uuid).unwrap();
+        let mut events = vec![ev];
+        let e = events.iter_mut().find(|e| e.uuid == ev_uuid).unwrap();
         e.result = EventResult::Drop;
         e.destination = Destination::Drop;
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
-        assert_eq!(events.get(&ev_uuid).unwrap().destination, Destination::Drop);
+        assert_eq!(
+            events
+                .iter()
+                .find(|e| e.uuid == ev_uuid)
+                .unwrap()
+                .destination,
+            Destination::Drop
+        );
     }
 
     #[test]
@@ -1310,11 +1325,11 @@ mod tests {
         let cfg = router::HistoricalConfig::new(true, 30);
         let mut ctx = test_utils::test_context();
         ctx.historical_migration = true;
-        let mut events = events_map(vec![malformed_wrapped_event()]);
+        let mut events = vec![malformed_wrapped_event()];
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
-        let ev = events.values().next().unwrap();
+        let ev = &events[0];
         assert_eq!(ev.destination, Destination::AnalyticsMain);
     }
 
@@ -1325,14 +1340,226 @@ mod tests {
         ctx.historical_migration = true;
         let dlq_ev = wrapped_event("$identify", "user-2");
         let dlq_uuid = dlq_ev.uuid;
-        let mut events = events_map(vec![wrapped_event("$pageview", "user-1"), dlq_ev]);
-        events.get_mut(&dlq_uuid).unwrap().destination = Destination::Dlq;
+        let mut events = vec![wrapped_event("$pageview", "user-1"), dlq_ev];
+        events
+            .iter_mut()
+            .find(|e| e.uuid == dlq_uuid)
+            .unwrap()
+            .destination = Destination::Dlq;
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
         let main_ev = find_by_did(&events, "user-1");
         assert_eq!(main_ev.destination, Destination::AnalyticsHistorical);
         // DLQ event untouched
-        assert_eq!(events.get(&dlq_uuid).unwrap().destination, Destination::Dlq);
+        assert_eq!(
+            events
+                .iter()
+                .find(|e| e.uuid == dlq_uuid)
+                .unwrap()
+                .destination,
+            Destination::Dlq
+        );
+    }
+
+    // --- ordering preservation regressions ---
+    // Pin in-batch order through each stage and end-to-end (regressions
+    // against the old HashMap pipeline that silently shuffled events).
+
+    fn distinct_id_sequence(events: &[WrappedEvent]) -> Vec<&str> {
+        events
+            .iter()
+            .map(|e| e.event.distinct_id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn validate_events_preserves_input_order() {
+        let ctx = test_utils::test_context();
+        // Mix valid + invalid to hit both match branches.
+        let perf = Event {
+            event: "$performance_event".to_string(),
+            distinct_id: "user-pos-1".to_string(),
+            ..valid_event()
+        };
+        let normal_a = Event {
+            distinct_id: "user-pos-0".to_string(),
+            ..valid_event()
+        };
+        let normal_b = Event {
+            distinct_id: "user-pos-2".to_string(),
+            ..valid_event()
+        };
+        let normal_c = Event {
+            distinct_id: "user-pos-3".to_string(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![normal_a, perf, normal_b, normal_c]);
+
+        let events = validate_events(&ctx, batch).unwrap();
+
+        assert_eq!(
+            distinct_id_sequence(&events),
+            vec!["user-pos-0", "user-pos-1", "user-pos-2", "user-pos-3"],
+        );
+    }
+
+    #[test]
+    fn validate_events_duplicate_uuid_via_realistic_pair() {
+        // Two distinct events (name / distinct_id / props) colliding on uuid.
+        let ctx = test_utils::test_context();
+        let (first, second) = test_utils::realistic_dup_uuid_pair();
+        let batch = valid_batch(vec![first, second]);
+        let err = validate_events(&ctx, batch).unwrap_err();
+        assert!(matches!(err, Error::DuplicateEventUuid(_)));
+    }
+
+    #[tokio::test]
+    async fn apply_historical_rerouting_preserves_order() {
+        // Interleave old + recent so the timestamp branch flips some events.
+        let cfg = router::HistoricalConfig::new(true, 30);
+        let ctx = test_utils::test_context();
+        let now = Utc::now();
+        let mut e0 = wrapped_event_at(now - Duration::days(60));
+        e0.event.distinct_id = "user-pos-0".to_string();
+        let mut e1 = wrapped_event_at(now - Duration::hours(1));
+        e1.event.distinct_id = "user-pos-1".to_string();
+        let mut e2 = wrapped_event_at(now - Duration::days(90));
+        e2.event.distinct_id = "user-pos-2".to_string();
+        let mut e3 = wrapped_event_at(now - Duration::minutes(5));
+        e3.event.distinct_id = "user-pos-3".to_string();
+        let mut events = vec![e0, e1, e2, e3];
+
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+
+        assert_eq!(
+            distinct_id_sequence(&events),
+            vec!["user-pos-0", "user-pos-1", "user-pos-2", "user-pos-3"],
+        );
+        assert_eq!(events[0].destination, Destination::AnalyticsHistorical);
+        assert_eq!(events[1].destination, Destination::AnalyticsMain);
+        assert_eq!(events[2].destination, Destination::AnalyticsHistorical);
+        assert_eq!(events[3].destination, Destination::AnalyticsMain);
+    }
+
+    #[tokio::test]
+    async fn apply_restrictions_preserves_order() {
+        let service = restriction_service(
+            "phc_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        )
+        .await;
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-pos-0"),
+            wrapped_event("$identify", "user-pos-1"),
+            wrapped_event("$click", "user-pos-2"),
+        ];
+        let now_ts = Utc::now().timestamp();
+
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+
+        assert_eq!(
+            distinct_id_sequence(&events),
+            vec!["user-pos-0", "user-pos-1", "user-pos-2"],
+        );
+        for ev in &events {
+            assert_eq!(ev.result, EventResult::Drop);
+            assert_eq!(ev.destination, Destination::Drop);
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_token_distinct_id_limits_preserves_order_with_interleaved_limits() {
+        // Limit slots 1 and 3 only — verifies interleaved limited/non-limited
+        // entries don't shuffle.
+        let limiter = mock_limiter(vec!["phc_tok:user-pos-1", "phc_tok:user-pos-3"]);
+        let ctx = td_context();
+        let mut events = vec![
+            wrapped_event("$pageview", "user-pos-0"),
+            wrapped_event("$pageview", "user-pos-1"),
+            wrapped_event("$pageview", "user-pos-2"),
+            wrapped_event("$pageview", "user-pos-3"),
+            wrapped_event("$pageview", "user-pos-4"),
+        ];
+
+        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+
+        assert_eq!(
+            distinct_id_sequence(&events),
+            vec![
+                "user-pos-0",
+                "user-pos-1",
+                "user-pos-2",
+                "user-pos-3",
+                "user-pos-4",
+            ],
+        );
+        assert!(!events[0].force_disable_person_processing);
+        assert!(events[1].force_disable_person_processing);
+        assert_eq!(
+            events[1].details,
+            Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
+        );
+        assert!(!events[2].force_disable_person_processing);
+        assert!(events[3].force_disable_person_processing);
+        assert_eq!(
+            events[3].details,
+            Some(DETAIL_RATE_LIMITED_TOKEN_DISTINCT_ID)
+        );
+        assert!(!events[4].force_disable_person_processing);
+    }
+
+    #[tokio::test]
+    async fn pipeline_preserves_order_through_all_stages() {
+        // End-to-end pin across every &mut [WrappedEvent] stage.
+        // apply_quota_limits is covered in v1::quota_limiter_shim tests.
+        let mut events = test_utils::realistic_ordered_mixed_batch();
+        let expected = [
+            "user-pos-0",
+            "user-pos-1",
+            "user-pos-2",
+            "user-pos-3",
+            "user-pos-4",
+            "user-pos-5",
+        ];
+
+        // Stage 1: historical rerouting (batch flag on).
+        let cfg = router::HistoricalConfig::new(false, 1);
+        let mut ctx = test_utils::test_context();
+        ctx.historical_migration = true;
+        apply_historical_rerouting(&cfg, &ctx, &mut events);
+        assert_eq!(
+            distinct_id_sequence(&events),
+            expected,
+            "order changed after apply_historical_rerouting",
+        );
+
+        // Stage 2: restrictions (no rules → passthrough, still iterates).
+        let service =
+            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+        service.update(RestrictionManager::new()).await;
+        let now_ts = Utc::now().timestamp();
+        apply_restrictions(&service, "phc_token", now_ts, &mut events).await;
+        assert_eq!(
+            distinct_id_sequence(&events),
+            expected,
+            "order changed after apply_restrictions",
+        );
+
+        // Stage 3: token+distinct_id limits — limit one Ok mid-batch.
+        let mut tdctx = test_utils::test_context();
+        tdctx.api_token = "phc_tok".to_string();
+        let limiter = mock_limiter(vec!["phc_tok:user-pos-2"]);
+        apply_token_distinct_id_limits(&limiter, &tdctx, &mut events).await;
+        assert_eq!(
+            distinct_id_sequence(&events),
+            expected,
+            "order changed after apply_token_distinct_id_limits",
+        );
     }
 }

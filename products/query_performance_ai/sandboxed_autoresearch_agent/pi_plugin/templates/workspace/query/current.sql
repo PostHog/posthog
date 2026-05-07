@@ -1,0 +1,1 @@
+-- Current candidate query under test.

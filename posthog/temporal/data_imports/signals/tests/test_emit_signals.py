@@ -30,10 +30,12 @@ from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, 
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
+    emit_data_import_signals_activity,
 )
 
 PIPELINE_MODULE_PATH = "posthog.temporal.data_imports.signals.pipeline"
 FETCHER_MODULE_PATH = "posthog.temporal.data_imports.signals.fetchers.data_warehouse"
+ACTIVITY_MODULE_PATH = "posthog.temporal.data_imports.workflow_activities.emit_signals"
 
 
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
@@ -675,3 +677,66 @@ class TestEmitDataImportSignalsWorkflow:
         assert captured_inputs["team_id"] == 42
         assert captured_inputs["schema_id"] == schema_id
         assert captured_inputs["source_type"] == "Zendesk"
+
+
+class TestEmitActivityTableNameResolution:
+    # Regression: HogQL exposes warehouse tables under keys built by
+    # `get_data_warehouse_table_name` (e.g. `github.issues`), not under the raw
+    # `DataWarehouseTable.name` storage form (e.g. `github_issues`). Passing the
+    # storage name to the fetcher made every emit run fail with `Unknown table`.
+
+    @pytest.mark.parametrize(
+        "prefix,storage_name,expected_hogql_name",
+        [
+            (None, "github_issues", "github.issues"),
+            ("", "github_issues", "github.issues"),
+            ("website", "websitegithub_issues", "github.website.issues"),
+            ("website_", "website_github_issues", "github.website.issues"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_passes_hogql_resolvable_table_name_to_fetcher(
+        self, prefix: str | None, storage_name: str, expected_hogql_name: str
+    ):
+        from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+
+        captured_context: dict[str, Any] = {}
+
+        def capture_fetcher(team, config, context):
+            captured_context.update(context)
+            return []
+
+        config = _make_config(record_fetcher=capture_fetcher)
+
+        source = MagicMock(spec=ExternalDataSource)
+        source.source_type = "GitHub"
+        source.prefix = prefix
+        source.access_method = ExternalDataSource.AccessMethod.WAREHOUSE
+        table = MagicMock()
+        table.name = storage_name
+        schema = MagicMock()
+        schema.table = table
+        schema.source = source
+
+        fetch_mock = AsyncMock(return_value=(schema, MagicMock()))
+
+        with (
+            patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
+            patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
+            patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
+            patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
+        ):
+            run_mock.return_value = {"status": "success", "signals_emitted": 0}
+            await emit_data_import_signals_activity(
+                EmitSignalsActivityInputs(
+                    team_id=1,
+                    schema_id=uuid.uuid4(),
+                    source_id=uuid.uuid4(),
+                    job_id="job-x",
+                    source_type="GitHub",
+                    schema_name="issues",
+                    last_synced_at=None,
+                )
+            )
+
+        assert captured_context["table_name"] == expected_hogql_name

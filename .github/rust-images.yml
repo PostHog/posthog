@@ -40,6 +40,8 @@
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
   features: warm-flags-cache
+  # Adds redis-cli + awscli for operator use (see bin/rust-jumphost).
+  target: runtime-jumphost
 
 - image: batch-import-worker
   dockerfile: ./rust/Dockerfile

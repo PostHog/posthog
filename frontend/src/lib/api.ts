@@ -2229,11 +2229,13 @@ const api = {
             return await new ApiRequest().insights().withAction('generate_metadata').create({ data: { query } })
         },
         async trending(params?: { days?: number; limit?: number }): Promise<InsightModel[]> {
-            return await new ApiRequest()
+            const response = await new ApiRequest()
                 .insights()
                 .withAction('trending')
                 .withQueryString(toParams(params || {}))
                 .get()
+            // Endpoint returns the standard {count, next, previous, results} envelope.
+            return response.results ?? response
         },
     },
 
@@ -5115,8 +5117,11 @@ const api = {
     },
 
     productTours: {
-        async list(): Promise<PaginatedResponse<ProductTour>> {
-            return await new ApiRequest().productTours().get()
+        async list({ search }: { search?: string } = {}): Promise<PaginatedResponse<ProductTour>> {
+            return await new ApiRequest()
+                .productTours()
+                .withQueryString(search ? { search } : {})
+                .get()
         },
         async get(tourId: ProductTour['id']): Promise<ProductTour> {
             return await new ApiRequest().productTour(tourId).get()

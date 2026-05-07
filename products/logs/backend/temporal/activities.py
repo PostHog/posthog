@@ -44,7 +44,7 @@ from products.logs.backend.alert_state_machine import (
     apply_outcome,
     evaluate_alert_check,
 )
-from products.logs.backend.alert_utils import advance_next_check_at
+from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
@@ -632,12 +632,15 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
         if cohort_size == 1:
             return _CohortQueryResult(per_alert={str(cohort.alerts[0].id): _PrefetchedQuery(error=e)})
 
+        alert_ids = [str(a.id) for a in cohort.alerts]
+
         classified = classify_alert_error(e)
         if classified.is_transient:
             logger.warning(
                 "Batched cohort query failed (transient); skipping per-alert fallback",
                 team_id=team_id,
                 cohort_size=cohort_size,
+                alert_ids=alert_ids,
                 error=str(e),
                 classification=classified.code,
             )
@@ -648,10 +651,11 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
             "Batched cohort query failed; falling back to per-alert queries",
             team_id=team_id,
             cohort_size=cohort_size,
+            alert_ids=alert_ids,
             error=str(e),
             classification=classified.code,
         )
-        capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size})
+        capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size, "alert_ids": alert_ids})
         _safe_record("cohort_query_fallback counter", increment_cohort_query_fallback, "batched_failure")
         return _run_per_alert_queries(cohort)
 
@@ -750,7 +754,12 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
     # (the per-alert fallback's `alert.save()` would honour `auto_now`, but the
     # happy path is bulk_update).
     alert.updated_at = now
-    alert.next_check_at = advance_next_check_at(alert.next_check_at, alert.check_interval_minutes, now)
+    alert.next_check_at = advance_next_check_at(
+        alert.next_check_at,
+        alert.check_interval_minutes,
+        now,
+        shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
+    )
     update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
     if (
