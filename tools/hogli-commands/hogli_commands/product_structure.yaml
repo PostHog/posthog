@@ -153,8 +153,8 @@ backend_files:
                 from ..models import SplineReticulator
 
 
-                def create_spline_reticulator(*, name: str) -> SplineReticulator:
-                    return SplineReticulator.objects.create(name=name, status=SplineStatus.PENDING)
+                def create_spline_reticulator(*, team_id: int, name: str) -> SplineReticulator:
+                    return SplineReticulator.objects.create(team_id=team_id, name=name, status=SplineStatus.PENDING)
 
 
                 def list_spline_reticulators() -> list[SplineReticulator]:
@@ -217,7 +217,7 @@ backend_files:
 
 
                 def create(input: contracts.CreateSplineReticulatorInput) -> contracts.SplineReticulatorDTO:
-                    obj = logic.create_spline_reticulator(name=input.name)
+                    obj = logic.create_spline_reticulator(team_id=input.team_id, name=input.name)
                     return _to_dto(obj)
 
 
@@ -251,6 +251,7 @@ backend_files:
 
                 @dataclass(frozen=True)
                 class CreateSplineReticulatorInput:
+                    team_id: int
                     name: str
 
         enums.py:
@@ -328,7 +329,10 @@ backend_files:
                     def create(self, request: Request, **kwargs) -> Response:
                         serializer = CreateSplineReticulatorSerializer(data=request.data)
                         serializer.is_valid(raise_exception=True)
-                        dto = api.create(contracts.CreateSplineReticulatorInput(**serializer.validated_data))
+                        dto = api.create(contracts.CreateSplineReticulatorInput(
+                            team_id=self.team_id,
+                            **serializer.validated_data,
+                        ))
                         return Response(SplineReticulatorSerializer(dto).data, status=status.HTTP_201_CREATED)
 
         urls.py:
@@ -348,6 +352,23 @@ backend_files:
         __init__.py:
             required: true
             template: ''
+
+        conftest.py:
+            required: false
+            template: |
+                import pytest
+
+                from posthog.models.scoping import team_scope
+
+
+                @pytest.fixture(autouse=True)
+                def _set_team_scope(request):
+                    if request.node.get_closest_marker("django_db") is None:
+                        yield
+                        return
+                    team = request.getfixturevalue("team")
+                    with team_scope(team.id):
+                        yield
 
         test_models.py:
             required: false
@@ -372,7 +393,7 @@ backend_files:
                 @pytest.mark.django_db
                 class TestSplineReticulatorAPI:
                     def test_create_and_list(self, team):
-                        dto = api.create(CreateSplineReticulatorInput(name="test-spline"))
+                        dto = api.create(CreateSplineReticulatorInput(team_id=team.id, name="test-spline"))
 
                         assert isinstance(dto.id, UUID)
                         assert dto.name == "test-spline"
