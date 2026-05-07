@@ -72,6 +72,7 @@
         "@posthog/mosaic": "workspace:*",
         "@posthog/products-access-control": "workspace:*",
         "@posthog/products-actions": "workspace:*",
+        "@posthog/products-business-knowledge": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
         "@posthog/products-conversations": "workspace:*",
         "@posthog/products-customer-analytics": "workspace:*",
