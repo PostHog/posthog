@@ -572,14 +572,13 @@ function SkillFileViewer({
             return
         }
         setExpanded(true)
-        if (content === null && !loading) {
-            void loadFileContent()
-        }
+        // Refetch when version (and thus loadFileContent identity) changes, so we don't show stale content from a previous version.
+        void loadFileContent()
         const id = requestAnimationFrame(() => {
             containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         })
         return () => cancelAnimationFrame(id)
-    }, [autoOpen, content, loading, loadFileContent])
+    }, [autoOpen, loadFileContent])
 
     const isMarkdown = file.content_type === 'text/markdown' || file.path.endsWith('.md')
     const codeLanguage = isMarkdown ? null : getFileLanguage(file.path, file.content_type)
