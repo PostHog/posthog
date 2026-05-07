@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import (
-    count_direct_orm_queries,
+    find_direct_orm_queries,
     get_cross_product_internal_imports,
     get_frozen_dataclass_names,
     get_model_names,
@@ -99,6 +99,10 @@ class DimensionScore:
     # Skill slash commands to invoke (e.g. "/isolating-product-facade-contracts")
     # before attempting the work.
     skills: list[str] = field(default_factory=list)
+    # Structured findings the scorer surfaced — list of (label, items) sections.
+    # Items are pre-formatted strings (e.g. "presentation/views.py:42",
+    # "products.foo.backend.models"). Rendered uniformly between to-fix and skills.
+    evidence: list[tuple[str, list[str]]] = field(default_factory=list)
 
 
 @dataclass
@@ -387,6 +391,7 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
     score = 0
     parts = []
     next_steps: list[str] = []
+    evidence: list[tuple[str, list[str]]] = []
 
     if correct_location:
         score += 25
@@ -400,7 +405,8 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
         )
 
     uses_facade, _ = view_facade_usage(views_path)
-    orm_queries = count_direct_orm_queries(views_path)
+    orm_locations = find_direct_orm_queries(views_path)
+    orm_queries = len(orm_locations)
 
     # Check if the facade is real (has function definitions, not re-exports)
     facade_api = backend_dir / "facade" / "api.py"
@@ -428,10 +434,11 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
     else:
         parts.append(f"{orm_queries} .objects calls")
         next_steps.append(
-            f"Remove {orm_queries} direct `.objects` query/queries from the view module. Push "
-            f"those queries down into facade/logic and return contract dataclasses instead — "
-            f"presentation should never hit the ORM."
+            f"Remove the {orm_queries} direct `.objects` query/queries listed below. Push them "
+            f"down into facade/logic and return contract dataclasses instead — presentation "
+            f"should never hit the ORM."
         )
+        evidence.append(("ORM call sites", orm_locations[:25]))
 
     # Serializers — check canonical then legacy location
     serializers_path = backend_dir / "presentation" / "serializers.py"
@@ -445,10 +452,11 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
         else:
             parts.append(f"{len(orm_bound)} ORM-bound serializers")
             next_steps.append(
-                f"Convert {len(orm_bound)} ModelSerializer(s) to plain `Serializer` subclasses "
-                f"backed by contract dataclasses. ModelSerializer leaks the ORM through the "
-                f"presentation boundary and produces weak OpenAPI types."
+                f"Convert the {len(orm_bound)} ModelSerializer(s) listed below to plain "
+                f"`Serializer` subclasses backed by contract dataclasses. ModelSerializer leaks "
+                f"the ORM through the presentation boundary and produces weak OpenAPI types."
             )
+            evidence.append(("ORM-bound serializers", orm_bound))
     else:
         score += 25
         parts.append("no serializers (ok)")
@@ -458,7 +466,9 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
         skills.append("/isolating-product-facade-contracts")
         skills.append("/improving-drf-endpoints")
 
-    return DimensionScore("presentation", score, ", ".join(parts), next_steps=next_steps, skills=skills)
+    return DimensionScore(
+        "presentation", score, ", ".join(parts), next_steps=next_steps, skills=skills, evidence=evidence
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -466,12 +476,13 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
 # ---------------------------------------------------------------------------
 
 
-def _build_inbound_violation_map() -> dict[str, int] | None:
-    """Build a map of product_name -> inbound violation count for ALL products.
+def _build_inbound_violation_map() -> dict[str, list[str]] | None:
+    """Build a map of product_name -> inbound violation locations for ALL products.
 
-    Single rg pass across the repo, then distributes results. Much faster
-    than running rg per-product. Returns None if the scan fails (rg missing
-    or timeout) so callers can distinguish "no violations" from "scan failed".
+    Single rg pass across the repo, then distributes results. Much faster than
+    running rg per-product. Each value is a list of `relpath:line module` strings
+    so callers can show concrete evidence. Returns None if the scan fails (rg
+    missing or timeout).
     """
     try:
         result = subprocess.run(
@@ -483,10 +494,11 @@ def _build_inbound_violation_map() -> dict[str, int] | None:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
 
-    counts: dict[str, int] = {}
+    locations: dict[str, list[str]] = {}
     for line in result.stdout.strip().split("\n"):
         if not line:
             continue
+        # rg -n format: <path>:<line>:<text>
         colon_idx = line.find(":", 1)
         if colon_idx == -1:
             continue
@@ -494,10 +506,11 @@ def _build_inbound_violation_map() -> dict[str, int] | None:
         if colon2_idx == -1:
             continue
         file_path = line[:colon_idx]
+        line_num = line[colon_idx + 1 : colon2_idx]
         import_text = line[colon2_idx + 1 :].strip()
 
         # Extract which product is being imported (handles both from/import style)
-        match = re.search(r"products\.(\w+)\.backend\.", import_text)
+        match = re.search(r"products\.(\w+)\.backend\.\w+", import_text)
         if not match:
             continue
         product_name = match.group(1)
@@ -512,22 +525,26 @@ def _build_inbound_violation_map() -> dict[str, int] | None:
         if ".backend.presentation" in import_text:
             continue
 
-        counts[product_name] = counts.get(product_name, 0) + 1
+        try:
+            rel_path = str(Path(file_path).relative_to(REPO_ROOT))
+        except ValueError:
+            rel_path = file_path
+        locations.setdefault(product_name, []).append(f"{rel_path}:{line_num}  {match.group(0)}")
 
-    return counts
+    return locations
 
 
-def _count_inbound_violations(name: str, inbound_map: dict[str, int] | None = None) -> int | None:
-    """Count inbound violations for a single product. None means scan failed."""
+def _inbound_violations(name: str, inbound_map: dict[str, list[str]] | None = None) -> list[str] | None:
+    """Return inbound violation locations for a single product. None means scan failed."""
     if inbound_map is not None:
-        return inbound_map.get(name, 0)
+        return inbound_map.get(name, [])
     built = _build_inbound_violation_map()
     if built is None:
         return None
-    return built.get(name, 0)
+    return built.get(name, [])
 
 
-def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] | None = None) -> DimensionScore:
+def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, list[str]] | None = None) -> DimensionScore:
     """Tach interfaces + cross-product import hygiene.
 
     Points breakdown (100 total):
@@ -543,6 +560,7 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] |
     score = 0
     parts = []
     next_steps: list[str] = []
+    evidence: list[tuple[str, list[str]]] = []
 
     # Tach entry + interfaces
     module_path = f"products.{name}"
@@ -580,12 +598,12 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] |
         else:
             score += max(0, 15 - n_cross_deps * 5)
             parts.append(f"{n_cross_deps} cross-product deps")
-            dep_list = ", ".join(cross_deps[:5]) + ("…" if len(cross_deps) > 5 else "")
             next_steps.append(
-                f"Drop {n_cross_deps} cross-product depends_on entry/entries from tach.toml "
-                f"({dep_list}). If a real dependency exists, route through that product's facade "
-                f"so the coupling is interface-level rather than module-level."
+                f"Drop the {n_cross_deps} cross-product depends_on entry/entries from tach.toml "
+                f"(listed below). If a real dependency exists, route through that product's "
+                f"facade so the coupling is interface-level rather than module-level."
             )
+            evidence.append(("tach depends_on", [f"products.{d}" for d in cross_deps]))
     else:
         parts.append("not in tach.toml")
         next_steps.append(
@@ -602,35 +620,41 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, int] |
         score += max(0, 15 - len(outbound) * 5)
         parts.append(f"{len(outbound)} outbound violations")
         next_steps.append(
-            f"Replace {len(outbound)} outbound import(s) of other products' internals (models, "
-            f"logic, presentation) with calls to those products' facades. Run "
-            f"`rg 'from products\\.\\w+\\.backend\\.(models|logic|presentation)' products/{name}` "
-            f"to enumerate."
+            f"Replace the {len(outbound)} outbound import(s) of other products' internals listed "
+            f"below with calls to those products' facades."
         )
+        evidence.append(("outbound violations", outbound))
 
     # Inbound: other code importing this product's non-facade internals
-    inbound = _count_inbound_violations(name, inbound_map)
+    inbound = _inbound_violations(name, inbound_map)
     if inbound is None:
         parts.append("inbound scan failed")
         next_steps.append(
             "Inbound scan failed — `rg` is missing or timed out. Install ripgrep and re-run "
             "`hogli product:maturity` for an accurate inbound count."
         )
-    elif inbound == 0:
+    elif not inbound:
         score += 60
         parts.append("inbound clean")
     else:
-        score += max(0, 60 - inbound * 3)
-        parts.append(f"{inbound} inbound violations")
+        score += max(0, 60 - len(inbound) * 3)
+        parts.append(f"{len(inbound)} inbound violations")
         next_steps.append(
-            f"Audit {inbound} external import(s) of this product's internals: "
-            f"`rg 'from products\\.{name}\\.backend\\.(models|logic|presentation)' .` Each one "
-            f"either belongs in the facade's public surface (then expose it through facade.api) "
-            f"or should not exist (refactor the caller). Update tach `interfaces` to match."
+            f"Audit the {len(inbound)} external import(s) of this product's internals listed "
+            f"below. Each one either belongs in the facade's public surface (then expose it "
+            f"through facade.api) or should not exist (refactor the caller). Update tach "
+            f"`interfaces` to match."
         )
+        # Cap evidence so the report doesn't explode for products with hundreds of violations
+        shown = inbound[:25]
+        if len(inbound) > len(shown):
+            shown = [*shown, f"… and {len(inbound) - len(shown)} more"]
+        evidence.append(("inbound violations", shown))
 
     skills = ["/isolating-product-facade-contracts"] if next_steps else []
-    return DimensionScore("boundaries", score, ", ".join(parts), next_steps=next_steps, skills=skills)
+    return DimensionScore(
+        "boundaries", score, ", ".join(parts), next_steps=next_steps, skills=skills, evidence=evidence
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -672,18 +696,25 @@ def score_codegen(product_dir: Path) -> DimensionScore:
 
     next_steps: list[str] = []
     skills: list[str] = []
+    evidence: list[tuple[str, list[str]]] = []
     if score < 100 and manual > 0:
         next_steps.append(
-            f"Replace {manual} manual `api.*`/`api.<entity>.<verb>` call(s) with the generated "
-            f"client. Run `hogli product:maturity {product_dir.name} --codegen` (or "
-            f"`hogli product:maturity --codegen`) to see each call site mapped to its generated "
-            f"equivalent."
+            f"Replace the {manual} manual `api.*`/`api.<entity>.<verb>` call(s) listed below "
+            f"with the generated client (each one shows the matching generated function)."
         )
         next_steps.append(
-            "If a call site has no generated match, the underlying viewset is missing schema "
-            "annotations (`@validated_request` or `@extend_schema`) or the serializer field types "
-            "are too loose. Fix the backend, run `hogli build:openapi`, then migrate the call."
+            "For sites marked `(no match)`, the backend viewset is missing schema annotations "
+            "(`@validated_request` or `@extend_schema`) or the serializer field types are too "
+            "loose. Fix the backend, run `hogli build:openapi`, then migrate the call."
         )
+        sites = codegen_call_sites(frontend_dir)
+        if sites:
+            items = [
+                f"{site.file}:{site.line}  {site.verb}  "
+                + (f"→ {site.generated_equivalent}" if site.generated_equivalent else "(no match)")
+                for site in sites
+            ]
+            evidence.append(("call sites", items))
         skills.append("/adopting-generated-api-types")
         skills.append("/improving-drf-endpoints")
     elif score < 100:
@@ -694,7 +725,7 @@ def score_codegen(product_dir: Path) -> DimensionScore:
         )
         skills.append("/adopting-generated-api-types")
 
-    return DimensionScore("codegen", score, detail, next_steps=next_steps, skills=skills)
+    return DimensionScore("codegen", score, detail, next_steps=next_steps, skills=skills, evidence=evidence)
 
 
 # ---------------------------------------------------------------------------
@@ -706,7 +737,7 @@ def score_product(
     name: str,
     *,
     assigned_counts: dict[str, int] | None = None,
-    inbound_map: dict[str, int] | None = None,
+    inbound_map: dict[str, list[str]] | None = None,
     product_yamls: dict[str, dict] | None = None,
 ) -> ProductScore:
     """Compute all dimension scores for a single product."""
@@ -855,8 +886,9 @@ def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
     """Generate detailed single-product maturity breakdown with tree connectors.
 
     When verbose=True (the default), each dimension that scored below 100 is followed
-    by a "to fix" block listing concrete agent-actionable steps and the skills to
-    invoke. Set verbose=False for a terse listing matching the original output.
+    by a "to fix" block listing concrete agent-actionable steps, an "evidence" section
+    with structured findings (call sites, violations, etc.), and the skills to invoke.
+    Set verbose=False for a terse listing matching the original output.
     """
     lines: list[str] = []
 
@@ -876,7 +908,9 @@ def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
 
         if not verbose:
             continue
-        if not dim.next_steps and not dim.skills:
+
+        has_body = bool(dim.next_steps or dim.skills or dim.evidence)
+        if not has_body:
             if not is_last:
                 lines.append(f"  \u2502")
             continue
@@ -888,8 +922,12 @@ def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
         bullet_indent = f"{gutter}  "
         cont_indent = f"{gutter}    "
 
-        # Blank line under the score, then the to-fix block
-        lines.append(f"  {guide}")
+        blank = f"  {guide}"
+        sections_emitted = 0
+
+        # Blank line under the score, then the body
+        lines.append(blank)
+
         if dim.next_steps:
             lines.append(f"{gutter}to fix:")
             for j, step in enumerate(dim.next_steps):
@@ -897,32 +935,32 @@ def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
                 lines.append(f"{bullet_indent}\u2022 {wrapped[0]}")
                 for cont in wrapped[1:]:
                     lines.append(f"{cont_indent}{cont}")
-                # Blank line between bullets, but not after the last one
                 if j < len(dim.next_steps) - 1:
-                    lines.append(f"  {guide}")
+                    lines.append(blank)
+            sections_emitted += 1
+
+        for label, items in dim.evidence:
+            if not items:
+                continue
+            if sections_emitted:
+                lines.append(blank)
+            lines.append(f"{gutter}{label}:")
+            for item in items:
+                lines.append(f"{bullet_indent}{item}")
+            sections_emitted += 1
+
         if dim.skills:
-            if dim.next_steps:
-                lines.append(f"  {guide}")
+            if sections_emitted:
+                lines.append(blank)
             skills_str = "  ".join(dim.skills)
             lines.append(f"{gutter}skills: {skills_str}")
-        # Trailing breather before the next dimension
+
         if not is_last:
-            lines.append(f"  {guide}")
+            lines.append(blank)
 
     if overall is not None:
         lines.append("")
         lines.append(f"  {'overall':>17s}  {overall:3d}  {_bar(overall)}")
-
-    # Append codegen call-site details if there are manual calls
-    frontend_dir = PRODUCTS_DIR / ps.product / "frontend"
-    if frontend_dir.exists():
-        sites = codegen_call_sites(frontend_dir)
-        if sites:
-            lines.append("")
-            lines.append("  codegen call sites:")
-            for site in sites:
-                arrow = f"\u2192 {site.generated_equivalent}" if site.generated_equivalent else "(no match)"
-                lines.append(f"    {site.file}:{site.line}  {site.verb}  {arrow}")
 
     return "\n".join(lines)
 
