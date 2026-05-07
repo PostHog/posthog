@@ -545,42 +545,35 @@ class TestSignalReportListAPI(APIBaseTest):
             content=json.dumps({"repository": repository, "reason": "test"}),
         )
 
-    def test_repository_filter_keeps_only_matching_repo(self):
-        report_a = self._create_report(title="A")
-        report_b = self._create_report(title="B")
-        self._repo_selection_artefact(report_a, repository="posthog/posthog")
-        self._repo_selection_artefact(report_b, repository="posthog/posthog-js")
+    @parameterized.expand(
+        [
+            # Single match — only the report whose repo_selection matches comes back.
+            ("single_match", "posthog/posthog", {"a"}, {"b"}),
+            # Multiple repos in the filter — both matching reports come back.
+            ("multiple_repos", "posthog/posthog,posthog/posthog-js", {"a", "b"}, set()),
+            # Mixed-case query against lower-case stored repo names.
+            ("case_insensitive_query", "PostHog/PostHog", {"a"}, {"b"}),
+            # Lower-case query against (hypothetically) mixed-case stored repo names.
+            # Stored values from the agentic flow are lower-case in practice, but the
+            # backend still lower-cases both sides defensively.
+            ("case_insensitive_storage", "posthog/posthog-js", {"b"}, {"a"}),
+        ]
+    )
+    def test_repository_filter_matches_repos(self, _name, repo_query, expected_titles, excluded_titles):
+        reports_by_title = {
+            "a": self._create_report(title="A"),
+            "b": self._create_report(title="B"),
+        }
+        self._repo_selection_artefact(reports_by_title["a"], repository="posthog/posthog")
+        self._repo_selection_artefact(reports_by_title["b"], repository="posthog/posthog-js")
 
-        response = self.client.get(self._list_url(repository="posthog/posthog"))
+        response = self.client.get(self._list_url(repository=repo_query))
         assert response.status_code == status.HTTP_200_OK
-        ids = {r["id"] for r in response.json()["results"]}
-        assert str(report_a.id) in ids
-        assert str(report_b.id) not in ids
-
-    def test_repository_filter_accepts_multiple_repos(self):
-        report_a = self._create_report(title="A")
-        report_b = self._create_report(title="B")
-        report_c = self._create_report(title="C")
-        self._repo_selection_artefact(report_a, repository="posthog/posthog")
-        self._repo_selection_artefact(report_b, repository="posthog/posthog-js")
-        self._repo_selection_artefact(report_c, repository="posthog/other")
-
-        response = self.client.get(
-            self._list_url(repository="posthog/posthog,posthog/posthog-js"),
-        )
-        assert response.status_code == status.HTTP_200_OK
-        ids = {r["id"] for r in response.json()["results"]}
-        assert {str(report_a.id), str(report_b.id)}.issubset(ids)
-        assert str(report_c.id) not in ids
-
-    def test_repository_filter_is_case_insensitive(self):
-        report = self._create_report(title="A")
-        self._repo_selection_artefact(report, repository="posthog/posthog")
-
-        response = self.client.get(self._list_url(repository="PostHog/PostHog"))
-        assert response.status_code == status.HTTP_200_OK
-        ids = {r["id"] for r in response.json()["results"]}
-        assert str(report.id) in ids
+        result_ids = {r["id"] for r in response.json()["results"]}
+        for title in expected_titles:
+            assert str(reports_by_title[title].id) in result_ids
+        for title in excluded_titles:
+            assert str(reports_by_title[title].id) not in result_ids
 
     def test_repository_filter_excludes_reports_without_repo_selection_artefact(self):
         report_with_repo = self._create_report(title="A")
