@@ -57,6 +57,7 @@ from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtec
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -949,17 +950,21 @@ class InsightSerializer(InsightBasicSerializer):
                 if self.context.get("is_shared", False):
                     execution_mode = shared_insights_execution_mode(execution_mode)
 
-                return calculate_for_query_based_insight(
-                    insight,
-                    team=self.context["get_team"](),
-                    dashboard=dashboard,
-                    execution_mode=execution_mode,
-                    user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
-                    filters_override=filters_override,
-                    variables_override=variables_override,
-                    tile_filters_override=tile_filters_override,
-                    analytics_props=get_request_analytics_properties(self.context["request"]),
-                )
+                # Insight reads bypass the QueryViewSet, so `_infer_query_tags` doesn't run. Tag
+                # the call here as a sane default; if the inner query carries a `tags.productKey`
+                # (e.g. SQL editor), QueryRunner.run overrides product downstream.
+                with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT):
+                    return calculate_for_query_based_insight(
+                        insight,
+                        team=self.context["get_team"](),
+                        dashboard=dashboard,
+                        execution_mode=execution_mode,
+                        user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
+                        filters_override=filters_override,
+                        variables_override=variables_override,
+                        tile_filters_override=tile_filters_override,
+                        analytics_props=get_request_analytics_properties(self.context["request"]),
+                    )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
