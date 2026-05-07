@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
@@ -48,6 +49,10 @@ def log_file_system_view(
         return
 
     resolved_team_id, representation = resolved
+
+    # Concurrent writes during org deletion race Team.delete()'s cascade and FK-violate the commit.
+    if Team.objects.filter(id=resolved_team_id, organization__is_pending_deletion=True).exists():
+        return
 
     now = viewed_at or timezone.now()
 
