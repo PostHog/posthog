@@ -19,8 +19,8 @@
 
     .taxonomic-list-row {
         display: flex;
+        gap: 4px;
         align-items: center;
-        justify-content: space-between;
         padding: 4px 12px;
         color: var(--text-3000);
         cursor: pointer;
@@ -29,6 +29,7 @@
         .taxonomic-list-row-contents {
             display: flex;
             align-items: center;
+            margin-right: auto;
             user-select: none;
 
             .taxonomic-list-row-contents-icon {
