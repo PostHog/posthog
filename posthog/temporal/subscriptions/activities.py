@@ -38,6 +38,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
+    SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     UNSUPPORTED_TARGET_DISABLE_REASON,
     DisableReason,
     disable_invalid_subscription,
@@ -551,7 +552,8 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         except ApplicationError:
             raise
         except Exception as e:
-            is_user_config_error = isinstance(e, SlackApiError) and e.response.get("error") in SLACK_USER_CONFIG_ERRORS
+            slack_error_code = e.response.get("error") if isinstance(e, SlackApiError) else None
+            is_user_config_error = slack_error_code in SLACK_USER_CONFIG_ERRORS
             _capture_delivery_failed_event(subscription, e)
             LOGGER.error(
                 "deliver_subscription.slack_failed",
@@ -561,15 +563,13 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 exc_info=True,
             )
             capture_exception(e)
-            recipient_results.append(
-                RecipientResult(
-                    recipient=subscription.target_value,
-                    status="failed",
-                    error={"message": str(e), "type": type(e).__name__},
+            if is_user_config_error:
+                # Won't self-heal without user action — auto-disable so the subscription
+                # stops re-firing every cycle.
+                return await _auto_disable_and_return(
+                    subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON, recipient_results
                 )
-            )
-            if not is_user_config_error:
-                raise  # Transient Slack errors — let Temporal retry
+            raise  # Transient Slack errors — let Temporal retry
 
     await LOGGER.ainfo(
         "deliver_subscription.completed",
@@ -630,11 +630,14 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
             delivery.exported_asset_ids = inputs.exported_asset_ids
             update_fields.append("exported_asset_ids")
         if inputs.content_snapshot is not None:
-            # Rolling-deploy compat: an in-flight pre-rollout workflow may still
-            # issue this call with a populated content_snapshot (from the old
-            # Phase 2.5 early-write). Merge so its insights aren't lost while the
-            # old workflow finishes draining. New workflows do not populate this
-            # field — the snapshot is written from inside create_export_assets.
+            # Rolling-deploy compat (TODO slug: subscriptions-patched-cleanup):
+            # an in-flight pre-rollout workflow may still issue this call with a
+            # populated content_snapshot (from the old Phase 2.5 early-write).
+            # DO NOT change to plain assignment — the shallow-merge here
+            # preserves `id`, `short_id`, and other keys written by
+            # `create_delivery_record` / `create_export_assets` that the legacy
+            # replay payload does not include. New workflows do not populate
+            # this field; the snapshot is written from inside create_export_assets.
             delivery.content_snapshot = {**(delivery.content_snapshot or {}), **inputs.content_snapshot}
             update_fields.append("content_snapshot")
         if inputs.recipient_results is not None:
