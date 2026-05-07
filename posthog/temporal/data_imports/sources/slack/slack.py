@@ -1,4 +1,3 @@
-import hashlib
 import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
@@ -176,18 +175,18 @@ def _fetch_all_channels(access_token: str, authed_user: str | None = None) -> li
     return public + private
 
 
-_CHANNELS_CACHE_KEY_PREFIX = "@dwh/slack/channels"
 _CHANNELS_CACHE_TTL_SECONDS = 300
 
 
-def _channels_cache_key(access_token: str, authed_user: str | None) -> str:
-    # Hash the token so it never lands in Redis as plaintext; truncating to 16 hex chars
-    # is plenty of collision resistance for a per-source cache key.
-    token_hash = hashlib.sha256(access_token.encode()).hexdigest()[:16]
-    return f"{_CHANNELS_CACHE_KEY_PREFIX}/{token_hash}/{authed_user or '_'}"
+def _channels_cache_key(integration_id: int) -> str:
+    # Keyed on the Integration row PK (unique per PostHog team × Slack workspace), matching
+    # the convention used by the HogFunctions Slack channel-list cache in posthog.api.integration.
+    return f"@dwh/slack/{integration_id}/channels"
 
 
-def _fetch_all_channels_cached(access_token: str, authed_user: str | None = None) -> list[dict[str, Any]]:
+def _fetch_all_channels_cached(
+    integration_id: int, access_token: str, authed_user: str | None = None
+) -> list[dict[str, Any]]:
     """Cached wrapper around `_fetch_all_channels`.
 
     Slack's `conversations.list` is Tier 2 (~20 req/min). Workspaces with thousands of
@@ -196,7 +195,7 @@ def _fetch_all_channels_cached(access_token: str, authed_user: str | None = None
     fresh data (e.g. the user-triggered `refresh_schemas` action) should clear the
     cache via `invalidate_channels_cache` first.
     """
-    cache_key = _channels_cache_key(access_token, authed_user)
+    cache_key = _channels_cache_key(integration_id)
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -205,8 +204,8 @@ def _fetch_all_channels_cached(access_token: str, authed_user: str | None = None
     return channels
 
 
-def invalidate_channels_cache(access_token: str, authed_user: str | None = None) -> None:
-    cache.delete(_channels_cache_key(access_token, authed_user))
+def invalidate_channels_cache(integration_id: int) -> None:
+    cache.delete(_channels_cache_key(integration_id))
 
 
 def _fetch_messages_page(
@@ -286,9 +285,12 @@ def _fetch_thread_replies(
         has_more = cursor is not None
 
 
-def get_channels(access_token: str, authed_user: str | None = None) -> list[dict[str, str]]:
+def get_channels(integration_id: int, access_token: str, authed_user: str | None = None) -> list[dict[str, str]]:
     """Return channel id + name pairs for all accessible channels."""
-    return [{"id": ch["id"], "name": ch["name"]} for ch in _fetch_all_channels_cached(access_token, authed_user)]
+    return [
+        {"id": ch["id"], "name": ch["name"]}
+        for ch in _fetch_all_channels_cached(integration_id, access_token, authed_user)
+    ]
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
@@ -373,6 +375,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
 
 def slack_source(
     access_token: str,
+    integration_id: int,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -392,7 +395,7 @@ def slack_source(
         # public+private types are mixed, so we walk public and private separately and
         # scope private channels to the installer (matches get_schemas behavior).
         endpoint_config = ENDPOINTS[endpoint]
-        items = lambda: iter(_fetch_all_channels_cached(access_token, authed_user))
+        items = lambda: iter(_fetch_all_channels_cached(integration_id, access_token, authed_user))
     elif endpoint in ENDPOINTS:
         # $users — served via the generic REST framework
         endpoint_config = ENDPOINTS[endpoint]

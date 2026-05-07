@@ -279,31 +279,19 @@ class TestFetchAllChannelsCached:
             "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             return_value=[{"id": "C1", "name": "general"}],
         ) as mock_fetch:
-            first = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
-            second = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
+            first = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            second = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
 
         assert first == second == [{"id": "C1", "name": "general"}]
         assert mock_fetch.call_count == 1
 
-    def test_different_tokens_get_independent_cache_entries(self) -> None:
+    def test_different_integrations_get_independent_cache_entries(self) -> None:
         with patch(
             "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             side_effect=[[{"id": "A1", "name": "a"}], [{"id": "B1", "name": "b"}]],
         ) as mock_fetch:
-            a = _fetch_all_channels_cached("token-a", authed_user="U1")
-            b = _fetch_all_channels_cached("token-b", authed_user="U1")
-
-        assert a == [{"id": "A1", "name": "a"}]
-        assert b == [{"id": "B1", "name": "b"}]
-        assert mock_fetch.call_count == 2
-
-    def test_different_authed_users_get_independent_cache_entries(self) -> None:
-        with patch(
-            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
-            side_effect=[[{"id": "A1", "name": "a"}], [{"id": "B1", "name": "b"}]],
-        ) as mock_fetch:
-            a = _fetch_all_channels_cached("token", authed_user="U1")
-            b = _fetch_all_channels_cached("token", authed_user="U2")
+            a = _fetch_all_channels_cached(integration_id=1, access_token="token", authed_user="U1")
+            b = _fetch_all_channels_cached(integration_id=2, access_token="token", authed_user="U1")
 
         assert a == [{"id": "A1", "name": "a"}]
         assert b == [{"id": "B1", "name": "b"}]
@@ -314,9 +302,9 @@ class TestFetchAllChannelsCached:
             "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
             side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
         ) as mock_fetch:
-            first = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
-            invalidate_channels_cache("token", authed_user="U_INSTALLER")
-            second = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
+            first = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
+            invalidate_channels_cache(42)
+            second = _fetch_all_channels_cached(integration_id=42, access_token="token", authed_user="U_INSTALLER")
 
         assert first == [{"id": "C1", "name": "general"}]
         assert second == [{"id": "C2", "name": "renamed"}]
@@ -324,7 +312,7 @@ class TestFetchAllChannelsCached:
 
     def test_invalidate_is_safe_when_no_cache_entry(self) -> None:
         # Calling invalidate before anything was cached must not raise.
-        invalidate_channels_cache("token", authed_user="U_INSTALLER")
+        invalidate_channels_cache(42)
 
 
 class TestSlackSourceGetSchemasForceRefresh:
@@ -339,6 +327,7 @@ class TestSlackSourceGetSchemasForceRefresh:
         config.slack_integration_id = 42
 
         integration = MagicMock()
+        integration.id = 42
         integration.access_token = "token"
         integration.config = {"authed_user": {"id": "U_INSTALLER"}}
 
@@ -387,6 +376,7 @@ class TestSlackSourceChannelsEndpoint:
     def _build_source(self, authed_user: str | None) -> Any:
         return slack_source(
             access_token="token",
+            integration_id=42,
             endpoint="$channels",
             team_id=1,
             job_id="job-1",
