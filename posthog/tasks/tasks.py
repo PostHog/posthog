@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, transaction
 from django.utils import timezone
 
 import requests
@@ -1080,10 +1080,13 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
     delete_data_modeling_schedules(team_ids=team_ids)
 
     logger.info("Deleting team records", team_ids=team_ids)
-    if project_id:
-        Project.objects.filter(id=project_id).delete()
-    else:
-        Team.objects.filter(id__in=team_ids).delete()
+    # FOR UPDATE on teams blocks concurrent FK-inserts to any child table during cascade.
+    with transaction.atomic():
+        list(Team.objects.select_for_update().filter(id__in=team_ids))
+        if project_id:
+            Project.objects.filter(id=project_id).delete()
+        else:
+            Team.objects.filter(id__in=team_ids).delete()
 
     logger.info("Queueing ClickHouse deletion", team_ids=team_ids)
     AsyncDeletion.objects.bulk_create(

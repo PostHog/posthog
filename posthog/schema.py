@@ -719,6 +719,7 @@ class AssistantTool(StrEnum):
     CALL_MCP_SERVER = "call_mcp_server"
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
+    DIAGNOSE_PROXY = "diagnose_proxy"
 
 
 class AssistantToolCall(BaseModel):
