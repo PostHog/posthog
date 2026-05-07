@@ -143,7 +143,6 @@ export async function initPostHogMcpAnalytics(
             reportMissingEnabled: true,
         }
     } catch (error) {
-        // Observability initialization must never block MCP server startup.
         return {
             action: 'failed',
             errorName: error instanceof Error ? error.name : 'UnknownError',
