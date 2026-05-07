@@ -7974,6 +7974,38 @@ export namespace Schemas {
       Sunday: 'sunday',
     } as const;
 
+    export interface CIMDVerificationToken {
+      readonly id: string;
+      /** @maxLength 40 */
+      label: string;
+      /** @nullable */
+      readonly mask_value: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly last_used_at: string | null;
+    }
+
+    /**
+     * Create-response variant that includes the plaintext token.
+
+    Only emitted from the create endpoint - storage-side we only persist the
+    hash, so subsequent reads use the base serializer.
+     */
+    export interface CIMDVerificationTokenWithValue {
+      readonly id: string;
+      /** @maxLength 40 */
+      label: string;
+      /** @nullable */
+      readonly mask_value: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly last_used_at: string | null;
+      /** Plaintext token, only returned on creation */
+      readonly value: string;
+    }
+
     export interface CalendarHeatmapFilter {
       /** @nullable */
       dummy?: string | null;
@@ -24499,6 +24531,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: BatchImport[];
+    }
+
+    export interface PaginatedCIMDVerificationTokenList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CIMDVerificationToken[];
     }
 
     export interface PaginatedChangeRequestList {
@@ -43514,6 +43555,17 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type CimdVerificationTokensListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type DomainsListParams = {
