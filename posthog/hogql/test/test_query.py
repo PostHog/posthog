@@ -1,12 +1,12 @@
 import datetime
 from decimal import Decimal
-from unittest.mock import patch
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -21,8 +21,7 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
-from posthog.hogql import ast
-from posthog.hogql import query as hogql_query
+from posthog.hogql import ast, query as hogql_query
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
