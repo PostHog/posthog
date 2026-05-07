@@ -351,7 +351,7 @@ def list_groups(
     *,
     group_key_contains: str = "",
     search: str = "",
-    cursor_created_at_ms: int = 0,
+    cursor_created_at_us: int = 0,
     cursor_id: int = 0,
     limit: int = 100,
 ) -> ListGroupsResult:
@@ -369,7 +369,7 @@ def list_groups(
                     group_type_index=group_type_index,
                     group_key_contains=group_key_contains,
                     search=search,
-                    cursor_created_at_ms=cursor_created_at_ms // 1000,
+                    cursor_created_at_ms=cursor_created_at_us // 1000,
                     cursor_id=cursor_id,
                     limit=limit,
                 )
@@ -404,8 +404,8 @@ def list_groups(
     if search:
         qs = qs.filter(Q(group_properties__icontains=search) | Q(group_key__iexact=search))
     qs = qs.order_by("-created_at", "-id")
-    if cursor_created_at_ms > 0:
-        cursor_dt = datetime.datetime.fromtimestamp(cursor_created_at_ms / 1_000_000, tz=datetime.UTC)
+    if cursor_created_at_us > 0:
+        cursor_dt = datetime.datetime.fromtimestamp(cursor_created_at_us / 1_000_000, tz=datetime.UTC)
         qs = qs.filter(Q(created_at__lt=cursor_dt) | Q(created_at=cursor_dt, id__lt=cursor_id))
     groups = list(qs[: limit + 1])
     has_more = len(groups) > limit

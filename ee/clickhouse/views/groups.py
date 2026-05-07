@@ -365,18 +365,18 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         group_search = self.request.GET.get("search", "")
         group_key = self.request.GET.get("group_key", "")
 
-        cursor_created_at_ms = 0
+        cursor_created_at_us = 0
         cursor_id = 0
         cursor_param = self.request.GET.get("cursor")
         if cursor_param:
-            cursor_created_at_ms, cursor_id = _decode_groups_cursor(cursor_param)
+            cursor_created_at_us, cursor_id = _decode_groups_cursor(cursor_param)
 
         result = list_groups(
             team_id=self.team.pk,
             group_type_index=group_type_index,
             group_key_contains=group_key,
             search=group_search,
-            cursor_created_at_ms=cursor_created_at_ms,
+            cursor_created_at_us=cursor_created_at_us,
             cursor_id=cursor_id,
         )
 

@@ -2320,7 +2320,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         page2 = list_groups(
             team_id=self.team.pk,
             group_type_index=0,
-            cursor_created_at_ms=int(last.created_at.timestamp() * 1_000_000),
+            cursor_created_at_us=int(last.created_at.timestamp() * 1_000_000),
             cursor_id=last.id,
             limit=2,
         )
