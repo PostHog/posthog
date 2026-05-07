@@ -69,10 +69,10 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
         ],
     },
     "migrations": {
+        # `migrations/` substring is load-bearing — also catches rust
+        # *_migrations/ dirs applied by sqlx at deploy.
         "paths": [
             "migrations/",
-            "migrate",
-            "backfill",
             "schema_change",
         ],
     },
