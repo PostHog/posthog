@@ -6,6 +6,13 @@
 // contract — renaming them breaks consumers' tests. Keep in sync with the
 // overlay components that emit them.
 
+import type { TooltipContext } from '../core/types'
+import { waitForHogChartTooltip } from './tooltip'
+
+/** Tooltip handle returned by `chart.waitForTooltip()` — every field of the structured
+ *  `TooltipContext` plus the rendered portal element, so tests can assert on either. */
+export type TooltipSnapshot<Meta = unknown> = TooltipContext<Meta> & { element: HTMLElement }
+
 interface ReferenceLineSummary {
     label: string | null
     /** Pixel position of the line — top px for horizontal, left px for vertical. */
@@ -28,7 +35,7 @@ interface AnomalyPointSummary {
     color: string
 }
 
-export interface HogChart {
+export interface HogChart<Meta = unknown> {
     /** The wrapper div of this chart. */
     element: HTMLElement
     /** Number of non-excluded data series rendered (read from the chart's aria-label). */
@@ -49,6 +56,10 @@ export interface HogChart {
     anomalyPoints(): AnomalyPointSummary[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
+    /** Wait for the tooltip to mount, then return a snapshot of both the structured
+     *  `TooltipContext` the chart computed and the rendered portal element. Only available
+     *  when the chart was rendered via `renderHogChart`; throws otherwise. */
+    waitForTooltip(timeout?: number): Promise<TooltipSnapshot<Meta>>
 }
 
 const SERIES_COUNT_RE = /Chart with (\d+) data series/i
@@ -89,7 +100,10 @@ function readReferenceLine(el: HTMLElement): ReferenceLineSummary {
     return { color, orientation, position, label }
 }
 
-export function getHogChart(scope: HTMLElement = document.body): HogChart {
+export function getHogChart<Meta = unknown>(
+    scope: HTMLElement = document.body,
+    getLastTooltipContext: () => TooltipContext<Meta> | null = () => null
+): HogChart<Meta> {
     const canvas = findCanvas(scope)
     if (!canvas) {
         throw new Error('No hog-chart canvas found in scope')
@@ -138,5 +152,15 @@ export function getHogChart(scope: HTMLElement = document.body): HogChart {
                 color: el.style.backgroundColor,
             })),
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
+        async waitForTooltip(timeout?: number): Promise<TooltipSnapshot<Meta>> {
+            const element = await waitForHogChartTooltip(timeout)
+            const ctx = getLastTooltipContext()
+            if (!ctx) {
+                throw new Error(
+                    'TooltipContext not captured. Render the chart via `renderHogChart` to enable tooltip context capture.'
+                )
+            }
+            return { ...ctx, element }
+        },
     }
 }

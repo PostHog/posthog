@@ -41,15 +41,16 @@ if currentTokens == false then
   currentTokens = poolMax
 end
 
-currentTokens = math.min(currentTokens + owedTokens, poolMax)
+currentTokens = currentTokens + owedTokens
 
 -- Store tokens before cost deduction
 local tokensBefore = currentTokens
 
--- Remove the cost and calculate tokens after
+-- Remove the cost and calculate tokens after; cap stored pool at poolMax so silent
+-- periods do not let saved credit grow unbounded across many calls.
 local tokensAfter
 if currentTokens - cost >= 0 then
-  tokensAfter = currentTokens - cost
+  tokensAfter = math.min(currentTokens - cost, poolMax)
 else
   tokensAfter = -1
 end

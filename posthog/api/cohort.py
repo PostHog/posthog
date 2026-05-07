@@ -1251,6 +1251,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     check_property_values(value["values"], source_id)
 
         for cohort_id, cohort in all_cohorts.items():
+            # Static cohorts have pre-computed membership and don't re-evaluate
+            # their filters, so they're always safe to use regardless of filter type.
+            if cohort.is_static:
+                continue
             if cohort.filters:
                 properties = cohort.filters.get("properties", {})
                 if isinstance(properties, dict):

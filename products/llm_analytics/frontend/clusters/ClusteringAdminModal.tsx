@@ -111,6 +111,8 @@ export function ClusteringAdminModal(): JSX.Element {
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.EventMetadata,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.Cohorts,
                         ]}
                         addText="Add event filter"
                         hasRowOperator={false}

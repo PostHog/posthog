@@ -310,8 +310,13 @@ tools:
             idempotent: false
         title: Create error tracking suppression rule
         description: >
-            Create an error tracking suppression rule for the current project. Provide optional `filters` and optional
-            `sampling_rate`; omit `filters` to create a match-all suppression rule.
+            Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed
+            indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted.
+            Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT
+            create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and
+            cause data loss that is hard to detect after the fact. Prefer `sampling_rate` to dampen noisy issues rather
+            than fully suppressing when uncertain. Confirm with the user before creating any rule that could match more
+            than one distinct error.
     error-tracking-suppression-rules-destroy:
         operation: error_tracking_suppression_rules_destroy
         enabled: false

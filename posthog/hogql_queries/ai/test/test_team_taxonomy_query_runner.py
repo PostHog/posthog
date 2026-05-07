@@ -125,12 +125,12 @@ class TestTeamTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         for i in range(501):
-            with freeze_time(now + timedelta(minutes=i)):
-                _create_event(
-                    event=f"event{i}",
-                    distinct_id="person1",
-                    team=self.team,
-                )
+            _create_event(
+                event=f"event{i}",
+                distinct_id="person1",
+                team=self.team,
+                timestamp=now + timedelta(minutes=i),
+            )
 
         flush_persons_and_events()
 

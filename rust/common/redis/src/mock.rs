@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::pipeline::{PipelineCommand, PipelineResult};
 use crate::{Client, CustomRedisError, RedisValueFormat};
@@ -22,6 +24,11 @@ pub struct MockRedisClient {
     expire_ret: HashMap<String, Result<bool, CustomRedisError>>,
     mget_ret: HashMap<String, Option<Vec<u8>>>,
     mget_error: Option<CustomRedisError>,
+    pipeline_error: Option<CustomRedisError>,
+    pipeline_block: Option<Duration>,
+    pipeline_errors_by_call: HashMap<usize, CustomRedisError>,
+    /// Shared via `Arc` so clones of the mock agree on call sequencing.
+    pipeline_call_counter: Arc<AtomicUsize>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
@@ -43,6 +50,10 @@ impl Default for MockRedisClient {
             expire_ret: HashMap::new(),
             mget_ret: HashMap::new(),
             mget_error: None,
+            pipeline_error: None,
+            pipeline_block: None,
+            pipeline_errors_by_call: HashMap::new(),
+            pipeline_call_counter: Arc::new(AtomicUsize::new(0)),
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -165,6 +176,30 @@ impl MockRedisClient {
 
     pub fn mget_error(&mut self, err: CustomRedisError) -> Self {
         self.mget_error = Some(err);
+        self.clone()
+    }
+
+    /// Make every `execute_pipeline` call return the given connection-level
+    /// error. Commands are still recorded before the error is returned, so
+    /// tests can assert which chunks were attempted.
+    pub fn pipeline_error(&mut self, err: CustomRedisError) -> Self {
+        self.pipeline_error = Some(err);
+        self.clone()
+    }
+
+    /// Block every `execute_pipeline` call for the given duration before
+    /// resolving. Used to exercise shutdown-timeout paths.
+    pub fn pipeline_block(&mut self, duration: Duration) -> Self {
+        self.pipeline_block = Some(duration);
+        self.clone()
+    }
+
+    /// Fail the Nth `execute_pipeline` call (0-indexed across the lifetime of
+    /// this mock) with the given error. Other calls proceed normally. Takes
+    /// precedence over `pipeline_error`. Use to exercise partial-failure
+    /// flush paths where some chunks succeed and others don't.
+    pub fn pipeline_error_at_call(&mut self, call_index: usize, err: CustomRedisError) -> Self {
+        self.pipeline_errors_by_call.insert(call_index, err);
         self.clone()
     }
 }
@@ -570,6 +605,24 @@ impl Client for MockRedisClient {
         &self,
         commands: Vec<PipelineCommand>,
     ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError> {
+        if let Some(duration) = self.pipeline_block {
+            futures_timer::Delay::new(duration).await;
+        }
+        let call_index = self.pipeline_call_counter.fetch_add(1, Ordering::SeqCst);
+        // Per-call error takes precedence so tests can mix success and failure.
+        let injected_error = self
+            .pipeline_errors_by_call
+            .get(&call_index)
+            .cloned()
+            .or_else(|| self.pipeline_error.clone());
+        if let Some(err) = injected_error {
+            // Record commands as attempted so tests can assert which chunks
+            // were tried, then return the injected connection-level error.
+            for cmd in commands {
+                drop(self.execute_pipeline_command(cmd));
+            }
+            return Err(err);
+        }
         let results = commands
             .into_iter()
             .map(|cmd| self.execute_pipeline_command(cmd))

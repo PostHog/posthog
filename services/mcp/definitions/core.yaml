@@ -80,6 +80,9 @@ tools:
     cohorts-update:
         operation: cohorts_update
         enabled: false
+    comments-complete-create:
+        operation: comments_complete_create
+        enabled: false
     comments-count-retrieve:
         operation: comments_count_retrieve
         enabled: false
@@ -94,6 +97,9 @@ tools:
         enabled: false
     comments-partial-update:
         operation: comments_partial_update
+        enabled: false
+    comments-reopen-create:
+        operation: comments_reopen_create
         enabled: false
     comments-retrieve:
         operation: comments_retrieve

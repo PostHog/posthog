@@ -15,6 +15,7 @@ import type {
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
+    DataVisualizationNode,
     FunnelsQuery,
     HogQLQuery,
     LifecycleQuery,
@@ -240,6 +241,7 @@ export interface ContextMessage extends BaseAssistantMessage {
  * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
  */
 export type AnyAssistantGeneratedQuery =
+    | DataVisualizationNode
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery

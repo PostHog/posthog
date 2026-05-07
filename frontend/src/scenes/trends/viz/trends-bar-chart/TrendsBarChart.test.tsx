@@ -91,9 +91,6 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
         const tooltip = await chart.hoverTooltip(2)
 
-        // Stacked bars surface stacked-top values in tooltip rows, not raw series values, so we
-        // only assert that both compare rows are present — the dimming is enforced by the
-        // transforms unit test.
         expect(tooltip.row('Current')).toBeTruthy()
         expect(tooltip.row('Previous')).toBeTruthy()
     })

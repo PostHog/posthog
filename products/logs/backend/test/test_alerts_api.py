@@ -1,5 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -13,6 +15,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
@@ -1677,7 +1680,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
     def _make_alert(self, **overrides: object) -> LogsAlertConfiguration:
         from products.logs.backend.alert_state_machine import AlertState
 
-        defaults = {
+        defaults: dict[str, Any] = {
             "team": self.team,
             "name": "Lifecycle test alert",
             "filters": {"serviceNames": [self.service]},
@@ -1692,6 +1695,17 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
             "state": AlertState.NOT_FIRING.value,
         }
         defaults.update(overrides)
+        # Pin the test alert to shard 0 so its evaluator NCAs align with the
+        # simulator's canonical-grid bucket boundaries. Without this, the
+        # evaluator advances NCAs onto the alert's shard offset (e.g. :02/:07
+        # instead of :00/:05) and the simulator's :00/:05 bucket evaluations
+        # disagree on event timing.
+        cadence = int(defaults["check_interval_minutes"])
+        while True:
+            candidate = uuid4()
+            if compute_shard_offset_seconds(candidate, cadence) == 0:
+                defaults["id"] = candidate
+                break
         return LogsAlertConfiguration.objects.create(**defaults)
 
     def _drive_evaluator(
@@ -1700,15 +1714,46 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         start_nca: datetime,
         end_nca: datetime,
     ) -> list[tuple[datetime, str]]:
-        from products.logs.backend.temporal.activities import _check_alerts_sync
+        # Run the sync helpers directly rather than the async activities. The
+        # async path uses `database_sync_to_async_pool`, whose thread-pool
+        # dispatch loses freezegun's clock-patching for this lifecycle test.
+        # The async orchestration is covered by `test_logs_alerting_workflow.py`.
+        from products.logs.backend.temporal.activities import (
+            _cohort_from_manifest,
+            _discover_cohorts_sync,
+            _dispatch_for_alert,
+            _evaluate_single_alert,
+            _finalize_alert,
+            _load_alerts_for_batch,
+            _run_cohort_query,
+            _save_cohort_outcomes,
+        )
 
         alert.next_check_at = start_nca
         alert.save(update_fields=["next_check_at"])
 
+        def _one_cycle() -> None:
+            discovery = _discover_cohorts_sync()
+            if not discovery.manifests:
+                return
+            all_ids = {aid for m in discovery.manifests for aid in m.alert_ids}
+            alerts_by_id = _load_alerts_for_batch(all_ids)
+            now = datetime.now(UTC)
+            stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+            for manifest in discovery.manifests:
+                cohort = _cohort_from_manifest(manifest, alerts_by_id)
+                query_result = _run_cohort_query(cohort)
+                for a in cohort.alerts:
+                    evaluation = _evaluate_single_alert(a, now, prefetched=query_result.for_alert(a))
+                    dispatched = _dispatch_for_alert(evaluation, now)
+                    saved, _failed = _save_cohort_outcomes([dispatched], now)
+                    for d in saved:
+                        _finalize_alert(d, 0, stats)
+
         nca = start_nca
         while nca <= end_nca:
             with freeze_time(nca):
-                _check_alerts_sync()
+                _one_cycle()
             nca += timedelta(minutes=alert.check_interval_minutes)
 
         events: list[tuple[datetime, str]] = []
