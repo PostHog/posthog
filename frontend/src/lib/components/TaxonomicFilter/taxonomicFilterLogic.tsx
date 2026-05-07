@@ -48,6 +48,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    isCurrentSelectionItem,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -1444,21 +1445,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue => {
                             // The pinned current-selection row carries its own value (action id or
                             // event name); other suggested items are property names.
-                            if (item && typeof item === 'object' && 'isCurrentSelection' in item) {
-                                return (item as { id: TaxonomicFilterValue }).id ?? null
+                            if (isCurrentSelectionItem(item)) {
+                                return item.id ?? null
                             }
                             return 'name' in item ? (item.name ?? null) : null
                         },
                         // Keep the pinned current-selection at the top regardless of search
                         // query, and run a substring filter over the remaining suggestions.
                         localItemsSearch: (items, query) => {
-                            const isCurrentSelection = (item: TaxonomicDefinitionTypes): boolean =>
-                                !!item &&
-                                typeof item === 'object' &&
-                                'isCurrentSelection' in item &&
-                                !!(item as { isCurrentSelection?: boolean }).isCurrentSelection
-                            const pinned = items.filter(isCurrentSelection)
-                            const rest = items.filter((item) => !isCurrentSelection(item))
+                            const pinned: TaxonomicDefinitionTypes[] = []
+                            const rest: TaxonomicDefinitionTypes[] = []
+                            for (const item of items) {
+                                ;(isCurrentSelectionItem(item) ? pinned : rest).push(item)
+                            }
                             const trimmedQuery = query.trim().toLowerCase()
                             const filteredRest = trimmedQuery
                                 ? rest.filter((item) => {

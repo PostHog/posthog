@@ -15,10 +15,12 @@ import {
     taxonomicFilterPinnedPropertiesLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
+    CurrentSelectionItem,
     ExcludedOperators,
     InfiniteListLogicProps,
     QuickFilterItem,
     SkeletonItem,
+    isCurrentSelectionItem,
     isQuickFilterItem,
     isSkeletonItem,
     ListFuse,
@@ -815,22 +817,23 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
                 // Lift the host's pinned current-selection above recents/pinned so it always
                 // anchors the top of the Suggested-filters tab.
-                const isCurrentSelectionItem = (item: TaxonomicDefinitionTypes): boolean =>
-                    !!item &&
-                    typeof item === 'object' &&
-                    'isCurrentSelection' in item &&
-                    !!(item as { isCurrentSelection?: boolean }).isCurrentSelection
-                const currentSelectionItems = isSuggested ? localItems.results.filter(isCurrentSelectionItem) : []
-                const localItemsWithoutCurrentSelection = isSuggested
-                    ? localItems.results.filter((item) => !isCurrentSelectionItem(item))
-                    : localItems.results
+                const currentSelectionItems: CurrentSelectionItem[] = []
+                const localItemsWithoutCurrentSelection: TaxonomicDefinitionTypes[] = []
+                if (isSuggested) {
+                    for (const item of localItems.results) {
+                        if (isCurrentSelectionItem(item)) {
+                            currentSelectionItems.push(item)
+                        } else {
+                            localItemsWithoutCurrentSelection.push(item)
+                        }
+                    }
+                } else {
+                    localItemsWithoutCurrentSelection.push(...localItems.results)
+                }
                 // Build a set of "groupType:value" keys for the current selection, so the same
                 // series doesn't also appear in the recents/pinned prefixes below.
                 const currentSelectionKeys = new Set(
-                    currentSelectionItems.map((item) => {
-                        const cs = item as { group?: TaxonomicFilterGroupType; id?: string | number | null }
-                        return `${cs.group}:${cs.id ?? ''}`
-                    })
+                    currentSelectionItems.map((item) => `${item.group}:${item.id ?? ''}`)
                 )
                 const dropDuplicateOfCurrentSelection = (item: TaxonomicDefinitionTypes): boolean => {
                     let sourceGroupType: TaxonomicFilterGroupType | undefined

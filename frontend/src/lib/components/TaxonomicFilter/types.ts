@@ -190,6 +190,28 @@ export interface CurrentSelection {
     name: string
 }
 
+/**
+ * Synthetic item shape inserted into the `SuggestedFilters` group's `options` array to
+ * surface the host's current selection at the top of the picker. `group` carries the
+ * source group type so cross-group dispatch in `InfiniteList` routes rendering to the
+ * correct (Events / Actions / DataWarehouse) renderer.
+ */
+export interface CurrentSelectionItem {
+    id: TaxonomicFilterValue
+    name: string
+    group: TaxonomicFilterGroupType
+    isCurrentSelection: true
+}
+
+export function isCurrentSelectionItem(item: unknown): item is CurrentSelectionItem {
+    return (
+        typeof item === 'object' &&
+        item !== null &&
+        'isCurrentSelection' in item &&
+        (item as { isCurrentSelection?: boolean }).isCurrentSelection === true
+    )
+}
+
 export interface DataWarehousePopoverField {
     key: string
     label: string
