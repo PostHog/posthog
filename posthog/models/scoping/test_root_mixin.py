@@ -6,9 +6,11 @@ apply unchanged to any TeamScopedManager-backed model. This file just
 verifies that inheriting `TeamScopedRootMixin` swaps the manager from
 `RootTeamManager` to `TeamScopedManager` while keeping the canonical-team
 save() rewrite from the parent — and that the CI introspection (which is
-just an isinstance check on `_meta.default_manager`) recognises all three
+just an isinstance check on `_meta.managers`) recognises all three
 adoption styles: the two mixins and an ad-hoc `objects = TeamScopedManager()`.
 """
+
+from types import SimpleNamespace
 
 from django.db import models
 from django.test import SimpleTestCase
@@ -17,20 +19,6 @@ from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import RootTeamManager, RootTeamMixin
-
-
-class _AdHocFailClosed(models.Model):
-    """Abstract model that declares `objects = TeamScopedManager()` directly,
-    bypassing both mixins. Mirrors the pattern existing main-DB models use
-    when migrating off `RootTeamManager` without switching to the new mixin
-    (e.g. they need a custom manager subclass that inherits TeamScopedManager).
-    """
-
-    objects = TeamScopedManager()
-
-    class Meta:
-        abstract = True
-        app_label = "posthog"
 
 
 class TestTeamScopedRootMixinWiring(SimpleTestCase):
@@ -71,7 +59,9 @@ class TestFailClosedIntrospection(SimpleTestCase):
         self.assertTrue(self._has_team_scoped_manager(TeamScopedRootMixin))
 
     def test_adhoc_declaration_is_detected(self) -> None:
-        """A bare `objects = TeamScopedManager()` on a plain model also satisfies
-        the check — no mixin required, useful when a model already inherits a
-        custom base or needs a TeamScopedManager subclass."""
-        self.assertTrue(self._has_team_scoped_manager(_AdHocFailClosed))
+        """A bare `objects = TeamScopedManager()` on a model that doesn't inherit
+        either mixin still satisfies the check. We use a SimpleNamespace stub
+        rather than a real `models.Model` subclass to avoid registering an
+        abstract test model in the live `posthog` app registry."""
+        stub = SimpleNamespace(_meta=SimpleNamespace(managers=(TeamScopedManager(),)))
+        self.assertTrue(self._has_team_scoped_manager(stub))  # type: ignore[arg-type]
