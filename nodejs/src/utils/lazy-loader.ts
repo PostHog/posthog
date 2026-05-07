@@ -7,8 +7,8 @@ import { logger } from './logger'
 
 /**
  * Refresh window for the team + dmat-slot caches. Must stay below the dmat workflow's
- * `cache_refresh_wait_seconds` (180s) so plugin-server picks up new columns before the
- * historical backfill mutation runs.
+ * `cache_refresh_wait_seconds` (180s) so ingestion starts populating dmat columns before
+ * backfill's created_at cutoff.
  */
 export const TEAM_AND_SLOTS_REFRESH_AGE_MS = 2 * 60 * 1000 // 2 minutes
 export const TEAM_AND_SLOTS_REFRESH_JITTER_MS = 30 * 1000 // 30 seconds

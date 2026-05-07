@@ -61,7 +61,7 @@ describe('createEvent dmat extraction', () => {
         expect(event.dmat_columns).toEqual({ dmat_string_3: 'Chrome' })
     })
 
-    it('skips properties that are missing on the event so HogQL falls back to JSON', () => {
+    it('skips properties that are missing on the event', () => {
         const slots: MaterializedColumnSlot[] = [
             {
                 property_name: 'never_seen',

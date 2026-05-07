@@ -168,7 +168,6 @@ export function jsonExtractRawAndTrimQuotes(value: unknown): string | null {
     }
     const json = JSON.stringify(value)
     if (json === 'null') {
-        // SQL nullIf(..., 'null') parity for any future encoder change.
         return null
     }
     // Mirrors SQL `^"|"$`: strip one leading and one trailing `"` if both present.

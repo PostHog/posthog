@@ -13,6 +13,7 @@
         { "name": "number type (integer)", "input": 42, "expected_output": "42" },
         { "name": "number type (float)", "input": 3.14, "expected_output": "3.14" },
         { "name": "boolean true", "input": true, "expected_output": "true" },
-        { "name": "boolean false", "input": false, "expected_output": "false" }
+        { "name": "boolean false", "input": false, "expected_output": "false" },
+        { "name": "string wrapped in double quotes", "input": "\"hello\"", "expected_output": "\\\"hello\\\"" }
     ]
 }
