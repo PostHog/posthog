@@ -100,15 +100,15 @@ Search rules:
 
 <example>
 User: Do we have any insights tracking revenue?
-Assistant: [Runs `posthog:exec({ "command": "call execute-sql {\"query\":\"SELECT id, short_id, name, description, last_modified_at FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR description ILIKE '%revenue%') ORDER BY last_modified_at DESC LIMIT 20\"}" })`]
-[Picks the most plausible match by name, then runs `posthog:exec({ "command": "call insight-get {\"id\": <id>}" })` (or pass the `short_id`) to verify the query, dashboards it's on, and last-viewed timestamp before reporting back to the user.]
+Assistant: [Calls `execute-sql` with `SELECT id, short_id, name, description, last_modified_at FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR description ILIKE '%revenue%') ORDER BY last_modified_at DESC LIMIT 20`]
+[Picks the most plausible match by name, then calls `insight-get` with the candidate's `id` (or `short_id`) to verify the query, dashboards it's on, and last-viewed timestamp before reporting back to the user.]
 <reasoning>SQL surfaces candidates fast; `insight-get` confirms the authoritative shape in one call — re-running `execute-sql ... WHERE id = <id>` would skip the dedicated tool and miss dashboards/ownership joins.</reasoning>
 </example>
 
 <bad-example>
 User: Find me a graph of MAUs.
-Assistant: [Runs `call execute-sql {"query":"SELECT * FROM system.insights WHERE id = 33800 LIMIT 1"}` after a search SELECT already surfaced id 33800]
-WRONG — verify with `call insight-get {"id": 33800}` instead. Re-querying `system.insights` by ID is a SELECT that doesn't surface dashboard membership, last-viewed, or other relational data the retrieve tool joins for you.
+Assistant: [Calls `execute-sql` with `SELECT * FROM system.insights WHERE id = 33800 LIMIT 1` after a search SELECT already surfaced id 33800]
+WRONG — verify with `insight-get` (passing `id: 33800`) instead. Re-querying `system.insights` by ID is a SELECT that doesn't surface dashboard membership, last-viewed, or other relational data the retrieve tool joins for you.
 </bad-example>
 
 #### Available insight query tools
