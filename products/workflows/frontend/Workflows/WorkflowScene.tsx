@@ -3,7 +3,7 @@ import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -136,7 +136,11 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         tabs={tabs}
                         sceneInset
                         rightSlot={
-                            lastSavedAt ? (
+                            workflowLoading ? (
+                                <span className="text-xs text-tertiary flex items-center gap-1">
+                                    <Spinner textColored /> Saving…
+                                </span>
+                            ) : lastSavedAt ? (
                                 <span className="text-xs text-tertiary">
                                     Last saved <RelativeTime timestamp={lastSavedAt} />
                                 </span>
