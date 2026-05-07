@@ -83,10 +83,10 @@ class TestSlackIntegration:
         channels = slack.list_channels(True, "test_user_id")
 
         mock_client.conversations_list.assert_called_once_with(
-            exclude_archived=True, types="public_channel", limit=200, cursor=None
+            exclude_archived=True, types="public_channel", limit=1000, cursor=None
         )
         mock_client.users_conversations.assert_called_once_with(
-            exclude_archived=True, types="private_channel", limit=200, cursor=None, user="test_user_id"
+            exclude_archived=True, types="private_channel", limit=1000, cursor=None, user="test_user_id"
         )
 
         assert len(channels) == 4
@@ -126,10 +126,10 @@ class TestSlackIntegration:
         channels = slack.list_channels(False, "test_user_id")
 
         mock_client.conversations_list.assert_called_once_with(
-            exclude_archived=True, types="public_channel", limit=200, cursor=None
+            exclude_archived=True, types="public_channel", limit=1000, cursor=None
         )
         mock_client.users_conversations.assert_called_once_with(
-            exclude_archived=True, types="private_channel", limit=200, cursor=None, user="test_user_id"
+            exclude_archived=True, types="private_channel", limit=1000, cursor=None, user="test_user_id"
         )
 
         assert len(channels) == 4
