@@ -40,6 +40,35 @@ describe('BarChart', () => {
         })
     })
 
+    it.each<[string, Series[], string[]]>([
+        ['single sparse bar', [{ key: 'all', label: 'All events', data: [103000] }], ['All events']],
+        [
+            'single result with 90-day labels (mismatched)',
+            [{ key: 'all', label: 'All events', data: [103000] }],
+            Array.from({ length: 90 }, (_, i) => `d${i}`),
+        ],
+        [
+            'two sparse-stacked results',
+            [
+                { key: 'a', label: 'A', data: [103000, 0] },
+                { key: 'b', label: 'B', data: [0, 50000] },
+            ],
+            ['A', 'B'],
+        ],
+    ])('horizontal: %s anchors value axis at 0', (_name, series, labels) => {
+        const { chart } = renderHogChart(
+            <BarChart
+                series={series}
+                labels={labels}
+                theme={THEME}
+                config={{ barLayout: 'stacked', axisOrientation: 'horizontal' }}
+            />
+        )
+        const ticks = chart.xTicks().map((t) => Number(t.replace(/,/g, '')))
+        // All cases must start at 0 — the value axis should be anchored.
+        expect(ticks[0]).toBe(0)
+    })
+
     it('forwards `dataAttr` to the chart wrapper for product-test selection', () => {
         const { chart } = renderHogChart(
             <BarChart series={SERIES} labels={LABELS} theme={THEME} dataAttr="bar-chart-instance" />
