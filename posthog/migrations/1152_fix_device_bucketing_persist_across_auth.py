@@ -17,6 +17,13 @@ def fix_device_bucketing_persist_across_auth(apps, schema_editor):
     so we disable persist across auth for these flags. Bulk updates
     bypass post_save signals, so cache invalidation is dispatched
     explicitly per affected team.
+
+    Idempotency / retry safety: `Migration.atomic = False` allows per-batch
+    transactions to keep lock windows small on large instances. The migration
+    is safe to retry because the queryset filter (`bucketing_identifier="device_id"`,
+    `ensure_experience_continuity=True`) naturally excludes any flag a previous
+    partial run already fixed, so re-runs only create ActivityLog rows for flags
+    that haven't been processed yet — no duplicates.
     """
     FeatureFlag = apps.get_model("posthog", "FeatureFlag")
     ActivityLog = apps.get_model("posthog", "ActivityLog")
