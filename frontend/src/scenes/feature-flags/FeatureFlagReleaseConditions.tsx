@@ -674,13 +674,12 @@ export function FeatureFlagReleaseConditions({
                                     setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
                                 } else if (targetValue === 'device') {
                                     setAggregationGroupTypeIndex(null)
-                                    // Atomically switch to device bucketing and disable persist across auth.
-                                    // Read fresh featureFlag at apply time — when invoked from the confirmation
-                                    // dialog onClick below, the closure-captured featureFlag may be stale if
-                                    // the user edited fields between opening the dialog and clicking Continue.
-                                    const fresh = featureFlagLogic({ id }).values.featureFlag
+                                    // Atomically switch to device bucketing and disable persist across auth —
+                                    // these are incompatible, so applying both in one setFeatureFlag avoids any
+                                    // window where the closure-captured featureFlag could overwrite the new
+                                    // bucketing identifier.
                                     setFeatureFlag({
-                                        ...fresh,
+                                        ...featureFlag,
                                         bucketing_identifier: FeatureFlagBucketingIdentifier.DEVICE_ID,
                                         ensure_experience_continuity: false,
                                     })
