@@ -2048,7 +2048,7 @@ jobs:
                   echo "All checks passed."
 
     test-selection-verdict:
-        needs: [django, turbo-tests, changes]
+        needs: [django, turbo-tests, changes, select-tests]
         name: Test selection verdict
         if: always() && github.event_name == 'pull_request'
         runs-on: ubuntu-latest
@@ -2073,6 +2073,18 @@ jobs:
                   path: /tmp/junit-results/
               continue-on-error: true
 
+            # Reuse the selection artifact from the select-tests job rather than
+            # re-running the snob script. Falls through if the artifact wasn't
+            # produced (select-tests forced full mode or failed) — the next step
+            # regenerates it so we still get a shadow verdict for those PRs.
+            - name: Download selection artifact
+              id: download-selection
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: select-tests-output
+                  path: /tmp/verdict/
+
             - name: Run test selection and verdict
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -2083,16 +2095,18 @@ jobs:
                   set -euo pipefail
                   mkdir -p /tmp/verdict
 
-                  # Fetch the *current* tip of the base branch, not pull_request.base.sha:
-                  # base.sha is captured at webhook time and goes stale if the branch
-                  # later merges a newer master, which makes `base.sha...HEAD` balloon
-                  # to include every merged-in master change.
-                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  if [[ ! -s /tmp/verdict/selection.json ]]; then
+                      # Fetch the *current* tip of the base branch, not pull_request.base.sha:
+                      # base.sha is captured at webhook time and goes stale if the branch
+                      # later merges a newer master, which makes `base.sha...HEAD` balloon
+                      # to include every merged-in master change.
+                      git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-                  uv run tools/snob_backend_test_selection_shadow.py \
-                      --base-ref "origin/$BASE_REF" \
-                      --pretty \
-                      > /tmp/verdict/selection.json
+                      uv run tools/snob_backend_test_selection_shadow.py \
+                          --base-ref "origin/$BASE_REF" \
+                          --pretty \
+                          > /tmp/verdict/selection.json
+                  fi
 
                   uv run tools/test_selection_verdict.py \
                       /tmp/verdict/selection.json \

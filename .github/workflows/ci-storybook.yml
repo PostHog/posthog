@@ -180,8 +180,16 @@ jobs:
         name: Create Visual Review run
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        needs: [changes, build-storybook]
-        if: needs.changes.outputs.frontend == 'true' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+        needs: [changes, build-storybook, select-stories]
+        # always() so vr-setup still runs when select-stories is skipped (master push,
+        # merge_group). Without it, GitHub treats a skipped need as a skip-cascade and
+        # vr-setup wouldn't run when we still want it to.
+        if: |
+            always()
+            && needs.changes.outputs.frontend == 'true'
+            && needs.build-storybook.result == 'success'
+            && needs.select-stories.outputs.should_run != 'false'
+            && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
         steps:
