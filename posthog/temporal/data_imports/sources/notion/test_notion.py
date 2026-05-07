@@ -37,8 +37,10 @@ def _capture_post_calls(session: MagicMock, responses: list[MagicMock]) -> list[
 
     def side_effect(*_args: object, **kwargs: object) -> MagicMock:
         json_body = kwargs.get("json")
-        snapshot: dict[str, Any] = copy.deepcopy(json_body) if isinstance(json_body, dict) else {}
-        snapshots.append(snapshot)
+        if isinstance(json_body, dict):
+            snapshots.append(cast(dict[str, Any], copy.deepcopy(json_body)))
+        else:
+            snapshots.append({})
         return next(response_iter)
 
     session.post.side_effect = side_effect
