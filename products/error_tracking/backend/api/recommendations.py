@@ -75,6 +75,11 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
         return self._enriched_meta(obj)
 
     def get_completed(self, obj: ErrorTrackingRecommendation) -> bool:
+        # A recommendation that has never finished computing can't be considered
+        # completed, even if its empty default meta would otherwise satisfy
+        # is_completed() (e.g. an empty issues list).
+        if obj.computed_at is None:
+            return False
         rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
         if not rec:
             return False

@@ -29,9 +29,7 @@ export function LongRunningIssuesRecommendationCard({
                 title="Long-running issues"
                 description="Your oldest active issues that are still firing this week — worth a second look."
                 dismissed={dismissed}
-            >
-                <div className="text-sm text-secondary">Computing…</div>
-            </RecommendationCard>
+            />
         )
     }
 
