@@ -301,7 +301,15 @@ class ErrorTrackingQueryV3Builder:
                                 left=ast.Call(
                                     name="position",
                                     args=[
-                                        ast.Call(name="lower", args=[ast.Field(chain=[*chain_prefix, property_name])]),
+                                        ast.Call(
+                                            name="lower",
+                                            args=[
+                                                ast.Call(
+                                                    name="toString",
+                                                    args=[ast.Field(chain=[*chain_prefix, property_name])],
+                                                )
+                                            ],
+                                        ),
                                         ast.Call(name="lower", args=[ast.Constant(value=token)]),
                                     ],
                                 ),

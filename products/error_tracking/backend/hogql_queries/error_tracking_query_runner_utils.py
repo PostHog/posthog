@@ -289,7 +289,15 @@ def build_event_where_exprs(
                             left=ast.Call(
                                 name="position",
                                 args=[
-                                    ast.Call(name="lower", args=[ast.Field(chain=[*chain_prefix, prop])]),
+                                    ast.Call(
+                                        name="lower",
+                                        args=[
+                                            ast.Call(
+                                                name="toString",
+                                                args=[ast.Field(chain=[*chain_prefix, prop])],
+                                            )
+                                        ],
+                                    ),
                                     ast.Call(name="lower", args=[ast.Constant(value=token)]),
                                 ],
                             ),
