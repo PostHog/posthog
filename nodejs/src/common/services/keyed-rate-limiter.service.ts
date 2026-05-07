@@ -1,30 +1,26 @@
+import { Counter } from 'prom-client'
+
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+
+const requestsTotal = new Counter({
+    name: 'keyed_rate_limiter_requests_total',
+    help: 'Per-input rate-limit decisions, labelled by outcome.',
+    labelNames: ['name', 'method', 'outcome'],
+})
+const redisCallsTotal = new Counter({
+    name: 'keyed_rate_limiter_redis_calls_total',
+    help: 'Lua script dispatches. requests/redis_calls = grouping ratio.',
+    labelNames: ['name', 'method'],
+})
 
 /**
  * Token-bucket rate limiter keyed by an arbitrary string id, backed by Redis.
- *
- * The Redis key prefix is configurable so multiple independent limiters
- * (e.g. error tracking, future per-event-name limits) can share a Redis
- * without colliding. Built on the same `checkRateLimitV2` Lua command that
- * powers `HogRateLimiterService`.
- *
- * Per-call bucket params (bucketSize / refillRate / ttlSeconds on the request)
- * are supported so the same service instance can run different limits for
- * different ids — e.g. per-team overrides without rebuilding the service.
+ * Multiple limiters can share a Redis via different `name` prefixes.
  */
 export interface KeyedRateLimiterConfig {
-    /**
-     * Logical name for this limiter — used to build the Redis key prefix
-     * (`@posthog/<name>/tokens/<id>`). In `NODE_ENV=test` the prefix is
-     * `@posthog-test/<name>/tokens/<id>` so test runs don't collide with
-     * production keys when sharing a Redis.
-     */
+    /** Logical name; produces `@posthog/<name>/tokens/<id>` keys (`@posthog-test/...` under NODE_ENV=test). */
     name: string
-    /**
-     * Default bucket params used when a request doesn't specify its own.
-     * Optional — callers that always supply per-request overrides can omit them.
-     * `rateLimitArgs` throws if a request reaches Redis without either source.
-     */
+    /** Default bucket params; per-request overrides take precedence. */
     bucketSize?: number
     refillRate?: number
     ttlSeconds?: number
@@ -33,11 +29,8 @@ export interface KeyedRateLimiterConfig {
 export interface KeyedRateLimitRequest {
     id: string
     cost: number
-    /** Override the service's default bucket capacity for this request. */
     bucketSize?: number
-    /** Override the service's default replenish rate for this request. */
     refillRate?: number
-    /** Override the service's default Redis key TTL for this request. */
     ttlSeconds?: number
 }
 
@@ -100,61 +93,50 @@ export class KeyedRateLimiterService {
             }
         )
 
+        redisCallsTotal.inc({ name: this.config.name, method: 'rateLimitMany' }, requests.length)
+
         if (!res) {
-            // failOpen swallowed an error — treat all as not rate limited so we
-            // don't drop ingestion just because Redis blipped. Reflect each
-            // request's own (potentially overridden) bucketSize in the response.
+            // failOpen — Redis blipped; allow everything rather than dropping ingestion.
+            requestsTotal.inc({ name: this.config.name, method: 'rateLimitMany', outcome: 'allowed' }, requests.length)
             return requests.map((req, i) => [req.id, { tokens: bucketSizes[i], isRateLimited: false }])
         }
 
-        return requests.map((req, index) => {
+        let allowed = 0
+        let limited = 0
+        const out: [string, KeyedRateLimit][] = requests.map((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
             const tokensAfter = tokenRes[1]?.[1] ?? bucketSizes[index]
-            return [
-                req.id,
-                {
-                    tokens: Number(tokensAfter),
-                    isRateLimited: Number(tokensAfter) <= 0,
-                },
-            ]
+            const isRateLimited = Number(tokensAfter) <= 0
+            if (isRateLimited) {
+                limited++
+            } else {
+                allowed++
+            }
+            return [req.id, { tokens: Number(tokensAfter), isRateLimited }]
         })
+        if (allowed > 0) {
+            requestsTotal.inc({ name: this.config.name, method: 'rateLimitMany', outcome: 'allowed' }, allowed)
+        }
+        if (limited > 0) {
+            requestsTotal.inc({ name: this.config.name, method: 'rateLimitMany', outcome: 'limited' }, limited)
+        }
+        return out
     }
 
     /**
-     * Coalesced variant of `rateLimitMany`: behaves identically from the caller's
-     * point of view (parallel `[id, KeyedRateLimit][]` array, same input order),
-     * but internally collapses duplicate ids into one Redis call each.
+     * Coalesced variant of rateLimitMany. Same input/output shape, but N inputs
+     * across M unique ids dispatch only M Redis calls — per-input decisions are
+     * fanned out client-side from each id's `tokensBefore`. For uniform-cost
+     * batches the per-input decisions match rateLimitMany exactly.
      *
-     *   `rateLimitMany`    — N inputs → N pipelined Redis calls (per-call state
-     *                        threading via the lua script's stored pool).
-     *   `rateLimitGrouped` — N inputs across M unique ids → M pipelined Redis
-     *                        calls. Per-input decisions are computed client-side
-     *                        from each id's `tokensBefore`: requests are allowed
-     *                        in input order until the running cost would exceed
-     *                        the pre-batch budget; subsequent over-budget
-     *                        requests are denied without consuming budget. For
-     *                        uniform cost (the typical CDP case), the per-input
-     *                        decisions match `rateLimitMany` exactly.
-     *
-     * Use `rateLimitGrouped` when the input naturally has many duplicates of
-     * the same id (CDP events for a hog function, log lines for a team) — the
-     * Redis-call reduction is proportional to the duplication ratio.
-     *
-     * Always uses the V3 token-bucket script (HMGET + multi-field HSET +
-     * conditional EXPIRE refresh). `rateLimitMany` keeps V2 for now; once
-     * we're happy with V3 in production, the two methods can converge.
-     *
-     * Other request params (bucketSize / refillRate / ttlSeconds) are taken
-     * from the first request seen for each id; callers should keep those
-     * consistent per id (it's the same logical bucket).
+     * Uses the V3 lua script (HMGET + multi-field HSET + conditional EXPIRE).
+     * Per-id bucket params come from the first request seen for that id.
      */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
             return []
         }
 
-        // Coalesce — first request seen per id keeps its bucket params; subsequent
-        // requests for the same id contribute their cost to the summed total.
         const grouped = new Map<string, KeyedRateLimitRequest>()
         for (const req of requests) {
             const existing = grouped.get(req.id)
@@ -183,9 +165,8 @@ export class KeyedRateLimiterService {
             }
         )
 
-        // Pre-batch budget per id (`tokensBefore` from the lua) — used to fan
-        // out per-input decisions below. On Redis failure we fail open, so each
-        // id's budget defaults to its full bucket size.
+        redisCallsTotal.inc({ name: this.config.name, method: 'rateLimitGrouped' }, items.length)
+
         const budgetById = new Map<string, number>()
         items.forEach((req, index) => {
             if (res) {
@@ -197,19 +178,30 @@ export class KeyedRateLimiterService {
             }
         })
 
-        // Fan out: walk the original input order, deducting from each id's
-        // remaining budget. A request that doesn't fit is denied without
-        // consuming budget — subsequent smaller requests for the same id may
-        // still fit. For uniform-cost batches this is identical to the
-        // pipelined per-call lua behavior.
-        return requests.map((req) => {
+        let allowed = 0
+        let limited = 0
+        const out: [string, KeyedRateLimit][] = requests.map((req) => {
             const remaining = budgetById.get(req.id) ?? 0
             if (remaining >= req.cost) {
                 const next = remaining - req.cost
                 budgetById.set(req.id, next)
-                return [req.id, { tokens: next, isRateLimited: next <= 0 }]
+                const isRateLimited = next <= 0
+                if (isRateLimited) {
+                    limited++
+                } else {
+                    allowed++
+                }
+                return [req.id, { tokens: next, isRateLimited }]
             }
+            limited++
             return [req.id, { tokens: -1, isRateLimited: true }]
         })
+        if (allowed > 0) {
+            requestsTotal.inc({ name: this.config.name, method: 'rateLimitGrouped', outcome: 'allowed' }, allowed)
+        }
+        if (limited > 0) {
+            requestsTotal.inc({ name: this.config.name, method: 'rateLimitGrouped', outcome: 'limited' }, limited)
+        }
+        return out
     }
 }
