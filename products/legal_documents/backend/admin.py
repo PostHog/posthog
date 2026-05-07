@@ -12,6 +12,7 @@ from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
 import structlog
+from django_admin_inline_paginator.admin import TabularInlinePaginated
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.exceptions_capture import capture_exception
@@ -291,6 +292,54 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', url, document.organization.name)
 
     @admin.display(description="PandaDoc", ordering="pandadoc_document_id")
+    def pandadoc_link(self, document: LegalDocument) -> str | SafeString:
+        if not document.pandadoc_document_id:
+            return "—"
+        return format_html(
+            '<a href="https://app.pandadoc.com/a/#/documents/{id}" target="_blank" rel="noopener">{id}</a>',
+            id=document.pandadoc_document_id,
+        )
+
+
+class LegalDocumentInline(TabularInlinePaginated):
+    """
+    Read-only list of an organization's legal documents, rendered as an inline
+    on the Organization admin page. The "Upload signed document" button in the
+    inline header links to the LegalDocumentAdmin add view with the
+    organization pre-filled via `?organization=<id>`.
+    """
+
+    model = LegalDocument
+    extra = 0
+    per_page = 20
+    pagination_key = "page-legal-document"
+    show_change_link = True
+    template = "admin/legal_documents/edit_inline/tabular.html"
+
+    fields = (
+        "document_type",
+        "company_name",
+        "status",
+        "pandadoc_link",
+        "created_at",
+    )
+    readonly_fields = fields
+
+    can_delete = False
+    max_num = 0
+
+    def has_add_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        # Adding goes through the LegalDocumentAdmin add view via the upload
+        # button rendered in the inline template — never inline.
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        return False
+
+    @admin.display(description="PandaDoc")
     def pandadoc_link(self, document: LegalDocument) -> str | SafeString:
         if not document.pandadoc_document_id:
             return "—"
