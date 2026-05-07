@@ -1,9 +1,13 @@
+import time
+import uuid
+
 import pytest
 
 from posthog.models import Organization, Team, User
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.models.utils import uuid7
 
 from products.signals.backend.report_generation.select_repo import resolve_team_github_integration
 
@@ -36,14 +40,19 @@ def _create_team_integration(team: Team, *, integration_id: str = "team-1") -> I
     )
 
 
-def _create_user_integration(user: User, *, integration_id: str = "user-1") -> UserIntegration:
-    return UserIntegration.objects.create(
-        user=user,
-        kind=UserIntegration.IntegrationKind.GITHUB,
-        integration_id=integration_id,
-        config={"installation_id": integration_id},
-        sensitive_config={},
-    )
+def _create_user_integration(
+    user: User, *, integration_id: str = "user-1", id: uuid.UUID | None = None
+) -> UserIntegration:
+    kwargs: dict = {
+        "user": user,
+        "kind": UserIntegration.IntegrationKind.GITHUB,
+        "integration_id": integration_id,
+        "config": {"installation_id": integration_id},
+        "sensitive_config": {},
+    }
+    if id is not None:
+        kwargs["id"] = id
+    return UserIntegration.objects.create(**kwargs)
 
 
 @pytest.mark.django_db
@@ -78,8 +87,11 @@ def test_falls_back_to_user_integration_when_no_team_integration(organization, t
 def test_picks_first_user_integration_by_id(organization, team):
     first_user = _create_user("first@example.com", organization)
     second_user = _create_user("second@example.com", organization)
-    first_user_int = _create_user_integration(first_user, integration_id="first")
-    _create_user_integration(second_user, integration_id="second")
+    # Pin ids to distinct timestamps so sort order is deterministic — UUIDv7
+    # only sorts by creation order across millisecond boundaries.
+    now_ms = time.time_ns() // 1_000_000
+    first_user_int = _create_user_integration(first_user, integration_id="first", id=uuid7(unix_ms_time=now_ms - 1000))
+    _create_user_integration(second_user, integration_id="second", id=uuid7(unix_ms_time=now_ms))
 
     resolved = resolve_team_github_integration(team.id)
 
