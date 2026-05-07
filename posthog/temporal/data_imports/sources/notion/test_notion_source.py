@@ -30,32 +30,39 @@ class TestNotionSource:
         assert "401 Client Error" in errors
         assert "403 Client Error" in errors
 
-    @patch("posthog.temporal.data_imports.sources.notion.source._list_database_ids")
+    @patch("posthog.temporal.data_imports.sources.notion.source._list_databases")
     @patch.object(NotionSource, "_get_access_token")
     def test_get_schemas_returns_static_plus_databases(
         self, mock_get_token: MagicMock, mock_list_dbs: MagicMock
     ) -> None:
         mock_get_token.return_value = "tok"
-        mock_list_dbs.return_value = ["db-id-aaa", "db-id-bbb"]
+        mock_list_dbs.return_value = [("db-id-aaa", "Engineering tasks"), ("db-id-bbb", None)]
 
         schemas = NotionSource().get_schemas(config=NotionSourceConfig(notion_integration_id=1), team_id=1)
-        names = [s.name for s in schemas]
+        by_name = {s.name: s for s in schemas}
 
-        assert "users" in names
-        assert "pages" in names
-        assert "databases" in names
-        assert database_rows_schema_name("db-id-aaa") in names
-        assert database_rows_schema_name("db-id-bbb") in names
+        assert "users" in by_name
+        assert "pages" in by_name
+        assert "databases" in by_name
+        assert database_rows_schema_name("db-id-aaa") in by_name
+        assert database_rows_schema_name("db-id-bbb") in by_name
 
         # Static endpoints with incremental support are flagged correctly.
-        pages_schema = next(s for s in schemas if s.name == "pages")
-        assert pages_schema.supports_incremental is True
-        assert pages_schema.supports_append is True
+        assert by_name["pages"].supports_incremental is True
+        assert by_name["pages"].supports_append is True
+        assert by_name["users"].supports_incremental is False
 
-        users_schema = next(s for s in schemas if s.name == "users")
-        assert users_schema.supports_incremental is False
+        # Static endpoints get capitalized labels.
+        assert by_name["users"].label == "Users"
+        assert by_name["pages"].label == "Pages"
+        assert by_name["databases"].label == "Databases"
 
-    @patch("posthog.temporal.data_imports.sources.notion.source._list_database_ids")
+        # Database row schemas use the Notion database title as their label,
+        # falling back to "Untitled database" when the title is empty.
+        assert by_name[database_rows_schema_name("db-id-aaa")].label == "Engineering tasks"
+        assert by_name[database_rows_schema_name("db-id-bbb")].label == "Untitled database"
+
+    @patch("posthog.temporal.data_imports.sources.notion.source._list_databases")
     @patch.object(NotionSource, "_get_access_token")
     def test_get_schemas_falls_back_when_db_discovery_fails(
         self, mock_get_token: MagicMock, mock_list_dbs: MagicMock
@@ -75,7 +82,7 @@ class TestNotionSource:
         mock_get_token.return_value = "tok"
         # Force discovery to no-op so we only see the static schemas.
         with patch(
-            "posthog.temporal.data_imports.sources.notion.source._list_database_ids",
+            "posthog.temporal.data_imports.sources.notion.source._list_databases",
             return_value=[],
         ):
             schemas = NotionSource().get_schemas(

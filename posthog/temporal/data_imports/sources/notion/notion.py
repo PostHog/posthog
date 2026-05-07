@@ -291,11 +291,20 @@ def _fetch_database_rows(
         yield [_flatten_database_row(row) for row in batch]
 
 
-def _list_database_ids(access_token: str) -> list[str]:
-    """One-shot helper for schema discovery — returns IDs of every database the integration can see."""
+def _extract_title(item: dict[str, Any]) -> str | None:
+    """Concatenate the plain_text of a Notion `title` rich-text array. Returns None if empty."""
+    title = item.get("title")
+    if not isinstance(title, list):
+        return None
+    text = "".join(span.get("plain_text", "") for span in title if isinstance(span, dict))
+    return text or None
+
+
+def _list_databases(access_token: str) -> list[tuple[str, str | None]]:
+    """One-shot helper for schema discovery — returns (id, title) for every database the integration can see."""
     sess = _make_session(access_token)
     try:
-        ids: list[str] = []
+        databases: list[tuple[str, str | None]] = []
         body: dict[str, Any] = {
             "filter": {"property": "object", "value": "database"},
             "page_size": NOTION_DEFAULT_PAGE_SIZE,
@@ -307,12 +316,12 @@ def _list_database_ids(access_token: str) -> list[str]:
             for item in payload.get("results", []):
                 db_id = item.get("id")
                 if db_id:
-                    ids.append(db_id)
+                    databases.append((db_id, _extract_title(item)))
             if not payload.get("has_more"):
-                return ids
+                return databases
             next_cursor = payload.get("next_cursor")
             if not next_cursor:
-                return ids
+                return databases
             body["start_cursor"] = next_cursor
     finally:
         sess.close()

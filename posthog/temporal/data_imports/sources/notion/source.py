@@ -16,7 +16,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import NotionSourceConfig
 from posthog.temporal.data_imports.sources.notion.notion import (
     NotionResumeConfig,
-    _list_database_ids,
+    _list_databases,
     notion_source,
     validate_credentials as validate_notion_credentials,
 )
@@ -88,6 +88,7 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         schemas: list[SourceSchema] = [
             SourceSchema(
                 name=endpoint,
+                label=endpoint.capitalize(),
                 supports_incremental=bool(NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields),
                 supports_append=bool(NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields),
                 incremental_fields=NOTION_STATIC_ENDPOINTS[endpoint].incremental_fields,
@@ -100,10 +101,11 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig], OAut
         # schemas so the UI still surfaces something rather than erroring entirely.
         try:
             access_token = self._get_access_token(config, team_id)
-            for database_id in _list_database_ids(access_token):
+            for database_id, title in _list_databases(access_token):
                 schemas.append(
                     SourceSchema(
                         name=database_rows_schema_name(database_id),
+                        label=title or "Untitled database",
                         supports_incremental=True,
                         supports_append=True,
                         incremental_fields=INCREMENTAL_DATETIME_FIELDS,
