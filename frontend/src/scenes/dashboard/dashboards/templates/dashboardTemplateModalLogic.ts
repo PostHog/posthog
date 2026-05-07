@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers } from 'kea'
+import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -15,9 +15,6 @@ export type CloseModalActionPayload = { readonly kind: 'closeModal' }
 
 export const dashboardTemplateModalLogic = kea<dashboardTemplateModalLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplateModalLogic']),
-    connect(() => ({
-        actions: [dashboardTemplatesLogic({ scope: 'default', templatesTabList: true }), ['getAllTemplates']],
-    })),
     actions({
         openCreate: (payload: DashboardTemplateEditorType) => ({ payload }),
         openEdit: (template: DashboardTemplateType) => ({ template }),
@@ -121,7 +118,9 @@ export const dashboardTemplateModalLogic = kea<dashboardTemplateModalLogicType>(
                             })
                             lemonToast.success('Template updated')
                         }
-                        actions.getAllTemplates()
+                        dashboardTemplatesLogic
+                            .findMounted({ scope: 'default', templatesTabList: true })
+                            ?.actions.getAllTemplates()
                         actions.closeModal()
                         return true
                     } catch (e: any) {
