@@ -666,8 +666,18 @@ mod test_match_properties {
         .is_err());
     }
 
-    #[test]
-    fn test_match_properties_exact_array_is_case_insensitive() {
+    #[rstest::rstest]
+    #[case("us", true)]
+    #[case("Us", true)]
+    #[case("US", true)]
+    #[case("ca", true)]
+    #[case("uk", true)]
+    #[case("UK", true)]
+    #[case("de", false)]
+    fn test_match_properties_exact_array_is_case_insensitive(
+        #[case] user_value: &str,
+        #[case] expected: bool,
+    ) {
         // Array Exact comparisons lowercase both sides, so a mixed-case filter
         // value must still match a lowercase user property and vice-versa.
         let property = PropertyFilter {
@@ -680,28 +690,19 @@ mod test_match_properties {
             compiled_regex: None,
         };
 
-        for user_value in ["us", "Us", "US", "ca", "uk", "UK"] {
-            assert!(
-                match_property(
-                    &property,
-                    &HashMap::from([("country".to_string(), json!(user_value))]),
-                    true
-                )
-                .expect("expected match to exist"),
-                "expected '{}' to match",
-                user_value
-            );
-        }
-
-        assert!(!match_property(
+        let actual = match_property(
             &property,
-            &HashMap::from([("country".to_string(), json!("de"))]),
-            true
+            &HashMap::from([("country".to_string(), json!(user_value))]),
+            true,
         )
-        .expect("expected match to exist"));
+        .expect("expected match to exist");
 
-        // Empty array filter never matches.
-        let property_empty = PropertyFilter {
+        assert_eq!(actual, expected, "user_value = {user_value}");
+    }
+
+    #[test]
+    fn test_match_properties_exact_empty_array_never_matches() {
+        let property = PropertyFilter {
             key: "country".to_string(),
             value: Some(json!([])),
             operator: Some(OperatorType::Exact),
@@ -711,7 +712,7 @@ mod test_match_properties {
             compiled_regex: None,
         };
         assert!(!match_property(
-            &property_empty,
+            &property,
             &HashMap::from([("country".to_string(), json!("us"))]),
             true
         )
