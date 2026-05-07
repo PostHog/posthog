@@ -40190,7 +40190,7 @@ export namespace Schemas {
 
     export type EnvironmentsGroupsListParams = {
     /**
-     * The pagination cursor value.
+     * Pagination cursor returned in the `next` URL of a previous response
      */
     cursor?: string;
     /**
@@ -40200,7 +40200,7 @@ export namespace Schemas {
     /**
      * Search the group name
      */
-    search: string;
+    search?: string;
     };
 
     export type EnvironmentsGroupsActivityRetrieveParams = {
@@ -44879,7 +44879,7 @@ export namespace Schemas {
 
     export type GroupsListParams = {
     /**
-     * The pagination cursor value.
+     * Pagination cursor returned in the `next` URL of a previous response
      */
     cursor?: string;
     /**
@@ -44889,7 +44889,7 @@ export namespace Schemas {
     /**
      * Search the group name
      */
-    search: string;
+    search?: string;
     };
 
     export type GroupsActivityRetrieveParams = {
