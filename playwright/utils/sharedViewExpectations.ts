@@ -16,18 +16,13 @@ interface RecordedFailure {
 }
 
 /**
- * Open a fresh BrowserContext + Page with no cookies/storage and start
- * recording any /api/* response with status >= 400 except 401/403 only when
- * the response is for a path explicitly allowed below.
+ * Open a Page in the supplied context and record EVERY /api/* response with
+ * status >= 400. The recording is unfiltered — what to allow vs flag is the
+ * caller's job (see `expectNoTeamScopedApiLeaks` below).
  *
- * Why allow ANY 401/403 at all? Because some endpoints (e.g. flags, third-party
- * blockers) legitimately 401 in unauth mode and aren't worth gating per-request.
- * The PR's `client_request_failure` posthog event captures `is_shared_view` so
- * those leaks are still observable in production telemetry.
- *
- * What we do NOT allow: any /api/environments/{id}/{resource} 4xx, because
- * those are the resource-specific calls that the shared-view skipping fix is
- * supposed to gate. If one of those leaks, the gate is broken.
+ * The expected use is to pass a fresh BrowserContext (created with empty
+ * storage/cookies) to guarantee a logged-out browser, then assert against the
+ * recorded failures after the page has settled.
  */
 export async function openUnauthenticatedSharedPage(context: BrowserContext): Promise<{
     unauthPage: Page
@@ -49,11 +44,17 @@ export async function openUnauthenticatedSharedPage(context: BrowserContext): Pr
 }
 
 /**
- * Assert that no `/api/environments/{team}/{resource}` request 4xx'd while the
- * shared page was rendering. We allow 401/403 against non-team-scoped paths
- * (e.g. /api/user_home_settings/, /api/flags/) because those have legitimate
- * unauth failure modes — the regression we're guarding against is team-scoped
- * resource calls leaking out of the gate.
+ * Assert that no `/api/(environments|projects)/{team}/{resource}` request
+ * 4xx'd while the shared page was rendering. Other paths (`/api/flags/`,
+ * `/api/users/@me/`, `/api/organizations/...`, `/api/user_home_settings/`,
+ * etc) are intentionally NOT covered here — they have legitimate unauth
+ * failure modes, and the `client_request_failure` posthog event tags them
+ * with `is_shared_view` so production telemetry still surfaces leaks.
+ *
+ * NOTE: this filter is deliberately narrow to avoid false positives. If a
+ * regression leaks an org-scoped or user-scoped call, this assertion won't
+ * catch it — broaden the filter (or add a sibling assertion) when those
+ * paths become a concern.
  */
 export function expectNoTeamScopedApiLeaks(failedApiResponses: ReadonlyArray<RecordedFailure>): void {
     const leaked = failedApiResponses.filter(({ url }) => /\/api\/(environments|projects)\/\d+\//.test(url))
@@ -61,5 +62,5 @@ export function expectNoTeamScopedApiLeaks(failedApiResponses: ReadonlyArray<Rec
 }
 
 function formatFailures(failures: ReadonlyArray<RecordedFailure>): string {
-    return failures.map(({ method, status, url }) => `  ${method} ${url} -> ${status}`).join('\n') || '(none)'
+    return failures.map(({ method, status, url }) => `  ${method} ${url} -> ${status}`).join('\n')
 }

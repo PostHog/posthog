@@ -1937,9 +1937,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         forceRefreshIfStale: () => {
+            // Dedupe: this listener can be invoked from multiple sources for the same
+            // freshness state — the post-load auto-trigger in refreshDashboardItems and
+            // the visibility-change callback in ExporterDashboardScene can both fire on
+            // the same render tick. Tracking the last `effectiveLastRefresh` we already
+            // forced a refresh against ensures we queue at most one trigger per
+            // freshness window. Once a refresh lands, `effectiveLastRefresh` advances
+            // and a future stale window can re-fire.
+            const currentRefreshKey = values.effectiveLastRefresh?.valueOf() ?? null
+            if (cache.lastAutoForcedFor === currentRefreshKey) {
+                return
+            }
             if (!shouldSharedDashboardAutoForceForStaleTime(values.effectiveLastRefresh)) {
                 return
             }
+            cache.lastAutoForcedFor = currentRefreshKey
             queueMicrotask(() => {
                 void actions.triggerDashboardRefresh()
             })
