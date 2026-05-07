@@ -24,11 +24,28 @@ INFRA_SERVICES=(zookeeper kafka db redis7)
 ALL_SERVICES=("${INFRA_SERVICES[@]}" "${CH_SERVICES[@]}")
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 
+# Tracks the failing step so the EXIT trap can print a precise banner.
+SMOKE_STAGE="boot"
+SMOKE_PASSED=0
+
 dc() { docker compose -f "$COMPOSE_FILE" "$@"; }
+
+report_result() {
+    local exit_code=$?
+    echo
+    echo "==========================================================================="
+    if [ "$SMOKE_PASSED" = "1" ] && [ "$exit_code" -eq 0 ]; then
+        echo "  ✅ MULTINODE SMOKE PASSED"
+    else
+        echo "  ❌ MULTINODE SMOKE FAILED (stage: ${SMOKE_STAGE}, exit code: ${exit_code})"
+    fi
+    echo "==========================================================================="
+    return "$exit_code"
+}
 
 dump_logs_on_failure() {
     local exit_code=$?
-    if [ "$exit_code" -ne 0 ]; then
+    if [ "$exit_code" -ne 0 ] || [ "$SMOKE_PASSED" != "1" ]; then
         echo
         echo "===================== FAILURE: dumping container logs ====================="
         for svc in "${ALL_SERVICES[@]}"; do
@@ -45,9 +62,31 @@ dump_logs_on_failure() {
                 || true
         done
     fi
-    return "$exit_code"
+    report_result
 }
 trap dump_logs_on_failure EXIT
+
+check_hosts_mapping() {
+    # The cluster topology lookup returns docker-internal hostnames
+    # (clickhouse-data, clickhouse-aux, …). Migrations run from the host shell,
+    # so those hostnames must resolve locally. CI handles this via /etc/hosts;
+    # locally the user has to do the same. Bail out early with a precise hint
+    # rather than failing deep inside infi.clickhouse_orm with `Code: 210`.
+    local missing=()
+    for svc in "${CH_SERVICES[@]}"; do
+        if ! python3 -c "import socket; socket.gethostbyname('$svc')" >/dev/null 2>&1; then
+            missing+=("$svc")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "ERROR: these docker hostnames don't resolve from the host:" >&2
+        printf '  - %s\n' "${missing[@]}" >&2
+        echo >&2
+        echo "Add them to /etc/hosts, e.g.:" >&2
+        echo "  echo '127.0.0.1 ${CH_SERVICES[*]}' | sudo tee -a /etc/hosts" >&2
+        exit 1
+    fi
+}
 
 wait_for_healthy() {
     local svc="$1"
@@ -70,6 +109,7 @@ wait_for_healthy() {
 }
 
 if [ "${SKIP_BOOT:-0}" != "1" ]; then
+    SMOKE_STAGE="boot"
     echo "==> Tearing down any previous multinode stack (clears Zookeeper state)..."
     dc down -v --remove-orphans >/dev/null 2>&1 || true
 
@@ -82,7 +122,10 @@ if [ "${SKIP_BOOT:-0}" != "1" ]; then
     done
 fi
 
-echo "==> Running ClickHouse migrations against the data node..."
+SMOKE_STAGE="hosts-resolution"
+echo "==> Verifying docker hostnames resolve from this shell..."
+check_hosts_mapping
+
 export MULTINODE_CLICKHOUSE=1
 export CLICKHOUSE_HOST="${CLICKHOUSE_HOST:-localhost}"
 export CLICKHOUSE_MIGRATIONS_HOST="${CLICKHOUSE_MIGRATIONS_HOST:-localhost}"
@@ -98,12 +141,22 @@ export DATABASE_URL="${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/p
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 export SECRET_KEY="${SECRET_KEY:-multinode-smoke-not-a-real-secret}"
 
+SMOKE_STAGE="migrate_postgres"
+# migrate_clickhouse reads `posthog_instancesetting` from Postgres, so the
+# Django schema must exist before the ClickHouse step runs.
+echo "==> Running Django (Postgres) migrations..."
+python manage.py migrate --noinput
+
+SMOKE_STAGE="migrate_clickhouse"
+echo "==> Running ClickHouse migrations against the data node..."
 python manage.py migrate_clickhouse
 
+SMOKE_STAGE="verify"
 echo "==> Verifying per-node table layout..."
 python bin/verify-multinode-clickhouse.py
 
-echo "==> Smoke test passed."
+SMOKE_PASSED=1
+SMOKE_STAGE="teardown"
 
 if [ "${KEEP:-0}" = "1" ]; then
     echo "KEEP=1 set: leaving stack running. Tear down with: bin/start-multinode-clickhouse down"

@@ -55,6 +55,7 @@ class Command(BaseCommand):
     def migrate(self, host, options):
         # Infi only creates the DB in one node, but not the rest. Create it before running migrations.
         self._create_database_if_not_exists(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER)
+        self._create_migration_tracking_tables_if_not_exist(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER)
         database = Database(
             CLICKHOUSE_DATABASE,
             db_url=host,
@@ -120,8 +121,54 @@ class Command(BaseCommand):
         return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
 
     def _create_database_if_not_exists(self, database: str, cluster: str):
-        if settings.TEST or settings.E2E_TESTING:
+        # MULTINODE_CLICKHOUSE: infi.clickhouse_orm creates the Distributed
+        # migration-tracking table across the migrations cluster before the
+        # first migration runs, so the database has to exist on every node up
+        # front — otherwise the CREATE TABLE fans out to satellites that have
+        # no `posthog` database yet and fails with UNKNOWN_DATABASE.
+        if settings.TEST or settings.E2E_TESTING or settings.MULTINODE_CLICKHOUSE:
             with default_client() as client:
                 client.execute(
                     f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster}",
                 )
+
+    def _create_migration_tracking_tables_if_not_exist(self, database: str, cluster: str):
+        # MULTINODE_CLICKHOUSE only: infi.clickhouse_orm's auto-create path
+        # issues `CREATE TABLE` without `ON CLUSTER`, so the underlying
+        # ReplicatedMergeTree only lands on the migrations host. With a real
+        # multi-node `posthog_migrations` cluster, the Distributed tracking
+        # table fans out to every shard and trips UNKNOWN_TABLE on satellites
+        # that never received the local replica. Pre-create both tables on
+        # the cluster so the very first SELECT in infi's migrate() succeeds
+        # and the auto-create branch never runs.
+        if not settings.MULTINODE_CLICKHOUSE:
+            return
+        with default_client() as client:
+            client.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {database}.infi_clickhouse_orm_migrations
+                ON CLUSTER {cluster} (
+                    package_name String,
+                    module_name String,
+                    applied Date
+                )
+                ENGINE = ReplicatedMergeTree(
+                    '/clickhouse/prod/tables/noshard/{{database}}/{{table}}',
+                    '{{replica}}-{{shard}}'
+                )
+                PARTITION BY toYYYYMM(applied)
+                ORDER BY (package_name, module_name)
+                SETTINGS index_granularity = 8192
+                """
+            )
+            client.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {database}.infi_clickhouse_orm_migrations_distributed
+                ON CLUSTER {cluster} (
+                    package_name String,
+                    module_name String,
+                    applied Date
+                )
+                ENGINE = Distributed({cluster}, {database}, infi_clickhouse_orm_migrations, rand())
+                """
+            )
