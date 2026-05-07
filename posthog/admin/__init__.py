@@ -157,6 +157,12 @@ def register_all_admin():
     admin.site.register(BatchImport, BatchImportAdmin)
 
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
+    # `oauth2_provider.admin` registers a default `Application` admin via
+    # `@admin.register` at module top, which fires during Django's startup
+    # autodiscover. We want our `OAuthApplicationAdmin` (custom OAuth flow,
+    # display, etc.) to win — unregister the default first.
+    if admin.site.is_registered(OAuthApplication):
+        admin.site.unregister(OAuthApplication)
     admin.site.register(OAuthApplication, OAuthApplicationAdmin)
 
     admin.site.register(Task, TaskAdmin)

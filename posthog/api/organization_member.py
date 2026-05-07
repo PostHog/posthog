@@ -15,7 +15,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import raise_errors_on_nested_writes
-from social_django.admin import UserSocialAuth
+from social_django.models import UserSocialAuth
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
