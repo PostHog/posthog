@@ -3,6 +3,7 @@ import json
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import nullcontext
+from enum import StrEnum
 from typing import Any, Optional, cast
 
 from django.conf import settings
@@ -152,11 +153,95 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         return order, tile_data
 
 
+class ReorderLayout(StrEnum):
+    PRESERVE = "preserve"
+    TWO_COLUMN = "two_column"
+    FULL_WIDTH = "full_width"
+
+
+DASHBOARD_GRID_COLUMN_COUNT = 12
+DEFAULT_REORDER_TILE_WIDTH = 6
+DEFAULT_REORDER_TILE_HEIGHT = 5
+
+
+def _existing_sm_size(tile: DashboardTile) -> tuple[Optional[int], Optional[int]]:
+    sm = (tile.layouts or {}).get("sm") if isinstance(tile.layouts, dict) else None
+    if not isinstance(sm, dict):
+        return None, None
+    w, h = sm.get("w"), sm.get("h")
+    return (w if isinstance(w, int) else None, h if isinstance(h, int) else None)
+
+
+def _apply_reorder_layout(
+    tile_order: list[int],
+    tile_map: dict[int, DashboardTile],
+    layout_mode: str,
+) -> None:
+    """Repack tiles. ``preserve`` keeps each tile's existing w/h and reuses the lowest-segment
+    greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h."""
+    if layout_mode == ReorderLayout.TWO_COLUMN:
+        for index, tile_id in enumerate(tile_order):
+            row, col = divmod(index, 2)
+            tile_map[tile_id].layouts = {
+                "sm": {
+                    "x": col * DEFAULT_REORDER_TILE_WIDTH,
+                    "y": row * DEFAULT_REORDER_TILE_HEIGHT,
+                    "w": DEFAULT_REORDER_TILE_WIDTH,
+                    "h": DEFAULT_REORDER_TILE_HEIGHT,
+                },
+                "xs": {"x": 0, "y": index * DEFAULT_REORDER_TILE_HEIGHT, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
+            }
+        return
+
+    if layout_mode == ReorderLayout.FULL_WIDTH:
+        for index, tile_id in enumerate(tile_order):
+            y = index * DEFAULT_REORDER_TILE_HEIGHT
+            tile_map[tile_id].layouts = {
+                "sm": {"x": 0, "y": y, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": DEFAULT_REORDER_TILE_HEIGHT},
+                "xs": {"x": 0, "y": y, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
+            }
+        return
+
+    column_heights = [0] * DASHBOARD_GRID_COLUMN_COUNT
+    xs_y = 0
+    for tile_id in tile_order:
+        tile = tile_map[tile_id]
+        existing_w, existing_h = _existing_sm_size(tile)
+        w = max(1, min(existing_w or DEFAULT_REORDER_TILE_WIDTH, DASHBOARD_GRID_COLUMN_COUNT))
+        h = max(1, existing_h or DEFAULT_REORDER_TILE_HEIGHT)
+
+        best_x = 0
+        best_y = max(column_heights[0:w])
+        for x in range(1, DASHBOARD_GRID_COLUMN_COUNT - w + 1):
+            segment_top = max(column_heights[x : x + w])
+            if segment_top < best_y:
+                best_x = x
+                best_y = segment_top
+
+        tile.layouts = {
+            "sm": {"x": best_x, "y": best_y, "w": w, "h": h},
+            "xs": {"x": 0, "y": xs_y, "w": 1, "h": h},
+        }
+        for k in range(best_x, best_x + w):
+            column_heights[k] = best_y + h
+        xs_y += h
+
+
 class ReorderTilesRequestSerializer(serializers.Serializer):
     tile_order = serializers.ListField(
         child=serializers.IntegerField(),
         min_length=1,
         help_text="Array of tile IDs in the desired display order (top to bottom, left to right).",
+    )
+    layout = serializers.ChoiceField(
+        choices=[mode.value for mode in ReorderLayout],
+        default=ReorderLayout.PRESERVE.value,
+        required=False,
+        help_text=(
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height "
+            "and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per "
+            "row). 'full_width' forces each tile to span the full 12-column row at height 5."
+        ),
     )
 
 
@@ -1546,15 +1631,13 @@ class DashboardsViewSet(
         serializer = ReorderTilesRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         tile_order: list[int] = serializer.validated_data["tile_order"]
+        layout_mode: str = serializer.validated_data["layout"]
 
         if len(tile_order) != len(set(tile_order)):
             return Response(
                 {"detail": "tile_order must contain unique tile IDs"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        tile_width = 6
-        tile_height = 5
 
         tiles = DashboardTile.objects.filter(dashboard=dashboard, id__in=tile_order)
         tile_map = {tile.id: tile for tile in tiles}
@@ -1566,15 +1649,7 @@ class DashboardsViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        for index, tile_id in enumerate(tile_order):
-            tile = tile_map[tile_id]
-            row = index // 2
-            col = index % 2
-            tile.layouts = {
-                "sm": {"x": col * tile_width, "y": row * tile_height, "w": tile_width, "h": tile_height},
-                # xs is single-column (full 6-col mobile grid width)
-                "xs": {"x": 0, "y": index * tile_height, "w": tile_width, "h": tile_height},
-            }
+        _apply_reorder_layout(tile_order, tile_map, layout_mode)
 
         DashboardTile.objects.bulk_update(tile_map.values(), ["layouts"])
 

@@ -3239,6 +3239,126 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(insight_tile.layouts["sm"]["x"], 6)
         self.assertEqual(insight_tile.layouts["sm"]["y"], 0)
 
+    def test_reorder_tiles_preserves_existing_widths_by_default(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        insight1 = Insight.objects.create(team=self.team, name="Insight 1")
+        insight2 = Insight.objects.create(team=self.team, name="Insight 2")
+        # Both tiles have been manually resized to full row width and a custom height
+        tile1 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight1,
+            layouts={"sm": {"x": 0, "y": 0, "w": 12, "h": 8}, "xs": {"x": 0, "y": 0, "w": 1, "h": 8}},
+        )
+        tile2 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight2,
+            layouts={"sm": {"x": 0, "y": 8, "w": 12, "h": 8}, "xs": {"x": 0, "y": 8, "w": 1, "h": 8}},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [tile2.pk, tile1.pk]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        tile1.refresh_from_db()
+        tile2.refresh_from_db()
+        # Widths and heights are preserved; positions are repacked in the new order
+        self.assertEqual(tile2.layouts["sm"], {"x": 0, "y": 0, "w": 12, "h": 8})
+        self.assertEqual(tile1.layouts["sm"], {"x": 0, "y": 8, "w": 12, "h": 8})
+
+    def test_reorder_tiles_preserve_packs_mixed_widths(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        insight1 = Insight.objects.create(team=self.team, name="Insight 1")
+        insight2 = Insight.objects.create(team=self.team, name="Insight 2")
+        insight3 = Insight.objects.create(team=self.team, name="Insight 3")
+        tile1 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight1,
+            layouts={"sm": {"x": 0, "y": 0, "w": 4, "h": 5}},
+        )
+        tile2 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight2,
+            layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 5}},
+        )
+        tile3 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight3,
+            layouts={"sm": {"x": 0, "y": 0, "w": 12, "h": 5}},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [tile1.pk, tile2.pk, tile3.pk]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        tile1.refresh_from_db()
+        tile2.refresh_from_db()
+        tile3.refresh_from_db()
+        # tile1 (w=4) at (0,0); tile2 (w=8) packs to its right at (4,0); tile3 (w=12) wraps to next row.
+        self.assertEqual((tile1.layouts["sm"]["x"], tile1.layouts["sm"]["y"], tile1.layouts["sm"]["w"]), (0, 0, 4))
+        self.assertEqual((tile2.layouts["sm"]["x"], tile2.layouts["sm"]["y"], tile2.layouts["sm"]["w"]), (4, 0, 8))
+        self.assertEqual((tile3.layouts["sm"]["x"], tile3.layouts["sm"]["y"], tile3.layouts["sm"]["w"]), (0, 5, 12))
+
+    @parameterized.expand(
+        [
+            (
+                "two_column",
+                {"x": 0, "y": 0, "w": 6, "h": 5},
+                {"x": 6, "y": 0, "w": 6, "h": 5},
+            ),
+            (
+                "full_width",
+                {"x": 0, "y": 0, "w": 12, "h": 5},
+                {"x": 0, "y": 5, "w": 12, "h": 5},
+            ),
+        ]
+    )
+    def test_reorder_tiles_layout_mode_overrides_existing_widths(
+        self, layout_mode: str, expected_first: dict, expected_second: dict
+    ):
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        insight1 = Insight.objects.create(team=self.team, name="Insight 1")
+        insight2 = Insight.objects.create(team=self.team, name="Insight 2")
+        tile1 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight1,
+            layouts={"sm": {"x": 0, "y": 0, "w": 4, "h": 8}},
+        )
+        tile2 = DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight2,
+            layouts={"sm": {"x": 4, "y": 0, "w": 4, "h": 8}},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [tile1.pk, tile2.pk], "layout": layout_mode},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        tile1.refresh_from_db()
+        tile2.refresh_from_db()
+        self.assertEqual(tile1.layouts["sm"], expected_first)
+        self.assertEqual(tile2.layouts["sm"], expected_second)
+
+    def test_reorder_tiles_invalid_layout_returns_400(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        insight = Insight.objects.create(team=self.team, name="Insight 1")
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
+            {"tile_order": [tile.pk], "layout": "stacked"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_add_insight_to_multiple_dashboards_via_patch(self):
         dashboard1 = Dashboard.objects.create(team=self.team, name="Dashboard 1")
         dashboard2 = Dashboard.objects.create(team=self.team, name="Dashboard 2")
