@@ -1,5 +1,7 @@
 import React, { useCallback, useMemo } from 'react'
 
+import { lightenDarkenColor } from 'lib/utils'
+
 import { type BarChartPrivate, computeBarAtIndex, computeSeriesBars } from '../../core/bar-layout'
 import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
@@ -256,7 +258,7 @@ function BarChartInner<Meta = unknown>({
             if (!d3Scales || hoverIndex < 0) {
                 return
             }
-            const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.2)'
+            const fallbackHighlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.2)'
             const hoveredLabel = drawLabels[hoverIndex]
             // For grouped, narrow to the bars under the cursor. If the cursor sits in a gap
             // (no hits), fall back to highlighting all — matches the tooltip narrower's
@@ -299,6 +301,9 @@ function BarChartInner<Meta = unknown>({
                     isTopOfStack: isTop,
                 })
                 if (bar) {
+                    const highlightColor = s.color?.startsWith('#')
+                        ? lightenDarkenColor(s.color, -20)
+                        : fallbackHighlightColor
                     drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
                 }
             }

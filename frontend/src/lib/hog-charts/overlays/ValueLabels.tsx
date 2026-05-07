@@ -16,6 +16,7 @@ export interface ValueLabelsProps {
 const LABEL_FONT =
     '600 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_HEIGHT = 22
+const LABEL_HORIZONTAL_CHROME = 12
 const STACK_TOTAL_KEY = '__stack_total__'
 
 let measureCtx: CanvasRenderingContext2D | null = null
@@ -69,7 +70,8 @@ function pushCandidate(
     valueCoord: number,
     above: boolean
 ): void {
-    const width = ctx ? ctx.measureText(text).width : text.length * 6
+    const textWidth = ctx ? ctx.measureText(text).width : text.length * 6
+    const width = textWidth + LABEL_HORIZONTAL_CHROME
     out.push({
         key,
         seriesIndex,
