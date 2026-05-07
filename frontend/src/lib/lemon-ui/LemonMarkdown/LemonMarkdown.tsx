@@ -11,6 +11,7 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 import { Link } from '../Link'
 import remarkMentions from './mention'
+import { MermaidDiagram } from './MermaidDiagram'
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -79,8 +80,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 const languageMatch = /language-(\w+)/.exec(className || '')
                 const isBlock = node?.position?.start?.line !== node?.position?.end?.line || languageMatch
                 if (isBlock) {
-                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     const value = String(children).replace(/\n$/, '')
+                    if (languageMatch && languageMatch[1].toLowerCase() === 'mermaid') {
+                        return <MermaidDiagram code={value} />
+                    }
+                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     return (
                         <CodeSnippet language={language} wrap={wrapCode} compact>
                             {value}

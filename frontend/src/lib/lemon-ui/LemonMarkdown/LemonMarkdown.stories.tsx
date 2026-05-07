@@ -140,6 +140,37 @@ export const TaskLists: Story = {
     },
 }
 
+export const MermaidDiagrams: Story = {
+    args: {
+        children: `# Mermaid diagrams
+
+Code fences with the \`mermaid\` language are rendered as diagrams.
+
+## Flowchart
+
+\`\`\`mermaid
+flowchart LR
+    A[User] --> B{Has skill?}
+    B -- Yes --> C[Render markdown]
+    B -- No --> D[Show empty state]
+    C --> E[Done]
+    D --> E
+\`\`\`
+
+## Sequence diagram
+
+\`\`\`mermaid
+sequenceDiagram
+    participant U as User
+    participant S as Skill
+    participant L as LemonMarkdown
+    U->>S: Open skill
+    S->>L: Render body
+    L-->>U: Diagram + text
+\`\`\``,
+    },
+}
+
 export const AutolinkLiterals: Story = {
     args: {
         children: `# Automatic Links
