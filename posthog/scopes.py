@@ -142,6 +142,21 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 # clients (the consent screen, MCP, third-party apps) to discover it.
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "wizard_session"})
 
+# Scope objects that PAK UI must never offer (prompt-injection vector or
+# server-to-server only) but that the OAuth metadata SHOULD advertise so the
+# authorization server can mint them for trusted server-side flows. Strict
+# subset of `INTERNAL_API_SCOPE_OBJECTS` — entries in this set bypass the
+# `INTERNAL_API_SCOPE_OBJECTS` filter inside `get_oauth_scopes_supported()`
+# only, leaving the user-facing `get_scope_descriptions()` strict-exclusion
+# (and therefore `validate_scopes()` on personal API keys) untouched.
+#
+# Today this is the Signals agent harness sandbox: the harness mints an OAuth
+# token containing `signal_agent_internal:write` so the in-sandbox agent can
+# call `signals-agent-runs-findings-create` / `-memory-create` / `-memory-delete`,
+# but a user PAK with that scope would be a durable prompt-injection vector
+# (memory rows are read verbatim into every subsequent run's prompt).
+PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"signal_agent_internal"})
+
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
 
@@ -209,11 +224,19 @@ def get_oauth_scopes_supported() -> list[str]:
     (MCP, third-party apps) don't discover scopes intended only for manually
     issued personal API keys. PAT validation uses `get_scope_descriptions()`
     directly and is unaffected.
+
+    Includes scopes in `PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS` even though
+    they are also in `INTERNAL_API_SCOPE_OBJECTS` — those are server-to-server
+    scopes the OAuth authorization server needs to be able to mint (e.g. the
+    Signals agent sandbox token) but that PAK UI / `validate_scopes()` must
+    never offer. The PAK side is unaffected because `get_scope_descriptions()`
+    still strict-excludes `INTERNAL_API_SCOPE_OBJECTS`.
     """
     visible = (
         f"{obj}:{action}"
         for obj in API_SCOPE_OBJECTS
-        if obj not in INTERNAL_API_SCOPE_OBJECTS and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
+        if (obj not in INTERNAL_API_SCOPE_OBJECTS or obj in PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS)
+        and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
         for action in API_SCOPE_ACTIONS
     )
     return list(OIDC_SCOPES) + list(visible)
