@@ -707,12 +707,16 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             # - SUPPRESSED reports gather signals indefinitely but are never promoted.
             # - POTENTIAL reports are promoted once signal_count >= signals_at_run (snooze gate;
             #   signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met.
-            # - READY reports are re-promoted on every new signal so the agentic report
-            #   always reflects the latest evidence.
-            if report.status == SignalReport.Status.READY or (
-                report.status == SignalReport.Status.POTENTIAL
-                and report.total_weight >= WEIGHT_THRESHOLD
-                and report.signal_count >= report.signals_at_run
+            # - READY and RESOLVED reports are re-promoted on every new signal so the pipeline
+            #   reruns with latest evidence (resolved: issue recurred post-merge fix).
+            if (
+                report.status == SignalReport.Status.READY
+                or report.status == SignalReport.Status.RESOLVED
+                or (
+                    report.status == SignalReport.Status.POTENTIAL
+                    and report.total_weight >= WEIGHT_THRESHOLD
+                    and report.signal_count >= report.signals_at_run
+                )
             ):
                 updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                 report.save(update_fields=updated_fields)
@@ -1002,11 +1006,29 @@ async def _process_signal_batch(
     report_contexts: dict[str, ReportContext] = report_contexts_result.contexts
 
     # === SEQUENTIAL PHASE (steps 5-7) ===
+    _PATCH_PARALLEL_SEQUENTIAL = "parallel-sequential-phase-v1"
+    _use_parallel_sequential = workflow.patched(_PATCH_PARALLEL_SEQUENTIAL)
     processed_batch_signals: list[_ProcessedBatchSignal] = []
     promoted_reports: dict[str, tuple[SignalReportSummaryWorkflowInputs, int]] = {}
     emitted_signals: list[tuple[str, AssignAndEmitSignalOutput]] = []
 
-    for i, signal in enumerate(batch):
+    if _use_parallel_sequential:
+        from products.signals.backend.temporal.parallel_grouping import process_sequential_phase_parallel
+
+        _par = await process_sequential_phase_parallel(
+            batch=batch,
+            team_id=team_id,
+            per_signal_queries=per_signal_queries,
+            per_signal_query_embeddings=per_signal_query_embeddings,
+            per_signal_ch_results=per_signal_ch_results,
+            signal_embeddings=[e.embedding for e in signal_embeddings],
+            report_contexts=report_contexts,
+        )
+        dropped += _par.dropped
+        promoted_reports = _par.promoted_reports
+        emitted_signals = _par.emitted_signals
+
+    for i, signal in enumerate(batch if not _use_parallel_sequential else []):
         signal_id = str(uuid.uuid4())
         try:
             # Augment CH candidates with earlier-in-batch signals
@@ -1168,8 +1190,9 @@ async def _process_signal_batch(
             # Include run_count in the workflow ID to allow re-generating READY reports when enough new signals arrive,
             # as without it ALLOW_DUPLICATE_FAILED_ONLY will prevent the re-report from starting
             workflow_id = base_id if run_count == 0 else f"{base_id}:run-{run_count + 1}"
-            # Concurrent report generation of the same report can't happen, as the promotion gate only allows
-            # POTENTIAL and READY, so IN_PROGRESS reports are never re-promoted.
+            # Concurrent report generation of the same report can't happen: promotion only fires for
+            # READY/RESOLVED (every new qualifying signal) or POTENTIAL past weight/snooze gates—never while
+            # CANDIDATE/IN_PROGRESS/PENDING_INPUT/etc.
             await workflow.start_child_workflow(
                 SignalReportSummaryWorkflow.run,
                 report_input,

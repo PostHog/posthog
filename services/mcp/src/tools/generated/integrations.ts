@@ -9,7 +9,7 @@ import {
     IntegrationsListQueryParams,
     IntegrationsRetrieveParams,
 } from '@/generated/integrations/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const IntegrationDeleteSchema = IntegrationsDestroyParams.omit({ project_id: true })
@@ -38,7 +38,15 @@ const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.Integra
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'kind',
+            'display_name',
+            'errors',
+            'created_at',
+            'created_by',
+        ]) as typeof result
+        return filtered
     },
 })
 
@@ -80,11 +88,18 @@ const integrationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/`,
             query: {
+                kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/settings/integrations')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'kind', 'display_name', 'created_at', 'created_by'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/settings/integrations')
     },
 })
 

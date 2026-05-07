@@ -61,12 +61,16 @@ DEFAULT_VARIANTS = [
 
 class ExperimentQueryStatus(str, Enum):
     """
-    Note: The frontend still treats paused experiments as a UI-only variant of "running"
-    when the linked flag is disabled, so the API only filters on stored experiment statuses.
+    Filter values for the experiment list endpoint.
+
+    PAUSED is derived (not stored): an experiment is paused when its stored status is RUNNING and
+    its linked feature flag is inactive. RUNNING and PAUSED are mutually exclusive at the API
+    layer — RUNNING returns only experiments whose flag is active.
     """
 
     DRAFT = "draft"
     RUNNING = "running"
+    PAUSED = "paused"
     STOPPED = "stopped"
     ALL = "all"
 
@@ -141,8 +145,17 @@ class ExperimentService:
                 raise ValidationError(
                     "Feature flag must have at least 2 variants (control and at least one test variant)"
                 )
-            if "control" not in [variant["key"] for variant in variants]:
-                raise ValidationError("Feature flag variants must contain a control variant")
+            keys = [variant["key"] for variant in variants]
+            if "control" not in keys:
+                # Surface the keys we did receive so LLM callers can self-correct without a
+                # second roundtrip. Capitalized 'Control' is auto-normalized in
+                # ExperimentParametersField.to_internal_value, so anything reaching this
+                # branch genuinely lacks a baseline variant.
+                raise ValidationError(
+                    "Feature flag variants must contain a variant with key 'control' "
+                    f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
+                    "'key' to 'control'."
+                )
 
     @staticmethod
     def validate_experiment_exposure_criteria(exposure_criteria: dict | None) -> None:
@@ -947,6 +960,39 @@ class ExperimentService:
         report_user_action(
             self.user,
             "experiment archived",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
+    # Unarchive
+    # ------------------------------------------------------------------
+
+    def unarchive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Unarchive an archived experiment: validate it is archived, set archived=False."""
+        if not experiment.archived:
+            raise ValidationError("Experiment is not archived.")
+
+        experiment.archived = False
+        experiment.save()
+
+        self._report_experiment_unarchived(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_unarchived(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment unarchived",
             experiment.get_analytics_metadata(),
             team=experiment.team,
             request=request,
@@ -1830,8 +1876,19 @@ class ExperimentService:
                         )
                     elif status_enum == ExperimentQueryStatus.RUNNING:
                         queryset = queryset.filter(
-                            Q(status=Experiment.Status.RUNNING)
-                            | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                            Q(feature_flag__active=True)
+                            & (
+                                Q(status=Experiment.Status.RUNNING)
+                                | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                            )
+                        )
+                    elif status_enum == ExperimentQueryStatus.PAUSED:
+                        queryset = queryset.filter(
+                            Q(feature_flag__active=False)
+                            & (
+                                Q(status=Experiment.Status.RUNNING)
+                                | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                            )
                         )
                     elif status_enum == ExperimentQueryStatus.STOPPED:
                         queryset = queryset.filter(

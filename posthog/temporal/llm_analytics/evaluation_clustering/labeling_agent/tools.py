@@ -9,10 +9,30 @@ instead of trace summaries.
 import json
 from typing import Annotated
 
+import structlog
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel
+
+logger = structlog.get_logger(__name__)
+
+
+def _handle_missing_window(state: dict) -> str:
+    """Log + return the JSON error for the defensive "missing window" branch.
+
+    Tool-level errors are returned as JSON strings to the agent (LangGraph feeds
+    them back to the LLM as a successful tool result), so they don't surface
+    through the workflow's exception path. Logging here makes the branch
+    visible in production should it ever trigger.
+    """
+    logger.warning(
+        "eval_labeling_window_missing",
+        team_id=state.get("team_id"),
+        has_window_start=state.get("window_start") is not None,
+        has_window_end=state.get("window_end") is not None,
+    )
+    return json.dumps({"error": "Clustering-run window missing from state"})
 
 
 def _title_for_eval(eval_id: str, state: dict) -> str:
@@ -230,9 +250,9 @@ def get_generation_details(
 
     team = Team.objects.get(id=state["team_id"])
     generation_ids = [gen_id for _, gen_id in pairs]
-    # Pass the clustering-run window through so ClickHouse can prune date partitions
-    # on the `(team_id, toDate(timestamp))` primary index. Without bounds this would
-    # full-scan the team for a handful of UUIDs.
+    # The clustering-run window scopes both the trace_id resolver lookup
+    # (events sorting key) and the heavy ai_events fetch. Required — without
+    # it, the events scan would full-scan the team for a handful of UUIDs.
     from datetime import datetime
 
     def _parse(ts: str | None) -> datetime | None:
@@ -243,11 +263,16 @@ def get_generation_details(
         except ValueError:
             return None
 
+    window_start = _parse(state.get("window_start"))
+    window_end = _parse(state.get("window_end"))
+    if window_start is None or window_end is None:
+        return _handle_missing_window(state)
+
     fetched = fetch_generation_contents(
         team=team,
         generation_ids=generation_ids,
-        window_start=_parse(state.get("window_start")),
-        window_end=_parse(state.get("window_end")),
+        window_start=window_start,
+        window_end=window_end,
     )
 
     result = []

@@ -97,7 +97,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             (s) => [s.allSlackChannels],
             (allSlackChannels: SlackChannelsResponseApi | null) => (): string => {
                 const now = dayjs()
-                if (allSlackChannels) {
+                if (allSlackChannels?.lastRefreshedAt) {
                     const earliestRefresh = dayjs(allSlackChannels.lastRefreshedAt).add(
                         SLACK_CHANNELS_MIN_REFRESH_INTERVAL_MINUTES,
                         'minutes'

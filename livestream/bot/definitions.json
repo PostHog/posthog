@@ -156,6 +156,12 @@
     "traffic_type": "AI Agent"
   },
   {
+    "pattern": "meta-externalfetcher",
+    "name": "Meta Fetcher",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
     "pattern": "Meta-ExternalFetcher",
     "name": "Meta Fetcher",
     "category": "ai_assistant",
@@ -170,6 +176,18 @@
   {
     "pattern": "MistralAI-User",
     "name": "Mistral AI",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Manus-User",
+    "name": "Manus",
+    "category": "ai_assistant",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "Google-NotebookLM",
+    "name": "NotebookLM",
     "category": "ai_assistant",
     "traffic_type": "AI Agent"
   },
@@ -222,6 +240,12 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "Yeti/",
+    "name": "Naver",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "AdsBot-Google",
     "name": "Google Ads",
     "category": "search_crawler",
@@ -258,6 +282,12 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "SERankingBacklinksBot",
+    "name": "SE Ranking",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "MJ12bot",
     "name": "Majestic",
     "category": "seo_crawler",
@@ -266,6 +296,12 @@
   {
     "pattern": "DotBot",
     "name": "Moz",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Lighthouse",
+    "name": "Lighthouse",
     "category": "seo_crawler",
     "traffic_type": "Bot"
   },
@@ -306,6 +342,12 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "Slack-ImgProxy",
+    "name": "Slack Image Proxy",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "TelegramBot",
     "name": "Telegram",
     "category": "social_crawler",
@@ -314,6 +356,18 @@
   {
     "pattern": "WhatsApp",
     "name": "WhatsApp",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "GoogleImageProxy",
+    "name": "Google Image Proxy",
+    "category": "social_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Iframely",
+    "name": "Iframely",
     "category": "social_crawler",
     "traffic_type": "Bot"
   },

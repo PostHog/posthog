@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 import pytest
 from unittest import TestCase
@@ -10,7 +11,11 @@ from hypothesis import (
 )
 from parameterized import parameterized
 
-from products.logs.backend.alert_utils import advance_next_check_at
+from products.logs.backend.alert_utils import (
+    SCHEDULE_INTERVAL_SECONDS,
+    advance_next_check_at,
+    compute_shard_offset_seconds,
+)
 
 # Strategies for property tests below.
 # Cadences span the realistic range: 1 minute (tightest), through hourly (60),
@@ -312,3 +317,147 @@ class TestAdvanceNextCheckAtProperties(TestCase):
         result = advance_next_check_at(scheduled, 1, now)
         assert result > now
         assert result <= now + timedelta(minutes=1)
+
+
+class TestComputeShardOffsetSeconds(TestCase):
+    """Per-alert shard offset computation."""
+
+    def test_offset_is_deterministic_for_same_id_and_cadence(self) -> None:
+        alert_id = UUID("019dec00-0000-0000-0000-000000000001")
+        a = compute_shard_offset_seconds(alert_id, 5)
+        b = compute_shard_offset_seconds(alert_id, 5)
+        assert a == b
+
+    def test_cadence_at_or_below_schedule_interval_returns_zero(self) -> None:
+        # 1-min cadence with 60s schedule = 1 shard slot, no spread possible.
+        alert_id = UUID("019dec00-0000-0000-0000-000000000001")
+        assert compute_shard_offset_seconds(alert_id, 1) == 0
+
+    @parameterized.expand([(c,) for c in (1, 5, 10, 15, 30, 60)])
+    def test_offset_is_minute_aligned_and_within_cadence(self, cadence: int) -> None:
+        # Offset must be a multiple of SCHEDULE_INTERVAL_SECONDS and < cadence.
+        alert_id = UUID("019dec00-0000-0000-0000-000000000042")
+        offset = compute_shard_offset_seconds(alert_id, cadence)
+        assert offset % SCHEDULE_INTERVAL_SECONDS == 0
+        assert 0 <= offset < cadence * 60
+
+    def test_distribution_across_many_alerts_is_roughly_uniform(self) -> None:
+        # 1000 random UUIDs at 5-min cadence (5 shards). Each shard should
+        # see ~200 alerts. Allow ±20% drift before flagging non-uniformity.
+        from uuid import uuid4
+
+        counts: dict[int, int] = {0: 0, 60: 0, 120: 0, 180: 0, 240: 0}
+        for _ in range(1000):
+            offset = compute_shard_offset_seconds(uuid4(), 5)
+            counts[offset] += 1
+
+        for offset, count in counts.items():
+            assert 160 <= count <= 240, f"shard {offset}: count {count} outside ±20% of mean 200"
+
+    def test_different_cadences_produce_different_shard_counts(self) -> None:
+        # Same alert_id, different cadences, should map to different shard slots
+        # because the modulus changes. (Not strictly required, but a healthy
+        # smoke test that the cadence input is actually used.)
+        alert_id = UUID("019dec00-0000-0000-0000-00000000abcd")
+        offsets = {compute_shard_offset_seconds(alert_id, c) for c in (5, 10, 15, 30, 60)}
+        # At least two distinct offsets across these cadences (very loose bound).
+        assert len(offsets) >= 2
+
+
+class TestAdvanceNextCheckAtWithShard(TestCase):
+    """`shard_offset_seconds` shifts the canonical grid per-alert."""
+
+    @parameterized.expand(
+        [
+            # (name, current, cadence, now, shard_offset, expected)
+            (
+                # 5-min alert with 2-min shard offset → :02/:07/:12/... grid.
+                "shard_120_lands_on_shifted_grid",
+                datetime(2026, 3, 19, 12, 7, tzinfo=UTC),
+                5,
+                datetime(2026, 3, 19, 12, 7, 30, tzinfo=UTC),
+                120,
+                datetime(2026, 3, 19, 12, 12, tzinfo=UTC),
+            ),
+            (
+                # Pre-shard NCA on canonical grid (12:05) self-heals to shard
+                # grid (12:12) on next eval. One transient longer gap.
+                "drifted_to_canonical_self_heals_to_shard",
+                datetime(2026, 3, 19, 12, 5, tzinfo=UTC),
+                5,
+                datetime(2026, 3, 19, 12, 6, tzinfo=UTC),
+                120,
+                datetime(2026, 3, 19, 12, 12, tzinfo=UTC),
+            ),
+            (
+                # shard_offset=0 (default behaviour) preserves canonical grid.
+                "no_shard_keeps_canonical_grid",
+                datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+                5,
+                datetime(2026, 3, 19, 12, 3, tzinfo=UTC),
+                0,
+                datetime(2026, 3, 19, 12, 5, tzinfo=UTC),
+            ),
+            (
+                # First-run with shard offset lands on shifted grid.
+                "first_run_shard_240_lands_at_shifted_first_slot",
+                None,
+                5,
+                datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
+                240,
+                datetime(2026, 3, 19, 12, 9, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_shard_offset_shifts_grid(
+        self,
+        _name: str,
+        current: datetime | None,
+        cadence: int,
+        now: datetime,
+        shard_offset: int,
+        expected: datetime,
+    ) -> None:
+        result = advance_next_check_at(current, cadence, now, shard_offset_seconds=shard_offset)
+        assert result == expected, f"got {result}"
+
+    @given(
+        # Non-divisors of 60 (7, 11) included to surface bugs that only appear
+        # when the cadence grid doesn't tile cleanly within the hour.
+        cadence=st.sampled_from([2, 3, 5, 7, 10, 11, 15, 30, 60]),
+        shard_index=st.integers(min_value=0, max_value=10),
+    )
+    @settings(max_examples=200, deadline=None)
+    def test_steady_state_gap_equals_cadence_with_shard(self, cadence: int, shard_index: int) -> None:
+        # Same property as the non-sharded test: inter-eval gaps stay exactly
+        # `cadence` minutes once on grid, regardless of shard offset.
+        shard_count = max(1, (cadence * 60) // SCHEDULE_INTERVAL_SECONDS)
+        offset = (shard_index % shard_count) * SCHEDULE_INTERVAL_SECONDS
+
+        anchor = datetime(2026, 3, 19, 12, 0, tzinfo=UTC)
+        # Heal once to land on shard grid.
+        current = advance_next_check_at(anchor, cadence, anchor + timedelta(seconds=1), shard_offset_seconds=offset)
+        for _ in range(10):
+            next_check = advance_next_check_at(current, cadence, current, shard_offset_seconds=offset)
+            assert next_check - current == timedelta(minutes=cadence)
+            current = next_check
+
+    def test_cadence_change_self_heals_to_new_shard_grid(self) -> None:
+        # User edits an alert from 5-min cadence (shard offset 120s) to 10-min
+        # cadence (shard offset, say, 300s). The alert was last evaluated under
+        # the old config; its current_next_check_at sits on the OLD grid. The
+        # next eval under the new config must land on the NEW grid within one
+        # cadence period, with the new shard offset applied.
+        old_nca = datetime(2026, 3, 19, 12, 7, tzinfo=UTC)  # was on 5-min grid + 120s offset
+        new_cadence = 10
+        new_shard_offset = 300  # different shard slot under new cadence
+        now = datetime(2026, 3, 19, 12, 7, 30, tzinfo=UTC)
+
+        result = advance_next_check_at(old_nca, new_cadence, now, shard_offset_seconds=new_shard_offset)
+
+        # Expected: next 10-min boundary after old_nca is 12:10; floor lands at
+        # 12:10, plus shard offset 300s (5min) = 12:15.
+        assert result == datetime(2026, 3, 19, 12, 15, tzinfo=UTC)
+        # Next gap is exactly the new cadence.
+        next_check = advance_next_check_at(result, new_cadence, result, shard_offset_seconds=new_shard_offset)
+        assert next_check - result == timedelta(minutes=new_cadence)

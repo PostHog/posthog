@@ -8,7 +8,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks' | 'azure_openai'
+export type LLMProvider =
+    | 'openai'
+    | 'anthropic'
+    | 'gemini'
+    | 'openrouter'
+    | 'fireworks'
+    | 'azure_openai'
+    | 'together_ai'
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
@@ -20,6 +27,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openrouter: 'OpenRouter',
     fireworks: 'Fireworks',
     azure_openai: 'Azure OpenAI',
+    together_ai: 'Together AI',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -58,6 +66,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
     if (normalized === 'azure_openai' || normalized === 'azure-openai' || normalized === 'azure openai') {
         return 'azure_openai'
+    }
+    if (normalized === 'together' || normalized === 'together ai' || normalized === 'together-ai') {
+        return 'together_ai'
     }
 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
@@ -246,6 +257,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/trial_evaluations/?provider=${encodeURIComponent(provider)}`
                     )
@@ -265,6 +277,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.get(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
                     )
@@ -297,6 +310,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         if (api_version) {
                             body.api_version = api_version
                         }
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.create(
                             `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
                             body
@@ -325,6 +339,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
                 },
             },
@@ -337,6 +352,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
                     return response.results
                 },
@@ -349,6 +365,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/`,
                         payload
@@ -371,6 +388,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.update(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`,
                         payload
@@ -392,6 +410,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     const url = replacementKeyId
                         ? `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/?replacement_key_id=${encodeURIComponent(replacementKeyId)}`
                         : `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/`
+                    // nosemgrep: prefer-codegen-api
                     await api.delete(url)
                     // If deleted key was active, reload config to reflect change
                     if (values.evaluationConfig?.active_provider_key?.id === id) {
@@ -404,6 +423,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return values.providerKeys
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/validate/`,
                         {}
@@ -482,6 +502,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 return
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.create(`/api/environments/${teamId}/llm_analytics/provider_keys/${key.id}/assign/`, {
                     evaluation_ids: evaluationIds,
                     enable,

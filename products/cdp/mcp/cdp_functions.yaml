@@ -34,19 +34,49 @@ tools:
                provides the destination URL directly.
 
             2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the
-               response now includes filters. Look for an existing function whose filters.properties contains a value
-               matching <alert.id>. If one exists, call cdp-functions-partial-update on that id; if not, proceed to
-               step 3. (Paginate beyond limit=1000 only if the project genuinely has more than 1000 internal
-               destinations.)
+               response now includes filters. Look for an existing function whose filters.properties has an entry
+               with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on
+               that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)
 
             3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook), and:
                  filters = {
                    "events": [{"id": "$insight_alert_firing", "type": "events"}],
                    "properties": [{"key": "alert_id", "value": "<alert.id>", "operator": "exact", "type": "event"}]
                  }
-                 inputs = {"slack_workspace": {"value": <slack_integration_id_int>},
-                           "channel": {"value": "<channel_id>"}}      # Slack — channel id is preferred (e.g. C0123ABC); "#general" is also accepted
-                 inputs = {"url": {"value": "<destination_url>"}}     # webhook — must be an https:// URL
+                 # Slack. Channel id is preferred (e.g. C0123ABC); "#general" is also accepted.
+                 # Override text + blocks with the same shape the alert-wizard UI uses, so
+                 # agent-created and UI-created alerts produce identical Slack messages.
+                 # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for
+                 # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.
+                 inputs = {
+                   "slack_workspace": {"value": <slack_integration_id_int>},
+                   "channel": {"value": "<channel_id>"},
+                   "text": {"value": "Alert triggered: {event.properties.insight_name}"},
+                   "blocks": {"value": [
+                     {"type": "header", "text": {"type": "plain_text",
+                       "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'"}},
+                     {"type": "section", "text": {"type": "plain_text", "text": "{event.properties.breaches}"}},
+                     {"type": "context", "elements": [{"type": "mrkdwn",
+                       "text": "Project: <{project.url}|{project.name}>"}]},
+                     {"type": "divider"},
+                     {"type": "actions", "elements": [
+                       {"type": "button", "text": {"type": "plain_text", "text": "View Insight"},
+                        "url": "{project.url}/insights/{event.properties.insight_id}"},
+                       {"type": "button", "text": {"type": "plain_text", "text": "View Alert"},
+                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"}
+                     ]}
+                   ]}
+                 }
+                 # Webhook — must be an https:// URL.
+                 inputs = {"url": {"value": "<destination_url>"}}
+
+            4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,
+               insight_id (short_id), state (always "Firing" — the event is only emitted on a firing transition,
+               not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.
+               "Series A is below 1000"), and detector metadata: alert_mode (always present), detector_type and
+               ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is
+               available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do
+               not reference value, threshold_lower, or insight_url — those are not emitted.
         exclude_params:
             - _create_in_folder
             - batch_export_id

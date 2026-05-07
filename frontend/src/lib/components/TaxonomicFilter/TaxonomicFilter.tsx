@@ -59,6 +59,8 @@ export function TaxonomicFilter({
     hideSearchInput,
     searchQuery: controlledSearchQuery,
     enableKeywordShortcuts,
+    excludedOperators,
+    selectingKeyOnly,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -104,6 +106,8 @@ export function TaxonomicFilter({
         minSearchQueryLength,
         suggestedFiltersLabel: resolvedSuggestedFiltersLabel,
         enableKeywordShortcuts,
+        excludedOperators,
+        selectingKeyOnly,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -204,6 +208,8 @@ export const TaxonomicFilterSearchInput = forwardRef<
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
+        markUserInteraction,
+        recordPaste,
         moveUp,
         moveDown,
         tabLeft,
@@ -212,6 +218,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
     } = useActions(taxonomicFilterLogic)
 
     const _onChange = (query: string): void => {
+        // Only the input's onChange path counts as user interaction. The controlled-prop
+        // useEffect above also calls setSearchQuery directly, but that's programmatic and
+        // shouldn't unmute the `taxonomic filter closed` capture — keep this dispatch separate.
+        markUserInteraction()
         setTaxonomicSearchQuery(query)
         onChange?.(query)
     }
@@ -231,6 +241,12 @@ export const TaxonomicFilterSearchInput = forwardRef<
             placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}
             prefix={prefix}
+            onPaste={(e) => {
+                const pasted = e.clipboardData?.getData('text') ?? ''
+                if (pasted.length > 0) {
+                    recordPaste(pasted.length)
+                }
+            }}
             suffix={
                 <>
                     {categoryDropdown}

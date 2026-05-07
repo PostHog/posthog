@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { Sorting } from '@posthog/lemon-ui'
 
 import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
+import { toggleSubscriptionEnabled } from 'lib/components/Subscriptions/toggleSubscriptionEnabled'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -209,6 +210,9 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
+        setSubscriptionEnabled: (id: number, enabled: boolean) => ({ id, enabled }),
+        setSubscriptionEnabledSuccess: true,
+        setSubscriptionEnabledFailure: true,
     }),
     reducers({
         search: [
@@ -278,6 +282,16 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 deliverSubscription: (_, { id }) => id,
                 deliverSubscriptionSuccess: () => null,
                 deliverSubscriptionFailure: () => null,
+            },
+        ],
+        // Tracks the subscription whose Pause/Resume PATCH is in flight so the row's
+        // menu item can show a busy state and prevent double-clicks.
+        togglingEnabledId: [
+            null as number | null,
+            {
+                setSubscriptionEnabled: (_, { id }) => id,
+                setSubscriptionEnabledSuccess: () => null,
+                setSubscriptionEnabledFailure: () => null,
             },
         ],
     }),
@@ -372,6 +386,15 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 actions.deliverSubscriptionFailure()
             }
         },
+        setSubscriptionEnabled: async ({ id, enabled }) => {
+            const ok = await toggleSubscriptionEnabled(id, enabled)
+            if (ok) {
+                actions.setSubscriptionEnabledSuccess()
+            } else {
+                actions.setSubscriptionEnabledFailure()
+            }
+        },
+        setSubscriptionEnabledSuccess: () => actions.loadSubscriptions(),
     })),
     tabAwareActionToUrl(({ values }) => {
         const syncUrl = (

@@ -3,7 +3,15 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
-from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
+from posthog.api import (
+    data_color_theme,
+    hog_flow,
+    hog_flow_template,
+    metalytics,
+    my_notifications,
+    project,
+    user_integration,
+)
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
@@ -57,6 +65,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingIssueViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSettingsViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
@@ -86,6 +95,7 @@ from products.llm_analytics.backend.api import (
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
     ScoreDefinitionViewSet,
+    TaggerViewSet,
     TraceReviewViewSet,
 )
 from products.llm_analytics.backend.api.skills import LLMSkillViewSet
@@ -100,8 +110,10 @@ from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
+    RepoRunsViewSet as VisualReviewRepoRunsViewSet,
     RepoViewSet as VisualReviewRepoViewSet,
     RunViewSet as VisualReviewRunViewSet,
+    SnapshotViewSet as VisualReviewSnapshotViewSet,
 )
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
@@ -712,7 +724,13 @@ router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistration
 router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
-router.register(r"users", user.UserViewSet, "users")
+users_router = router.register(r"users", user.UserViewSet, "users")
+users_router.register(
+    r"integrations",
+    user_integration.UserIntegrationViewSet,
+    "user_integration",
+    ["uuid"],
+)
 router.register(
     r"user_home_settings",
     user_home_settings.UserHomeSettingsViewSet,
@@ -785,9 +803,10 @@ register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet,
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
+    from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
+
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
     from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
-    from ee.clickhouse.views.experiments import EnterpriseExperimentsViewSet
     from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.insights import EnterpriseInsightsViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
@@ -894,11 +913,18 @@ legacy_project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-projects_router.register(
+project_notebooks_router = projects_router.register(
     r"notebooks",
     NotebookViewSet,
     "project_notebooks",
     ["project_id"],
+)
+
+project_notebooks_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_notebook_sharing",
+    ["project_id", "notebook_id"],
 )
 
 projects_router.register(
@@ -996,6 +1022,13 @@ environments_router.register(
     r"error_tracking/spike_detection_config",
     ErrorTrackingSpikeDetectionConfigViewSet,
     "environment_error_tracking_spike_detection_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/settings",
+    ErrorTrackingSettingsViewSet,
+    "environment_error_tracking_settings",
     ["team_id"],
 )
 
@@ -1216,6 +1249,9 @@ register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "en
 register_grandfathered_environment_nested_viewset(
     r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
 )
+register_grandfathered_environment_nested_viewset(
+    r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "environment_logs_sampling_rules", ["team_id"]
+)
 environments_router.register(r"logs/views", logs.LogsViewViewSet, "environment_logs_views", ["team_id"])
 
 environments_router.register(
@@ -1236,11 +1272,23 @@ environments_router.register(
     ["team_id"],
 )
 
-projects_router.register(
+visual_review_repos_router = projects_router.register(
     r"visual_review/repos",
     VisualReviewRepoViewSet,
     "project_visual_review_repos",
     ["project_id"],
+)
+visual_review_repos_router.register(
+    r"snapshots",
+    VisualReviewSnapshotViewSet,
+    "project_visual_review_snapshots",
+    ["project_id", "repo_id"],
+)
+visual_review_repos_router.register(
+    r"runs",
+    VisualReviewRepoRunsViewSet,
+    "project_visual_review_repo_runs",
+    ["project_id", "repo_id"],
 )
 projects_router.register(
     r"visual_review/runs",
@@ -1318,6 +1366,13 @@ environments_router.register(
     r"evaluations",
     EvaluationViewSet,
     "environment_evaluations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"taggers",
+    TaggerViewSet,
+    "environment_taggers",
     ["team_id"],
 )
 

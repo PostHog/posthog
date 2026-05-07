@@ -18,6 +18,7 @@ import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/Sessi
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
+import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 
@@ -85,6 +86,7 @@ export function GlobalModals(): JSX.Element {
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
             <ConfigurePinnedTabsModal isOpen={isConfigurePinnedTabsModalOpen} onClose={hideConfigurePinnedTabsModal} />
+            <MaybeWelcomeDialog />
         </>
     )
 }

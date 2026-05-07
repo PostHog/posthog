@@ -1,5 +1,10 @@
 # posthog-cli
 
+# 0.7.11
+
+- fix: resolve release once in `process` command to avoid race condition when multiple workers run in parallel
+- fix: skip synthetic Swift CU names (e.g. `<swift-imported-modules>`) before joining with `comp_dir` so they no longer dominate the project-root prefix and reject real source files
+
 # 0.7.10
 
 - feat: add `symbol-sets download` command to download symbol sets by ID or ref

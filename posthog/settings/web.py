@@ -69,7 +69,10 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
-    "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
+    "products.query_performance_ai.orchestrator.apps.QueryPerformanceAiConfig",
+    "products.access_control.backend.apps.AccessControlConfig",
+    "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
+    "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
 ]
 
 INSTALLED_APPS = [
@@ -128,6 +131,9 @@ MIDDLEWARE = [
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Must run immediately after AuthenticationMiddleware so downstream middleware
+    # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
+    "posthog.middleware.AdminImpersonationMiddleware",
     "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
@@ -190,6 +196,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "loginas.context_processors.impersonated_session_status",
+                "posthog.helpers.impersonation.impersonation_context",
             ]
         },
     }
@@ -375,6 +382,10 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
         "posthog.api.documentation.custom_postprocessing_hook",
+        # Runs last so it sees the final post-processed spec. Emits drf-spectacular warnings
+        # for self-inconsistencies (default not in enum, required not in properties, $ref siblings)
+        # so `--fail-on-warn` in `hogli build:openapi-schema` catches them in CI.
+        "posthog.api.documentation.lint_spec_consistency_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
         # Overrides fall into two categories depending on how drf-spectacular hashes them:
@@ -407,6 +418,8 @@ SPECTACULAR_SETTINGS = {
         "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
         "HogFlowStatusEnum": "posthog.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
+        "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
@@ -718,14 +731,10 @@ TOOLBAR_OAUTH_SCOPES = [
     "element:read",
     "uploaded_media:write",
     "survey:read",
+    "survey:write",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
-
-SURVEYS_API_USE_HYPERCACHE_TOKENS = get_list(os.getenv("SURVEYS_API_USE_HYPERCACHE_TOKENS", ""))
-SURVEYS_API_USE_REMOTE_CONFIG_COMPARE = get_from_env(
-    "SURVEYS_API_USE_REMOTE_CONFIG_COMPARE", False, type_cast=str_to_bool
-)

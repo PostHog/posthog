@@ -3,6 +3,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -22,6 +23,8 @@ import {
     QueryBasedInsightModel,
     TileLayout,
 } from '~/types'
+
+import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
@@ -114,8 +117,26 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 export const QUICK_FILTER_DEBOUNCE_MS = 1500
+
+function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
+    if (!effectiveLastRefresh) {
+        return null
+    }
+    if (!effectiveLastRefresh.isValid()) {
+        return null
+    }
+    const ms = Number(effectiveLastRefresh.valueOf())
+    if (!Number.isFinite(ms)) {
+        return null
+    }
+    return (Date.now() - ms) / 60_000
+}
+
+export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh: Dayjs | null): boolean {
+    const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
+    return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
+}
 
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))

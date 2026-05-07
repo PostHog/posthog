@@ -184,6 +184,19 @@ export function removeReplayIframeDataFromLocalStorage(): void {
     removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
 }
 
+const NOSCRIPT_BLOCK_RE = /<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi
+
+/**
+ * Strip <noscript> elements from rrweb replay iframe HTML before handing it to
+ * the heatmap iframe.
+ */
+export function stripRrwebScriptShims(html: string): string {
+    if (!html || !/<noscript\b/i.test(html)) {
+        return html
+    }
+    return html.replace(NOSCRIPT_BLOCK_RE, '')
+}
+
 /**
  * returns the relative second in the recording
  * e.g. if the player starts at 1000ms and the snapshot is at 2000ms or 1500ms, the relative second is 1
@@ -476,7 +489,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'trackedWindow',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'showMetadataFooter'],
+            ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -501,7 +514,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess'],
             playerSettingsLogic,
-            ['setSpeed', 'setSkipInactivitySetting'],
+            ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
             exportsLogic,
@@ -1122,13 +1135,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (logicProps): boolean => logicProps.mode === SessionRecordingPlayerMode.Kiosk,
         ],
         hoverModeIsEnabled: [
-            (s) => [s.logicProps, s.isCommenting, s.showingClipParams],
-            (logicProps, isCommenting, showingClipParams): boolean => {
+            (s) => [s.logicProps, s.isCommenting, s.showingClipParams, s.playerControlsOverlay],
+            (logicProps, isCommenting, showingClipParams, playerControlsOverlay): boolean => {
                 return (
                     !!logicProps.mode &&
                     ModesWithInteractions.includes(logicProps.mode) &&
                     !isCommenting &&
-                    !showingClipParams
+                    !showingClipParams &&
+                    playerControlsOverlay
                 )
             },
         ],
@@ -2143,16 +2157,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         openHeatmap: () => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
-            const iframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
+            const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             const resolution = values.resolution
-            if (!iframeHtml || !resolution) {
+            if (!rawIframeHtml || !resolution) {
                 return
             }
 
             removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
             const key = ReplayIframeDatakeyPrefix + uuid()
             const data: ReplayIframeData = {
-                html: iframeHtml,
+                html: stripRrwebScriptShims(rawIframeHtml),
                 width: resolution.width,
                 height: resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,

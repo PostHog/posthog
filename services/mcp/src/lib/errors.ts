@@ -59,6 +59,66 @@ function formatMissingProjectContextMessage(organizationId: string | undefined):
     )
 }
 
+/**
+ * Thrown by `StateManager.getOrgID()` when no organization can be resolved for
+ * the current session — neither pinned via header, cached from a prior init,
+ * nor derivable from the API key's scopes or the active project. Throwing
+ * (rather than returning `undefined`) prevents callers from interpolating
+ * literal `"undefined"` into URLs like `/api/organizations/undefined/...`.
+ */
+export class MissingOrganizationContextError extends Error {
+    constructor() {
+        super(formatMissingOrganizationContextMessage())
+        this.name = 'MissingOrganizationContextError'
+    }
+}
+
+function formatMissingOrganizationContextMessage(): string {
+    return (
+        'No PostHog organization is selected for this MCP session, and a default could not be derived from your API key.' +
+        '\n\n' +
+        'To pick one (in order of preference):\n' +
+        '1. Call `organizations-list` to list organizations you can access, then `switch-organization` with the chosen organization id.\n' +
+        '2. (For MCP client maintainers) Pin an organization at session start by sending the `x-posthog-organization-id` header on the initialize request.'
+    )
+}
+
+export interface PostHogValidationErrorOptions {
+    detail: string
+    attr: string | undefined
+    code: string | undefined
+    extra: Record<string, unknown> | undefined
+    url: string
+    method: string
+}
+
+/**
+ * Thrown when the PostHog API rejects a request with a `validation_error`
+ * body. Carries the structured `extra` payload (if any) so tool handlers can
+ * surface information that doesn't fit in a single `detail` line — for
+ * example, the HogQL metadata response attached to a failed /query/ call.
+ */
+export class PostHogValidationError extends Error {
+    public readonly detail: string
+    public readonly attr: string | undefined
+    public readonly code: string | undefined
+    public readonly extra: Record<string, unknown> | undefined
+    public readonly url: string
+    public readonly method: string
+
+    constructor(options: PostHogValidationErrorOptions) {
+        const attr = options.attr ? ` (field: ${options.attr})` : ''
+        super(`Validation error: ${options.detail}${attr}`)
+        this.name = 'PostHogValidationError'
+        this.detail = options.detail
+        this.attr = options.attr
+        this.code = options.code
+        this.extra = options.extra
+        this.url = options.url
+        this.method = options.method
+    }
+}
+
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined
@@ -106,11 +166,12 @@ export function wrapError(message: string, cause: unknown): Error {
 const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authenticate-with-the-posthog-api'
 
 export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
+    const callTarget = error.method && error.url ? `${error.method} ${error.url}` : 'this MCP request'
     if (error.missingScope) {
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
             '',
-            `Your Personal API key is missing the '${error.missingScope}' scope, which is required to call ${error.method} ${error.url}.`,
+            `Your Personal API key is missing the '${error.missingScope}' scope, which is required to call ${callTarget}.`,
             '',
             `To fix: edit the Personal API key in PostHog (User settings → Personal API keys) and add the '${error.missingScope}' scope. Alternatively, select the "MCP Server" scope preset which includes every scope the MCP needs.`,
             '',
@@ -121,7 +182,7 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
     return [
         `PostHog API permission denied: ${error.detail}`,
         '',
-        `The request to ${error.method} ${error.url} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
+        `The request to ${callTarget} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
     ].join('\n')
 }
 
@@ -144,10 +205,31 @@ export function buildInsufficientScopeChallenge(error: PostHogPermissionError): 
     return parts.join(', ')
 }
 
+// Literal message shape produced by `new PostHogPermissionError({...})`. We
+// reconstruct from this when the error has crossed a boundary that strips
+// `cause` and the custom subclass prototype — see the fallback in
+// `findPostHogPermissionError` for the full reasoning.
+const MISSING_SCOPE_MESSAGE_PATTERN = /Missing PostHog API scope: ['"]([^'"]+)['"]/
+
 /**
  * Walk `Error.cause` chains to find a wrapped PostHogPermissionError.
  * Tool-level wrappers (e.g. `throw new Error("Failed to X: ...", { cause })`)
  * hide the underlying permission error, so callers must unwrap before acting.
+ *
+ * Fallback for the Cloudflare Durable Object RPC boundary: errors thrown
+ * inside the DO arrive in the worker as plain Errors — `cause`, the
+ * PostHogPermissionError prototype, and any custom own-properties have all
+ * been stripped by the cross-isolate serializer, leaving just `name`,
+ * `message`, and `stack`. Without this fallback, a permission error from
+ * `_fetchUser` (or any other init-time API call) gets mapped to an opaque
+ * 500 in `onCatchErrorHandler` and OAuth-aware MCP clients never see the
+ * 403 + `WWW-Authenticate: insufficient_scope` they need to re-consent.
+ *
+ * The literal `Missing PostHog API scope: 'X'` shape produced by the
+ * `PostHogPermissionError` constructor is the one piece of information that
+ * does survive — we re-synthesize a typed error from it. `url`/`method`
+ * are not recoverable from the message alone; `formatPermissionErrorMessage`
+ * handles the empty case.
  */
 export function findPostHogPermissionError(error: unknown): PostHogPermissionError | undefined {
     let current: unknown = error
@@ -159,6 +241,20 @@ export function findPostHogPermissionError(error: unknown): PostHogPermissionErr
         seen.add(current)
         current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
     }
+
+    if (error instanceof Error && typeof error.message === 'string') {
+        const match = MISSING_SCOPE_MESSAGE_PATTERN.exec(error.message)
+        if (match) {
+            const missingScope = match[1]!
+            return new PostHogPermissionError({
+                detail: `API key missing required scope '${missingScope}'`,
+                missingScope,
+                url: '',
+                method: '',
+            })
+        }
+    }
+
     return undefined
 }
 
@@ -182,7 +278,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
     // Recoverable: agent can fix it via switch-project / projects-get. Skip
     // exception capture (this is expected user state, not a bug) and return the
     // typed error's pre-formatted multi-line message verbatim.
-    if (error instanceof MissingProjectContextError) {
+    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
         return {
             content: [
                 {
@@ -208,7 +304,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             properties.$session_id = sessionUuid
         }
 
-        getPostHogClient().captureException(permissionError, distinctId, properties)
+        try {
+            getPostHogClient().captureException(permissionError, distinctId, properties)
+        } catch {
+            // Never let observability break the request.
+        }
 
         return {
             content: [
@@ -237,7 +337,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         properties.$session_id = sessionUuid
     }
 
-    getPostHogClient().captureException(mcpError, distinctId, properties)
+    try {
+        getPostHogClient().captureException(mcpError, distinctId, properties)
+    } catch {
+        // Never let observability break the request.
+    }
 
     return {
         content: [

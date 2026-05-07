@@ -1,7 +1,11 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_SESSION_REPLAY_FEATURES, kafka_engine
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_SESSION_REPLAY_FEATURES,
+    CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS,
+    kafka_engine,
+)
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES
 
@@ -230,3 +234,78 @@ def DROP_SESSION_REPLAY_FEATURES_TABLE_MV_SQL():
 
 def TRUNCATE_SESSION_REPLAY_FEATURES_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_FEATURES_DATA_TABLE()}"
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE = "kafka_session_replay_features_ws"
+SESSION_REPLAY_FEATURES_WS_MV = "session_replay_features_ws_mv"
+
+DROP_KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE}"
+DROP_SESSION_REPLAY_FEATURES_WS_MV_SQL = f"DROP TABLE IF EXISTS {SESSION_REPLAY_FEATURES_WS_MV}"
+
+
+def KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE_SQL(on_cluster=False):
+    return KAFKA_SESSION_REPLAY_FEATURES_TABLE_BASE_SQL.format(
+        table_name=KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(
+            topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+            group=CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION,
+        ),
+    )
+
+
+def SESSION_REPLAY_FEATURES_WS_MV_SQL(on_cluster=False):
+    database = settings.CLICKHOUSE_DATABASE
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {SESSION_REPLAY_FEATURES_WS_MV} {ON_CLUSTER_CLAUSE(on_cluster)}
+TO {database}.writable_session_replay_features
+AS SELECT
+session_id,
+team_id,
+any(distinct_id) as distinct_id,
+min(first_timestamp) AS min_first_timestamp,
+max(last_timestamp) AS max_last_timestamp,
+sum(event_count) as event_count,
+sum(mouse_position_count) as mouse_position_count,
+sum(mouse_sum_x) as mouse_sum_x,
+sum(mouse_sum_x_squared) as mouse_sum_x_squared,
+sum(mouse_sum_y) as mouse_sum_y,
+sum(mouse_sum_y_squared) as mouse_sum_y_squared,
+sum(mouse_distance_traveled) as mouse_distance_traveled,
+sum(mouse_direction_change_count) as mouse_direction_change_count,
+sum(mouse_velocity_sum) as mouse_velocity_sum,
+sum(mouse_velocity_sum_of_squares) as mouse_velocity_sum_of_squares,
+sum(mouse_velocity_count) as mouse_velocity_count,
+sum(scroll_event_count) as scroll_event_count,
+sum(total_scroll_magnitude) as total_scroll_magnitude,
+sum(scroll_direction_reversal_count) as scroll_direction_reversal_count,
+sum(rapid_scroll_reversal_count) as rapid_scroll_reversal_count,
+sum(click_count) as click_count,
+sum(keypress_count) as keypress_count,
+sum(mouse_activity_count) as mouse_activity_count,
+sum(rage_click_count) as rage_click_count,
+sum(dead_click_count) as dead_click_count,
+sum(inter_action_gap_count) as inter_action_gap_count,
+sum(inter_action_gap_sum_ms) as inter_action_gap_sum_ms,
+sum(inter_action_gap_sum_of_squares_ms) as inter_action_gap_sum_of_squares_ms,
+max(max_idle_gap_ms) as max_idle_gap_ms,
+sum(quick_back_count) as quick_back_count,
+sum(page_visit_count) as page_visit_count,
+uniqExactArrayState(visited_urls) as unique_url_count,
+sum(console_error_count) as console_error_count,
+sum(console_error_after_click_count) as console_error_after_click_count,
+sum(network_request_count) as network_request_count,
+sum(network_failed_request_count) as network_failed_request_count,
+sum(network_request_duration_sum) as network_request_duration_sum,
+sum(network_request_duration_sum_of_squares) as network_request_duration_sum_of_squares,
+sum(network_request_duration_count) as network_request_duration_count,
+max(max_scroll_y) as max_scroll_y,
+uniqExactArrayState(click_target_ids) as unique_click_target_count,
+sum(text_selection_count) as text_selection_count,
+max(is_deleted) as is_deleted
+FROM {database}.{KAFKA_SESSION_REPLAY_FEATURES_WS_TABLE}
+GROUP BY session_id, team_id
+"""
