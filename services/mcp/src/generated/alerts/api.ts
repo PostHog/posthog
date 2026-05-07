@@ -143,6 +143,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -181,6 +182,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -225,6 +227,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 type: zod
@@ -261,6 +264,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 type: zod
@@ -293,6 +297,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -331,6 +336,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -373,6 +379,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -392,6 +399,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 method: zod
                                     .enum(['largest', 'mean', 'median'])
+                                    .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')")
                                     .nullish()
                                     .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
                                 n_neighbors: zod
@@ -419,6 +427,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -458,6 +467,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -500,6 +510,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -543,6 +554,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -581,6 +593,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -621,6 +634,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod
@@ -650,6 +664,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod
@@ -683,6 +698,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 type: zod.enum(['iqr']).default(alertsCreateBodyDetectorConfigOneFourTypeDefault),
@@ -707,6 +723,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 type: zod.enum(['threshold']).default(alertsCreateBodyDetectorConfigOneFiveTypeDefault),
@@ -730,6 +747,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -759,6 +777,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -789,6 +808,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -803,6 +823,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 method: zod
                     .enum(['largest', 'mean', 'median'])
+                    .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')")
                     .nullish()
                     .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
                 n_neighbors: zod.number().nullish().describe('Number of neighbors to consider (default: 5)'),
@@ -823,6 +844,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -853,6 +875,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -883,6 +906,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -914,6 +938,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -943,6 +968,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -1178,6 +1204,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1216,6 +1243,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1260,6 +1288,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 type: zod
@@ -1296,6 +1325,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 type: zod
@@ -1328,6 +1358,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1366,6 +1397,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1408,6 +1440,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1427,6 +1460,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 method: zod
                                     .enum(['largest', 'mean', 'median'])
+                                    .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')")
                                     .nullish()
                                     .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
                                 n_neighbors: zod
@@ -1454,6 +1488,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1493,6 +1528,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1535,6 +1571,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1580,6 +1617,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1618,6 +1656,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -1658,6 +1697,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod
@@ -1687,6 +1727,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod
@@ -1720,6 +1761,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 type: zod.enum(['iqr']).default(alertsPartialUpdateBodyDetectorConfigOneFourTypeDefault),
@@ -1744,6 +1786,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 type: zod.enum(['threshold']).default(alertsPartialUpdateBodyDetectorConfigOneFiveTypeDefault),
@@ -1767,6 +1810,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -1796,6 +1840,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -1826,6 +1871,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -1840,6 +1886,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 method: zod
                     .enum(['largest', 'mean', 'median'])
+                    .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')")
                     .nullish()
                     .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
                 n_neighbors: zod.number().nullish().describe('Number of neighbors to consider (default: 5)'),
@@ -1860,6 +1907,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -1890,6 +1938,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -1920,6 +1969,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -1951,6 +2001,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -1980,6 +2031,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -2134,6 +2186,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2172,6 +2225,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2216,6 +2270,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 type: zod
@@ -2252,6 +2307,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 type: zod
@@ -2284,6 +2340,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2322,6 +2379,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2364,6 +2422,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2383,6 +2442,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                             zod.object({
                                 method: zod
                                     .enum(['largest', 'mean', 'median'])
+                                    .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')")
                                     .nullish()
                                     .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
                                 n_neighbors: zod
@@ -2410,6 +2470,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2449,6 +2510,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2491,6 +2553,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2536,6 +2599,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2576,6 +2640,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                                             ),
                                     })
+                                    .describe('Preprocessing transforms applied to the time series before detection')
                                     .nullish()
                                     .describe('Preprocessing transforms applied before detection'),
                                 threshold: zod
@@ -2618,6 +2683,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod
@@ -2647,6 +2713,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod
@@ -2680,6 +2747,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 type: zod.enum(['iqr']).default(alertsSimulateCreateBodyDetectorConfigOneFourTypeDefault),
@@ -2704,6 +2772,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 type: zod.enum(['threshold']).default(alertsSimulateCreateBodyDetectorConfigOneFiveTypeDefault),
@@ -2727,6 +2796,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -2756,6 +2826,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -2786,6 +2857,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -2800,6 +2872,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 method: zod
                     .enum(['largest', 'mean', 'median'])
+                    .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')")
                     .nullish()
                     .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
                 n_neighbors: zod.number().nullish().describe('Number of neighbors to consider (default: 5)'),
@@ -2820,6 +2893,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -2850,6 +2924,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -2880,6 +2955,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -2911,6 +2987,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),
@@ -2940,6 +3017,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 'Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)'
                             ),
                     })
+                    .describe('Preprocessing transforms applied to the time series before detection')
                     .nullish()
                     .describe('Preprocessing transforms applied before detection'),
                 threshold: zod.number().nullish().describe('Anomaly probability threshold (default: 0.9)'),

@@ -469,6 +469,8 @@ const TrendsFormulaNode = z.object({
     formula: z.string(),
 })
 
+const YAxisScaleType = z.enum(['log10', 'linear'])
+
 const AssistantTrendsFilter = z.object({
     aggregationAxisFormat: AggregationAxisFormat.describe(
         'Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.'
@@ -548,7 +550,7 @@ const AssistantTrendsFilter = z.object({
         .default(false)
         .optional(),
     smoothingIntervals: integer.describe('Smoothing intervals for the trend line.').default(1).optional(),
-    yAxisScaleType: z.enum(['log10', 'linear']).describe('Whether to scale the y-axis.').default('linear').optional(),
+    yAxisScaleType: YAxisScaleType.describe('Whether to scale the y-axis.').default('linear').optional(),
 })
 
 const AssistantTrendsQuery = z.object({
@@ -757,6 +759,10 @@ const AssistantFunnelsQuery = z.object({
         .describe('Events or actions to include. Prioritize the more popular and fresh events and actions.'),
 })
 
+const AggregationType = z.enum(['count', 'sum', 'avg'])
+
+const MeanRetentionCalculation = z.enum(['simple', 'weighted', 'none'])
+
 const RetentionPeriod = z.enum(['Hour', 'Day', 'Week', 'Month'])
 
 const RetentionType = z.enum(['retention_recurring', 'retention_first_time', 'retention_first_ever_occurrence'])
@@ -796,6 +802,8 @@ const AssistantRetentionActionsNode = z.object({
 
 const AssistantRetentionEntity = z.union([AssistantRetentionEventsNode, AssistantRetentionActionsNode])
 
+const TimeWindowMode = z.enum(['strict_calendar_dates', '24_hour_windows'])
+
 const AssistantRetentionFilter = z.object({
     aggregationProperty: z
         .string()
@@ -806,23 +814,16 @@ const AssistantRetentionFilter = z.object({
         .describe('The type of property to aggregate on (event or person). Defaults to event.')
         .default('event')
         .optional(),
-    aggregationType: z
-        .enum(['count', 'sum', 'avg'])
-        .describe('The aggregation type to use for retention.')
-        .default('count')
-        .optional(),
+    aggregationType: AggregationType.describe('The aggregation type to use for retention.').default('count').optional(),
     cumulative: z.coerce
         .boolean()
         .describe(
             'Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.'
         )
         .optional(),
-    meanRetentionCalculation: z
-        .enum(['simple', 'weighted', 'none'])
-        .describe(
-            'Whether an additional series should be shown, showing the mean conversion for each period across cohorts.'
-        )
-        .optional(),
+    meanRetentionCalculation: MeanRetentionCalculation.describe(
+        'Whether an additional series should be shown, showing the mean conversion for each period across cohorts.'
+    ).optional(),
     minimumOccurrences: integer
         .describe('Minimum number of times an event must occur to count towards retention.')
         .optional(),
@@ -842,10 +843,7 @@ const AssistantRetentionFilter = z.object({
     targetEntity: AssistantRetentionEntity.describe(
         'Activation event (event putting the actor into the initial cohort).'
     ),
-    timeWindowMode: z
-        .enum(['strict_calendar_dates', '24_hour_windows'])
-        .describe('The time window mode to use for retention calculations.')
-        .optional(),
+    timeWindowMode: TimeWindowMode.describe('The time window mode to use for retention calculations.').optional(),
     totalIntervals: integer
         .describe(
             'How many intervals to show in the chart. The default value is 8 (meaning 7 periods after initial cohort).'
@@ -1178,6 +1176,8 @@ const AssistantTraceQuery = z.object({
         .describe('The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).'),
 })
 
+const Compare = z.enum(['current', 'previous'])
+
 const AssistantTrendsActorsQuery = z.object({
     breakdown: z
         .array(z.string())
@@ -1185,10 +1185,9 @@ const AssistantTrendsActorsQuery = z.object({
             "Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions."
         )
         .optional(),
-    compare: z
-        .enum(['current', 'previous'])
-        .describe('Whether to pull from the previous period when `compare` is enabled in the source.')
-        .optional(),
+    compare: Compare.describe(
+        'Whether to pull from the previous period when `compare` is enabled in the source.'
+    ).optional(),
     day: z
         .string()
         .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),

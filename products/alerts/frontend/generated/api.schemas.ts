@@ -202,6 +202,9 @@ export interface TrendsAlertConfigApi {
     type?: TrendsAlertConfigApiType
 }
 
+/**
+ * Preprocessing transforms applied to the time series before detection
+ */
 export interface PreprocessingConfigApi {
     /**
      * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
@@ -381,6 +384,9 @@ export interface IsolationForestDetectorConfigApi {
     window?: number | null
 }
 
+/**
+ * Distance method: 'largest', 'mean', 'median' (default: 'largest')
+ */
 export type MethodApi = (typeof MethodApi)[keyof typeof MethodApi]
 
 export const MethodApi = {

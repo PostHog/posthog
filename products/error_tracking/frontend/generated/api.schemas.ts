@@ -46,6 +46,9 @@ export const FilterLogicalOperatorApi = {
     Or: 'OR',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
@@ -94,6 +97,9 @@ export const EventPropertyFilterApiType = {
     Event: 'event',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface EventPropertyFilterApi {
     key: string
     /** @nullable */
@@ -113,6 +119,9 @@ export const PersonPropertyFilterApiType = {
     Person: 'person',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface PersonPropertyFilterApi {
     key: string
     /** @nullable */
@@ -139,6 +148,9 @@ export const ElementPropertyFilterApiType = {
     Element: 'element',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface ElementPropertyFilterApi {
     key: Key10Api
     /** @nullable */
@@ -192,6 +204,9 @@ export const CohortPropertyFilterApiType = {
     Cohort: 'cohort',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface CohortPropertyFilterApi {
     /** @nullable */
     cohort_name?: string | null

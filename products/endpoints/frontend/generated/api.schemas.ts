@@ -505,6 +505,9 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
@@ -553,6 +556,9 @@ export const EventPropertyFilterApiType = {
     Event: 'event',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface EventPropertyFilterApi {
     key: string
     /** @nullable */
@@ -572,6 +578,9 @@ export const PersonPropertyFilterApiType = {
     Person: 'person',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface PersonPropertyFilterApi {
     key: string
     /** @nullable */
@@ -598,6 +607,9 @@ export const ElementPropertyFilterApiType = {
     Element: 'element',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface ElementPropertyFilterApi {
     key: Key10Api
     /** @nullable */
@@ -651,6 +663,9 @@ export const CohortPropertyFilterApiType = {
     Cohort: 'cohort',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface CohortPropertyFilterApi {
     /** @nullable */
     cohort_name?: string | null
@@ -951,6 +966,12 @@ export interface DashboardFilterApi {
         | null
 }
 
+/**
+ * Controls how endpoint results are fetched.
+- `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+- `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+- `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.
+ */
 export type EndpointRefreshModeApi = (typeof EndpointRefreshModeApi)[keyof typeof EndpointRefreshModeApi]
 
 export const EndpointRefreshModeApi = {

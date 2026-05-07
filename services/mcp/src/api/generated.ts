@@ -730,6 +730,9 @@ export namespace Schemas {
      */
     export type ActionsNodeResponse = { [key: string]: unknown } | null | null;
 
+    /**
+     * Sync with nodejs/src/types.ts
+     */
     export type PropertyOperator = typeof PropertyOperator[keyof typeof PropertyOperator];
 
 
@@ -780,6 +783,9 @@ export namespace Schemas {
       Event: 'event',
     } as const;
 
+    /**
+     * Sync with nodejs/src/types.ts
+     */
     export interface EventPropertyFilter {
       key: string;
       /** @nullable */
@@ -800,6 +806,9 @@ export namespace Schemas {
       Person: 'person',
     } as const;
 
+    /**
+     * Sync with nodejs/src/types.ts
+     */
     export interface PersonPropertyFilter {
       key: string;
       /** @nullable */
@@ -827,6 +836,9 @@ export namespace Schemas {
       Element: 'element',
     } as const;
 
+    /**
+     * Sync with nodejs/src/types.ts
+     */
     export interface ElementPropertyFilter {
       key: Key10;
       /** @nullable */
@@ -882,6 +894,9 @@ export namespace Schemas {
       Cohort: 'cohort',
     } as const;
 
+    /**
+     * Sync with nodejs/src/types.ts
+     */
     export interface CohortPropertyFilter {
       /** @nullable */
       cohort_name?: string | null;
@@ -1657,6 +1672,9 @@ export namespace Schemas {
       Uuid: 'uuid',
     } as const;
 
+    /**
+     * HogQL Query Options are automatically set per team. However, they can be overridden in the query.
+     */
     export interface HogQLQueryModifiers {
       /** @nullable */
       bounceRateDurationSeconds?: number | null;
@@ -1813,6 +1831,9 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
+    /**
+     * Tags that will be added to the Query log comment  *
+     */
     export interface QueryLogTags {
       /**
        * Name of the query, preferably unique. For example web_analytics_vitals
@@ -1892,6 +1913,9 @@ export namespace Schemas {
       types?: string[] | null;
     }
 
+    /**
+     * Whether a value applies to the current period or the previous period.
+     */
     export type Compare = typeof Compare[keyof typeof Compare];
 
 
@@ -2283,6 +2307,9 @@ export namespace Schemas {
       Short: 'short',
     } as const;
 
+    /**
+     * detailed results table
+     */
     export type DetailedResultsAggregationType = typeof DetailedResultsAggregationType[keyof typeof DetailedResultsAggregationType];
 
 
@@ -2399,6 +2426,9 @@ export namespace Schemas {
       hidden?: boolean | null;
     }
 
+    /**
+     * Whether to scale the y-axis.
+     */
     export type YAxisScaleType = typeof YAxisScaleType[keyof typeof YAxisScaleType];
 
 
@@ -2957,6 +2987,9 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
+    /**
+     * The type of property to aggregate on (event, person or data_warehouse). Defaults to event.
+     */
     export type AggregationPropertyType1 = typeof AggregationPropertyType1[keyof typeof AggregationPropertyType1];
 
 
@@ -2966,6 +2999,9 @@ export namespace Schemas {
       DataWarehouse: 'data_warehouse',
     } as const;
 
+    /**
+     * Aggregation type to use for retention.
+     */
     export type AggregationType = typeof AggregationType[keyof typeof AggregationType];
 
 
@@ -2984,6 +3020,9 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
+    /**
+     * How retention computes the per-period mean.
+     */
     export type MeanRetentionCalculation = typeof MeanRetentionCalculation[keyof typeof MeanRetentionCalculation];
 
 
@@ -3003,6 +3042,9 @@ export namespace Schemas {
       Month: 'Month',
     } as const;
 
+    /**
+     * Whether retention is with regard to initial cohort size, or that of the previous period.
+     */
     export type RetentionReference = typeof RetentionReference[keyof typeof RetentionReference];
 
 
@@ -3073,6 +3115,9 @@ export namespace Schemas {
       uuid?: string | null;
     }
 
+    /**
+     * Time window mode used for retention calculations.
+     */
     export type TimeWindowMode = typeof TimeWindowMode[keyof typeof TimeWindowMode];
 
 
@@ -4133,6 +4178,9 @@ export namespace Schemas {
       ExperimentActorsQuery: 'ExperimentActorsQuery',
     } as const;
 
+    /**
+     * How to handle users with multiple variant exposures in an experiment.
+     */
     export type MultipleVariantHandling = typeof MultipleVariantHandling[keyof typeof MultipleVariantHandling];
 
 
@@ -4557,6 +4605,9 @@ export namespace Schemas {
       validation_failures?: ExperimentStatsValidationFailure[] | null;
     }
 
+    /**
+     * Represents experiment results for a single breakdown combination. Each breakdown is treated as an independent A/B test with its own baseline and variants. For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.
+     */
     export interface ExperimentBreakdownResult {
       /** Control variant stats for this breakdown */
       baseline: ExperimentStatsBaseValidated;
@@ -4723,6 +4774,9 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * Filters object that will be converted to a HogQL {filters} placeholder
+     */
     export interface HogQLFilters {
       dateRange?: DateRange | null;
       /** @nullable */
@@ -5128,6 +5182,9 @@ export namespace Schemas {
       type?: TrendsAlertConfigType;
     }
 
+    /**
+     * Preprocessing transforms applied to the time series before detection
+     */
     export interface PreprocessingConfig {
       /**
        * Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)
@@ -5312,6 +5369,9 @@ export namespace Schemas {
       window?: number | null;
     }
 
+    /**
+     * Distance method: 'largest', 'mean', 'median' (default: 'largest')
+     */
     export type Method = typeof Method[keyof typeof Method];
 
 
@@ -7812,6 +7872,9 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    /**
+     * Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE` handling + observed `$multiple` share above the threshold. Present on the response only when the experiment is currently at risk.
+     */
     export interface BiasRisk {
       /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
       multiple_variant_percentage: number;
@@ -8374,6 +8437,9 @@ export namespace Schemas {
       Area: 'area',
     } as const;
 
+    /**
+     * Which Y axis a numeric series should use. Use `right` for a secondary Y axis.
+     */
     export type YAxisPosition = typeof YAxisPosition[keyof typeof YAxisPosition];
 
 
@@ -8469,6 +8535,9 @@ export namespace Schemas {
       yAxisLabel?: string | null;
     }
 
+    /**
+     * Scale used for a Y axis.
+     */
     export type Scale = typeof Scale[keyof typeof Scale];
 
 
@@ -11543,6 +11612,9 @@ export namespace Schemas {
       Regex: 'regex',
     } as const;
 
+    /**
+     * An action step definition for matching events without a saved action
+     */
     export interface EventsQueryActionStep {
       /** @nullable */
       event?: string | null;
@@ -13111,6 +13183,9 @@ export namespace Schemas {
       Sessions: 'sessions',
     } as const;
 
+    /**
+     * Sort direction.
+     */
     export type OrderDirection2 = typeof OrderDirection2[keyof typeof OrderDirection2];
 
 
@@ -13119,6 +13194,9 @@ export namespace Schemas {
       Desc: 'DESC',
     } as const;
 
+    /**
+     * Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema
+     */
     export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
       /** @nullable */
       assigned_role_id?: string | null;
@@ -13569,6 +13647,9 @@ export namespace Schemas {
       EndpointsUsageTableQuery: 'EndpointsUsageTableQuery',
     } as const;
 
+    /**
+     * Filter by materialization type
+     */
     export type MaterializationType = typeof MaterializationType[keyof typeof MaterializationType];
 
 
@@ -15544,6 +15625,12 @@ export namespace Schemas {
       saved_query_id?: string | null;
     }
 
+    /**
+     * Controls how endpoint results are fetched.
+    - `cache` (default): If available, return cached results. Otherwise, either return the materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+    - `force`: Forcefully bypass cached results, and either return materialized results or run the query against raw data, depending on whether the endpoint is materialized.
+    - `direct`: Only valid for a materialized endpoint. Bypass the materialized results and run the query against raw data.
+     */
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
 
 
@@ -15936,6 +16023,9 @@ export namespace Schemas {
       EndpointsUsageTrendsQuery: 'EndpointsUsageTrendsQuery',
     } as const;
 
+    /**
+     * Metric to trend
+     */
     export type Metric = typeof Metric[keyof typeof Metric];
 
 
@@ -15990,7 +16080,6 @@ export namespace Schemas {
       kind?: EndpointsUsageTrendsQueryKind;
       /** Filter by materialization type */
       materializationType?: MaterializationType | null;
-      /** Metric to trend */
       metric: Metric;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -17414,6 +17503,9 @@ export namespace Schemas {
       ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
     } as const;
 
+    /**
+     * Slim exposure config for experiment API payloads.
+     */
     export interface ExperimentApiExposureConfig {
       /** Custom exposure event name. */
       event: string;
@@ -17422,6 +17514,9 @@ export namespace Schemas {
       properties: EventPropertyFilter[];
     }
 
+    /**
+     * Exposure criteria for experiment API payloads.
+     */
     export interface ExperimentApiExposureCriteria {
       exposure_config?: ExperimentApiExposureConfig | null;
       /** @nullable */
@@ -17436,6 +17531,9 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
     } as const;
 
+    /**
+     * Slim event/action source for experiment API payloads.
+     */
     export interface ExperimentApiEventSource {
       /**
        * Event name, e.g. '$pageview'. Required for EventsNode.
@@ -17472,6 +17570,9 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    /**
+     * Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.
+     */
     export interface ExperimentApiMetric {
       /** For retention metrics: completion event. */
       completion_event?: ExperimentApiEventSource | null;
@@ -20582,6 +20683,9 @@ export namespace Schemas {
       Fatal: 'fatal',
     } as const;
 
+    /**
+     * Field to break down sparkline data by
+     */
     export type LogsSparklineBreakdownBy = typeof LogsSparklineBreakdownBy[keyof typeof LogsSparklineBreakdownBy];
 
 
@@ -20632,6 +20736,9 @@ export namespace Schemas {
       LogAttributesQuery: 'LogAttributesQuery',
     } as const;
 
+    /**
+     * Whether this row matched the search by attribute key or by attribute value.
+     */
     export type MatchedOn = typeof MatchedOn[keyof typeof MatchedOn];
 
 
@@ -20641,7 +20748,6 @@ export namespace Schemas {
     } as const;
 
     export interface LogAttributeResult {
-      /** Whether this row matched the search by attribute key or by attribute value. */
       matchedOn: MatchedOn;
       /**
        * Sample value that matched the search — only set when matchedOn is 'value'.
@@ -21459,6 +21565,9 @@ export namespace Schemas {
       useSmallLayout?: boolean | null;
     }
 
+    /**
+     * Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers
+     */
     export interface VizSpecificOptions {
       ActionsPie?: ActionsPie | null;
       RETENTION?: Retention | null;
@@ -22250,6 +22359,9 @@ export namespace Schemas {
       created_at: string;
     }
 
+    /**
+     * Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.
+     */
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 

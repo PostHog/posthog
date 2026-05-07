@@ -225,6 +225,9 @@ export const ExperimentApiExposureConfigApiKind = {
     ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
@@ -273,6 +276,9 @@ export const EventPropertyFilterApiType = {
     Event: 'event',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface EventPropertyFilterApi {
     key: string
     /** @nullable */
@@ -283,6 +289,9 @@ export interface EventPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+/**
+ * Slim exposure config for experiment API payloads.
+ */
 export interface ExperimentApiExposureConfigApi {
     /** Custom exposure event name. */
     event: string
@@ -291,6 +300,9 @@ export interface ExperimentApiExposureConfigApi {
     properties: EventPropertyFilterApi[]
 }
 
+/**
+ * Exposure criteria for experiment API payloads.
+ */
 export interface ExperimentApiExposureCriteriaApi {
     exposure_config?: ExperimentApiExposureConfigApi | null
     /** @nullable */
@@ -304,6 +316,9 @@ export const KindApi = {
     ActionsNode: 'ActionsNode',
 } as const
 
+/**
+ * Slim event/action source for experiment API payloads.
+ */
 export interface ExperimentApiEventSourceApi {
     /**
      * Event name, e.g. '$pageview'. Required for EventsNode.
@@ -364,6 +379,9 @@ export const StartHandlingApi = {
     LastSeen: 'last_seen',
 } as const
 
+/**
+ * Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.
+ */
 export interface ExperimentApiMetricApi {
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null

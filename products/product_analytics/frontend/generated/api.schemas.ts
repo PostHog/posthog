@@ -433,6 +433,9 @@ export const SessionsV2JoinModeApi = {
     Uuid: 'uuid',
 } as const
 
+/**
+ * HogQL Query Options are automatically set per team. However, they can be overridden in the query.
+ */
 export interface HogQLQueryModifiersApi {
     /** @nullable */
     bounceRateDurationSeconds?: number | null
@@ -493,6 +496,9 @@ export interface HogQLQueryModifiersApi {
     useWebAnalyticsPreAggregatedTables?: boolean | null
 }
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
@@ -541,6 +547,9 @@ export const EventPropertyFilterApiType = {
     Event: 'event',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface EventPropertyFilterApi {
     key: string
     /** @nullable */
@@ -560,6 +569,9 @@ export const PersonPropertyFilterApiType = {
     Person: 'person',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface PersonPropertyFilterApi {
     key: string
     /** @nullable */
@@ -586,6 +598,9 @@ export const ElementPropertyFilterApiType = {
     Element: 'element',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface ElementPropertyFilterApi {
     key: Key10Api
     /** @nullable */
@@ -639,6 +654,9 @@ export const CohortPropertyFilterApiType = {
     Cohort: 'cohort',
 } as const
 
+/**
+ * Sync with nodejs/src/types.ts
+ */
 export interface CohortPropertyFilterApi {
     /** @nullable */
     cohort_name?: string | null
@@ -1743,6 +1761,9 @@ export interface GroupNodeApi {
     version?: number | null
 }
 
+/**
+ * Tags that will be added to the Query log comment  *
+ */
 export interface QueryLogTagsApi {
     /**
      * Name of the query, preferably unique. For example web_analytics_vitals
@@ -1773,6 +1794,9 @@ export const AggregationAxisFormatApi = {
     Short: 'short',
 } as const
 
+/**
+ * detailed results table
+ */
 export type DetailedResultsAggregationTypeApi =
     (typeof DetailedResultsAggregationTypeApi)[keyof typeof DetailedResultsAggregationTypeApi]
 
@@ -1885,6 +1909,9 @@ export interface ResultCustomizationByPositionApi {
     hidden?: boolean | null
 }
 
+/**
+ * Whether to scale the y-axis.
+ */
 export type YAxisScaleTypeApi = (typeof YAxisScaleTypeApi)[keyof typeof YAxisScaleTypeApi]
 
 export const YAxisScaleTypeApi = {
@@ -2645,6 +2672,9 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
+/**
+ * The type of property to aggregate on (event, person or data_warehouse). Defaults to event.
+ */
 export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
 
 export const AggregationPropertyType1Api = {
@@ -2653,6 +2683,9 @@ export const AggregationPropertyType1Api = {
     DataWarehouse: 'data_warehouse',
 } as const
 
+/**
+ * Aggregation type to use for retention.
+ */
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
 
 export const AggregationTypeApi = {
@@ -2670,6 +2703,9 @@ export const RetentionDashboardDisplayTypeApi = {
     All: 'all',
 } as const
 
+/**
+ * How retention computes the per-period mean.
+ */
 export type MeanRetentionCalculationApi = (typeof MeanRetentionCalculationApi)[keyof typeof MeanRetentionCalculationApi]
 
 export const MeanRetentionCalculationApi = {
@@ -2687,6 +2723,9 @@ export const RetentionPeriodApi = {
     Month: 'Month',
 } as const
 
+/**
+ * Whether retention is with regard to initial cohort size, or that of the previous period.
+ */
 export type RetentionReferenceApi = (typeof RetentionReferenceApi)[keyof typeof RetentionReferenceApi]
 
 export const RetentionReferenceApi = {
@@ -2776,6 +2815,9 @@ export interface RetentionEntityApi {
     uuid?: string | null
 }
 
+/**
+ * Time window mode used for retention calculations.
+ */
 export type TimeWindowModeApi = (typeof TimeWindowModeApi)[keyof typeof TimeWindowModeApi]
 
 export const TimeWindowModeApi = {
@@ -3781,6 +3823,9 @@ export interface RetentionApi {
     useSmallLayout?: boolean | null
 }
 
+/**
+ * Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers
+ */
 export interface VizSpecificOptionsApi {
     ActionsPie?: ActionsPieApi | null
     RETENTION?: RetentionApi | null
@@ -5084,6 +5129,9 @@ export const UrlMatchingApi = {
     Regex: 'regex',
 } as const
 
+/**
+ * An action step definition for matching events without a saved action
+ */
 export interface EventsQueryActionStepApi {
     /** @nullable */
     event?: string | null
@@ -5168,6 +5216,9 @@ export interface EventsQueryResponseApi {
     types: string[]
 }
 
+/**
+ * Whether a value applies to the current period or the previous period.
+ */
 export type CompareApi = (typeof CompareApi)[keyof typeof CompareApi]
 
 export const CompareApi = {
@@ -5721,6 +5772,9 @@ export const ExperimentActorsQueryApiKind = {
     ExperimentActorsQuery: 'ExperimentActorsQuery',
 } as const
 
+/**
+ * How to handle users with multiple variant exposures in an experiment.
+ */
 export type MultipleVariantHandlingApi = (typeof MultipleVariantHandlingApi)[keyof typeof MultipleVariantHandlingApi]
 
 export const MultipleVariantHandlingApi = {
@@ -6192,6 +6246,9 @@ export interface ExperimentVariantResultBayesianApi {
     validation_failures?: ExperimentStatsValidationFailureApi[] | null
 }
 
+/**
+ * Represents experiment results for a single breakdown combination. Each breakdown is treated as an independent A/B test with its own baseline and variants. For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.
+ */
 export interface ExperimentBreakdownResultApi {
     /** Control variant stats for this breakdown */
     baseline: ExperimentStatsBaseValidatedApi
@@ -6343,6 +6400,9 @@ export interface StickinessActorsQueryApi {
     version?: number | null
 }
 
+/**
+ * Filters object that will be converted to a HogQL {filters} placeholder
+ */
 export interface HogQLFiltersApi {
     dateRange?: DateRangeApi | null
     /** @nullable */
@@ -8389,6 +8449,9 @@ export const ErrorTrackingOrderByApi = {
     Sessions: 'sessions',
 } as const
 
+/**
+ * Sort direction.
+ */
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -8396,6 +8459,9 @@ export const OrderDirection2Api = {
     Desc: 'DESC',
 } as const
 
+/**
+ * Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema
+ */
 export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
     /** @nullable */
     assigned_role_id?: string | null
@@ -8889,6 +8955,9 @@ export const EndpointsUsageTableQueryApiKind = {
     EndpointsUsageTableQuery: 'EndpointsUsageTableQuery',
 } as const
 
+/**
+ * Filter by materialization type
+ */
 export type MaterializationTypeApi = (typeof MaterializationTypeApi)[keyof typeof MaterializationTypeApi]
 
 export const MaterializationTypeApi = {
@@ -9260,6 +9329,9 @@ export interface HeatmapSettingsApi {
     yAxisLabel?: string | null
 }
 
+/**
+ * Scale used for a Y axis.
+ */
 export type ScaleApi = (typeof ScaleApi)[keyof typeof ScaleApi]
 
 export const ScaleApi = {
@@ -9291,6 +9363,9 @@ export const DisplayTypeApi = {
     Area: 'area',
 } as const
 
+/**
+ * Which Y axis a numeric series should use. Use `right` for a secondary Y axis.
+ */
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]
 
 export const YAxisPositionApi = {

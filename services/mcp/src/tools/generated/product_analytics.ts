@@ -32,19 +32,22 @@ const AssistantDataVisualizationGoalLine = z.object({
     value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
 })
 
+const Scale = z.enum(['linear', 'logarithmic'])
+
 const AssistantDataVisualizationYAxisSettings = z.object({
     label: z.string().describe('Label rendered beside this Y axis.').optional(),
-    scale: z.enum(['linear', 'logarithmic']).describe('Scale used for this Y axis.').optional(),
+    scale: Scale.describe('Scale used for this Y axis.').optional(),
     showGridLines: z.coerce.boolean().describe('Show grid lines for this Y axis.').optional(),
     showTicks: z.coerce.boolean().describe('Show tick labels on this Y axis.').optional(),
     startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
 })
 
+const YAxisPosition = z.enum(['left', 'right'])
+
 const AssistantDataVisualizationAxisDisplaySettings = z.object({
-    yAxisPosition: z
-        .enum(['left', 'right'])
-        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
-        .optional(),
+    yAxisPosition: YAxisPosition.describe(
+        'Which Y axis this numeric series should use. Use `right` for a secondary Y axis.'
+    ).optional(),
 })
 
 const AssistantDataVisualizationAxisSettings = z.object({
