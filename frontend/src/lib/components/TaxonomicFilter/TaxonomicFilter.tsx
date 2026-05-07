@@ -61,6 +61,7 @@ export function TaxonomicFilter({
     enableKeywordShortcuts,
     excludedOperators,
     selectingKeyOnly,
+    currentSelection,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -108,6 +109,7 @@ export function TaxonomicFilter({
         enableKeywordShortcuts,
         excludedOperators,
         selectingKeyOnly,
+        currentSelection,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

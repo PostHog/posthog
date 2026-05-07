@@ -5,6 +5,7 @@ import { IconX } from '@posthog/icons'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
+    CurrentSelection,
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
     ExcludedProperties,
@@ -52,6 +53,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     suggestedFiltersLabel?: string
     enableKeywordShortcuts?: boolean
     selectingKeyOnly?: boolean
+    currentSelection?: CurrentSelection | null
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -94,6 +96,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         suggestedFiltersLabel,
         enableKeywordShortcuts,
         selectingKeyOnly,
+        currentSelection,
         width,
         placement,
         sideIcon,
@@ -153,6 +156,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
                     suggestedFiltersLabel={suggestedFiltersLabel}
                     enableKeywordShortcuts={enableKeywordShortcuts}
                     selectingKeyOnly={selectingKeyOnly}
+                    currentSelection={currentSelection}
                     width={width}
                 />
             }

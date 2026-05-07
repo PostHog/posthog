@@ -139,6 +139,58 @@ describe('TaxonomicFilter', () => {
             })
         })
 
+        it.each([
+            {
+                description: 'event series',
+                currentSelection: {
+                    groupType: TaxonomicFilterGroupType.Events,
+                    value: '$pageview',
+                    name: '$pageview',
+                },
+                expectedTagText: 'Events - currently selected',
+            },
+            {
+                description: 'action series',
+                currentSelection: {
+                    groupType: TaxonomicFilterGroupType.Actions,
+                    value: 1,
+                    name: 'Test action',
+                },
+                expectedTagText: 'Actions - currently selected',
+            },
+        ])(
+            'pins the currently-selected $description in the Suggested-filters list with a single combined tag',
+            async ({ currentSelection, expectedTagText }) => {
+                renderFilter({
+                    suggestedFiltersLabel: 'Suggested series',
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.SuggestedFilters,
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.Actions,
+                    ],
+                    eventNames: ['$pageview'],
+                    currentSelection,
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByText(expectedTagText)).toBeInTheDocument()
+                })
+            }
+        )
+
+        it('does not render a "currently selected" tag when currentSelection is omitted', async () => {
+            renderFilter({
+                suggestedFiltersLabel: 'Suggested series',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                eventNames: ['$pageview'],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toBeInTheDocument()
+            })
+            expect(screen.queryByText(/currently selected/i)).not.toBeInTheDocument()
+        })
+
         it('applies custom width and height via style', async () => {
             const { container } = renderFilter({ width: 500, height: 300 })
 

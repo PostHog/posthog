@@ -178,6 +178,16 @@ export interface TaxonomicFilterProps {
      *  - `TaxonomicPropertyFilter` hides the operator+value pair on rows whose group is key-only.
      *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
     selectingKeyOnly?: SelectingKeyOnly
+    /** Pin the host's current selection to the top of the Suggested-filters tab with a
+     *  "Currently selected" tag. Used by the series picker so the active event/action stays
+     *  visible alongside suggested properties. */
+    currentSelection?: CurrentSelection | null
+}
+
+export interface CurrentSelection {
+    groupType: TaxonomicFilterGroupType
+    value: TaxonomicFilterValue
+    name: string
 }
 
 export interface DataWarehousePopoverField {

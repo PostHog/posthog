@@ -258,15 +258,32 @@ export function ActionFilterRow({
     // DWH events are not supported in inline events yet
     const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
 
+    const popoverValue = getValue(value, filter)
+    // Pin the active series to the top of the Suggested-series tab. Skip when there's no
+    // real selection yet (`'empty'` placeholder or null) and for data-warehouse rows, which
+    // open straight into the DataWarehouse tab.
+    const currentSelection =
+        suggestedFiltersLabel && !isDataWarehouseFilter && popoverValue != null && filter.id !== 'empty' && name
+            ? {
+                  groupType:
+                      filter.type === EntityTypes.ACTIONS
+                          ? TaxonomicFilterGroupType.Actions
+                          : TaxonomicFilterGroupType.Events,
+                  value: popoverValue,
+                  name,
+              }
+            : null
+
     const filterElement = (
         <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
             truncate
             groupType={initialGroupType}
-            value={getValue(value, filter)}
+            value={popoverValue}
             filter={filter}
             suggestedFiltersLabel={suggestedFiltersLabel}
+            currentSelection={currentSelection}
             enableKeywordShortcuts
             selectingKeyOnly
             onChange={(changedValue, taxonomicGroupType, item) => {

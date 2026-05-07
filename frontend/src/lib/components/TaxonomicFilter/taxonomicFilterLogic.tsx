@@ -35,6 +35,7 @@ import {
     taxonomicFilterPinnedPropertiesLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
+    CurrentSelection,
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
@@ -492,6 +493,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.suggestedFiltersLabel],
             (suggestedFiltersLabel) => suggestedFiltersLabel,
         ],
+        currentSelection: [
+            () => [(_, props) => props.currentSelection],
+            (currentSelection): CurrentSelection | null => currentSelection ?? null,
+        ],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
             (metadataSource): AnyDataNode =>
@@ -553,6 +558,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.endpointFilters,
                 s.hogQLExpressionComponentProps,
                 s.featureFlags,
+                s.currentSelection,
             ],
             (
                 currentTeam: TeamType,
@@ -576,7 +582,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     globals?: Record<string, any>
                     showBreakdownLabelHint: boolean
                 },
-                featureFlags: Record<string, boolean | string | undefined>
+                featureFlags: Record<string, boolean | string | undefined>,
+                currentSelection: CurrentSelection | null
             ): TaxonomicFilterGroup[] => {
                 const { eventNames, primaryPropertiesForContextEvents } = eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
@@ -1406,6 +1413,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         isLocalOnly: true,
                         isMetaGroup: true,
                         options: [
+                            // Pin the host's current selection to the top so it stays visible
+                            // alongside the suggestions. The cross-group dispatch in InfiniteList
+                            // routes rendering to the Events / Actions / DataWarehouse renderer.
+                            ...(currentSelection
+                                ? [
+                                      {
+                                          id: currentSelection.value,
+                                          name: currentSelection.name,
+                                          group: currentSelection.groupType,
+                                          isCurrentSelection: true,
+                                      },
+                                  ]
+                                : []),
                             // Promoted properties for any event in context come first — if a team
                             // has marked a property as the one that summarises this event, it's
                             // the property they almost certainly want to filter or break down by.
@@ -1421,8 +1441,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 : []),
                         ],
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                            'name' in item ? (item.name ?? null) : null,
+                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue => {
+                            // The pinned current-selection row carries its own value (action id or
+                            // event name); other suggested items are property names.
+                            if (item && typeof item === 'object' && 'isCurrentSelection' in item) {
+                                return (item as { id: TaxonomicFilterValue }).id ?? null
+                            }
+                            return 'name' in item ? (item.name ?? null) : null
+                        },
                         getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
                     },
                     {
