@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import * as queryRunner from '~/queries/query'
 import {
     DataTableNode,
@@ -678,6 +679,50 @@ describe('sqlEditorLogic', () => {
 
             // The button should not appear "dirty" immediately after load
             expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(false)
+        })
+
+        it('enables Update insight as soon as sourceQuery diverges from the saved insight, even when dataVisualizationLogic mirror lags behind', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }),
+                })
+
+            // Mount dataVisualizationLogic with the saved query, mirroring what BindLogic
+            // does in production. This is the state right after the insight finishes loading.
+            const dataLogicKey = logic.values.dataLogicKey
+            const visualizationLogic = dataVisualizationLogic({
+                key: dataLogicKey,
+                query: MOCK_INSIGHT_QUERY,
+                dataNodeCollectionId: dataLogicKey,
+            })
+            visualizationLogic.mount()
+
+            expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(false)
+
+            // Simulate runQuery firing setSourceQuery with a different SQL string.
+            // dataVisualizationLogic.values.query still mirrors the OLD query at this point —
+            // in production it only catches up after React re-renders and propsChanged fires.
+            // The selector must reflect the change immediately so the user can save.
+            logic.actions.setSourceQuery({
+                ...MOCK_INSIGHT_QUERY,
+                source: { ...MOCK_INSIGHT_QUERY.source, query: 'SELECT count() FROM events WHERE event = $pageview' },
+            })
+
+            expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(true)
+
+            visualizationLogic.unmount()
         })
 
         it('does not dispatch syncUrlWithQuery before the API responds', async () => {
