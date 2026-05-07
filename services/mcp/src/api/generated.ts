@@ -25406,6 +25406,11 @@ export namespace Schemas {
       readonly archived: boolean;
       /** Current immutable configuration version number. */
       readonly current_version: number;
+      /**
+       * UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.
+       * @nullable
+       */
+      readonly current_version_id: string | null;
       /** Current immutable scorer configuration. */
       readonly config: ScoreDefinitionConfig;
       /** User who created the scorer. */
@@ -36946,6 +36951,11 @@ export namespace Schemas {
     export interface ScoreDefinitionNewVersion {
       /** Next immutable scorer configuration. */
       config: ScoreDefinitionConfig;
+      /**
+       * Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check.
+       * @minimum 1
+       */
+      base_version?: number;
     }
 
     /**

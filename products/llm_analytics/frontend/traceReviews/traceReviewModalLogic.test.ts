@@ -40,6 +40,7 @@ describe('traceReviewModalLogic', () => {
         kind: 'boolean',
         archived: false,
         current_version: 1,
+        current_version_id: null,
         config: {
             true_label: 'Yes',
             false_label: 'No',
@@ -57,6 +58,7 @@ describe('traceReviewModalLogic', () => {
         kind: 'numeric',
         archived: false,
         current_version: 1,
+        current_version_id: null,
         config: {
             min: 0,
             max: 10,
