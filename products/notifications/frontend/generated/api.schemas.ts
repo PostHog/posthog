@@ -46,6 +46,8 @@ export interface NotificationEventApi {
     read: boolean
     /** @nullable */
     read_at: string | null
+    target_type: string
+    target_id: string
     /** @nullable */
     resource_type: string | null
     resource_id: string
@@ -65,13 +67,33 @@ export interface PaginatedNotificationEventListApi {
     results: NotificationEventApi[]
 }
 
+export interface BulkNotificationIdsRequestApi {
+    notification_ids: string[]
+}
+
 export type NotificationsListParams = {
+    /**
+     * ISO 8601 timestamp; only events at or after this time
+     */
+    created_after?: string
+    /**
+     * ISO 8601 timestamp; only events strictly before this time
+     */
+    created_before?: string
     /**
      * Number of results to return per page.
      */
     limit?: number
     /**
+     * Filter by notification type
+     */
+    notification_type?: string
+    /**
      * The initial index from which to return the results.
      */
     offset?: number
+    resource_id?: string
+    resource_type?: string
+    target_id?: string
+    target_type?: string
 }

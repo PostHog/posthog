@@ -8,7 +8,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { NotificationsListParams, PaginatedNotificationEventListApi } from './api.schemas'
+import type {
+    BulkNotificationIdsRequestApi,
+    NotificationsListParams,
+    PaginatedNotificationEventListApi,
+} from './api.schemas'
 
 export const getNotificationsListUrl = (projectId: string, params?: NotificationsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -75,6 +79,40 @@ export const notificationsMarkAllReadCreate = async (projectId: string, options?
     return apiMutator<void>(getNotificationsMarkAllReadCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getNotificationsMarkReadBulkCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/notifications/mark_read_bulk/`
+}
+
+export const notificationsMarkReadBulkCreate = async (
+    projectId: string,
+    bulkNotificationIdsRequestApi: BulkNotificationIdsRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotificationsMarkReadBulkCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkNotificationIdsRequestApi),
+    })
+}
+
+export const getNotificationsMarkUnreadBulkCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/notifications/mark_unread_bulk/`
+}
+
+export const notificationsMarkUnreadBulkCreate = async (
+    projectId: string,
+    bulkNotificationIdsRequestApi: BulkNotificationIdsRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotificationsMarkUnreadBulkCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkNotificationIdsRequestApi),
     })
 }
 
