@@ -2,14 +2,10 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "query": {
-            "description": "The tracing spans query to execute.",
+            "description": "Bubble-up query parameters.",
             "properties": {
-                "after": {
-                    "description": "Pagination cursor from previous response.",
-                    "type": "string"
-                },
                 "dateRange": {
-                    "description": "Date range for the query. Defaults to last hour.",
+                    "description": "Overall query date range.",
                     "properties": {
                         "date_from": {
                             "anyOf": [
@@ -38,7 +34,6 @@
                 },
                 "filterGroup": {
                     "default": [],
-                    "description": "Property filters for the query.",
                     "items": {
                         "properties": {
                             "key": {
@@ -81,53 +76,47 @@
                     },
                     "type": "array"
                 },
-                "heatmapIncludeQuantiles": {
-                    "description": "Include p50/p95/p99 per heatmap cell (latency breakdown only).",
-                    "type": "boolean"
-                },
-                "limit": {
-                    "default": 100,
-                    "description": "Max results (1-1000). Defaults to 100.",
-                    "type": "number"
-                },
-                "orderBy": {
-                    "description": "Order results by timestamp. Defaults to latest.\n\n* `latest` - latest\n* `earliest` - earliest",
-                    "enum": ["latest", "earliest"],
-                    "type": "string"
-                },
-                "prefetchSpans": {
-                    "description": "Number of child spans to prefetch per trace (1-100).",
-                    "type": "number"
+                "region": {
+                    "description": "Brushed subset to compare against the baseline.",
+                    "properties": {
+                        "duration_max_nano": {
+                            "description": "Maximum duration in nanoseconds (exclusive).",
+                            "type": "number"
+                        },
+                        "duration_min_nano": {
+                            "description": "Minimum duration in nanoseconds (inclusive).",
+                            "type": "number"
+                        },
+                        "time_from": {
+                            "description": "ISO 8601 start of brushed time range (inclusive).",
+                            "type": "string"
+                        },
+                        "time_to": {
+                            "description": "ISO 8601 end of brushed time range (exclusive).",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["time_from", "time_to", "duration_min_nano", "duration_max_nano"],
+                    "type": "object"
                 },
                 "rootSpans": {
                     "default": true,
-                    "description": "Filter to root spans only. Defaults to true.",
                     "type": "boolean"
                 },
                 "serviceNames": {
-                    "description": "Filter by service names.",
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
                 },
-                "sparklineBreakdownBy": {
-                    "description": "Chart aggregation: volume by service, latency heatmap, or both dimensions.\n\n* `service` - service\n* `latency_log2` - latency_log2\n* `service_and_latency_log2` - service_and_latency_log2",
-                    "enum": ["service", "latency_log2", "service_and_latency_log2"],
-                    "type": "string"
-                },
                 "statusCodes": {
-                    "description": "Filter by HTTP status codes.",
                     "items": {
                         "type": "number"
                     },
                     "type": "array"
-                },
-                "traceId": {
-                    "description": "Filter to a specific trace ID (hex string).",
-                    "type": "string"
                 }
             },
+            "required": ["region"],
             "type": "object"
         }
     },
