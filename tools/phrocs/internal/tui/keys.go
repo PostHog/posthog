@@ -291,10 +291,13 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 	return m, cmds, true
 }
 
-
 // updateProcKeys enables/disables start, stop, and restart bindings
-// based on the active process state.
+// based on the active process state. RestartAll is global (operates across
+// the whole sidebar), but is gated on at-least-one restartable proc so the
+// help footer hides it when there's nothing to do.
 func (m *Model) updateProcKeys() {
+	m.keys.RestartAll.SetEnabled(m.hasRestartableProc())
+
 	p := m.activeProc()
 	if p == nil {
 		m.keys.Start.SetEnabled(false)
@@ -315,6 +318,41 @@ func (m *Model) updateProcKeys() {
 	m.keys.Stop.SetEnabled(running)
 	m.keys.Restart.SetEnabled(running)
 	m.keys.ClearLogs.SetEnabled(running)
+}
+
+// hasRestartableProc reports whether any sidebar service has been started
+// at least once this session and is not currently running — i.e. whether
+// `R` has anything to do.
+func (m *Model) hasRestartableProc() bool {
+	for _, p := range m.services {
+		if p.IsRestartable() {
+			return true
+		}
+	}
+	return false
+}
+
+// restartAll starts every previously-started, non-running service in display
+// order. Procs that have never been started this session (autostart disabled
+// and untouched, plus standby placeholders) are skipped — the user opted
+// out of those by not running them, and `R` should not flip that decision.
+// Returns the number of procs that were kicked off.
+func (m *Model) restartAll() int {
+	send := m.mgr.Send()
+	count := 0
+	for _, p := range m.services {
+		if !p.IsRestartable() {
+			continue
+		}
+		m.dbg("restart all: proc=%s", p.Name)
+		// Each Start blocks until the proc has fully exited, so fan out — we
+		// don't want one slow start to delay the rest. Capture p locally to
+		// avoid the closure-over-loop-variable pitfall on older Go versions.
+		proc := p
+		go func() { _ = proc.Start(send) }()
+		count++
+	}
+	return count
 }
 
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
@@ -472,6 +510,11 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.dbg("restart: proc=%s", p.Name)
 			send := m.mgr.Send()
 			go p.Restart(send)
+		}
+
+	case key.Matches(msg, m.keys.RestartAll):
+		if started := m.restartAll(); started > 0 {
+			m.dbg("restart all: kicked off %d procs", started)
 		}
 
 	case key.Matches(msg, m.keys.Stop):
