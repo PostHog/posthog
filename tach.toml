@@ -561,3 +561,17 @@ expose = [
 from = [
     "products.access_control",
 ]
+
+[[modules]]
+path = "products.business_knowledge"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.business_knowledge",
+]
