@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Card, DataTable, type DataTableColumn, EmptyState, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
+import { Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
 export interface LLMCostSeries {
     label: string
@@ -37,7 +38,12 @@ export function LLMCostsView({ data }: LLMCostsViewProps): ReactElement {
     if (series.length === 0) {
         return (
             <div className="p-4">
-                <EmptyState title="No LLM cost data" description="No AI generation events found for this period" />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyTitle>No LLM cost data</EmptyTitle>
+                        <EmptyDescription>No AI generation events found for this period</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
             </div>
         )
     }
@@ -65,34 +71,34 @@ export function LLMCostsView({ data }: LLMCostsViewProps): ReactElement {
             align: 'right',
             sortable: true,
             render: (row) => (
-                <span className="tabular-nums text-text-secondary">{formatCurrency(row.latestDayCost)}</span>
+                <span className="tabular-nums text-muted-foreground">{formatCurrency(row.latestDayCost)}</span>
             ),
         },
     ]
 
     return (
         <div className="p-4">
-            <Stack gap="md">
-                <Stack gap="xs">
-                    <span className="text-lg font-semibold text-text-primary">LLM costs</span>
-                    <span className="text-2xl font-bold text-text-primary tabular-nums">
-                        {formatCurrency(totalCost)}
-                    </span>
-                    <span className="text-xs text-text-secondary">Total across all models</span>
-                </Stack>
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
+                    <span className="text-lg font-semibold">LLM costs</span>
+                    <span className="text-2xl font-bold tabular-nums">{formatCurrency(totalCost)}</span>
+                    <span className="text-xs text-muted-foreground">Total across all models</span>
+                </div>
 
-                <Card padding="md">
-                    <Stack gap="sm">
-                        <span className="text-sm font-semibold text-text-primary">Breakdown by model</span>
-                        <DataTable<ModelRow>
-                            columns={columns}
-                            data={rows}
-                            defaultSort={{ key: 'totalCost', direction: 'desc' }}
-                            emptyMessage="No model data"
-                        />
-                    </Stack>
+                <Card>
+                    <CardContent>
+                        <div className="flex flex-col gap-2">
+                            <span className="text-sm font-semibold">Breakdown by model</span>
+                            <DataTable<ModelRow>
+                                columns={columns}
+                                data={rows}
+                                defaultSort={{ key: 'totalCost', direction: 'desc' }}
+                                emptyMessage="No model data"
+                            />
+                        </div>
+                    </CardContent>
                 </Card>
-            </Stack>
+            </div>
         </div>
     )
 }

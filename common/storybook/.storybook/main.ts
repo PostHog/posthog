@@ -12,7 +12,6 @@ const config: StorybookConfig = {
         '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
         '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
         '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx|mdx)',
-        '../../../common/mosaic/storybook/**/*.stories.@(js|jsx|ts|tsx|mdx)',
     ],
 
     addons: [

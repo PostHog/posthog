@@ -289,22 +289,6 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
-  common/mosaic:
-    dependencies:
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
-    devDependencies:
-      '@storybook/react':
-        specifier: 'catalog:'
-        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
-      '@types/react':
-        specifier: 18.3.27
-        version: 18.3.27
-
   common/plugin_transpiler:
     dependencies:
       '@babel/standalone':
@@ -611,9 +595,6 @@ importers:
       '@posthog/icons':
         specifier: ^0.36.6
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@posthog/mosaic':
-        specifier: workspace:*
-        version: link:../common/mosaic
       '@posthog/products-access-control':
         specifier: workspace:*
         version: link:../products/access_control
@@ -3435,9 +3416,9 @@ importers:
       '@posthog/mcp-analytics':
         specifier: npm:@posthog/mcp@0.0.2
         version: '@posthog/mcp@0.0.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(rxjs@7.8.1)'
-      '@posthog/mosaic':
+      '@posthog/quill':
         specifier: workspace:*
-        version: link:../../common/mosaic
+        version: link:../../packages/quill/packages/quill
       '@toon-format/toon':
         specifier: ^2.1.0
         version: 2.1.0
@@ -3453,6 +3434,9 @@ importers:
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
+      lucide-react:
+        specifier: ^0.577.0
+        version: 0.577.0(react@18.3.1)
       mcpcat:
         specifier: 0.1.15
         version: 0.1.15(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))
@@ -16151,10 +16135,6 @@ packages:
     engines: {node: 20 || >=22}
     deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
-
-  glob@13.0.0:
-    resolution: {integrity: sha512-tvZgpqk6fz4BaNZ66ZsRaZnbHvP/jG3uKJvAZOwEVUL4RTA5nJeeLYfyN9/VA8NX/V3IBG+hkeuGpKjvELkVhA==}
-    engines: {node: 20 || >=22}
 
   glob@13.0.6:
     resolution: {integrity: sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==}
@@ -33336,7 +33316,7 @@ snapshots:
     dependencies:
       '@scalar/helpers': 0.5.2
       pathe: 2.0.3
-      yaml: 2.8.2
+      yaml: 2.8.4
 
   '@scalar/openapi-parser@0.25.12':
     dependencies:
@@ -33349,7 +33329,7 @@ snapshots:
       ajv-formats: 3.0.1(ajv@8.18.0)
       jsonpointer: 5.0.1
       leven: 4.1.0
-      yaml: 2.8.2
+      yaml: 2.8.4
 
   '@scalar/openapi-types@0.8.0': {}
 
@@ -38259,7 +38239,7 @@ snapshots:
     dependencies:
       '@npmcli/fs': 5.0.0
       fs-minipass: 3.0.3
-      glob: 13.0.0
+      glob: 13.0.6
       lru-cache: 11.2.4
       minipass: 7.1.2
       minipass-collect: 2.0.1
@@ -41181,12 +41161,6 @@ snapshots:
       package-json-from-dist: 1.0.1
       path-scurry: 2.0.0
 
-  glob@13.0.0:
-    dependencies:
-      minimatch: 10.2.3
-      minipass: 7.1.2
-      path-scurry: 2.0.0
-
   glob@13.0.6:
     dependencies:
       minimatch: 10.2.3
@@ -43993,7 +43967,7 @@ snapshots:
       micromatch: 4.0.8
       pidtree: 0.6.0
       string-argv: 0.3.2
-      yaml: 2.8.2
+      yaml: 2.8.4
     transitivePeerDependencies:
       - supports-color
 

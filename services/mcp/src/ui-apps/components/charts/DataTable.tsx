@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { EmptyState } from '@posthog/mosaic'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { formatNumber } from '../utils'
 
@@ -34,11 +35,25 @@ export function DataTable({ columns, rows, maxRows = MAX_ROWS }: DataTableProps)
     const hasMore = displayRows.length < rows.length
 
     if (columns.length === 0 && rows.length === 0) {
-        return <EmptyState icon="table" description="No rows to display" />
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
+                    <EmptyDescription>No rows to display</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
 
     if (rows.length === 0) {
-        return <EmptyState icon="table" description="Query returned no rows" />
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('table')}</EmptyMedia>
+                    <EmptyDescription>Query returned no rows</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
 
     return (

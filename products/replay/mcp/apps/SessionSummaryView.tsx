@@ -1,6 +1,6 @@
 import { type ReactElement, useState } from 'react'
 
-import { Badge, Card, Stack } from '@posthog/mosaic'
+import { Badge, Card, cn } from '@posthog/quill'
 
 export interface SessionSummarySegment {
     index?: number | null
@@ -116,21 +116,15 @@ function SegmentTimelineBar({
     widthPercent: number
     success?: boolean | null | undefined
 }): ReactElement {
-    const barColor =
-        success === false
-            ? 'var(--color-danger, #ef4444)'
-            : success === true
-              ? 'var(--color-success, #22c55e)'
-              : 'var(--color-border-primary, #94a3b8)'
+    const fillClass = success === false ? 'bg-destructive' : success === true ? 'bg-emerald-500' : 'bg-muted-foreground'
 
     return (
-        <div className="w-full h-2 rounded-full" style={{ backgroundColor: 'var(--color-bg-tertiary, #f2f4f7)' }}>
+        <div className="w-full h-2 rounded-full bg-muted">
             <div
-                className="h-2 rounded-full"
+                className={cn('h-2 rounded-full', fillClass)}
                 style={{
                     marginLeft: `${offsetPercent}%`,
                     width: `${Math.max(widthPercent, 1)}%`,
-                    backgroundColor: barColor,
                 }}
             />
         </div>
@@ -144,11 +138,7 @@ function ChevronIcon({ expanded }: { expanded: boolean }): ReactElement {
             height="16"
             viewBox="0 0 16 16"
             fill="none"
-            style={{
-                transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                transition: 'transform 0.15s ease',
-                flexShrink: 0,
-            }}
+            className={cn('shrink-0 transition-transform duration-150', expanded && 'rotate-90')}
         >
             <path
                 d="M6 4l4 4-4 4"
@@ -170,12 +160,12 @@ export function SessionSummaryView({ data }: { data: SessionSummaryData }): Reac
     const sessionIds = Object.keys(summaries)
 
     if (sessionIds.length === 0) {
-        return <div className="p-4 text-sm text-text-secondary">No summary data available.</div>
+        return <div className="p-4 text-sm text-muted-foreground">No summary data available.</div>
     }
 
     return (
         <div className="p-4">
-            <Stack gap="lg">
+            <div className="flex flex-col gap-4">
                 {sessionIds.map((sessionId) => {
                     const summary = summaries[sessionId]
                     if (!summary) {
@@ -183,7 +173,7 @@ export function SessionSummaryView({ data }: { data: SessionSummaryData }): Reac
                     }
                     return <SingleSessionSummary key={sessionId} sessionId={sessionId} summary={summary} />
                 })}
-            </Stack>
+            </div>
         </div>
     )
 }
@@ -208,40 +198,37 @@ function SingleSessionSummary({
     const totalDurationMs = totalDurationSec * 1000
 
     return (
-        <Stack gap="md">
-            <span className="text-xs font-mono text-text-secondary">{sessionId}</span>
+        <div className="flex flex-col gap-3">
+            <span className="text-xs font-mono text-muted-foreground">{sessionId}</span>
 
             {outcome && (
                 <div
-                    className="rounded-lg p-3"
-                    style={{
-                        backgroundColor: outcome.success
-                            ? 'var(--color-bg-success, #f0fdf4)'
-                            : 'var(--color-bg-danger, #fef2f2)',
-                        borderLeft: `4px solid ${outcome.success ? 'var(--color-success, #22c55e)' : 'var(--color-danger, #ef4444)'}`,
-                    }}
+                    className={cn(
+                        'rounded-lg p-3 border-l-4',
+                        outcome.success
+                            ? 'bg-emerald-500/10 border-emerald-500'
+                            : 'bg-destructive/10 border-destructive'
+                    )}
                 >
                     <div className="flex items-start gap-2">
                         <span className="text-lg">{outcome.success ? '\u2713' : '\u26A0'}</span>
                         <div>
-                            <span className="text-sm font-semibold text-text-primary">
+                            <span className="text-sm font-semibold">
                                 {outcome.success ? 'Session successful' : 'Session abandoned'}
                             </span>
-                            <div className="text-sm text-text-primary mt-1">{outcome.description ?? '\u2014'}</div>
+                            <div className="text-sm mt-1">{outcome.description ?? '\u2014'}</div>
                         </div>
                     </div>
                 </div>
             )}
 
-            <span className="text-sm font-semibold text-text-primary">Journey</span>
+            <span className="text-sm font-semibold">Journey</span>
 
             {segments.map((segment, i) => {
                 const segOutcome = outcomesByIndex.get(segment.index ?? -1)
                 const segActions = keyActionsByIndex.get(segment.index ?? -1)
                 const widthPercent = (segment.meta?.duration_percentage ?? 0) * 100
 
-                // Use the first key action's absolute timestamp for bar offset.
-                // If that would overflow (offset + width > 100%), end-anchor it.
                 const firstEventMs = segActions?.events?.[0]?.milliseconds_since_start
                 let offsetPercent = 0
                 if (firstEventMs != null && totalDurationMs > 0) {
@@ -262,7 +249,7 @@ function SingleSessionSummary({
             })}
 
             {summary.sentiment && <SentimentSection sentiment={summary.sentiment} />}
-        </Stack>
+        </div>
     )
 }
 
@@ -283,47 +270,42 @@ function SegmentCard({
     const issues = issueCount(segment)
     const hasEvents = segActions?.events && segActions.events.length > 0
 
-    const borderColor =
+    const borderClass =
         segOutcome?.success === false
-            ? 'var(--color-danger, #ef4444)'
+            ? 'border-l-destructive'
             : segOutcome?.success === true
-              ? 'var(--color-success, #22c55e)'
-              : 'var(--color-border-primary, #e5e7eb)'
+              ? 'border-l-emerald-500'
+              : 'border-l-border'
 
     return (
-        <Card padding="none" className="overflow-hidden">
+        <Card className="overflow-hidden">
             <div
                 onClick={hasEvents ? () => setExpanded(!expanded) : undefined}
-                style={{
-                    borderLeft: `5px solid ${borderColor}`,
-                    cursor: hasEvents ? 'pointer' : 'default',
-                    padding: '12px',
-                    paddingLeft: '15px',
-                }}
+                className={cn('border-l-4 px-4 py-3', borderClass, hasEvents ? 'cursor-pointer' : 'cursor-default')}
             >
-                <Stack gap="sm">
+                <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                         {hasEvents && (
-                            <span className="text-text-secondary">
+                            <span className="text-muted-foreground">
                                 <ChevronIcon expanded={expanded} />
                             </span>
                         )}
-                        <span className="text-sm font-semibold text-text-primary flex-1">
+                        <span className="text-sm font-semibold flex-1">
                             {segment.name ?? `Segment ${segment.index}`}
                         </span>
                         {issues > 0 && (
-                            <Badge variant="danger" size="sm">
+                            <Badge variant="destructive">
                                 {issues} {issues === 1 ? 'issue' : 'issues'}
                             </Badge>
                         )}
                         {segOutcome?.success !== undefined && segOutcome?.success !== null && (
-                            <Badge variant={segOutcome.success ? 'success' : 'danger'} size="sm">
+                            <Badge variant={segOutcome.success ? 'success' : 'destructive'}>
                                 {segOutcome.success ? 'success' : 'failed'}
                             </Badge>
                         )}
                     </div>
 
-                    {segOutcome?.summary && <span className="text-sm text-text-secondary">{segOutcome.summary}</span>}
+                    {segOutcome?.summary && <span className="text-sm text-muted-foreground">{segOutcome.summary}</span>}
 
                     <div className="flex items-center gap-3">
                         <div className="flex-1">
@@ -333,64 +315,34 @@ function SegmentCard({
                                 success={segOutcome?.success}
                             />
                         </div>
-                        <span className="text-xs text-text-secondary whitespace-nowrap">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
                             {formatDuration(segment.meta?.duration)} &middot;{' '}
                             {formatPercentage(segment.meta?.duration_percentage)}
                         </span>
                     </div>
-                </Stack>
+                </div>
             </div>
 
             {expanded && hasEvents && (
-                <div
-                    style={{
-                        borderLeft: `5px solid ${borderColor}`,
-                        borderTop: '1px solid var(--color-border-primary, #e5e7eb)',
-                        padding: '8px 12px 12px 15px',
-                    }}
-                >
+                <div className={cn('border-l-4 border-t px-4 py-2', borderClass)}>
                     <div className="flex flex-col gap-0">
                         {segActions.events!.map((event, i) => (
-                            <div
-                                key={i}
-                                style={{
-                                    borderBottom:
-                                        i < segActions.events!.length - 1
-                                            ? '1px solid var(--color-border-primary, #e5e7eb)'
-                                            : 'none',
-                                    padding: '8px 0',
-                                }}
-                            >
+                            <div key={i} className={cn('py-2', i < segActions.events!.length - 1 && 'border-b')}>
                                 <div className="flex items-start gap-3">
                                     {event.milliseconds_since_start != null && (
-                                        <span
-                                            className="text-xs font-mono whitespace-nowrap"
-                                            style={{ color: 'var(--color-warning, #f59e0b)' }}
-                                        >
+                                        <span className="text-xs font-mono whitespace-nowrap text-amber-500">
                                             {formatTimestamp(event.milliseconds_since_start)}
                                         </span>
                                     )}
                                     <div className="flex-1">
                                         <div className="flex items-center gap-1 flex-wrap">
-                                            <span className="text-xs text-text-primary">{event.description}</span>
-                                            {event.exception && (
-                                                <Badge variant="danger" size="sm">
-                                                    {event.exception}
-                                                </Badge>
-                                            )}
-                                            {event.abandonment && (
-                                                <Badge variant="warning" size="sm">
-                                                    abandonment
-                                                </Badge>
-                                            )}
-                                            {event.confusion && (
-                                                <Badge variant="warning" size="sm">
-                                                    confusion
-                                                </Badge>
-                                            )}
+                                            <span className="text-xs">{event.description}</span>
+                                            {event.exception && <Badge variant="destructive">{event.exception}</Badge>}
+                                            {event.abandonment && <Badge variant="warning">abandonment</Badge>}
+                                            {event.confusion && <Badge variant="warning">confusion</Badge>}
                                         </div>
                                         {event.current_url && (
-                                            <span className="text-xs text-text-secondary">{event.current_url}</span>
+                                            <span className="text-xs text-muted-foreground">{event.current_url}</span>
                                         )}
                                     </div>
                                 </div>
@@ -404,59 +356,49 @@ function SegmentCard({
 }
 
 function SentimentSection({ sentiment }: { sentiment: SessionSummarySentiment }): ReactElement {
-    const outcomeColors: Record<string, string> = {
-        successful: 'var(--color-success, #22c55e)',
-        friction: 'var(--color-warning, #f59e0b)',
-        frustrated: 'var(--color-danger, #ef4444)',
-        blocked: 'var(--color-danger, #ef4444)',
-    }
-
-    const color = outcomeColors[sentiment.outcome ?? ''] ?? 'var(--color-text-secondary)'
-
     return (
-        <Card padding="md">
-            <Stack gap="sm">
-                <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-text-primary">Sentiment</span>
-                    {sentiment.outcome && (
-                        <Badge
-                            variant={
-                                sentiment.outcome === 'successful'
-                                    ? 'success'
-                                    : sentiment.outcome === 'friction'
-                                      ? 'warning'
-                                      : 'danger'
-                            }
-                            size="sm"
-                        >
-                            {sentiment.outcome}
-                        </Badge>
+        <Card>
+            <div className="p-3">
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold">Sentiment</span>
+                        {sentiment.outcome && (
+                            <Badge
+                                variant={
+                                    sentiment.outcome === 'successful'
+                                        ? 'success'
+                                        : sentiment.outcome === 'friction'
+                                          ? 'warning'
+                                          : 'destructive'
+                                }
+                            >
+                                {sentiment.outcome}
+                            </Badge>
+                        )}
+                    </div>
+                    {sentiment.frustration_score != null && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">Frustration:</span>
+                            <div className="h-2 w-[100px] rounded-full bg-muted overflow-hidden">
+                                <div
+                                    className={cn(
+                                        'h-2 rounded-full',
+                                        sentiment.outcome === 'successful'
+                                            ? 'bg-emerald-500'
+                                            : sentiment.outcome === 'friction'
+                                              ? 'bg-amber-500'
+                                              : 'bg-destructive'
+                                    )}
+                                    style={{ width: `${Math.round(sentiment.frustration_score * 100)}%` }}
+                                />
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                                {Math.round(sentiment.frustration_score * 100)}%
+                            </span>
+                        </div>
                     )}
                 </div>
-                {sentiment.frustration_score != null && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-text-secondary">Frustration:</span>
-                        <div
-                            className="h-2 rounded-full"
-                            style={{
-                                width: '100px',
-                                backgroundColor: 'var(--color-bg-tertiary, #f2f4f7)',
-                            }}
-                        >
-                            <div
-                                className="h-2 rounded-full"
-                                style={{
-                                    width: `${Math.round(sentiment.frustration_score * 100)}%`,
-                                    backgroundColor: color,
-                                }}
-                            />
-                        </div>
-                        <span className="text-xs text-text-secondary">
-                            {Math.round(sentiment.frustration_score * 100)}%
-                        </span>
-                    </div>
-                )}
-            </Stack>
+            </div>
         </Card>
     )
 }

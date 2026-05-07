@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 
-import { Badge, DataTable, type DataTableColumn, formatDate, ListDetailView, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, ListDetailView, formatDate } from '@posthog/mcp-ui'
+import { Badge, Button } from '@posthog/quill'
 
 import { STATUS_VARIANTS } from './utils'
 import { WorkflowView, type WorkflowData } from './WorkflowView'
@@ -31,12 +32,14 @@ export function WorkflowListView({ data, onWorkflowClick }: WorkflowListViewProp
                         sortable: true,
                         render: (row): ReactNode =>
                             onWorkflowClick ? (
-                                <button
+                                <Button
+                                    variant="link"
+                                    size="sm"
                                     onClick={() => handleClick(row)}
-                                    className="text-link underline decoration-border-primary hover:decoration-link cursor-pointer text-left transition-colors"
+                                    className="h-auto px-0 text-left"
                                 >
                                     {row.name}
-                                </button>
+                                </Button>
                             ) : (
                                 row.name
                             ),
@@ -47,7 +50,7 @@ export function WorkflowListView({ data, onWorkflowClick }: WorkflowListViewProp
                         render: (row): ReactNode => {
                             const status = row.status ?? 'draft'
                             return (
-                                <Badge variant={STATUS_VARIANTS[status] ?? 'neutral'} size="sm">
+                                <Badge variant={STATUS_VARIANTS[status] ?? 'default'}>
                                     {status.charAt(0).toUpperCase() + status.slice(1)}
                                 </Badge>
                             )
@@ -58,7 +61,7 @@ export function WorkflowListView({ data, onWorkflowClick }: WorkflowListViewProp
                         header: 'Version',
                         align: 'right',
                         render: (row): ReactNode => (
-                            <span className="text-text-secondary">
+                            <span className="text-muted-foreground">
                                 {row.version != null ? `v${row.version}` : '\u2014'}
                             </span>
                         ),
@@ -69,18 +72,18 @@ export function WorkflowListView({ data, onWorkflowClick }: WorkflowListViewProp
                         sortable: true,
                         render: (row): ReactNode =>
                             row.updated_at ? (
-                                <span className="text-text-secondary">{formatDate(row.updated_at)}</span>
+                                <span className="text-muted-foreground">{formatDate(row.updated_at)}</span>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                 ]
 
                 return (
                     <div className="p-4">
-                        <Stack gap="sm">
+                        <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm text-text-secondary">
+                                <span className="text-sm text-muted-foreground">
                                     {data.count ?? data.results.length} workflow
                                     {(data.count ?? data.results.length) === 1 ? '' : 's'}
                                 </span>
@@ -92,7 +95,7 @@ export function WorkflowListView({ data, onWorkflowClick }: WorkflowListViewProp
                                 defaultSort={{ key: 'name', direction: 'asc' }}
                                 emptyMessage="No workflows found"
                             />
-                        </Stack>
+                        </div>
                     </div>
                 )
             }}

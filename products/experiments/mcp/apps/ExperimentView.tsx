@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Card, DataTable, type DataTableColumn, DescriptionList, formatDate, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, DescriptionList, formatDate } from '@posthog/mcp-ui'
+import { Badge, Card, CardContent } from '@posthog/quill'
 
 import { ExperimentData, ExperimentVariant, getConclusion, getStatus } from './utils'
 
@@ -28,73 +29,75 @@ export function ExperimentView({ experiment }: ExperimentViewProps): ReactElemen
 
     return (
         <div className="p-4">
-            <Stack gap="md">
-                <Stack gap="xs">
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-lg font-semibold text-text-primary">{experiment.name}</span>
-                        <Badge variant={status.variant} size="md">
-                            {status.label}
-                        </Badge>
-                        {experiment.type && (
-                            <Badge variant="neutral" size="sm">
-                                {experiment.type}
-                            </Badge>
-                        )}
+                        <span className="text-lg font-semibold">{experiment.name}</span>
+                        <Badge variant={status.variant}>{status.label}</Badge>
+                        {experiment.type && <Badge>{experiment.type}</Badge>}
                     </div>
                     {experiment.description && (
-                        <span className="text-sm text-text-secondary">{experiment.description}</span>
+                        <span className="text-sm text-muted-foreground">{experiment.description}</span>
                     )}
-                </Stack>
+                </div>
 
-                <Card padding="md">
-                    <DescriptionList
-                        columns={2}
-                        items={[
-                            ...(experiment.feature_flag_key
-                                ? [{ label: 'Feature flag', value: experiment.feature_flag_key }]
-                                : []),
-                            ...(experiment.start_date
-                                ? [{ label: 'Started', value: formatDate(experiment.start_date) }]
-                                : []),
-                            ...(experiment.end_date
-                                ? [{ label: 'Ended', value: formatDate(experiment.end_date) }]
-                                : []),
-                            ...(experiment.created_at
-                                ? [{ label: 'Created', value: formatDate(experiment.created_at) }]
-                                : []),
-                        ]}
-                    />
+                <Card>
+                    <CardContent>
+                        <DescriptionList
+                            columns={2}
+                            items={[
+                                ...(experiment.feature_flag_key
+                                    ? [{ label: 'Feature flag', value: experiment.feature_flag_key }]
+                                    : []),
+                                ...(experiment.start_date
+                                    ? [{ label: 'Started', value: formatDate(experiment.start_date) }]
+                                    : []),
+                                ...(experiment.end_date
+                                    ? [{ label: 'Ended', value: formatDate(experiment.end_date) }]
+                                    : []),
+                                ...(experiment.created_at
+                                    ? [{ label: 'Created', value: formatDate(experiment.created_at) }]
+                                    : []),
+                            ]}
+                        />
+                    </CardContent>
                 </Card>
 
                 {variants.length > 0 && (
-                    <Card padding="md">
-                        <Stack gap="sm">
-                            <span className="text-sm font-semibold text-text-primary">Variants</span>
-                            <DataTable<ExperimentVariant>
-                                columns={variantColumns}
-                                data={variants}
-                                emptyMessage="No variants"
-                            />
-                        </Stack>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <span className="text-sm font-semibold">Variants</span>
+                                <DataTable<ExperimentVariant>
+                                    columns={variantColumns}
+                                    data={variants}
+                                    emptyMessage="No variants"
+                                />
+                            </div>
+                        </CardContent>
                     </Card>
                 )}
 
                 {experiment.conclusion && (
-                    <Card padding="md">
-                        <Stack gap="sm">
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold text-text-primary">Conclusion</span>
-                                <Badge variant={getConclusion(experiment).variant} size="sm">
-                                    {getConclusion(experiment).label}
-                                </Badge>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-semibold">Conclusion</span>
+                                    <Badge variant={getConclusion(experiment).variant}>
+                                        {getConclusion(experiment).label}
+                                    </Badge>
+                                </div>
+                                {experiment.conclusion_comment && (
+                                    <span className="text-sm text-muted-foreground">
+                                        {experiment.conclusion_comment}
+                                    </span>
+                                )}
                             </div>
-                            {experiment.conclusion_comment && (
-                                <span className="text-sm text-text-secondary">{experiment.conclusion_comment}</span>
-                            )}
-                        </Stack>
+                        </CardContent>
                     </Card>
                 )}
-            </Stack>
+            </div>
         </div>
     )
 }

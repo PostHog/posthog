@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Card, DataTable, type DataTableColumn, ProgressBar, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
+import { Card, CardContent, cn } from '@posthog/quill'
 
 export interface SurveyStatEntry {
     name: string
@@ -17,6 +18,15 @@ export interface SurveyStatsData {
 
 export interface SurveyStatsViewProps {
     data: SurveyStatsData
+}
+
+function RateBar({ value, fillClass }: { value: number; fillClass: string }): ReactElement {
+    const pct = Math.max(0, Math.min(100, value))
+    return (
+        <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+            <div className={cn('h-full transition-all', fillClass)} style={{ width: `${pct}%` }} />
+        </div>
+    )
 }
 
 export function SurveyStatsView({ data }: SurveyStatsViewProps): ReactElement {
@@ -36,51 +46,55 @@ export function SurveyStatsView({ data }: SurveyStatsViewProps): ReactElement {
 
     return (
         <div className="p-4">
-            <Stack gap="md">
-                <span className="text-lg font-semibold text-text-primary">Survey stats</span>
+            <div className="flex flex-col gap-3">
+                <span className="text-lg font-semibold">Survey stats</span>
 
                 {data.rates && (
-                    <Card padding="md">
-                        <Stack gap="sm">
-                            {data.rates.response_rate != null && (
-                                <div>
-                                    <div className="flex justify-between text-sm mb-1">
-                                        <span className="text-text-secondary">Response rate</span>
-                                        <span className="text-text-primary tabular-nums">
-                                            {(data.rates.response_rate * 100).toFixed(1)}%
-                                        </span>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                {data.rates.response_rate != null && (
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="text-muted-foreground">Response rate</span>
+                                            <span className="tabular-nums">
+                                                {(data.rates.response_rate * 100).toFixed(1)}%
+                                            </span>
+                                        </div>
+                                        <RateBar value={data.rates.response_rate * 100} fillClass="bg-emerald-500" />
                                     </div>
-                                    <ProgressBar value={data.rates.response_rate * 100} variant="success" size="md" />
-                                </div>
-                            )}
-                            {data.rates.dismissal_rate != null && (
-                                <div>
-                                    <div className="flex justify-between text-sm mb-1">
-                                        <span className="text-text-secondary">Dismissal rate</span>
-                                        <span className="text-text-primary tabular-nums">
-                                            {(data.rates.dismissal_rate * 100).toFixed(1)}%
-                                        </span>
+                                )}
+                                {data.rates.dismissal_rate != null && (
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="text-muted-foreground">Dismissal rate</span>
+                                            <span className="tabular-nums">
+                                                {(data.rates.dismissal_rate * 100).toFixed(1)}%
+                                            </span>
+                                        </div>
+                                        <RateBar value={data.rates.dismissal_rate * 100} fillClass="bg-amber-500" />
                                     </div>
-                                    <ProgressBar value={data.rates.dismissal_rate * 100} variant="warning" size="md" />
-                                </div>
-                            )}
-                        </Stack>
+                                )}
+                            </div>
+                        </CardContent>
                     </Card>
                 )}
 
                 {entries.length > 0 && (
-                    <Card padding="md">
-                        <Stack gap="sm">
-                            <span className="text-sm font-semibold text-text-primary">Events</span>
-                            <DataTable<SurveyStatEntry>
-                                columns={columns}
-                                data={entries}
-                                emptyMessage="No stats available"
-                            />
-                        </Stack>
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <span className="text-sm font-semibold">Events</span>
+                                <DataTable<SurveyStatEntry>
+                                    columns={columns}
+                                    data={entries}
+                                    emptyMessage="No stats available"
+                                />
+                            </div>
+                        </CardContent>
                     </Card>
                 )}
-            </Stack>
+            </div>
         </div>
     )
 }

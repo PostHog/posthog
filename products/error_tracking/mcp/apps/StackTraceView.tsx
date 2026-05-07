@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, Badge, Card, Stack } from '@posthog/mosaic'
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, Badge, Card, CardContent } from '@posthog/quill'
 
 export interface StackFrame {
     raw_id?: string
@@ -56,13 +56,13 @@ function FrameContextLines({ context }: { context: NonNullable<StackFrame['conte
     ]
 
     return (
-        <pre className="text-xs overflow-x-auto bg-bg-secondary rounded p-2 font-mono leading-relaxed">
+        <pre className="text-xs overflow-x-auto bg-muted rounded p-2 font-mono leading-relaxed">
             {allLines.map((l, i) => (
-                <div key={i} className={l.type === 'error' ? 'bg-danger/10 -mx-2 px-2' : ''}>
-                    <span className="inline-block w-10 text-right text-text-secondary select-none pr-3 tabular-nums">
+                <div key={i} className={l.type === 'error' ? 'bg-destructive/10 -mx-2 px-2' : ''}>
+                    <span className="inline-block w-10 text-right text-muted-foreground select-none pr-3 tabular-nums">
                         {l.number}
                     </span>
-                    <span className={l.type === 'error' ? 'text-text-danger font-medium' : 'text-text-primary'}>
+                    <span className={l.type === 'error' ? 'text-destructive font-medium' : 'text-foreground'}>
                         {l.line}
                     </span>
                 </div>
@@ -80,15 +80,11 @@ function FrameRow({ frame, index }: { frame: StackFrame; index: number }): React
     if (!hasContext) {
         return (
             <div className="flex items-start gap-2 py-1.5 px-2 text-xs font-mono">
-                <span className={frame.in_app ? 'text-text-primary font-medium' : 'text-text-secondary'}>
+                <span className={frame.in_app ? 'text-foreground font-medium' : 'text-muted-foreground'}>
                     {funcName}
                 </span>
-                {location && <span className="text-text-secondary truncate ml-auto shrink-0">{location}</span>}
-                {frame.in_app === false && (
-                    <Badge variant="neutral" size="sm" className="ml-1 shrink-0">
-                        vendor
-                    </Badge>
-                )}
+                {location && <span className="text-muted-foreground truncate ml-auto shrink-0">{location}</span>}
+                {frame.in_app === false && <Badge className="ml-1 shrink-0">vendor</Badge>}
             </div>
         )
     }
@@ -100,20 +96,16 @@ function FrameRow({ frame, index }: { frame: StackFrame; index: number }): React
                     <span
                         className={
                             frame.in_app
-                                ? 'text-text-primary font-medium font-mono text-xs'
-                                : 'text-text-secondary font-mono text-xs'
+                                ? 'text-foreground font-medium font-mono text-xs'
+                                : 'text-muted-foreground font-mono text-xs'
                         }
                     >
                         {funcName}
                     </span>
                     {location && (
-                        <span className="text-text-secondary text-xs truncate ml-auto shrink-0">{location}</span>
+                        <span className="text-muted-foreground text-xs truncate ml-auto shrink-0">{location}</span>
                     )}
-                    {frame.in_app === false && (
-                        <Badge variant="neutral" size="sm" className="shrink-0">
-                            vendor
-                        </Badge>
-                    )}
+                    {frame.in_app === false && <Badge className="shrink-0">vendor</Badge>}
                 </div>
             </AccordionTrigger>
             <AccordionContent className="pl-6 pr-2">
@@ -130,43 +122,39 @@ function ExceptionSection({ exception, index }: { exception: ExceptionData; inde
     const inAppCount = frames.filter((f) => f.in_app).length
 
     return (
-        <Card padding="md">
-            <Stack gap="sm">
-                <div className="flex items-center gap-2 flex-wrap">
-                    {index > 0 && (
-                        <span className="text-xs text-text-secondary uppercase tracking-wide">Caused by</span>
-                    )}
-                    <Badge variant="danger" size="md">
-                        {exception.type}
-                    </Badge>
-                    {exception.mechanism?.handled === false && (
-                        <Badge variant="warning" size="sm">
-                            Unhandled
-                        </Badge>
+        <Card>
+            <CardContent>
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {index > 0 && (
+                            <span className="text-xs text-muted-foreground uppercase tracking-wide">Caused by</span>
+                        )}
+                        <Badge variant="destructive">{exception.type}</Badge>
+                        {exception.mechanism?.handled === false && <Badge variant="warning">Unhandled</Badge>}
+                    </div>
+                    <span className="text-sm">{exception.value}</span>
+
+                    {displayFrames.length > 0 && (
+                        <div className="mt-1">
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs text-muted-foreground">
+                                    {displayFrames.length} frame{displayFrames.length === 1 ? '' : 's'}
+                                </span>
+                                {inAppCount > 0 && (
+                                    <span className="text-xs text-muted-foreground">({inAppCount} in-app)</span>
+                                )}
+                            </div>
+                            <div className="rounded border overflow-hidden">
+                                <Accordion multiple defaultValue={getDefaultExpanded(displayFrames)}>
+                                    {displayFrames.map((frame, i) => (
+                                        <FrameRow key={frame.raw_id ?? i} frame={frame} index={i} />
+                                    ))}
+                                </Accordion>
+                            </div>
+                        </div>
                     )}
                 </div>
-                <span className="text-sm text-text-primary">{exception.value}</span>
-
-                {displayFrames.length > 0 && (
-                    <div className="mt-1">
-                        <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs text-text-secondary">
-                                {displayFrames.length} frame{displayFrames.length === 1 ? '' : 's'}
-                            </span>
-                            {inAppCount > 0 && (
-                                <span className="text-xs text-text-secondary">({inAppCount} in-app)</span>
-                            )}
-                        </div>
-                        <div className="rounded border border-border-primary overflow-hidden">
-                            <Accordion multiple defaultExpanded={getDefaultExpanded(displayFrames)}>
-                                {displayFrames.map((frame, i) => (
-                                    <FrameRow key={frame.raw_id ?? i} frame={frame} index={i} />
-                                ))}
-                            </Accordion>
-                        </div>
-                    </div>
-                )}
-            </Stack>
+            </CardContent>
         </Card>
     )
 }
@@ -181,14 +169,14 @@ function getDefaultExpanded(frames: StackFrame[]): string[] {
 
 export function StackTraceView({ exceptions }: StackTraceViewProps): ReactElement {
     if (exceptions.length === 0) {
-        return <div className="text-sm text-text-secondary p-4">No exception data available</div>
+        return <div className="text-sm text-muted-foreground p-4">No exception data available</div>
     }
 
     return (
-        <Stack gap="md">
+        <div className="flex flex-col gap-3">
             {exceptions.map((exception, i) => (
                 <ExceptionSection key={i} exception={exception} index={i} />
             ))}
-        </Stack>
+        </div>
     )
 }

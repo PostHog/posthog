@@ -1,5 +1,6 @@
-import { McpThemeDecorator } from '@common/mosaic/storybook/decorator'
 import type { Meta, StoryObj } from '@storybook/react'
+
+import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 
 import { WorkflowListView, type WorkflowData, type WorkflowListData, WorkflowView } from './index'
 

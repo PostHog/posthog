@@ -1,8 +1,7 @@
+import { ChevronLeft } from 'lucide-react'
 import { type ReactElement, type ReactNode, useCallback, useState } from 'react'
 
-import { BackButton } from './BackButton'
-import { LoadingState } from './LoadingState'
-import { Stack } from './Stack'
+import { Button, Spinner } from '@posthog/quill'
 
 export interface ListDetailViewProps<TItem, TDetail = TItem> {
     onItemClick: ((item: TItem) => Promise<TDetail | null>) | undefined
@@ -13,6 +12,15 @@ export interface ListDetailViewProps<TItem, TDetail = TItem> {
 }
 
 type ViewState<TDetail> = { view: 'list' } | { view: 'loading'; name: string } | { view: 'detail'; detail: TDetail }
+
+function BackLink({ label, onClick }: { label: string; onClick: () => void }): ReactElement {
+    return (
+        <Button variant="link-muted" size="sm" onClick={onClick} className="self-start gap-1 px-0">
+            <ChevronLeft className="h-3.5 w-3.5" />
+            {label}
+        </Button>
+    )
+}
 
 export function ListDetailView<TItem, TDetail = TItem>({
     onItemClick,
@@ -49,10 +57,13 @@ export function ListDetailView<TItem, TDetail = TItem>({
     if (viewState.view === 'loading') {
         return (
             <div className="p-4">
-                <Stack gap="sm">
-                    <BackButton onClick={handleBack} label={backLabel} />
-                    <LoadingState label={viewState.name} />
-                </Stack>
+                <div className="flex flex-col gap-2">
+                    <BackLink label={backLabel} onClick={handleBack} />
+                    <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                        <Spinner className="h-4 w-4" />
+                        <span>Loading {viewState.name}…</span>
+                    </div>
+                </div>
             </div>
         )
     }
@@ -60,10 +71,10 @@ export function ListDetailView<TItem, TDetail = TItem>({
     if (viewState.view === 'detail') {
         return (
             <div className="p-4">
-                <Stack gap="sm">
-                    <BackButton onClick={handleBack} label={backLabel} />
+                <div className="flex flex-col gap-2">
+                    <BackLink label={backLabel} onClick={handleBack} />
                     {renderDetail(viewState.detail)}
-                </Stack>
+                </div>
             </div>
         )
     }
