@@ -45,6 +45,10 @@ from posthog.utils_cors import cors_response
 logger = structlog.get_logger(__name__)
 
 
+class ErrorResponseSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Error message")
+
+
 class PaginationMode(Enum):
     next = auto()
     previous = auto()

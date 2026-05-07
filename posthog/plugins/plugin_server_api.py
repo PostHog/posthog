@@ -102,6 +102,15 @@ def create_hog_flow_scheduled_invocation(
     )
 
 
+def bulk_replay_hog_flow_invocations(team_id: int, hog_flow_id: str, items: list[dict]) -> requests.Response:
+    logger.info("Bulk replaying blocked hog flow invocations", hog_flow_id=hog_flow_id, count=len(items))
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/bulk_replay_invocations",
+        json={"items": items},
+        headers=get_internal_api_headers(),
+    )
+
+
 def get_hog_function_status(team_id: int, hog_function_id: UUIDT) -> requests.Response:
     return internal_requests.get(
         CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",

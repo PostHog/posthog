@@ -1,6 +1,13 @@
 import { bisector } from 'd3'
 
-import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext, YAxisScale } from './types'
+import type {
+    ChartDimensions,
+    PointClickData,
+    ResolvedSeries,
+    ResolveValueFn,
+    TooltipContext,
+    YAxisScale,
+} from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 export interface LabelPosition {
@@ -54,48 +61,57 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
 
 export function buildTooltipContext<Meta = unknown>(
     dataIndex: number,
-    series: Series<Meta>[],
+    series: ResolvedSeries<Meta>[],
     labels: string[],
     xScale: (label: string) => number | undefined,
     yScale: (value: number) => number,
     canvasBounds: DOMRect,
     resolveValue: ResolveValueFn,
-    yAxes?: Record<string, YAxisScale>
+    yAxes?: Record<string, YAxisScale>,
+    /** Returned `position.{x,y}` are canvas-pixel coordinates regardless of orientation. */
+    interactionAxis: 'x' | 'y' = 'x'
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
     }
 
     const label = labels[dataIndex]
-    const x = xScale(label)
-    if (x == null) {
+    const bandPixel = xScale(label)
+    if (bandPixel == null) {
         return null
     }
 
     const seriesData: TooltipContext<Meta>['seriesData'] = []
-    const yPixels: number[] = []
+    const valuePixels: number[] = []
     for (const s of series) {
         if (s.visibility?.excluded) {
             continue
         }
         const value = resolveValue(s, dataIndex)
-        if (!s.visibility?.fromTooltip) {
+        if (s.visibility?.tooltip !== false) {
             seriesData.push({ series: s, value, color: s.color })
         }
-        const seriesYScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
-        const yVal = seriesYScale(value)
-        if (isFinite(yVal)) {
-            yPixels.push(yVal)
+        const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
+        const px = seriesValueScale(value)
+        if (isFinite(px)) {
+            valuePixels.push(px)
         }
     }
 
-    const y = yPixels.length > 0 ? Math.min(...yPixels) : 0
+    // Anchor at the visual "tip" of the data column at this hover index — topmost in vertical
+    // mode, rightmost in horizontal mode.
+    let valueAnchor = 0
+    if (valuePixels.length > 0) {
+        valueAnchor = interactionAxis === 'y' ? Math.max(...valuePixels) : Math.min(...valuePixels)
+    }
+
+    const position = interactionAxis === 'y' ? { x: valueAnchor, y: bandPixel } : { x: bandPixel, y: valueAnchor }
 
     return {
         dataIndex,
         label,
         seriesData,
-        position: { x, y },
+        position,
         canvasBounds,
         isPinned: false,
     }
@@ -103,7 +119,7 @@ export function buildTooltipContext<Meta = unknown>(
 
 export function buildPointClickData<Meta = unknown>(
     dataIndex: number,
-    series: Series<Meta>[],
+    series: ResolvedSeries<Meta>[],
     labels: string[],
     resolveValue: ResolveValueFn
 ): PointClickData<Meta> | null {

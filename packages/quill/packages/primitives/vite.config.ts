@@ -28,7 +28,6 @@ export default defineConfig({
                 '@base-ui/react',
                 /^@base-ui\/react\//,
                 'lucide-react',
-                'cmdk',
                 'vaul',
                 'react-resizable-panels',
                 'class-variance-authority',

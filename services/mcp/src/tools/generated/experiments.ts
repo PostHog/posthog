@@ -65,7 +65,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     update_feature_flag_params: true,
 }).extend({
     parameters: ExperimentsCreateBody.shape['parameters'].describe(
-        'Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout.'
+        'Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout. HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant\'s `key` must be the literal string `control` (lowercase, no variations). It is the baseline used for analysis and the experiment runtime treats it specially. If the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`, `variant_a`, etc.).'
     ),
 })
 
@@ -276,7 +276,11 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
         },
     })
 
-const ExperimentListSchema = ExperimentsListQueryParams
+const ExperimentListSchema = ExperimentsListQueryParams.extend({
+    status: ExperimentsListQueryParams.shape['status'].describe(
+        'Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active), "paused" (launched, flag deactivated — mutually exclusive with running), "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.'
+    ),
+})
 
 const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<Schemas.PaginatedExperimentList>> =>
     withUiApp('experiment-list', {
@@ -288,8 +292,14 @@ const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
                 query: {
+                    archived: params.archived,
+                    created_by_id: params.created_by_id,
+                    feature_flag_id: params.feature_flag_id,
                     limit: params.limit,
                     offset: params.offset,
+                    order: params.order,
+                    search: params.search,
+                    status: params.status,
                 },
             })
             const filtered = {

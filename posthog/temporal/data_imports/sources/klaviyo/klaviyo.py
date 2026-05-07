@@ -9,6 +9,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
 
@@ -84,7 +85,7 @@ def _get_headers(api_key: str) -> dict[str, str]:
 def validate_credentials(api_key: str) -> bool:
     url = f"{KLAVIYO_BASE_URL}/accounts"
     try:
-        response = requests.get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -162,7 +163,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> dict:
-        response = requests.get(page_url, headers=headers, timeout=60)
+        response = make_tracked_session().get(page_url, headers=headers, timeout=60)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")

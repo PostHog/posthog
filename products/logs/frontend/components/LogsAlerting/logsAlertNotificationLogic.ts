@@ -47,6 +47,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
         setPendingNotifications: (notifications: PendingLogsAlertNotification[]) => ({ notifications }),
         deleteExistingDestination: (group: LogsAlertDestinationGroup) => ({ group }),
         createPendingHogFunctions: (alertId: string) => ({ alertId }),
+        destinationsChanged: true,
         setSelectedType: (selectedType: LogsAlertNotificationType) => ({ selectedType }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
@@ -136,6 +137,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                 })
                 lemonToast.success(`Removed ${group.label}`)
                 actions.loadExistingHogFunctions()
+                actions.destinationsChanged()
             } catch {
                 lemonToast.error(`Failed to remove ${group.label}`)
                 actions.loadExistingHogFunctions()
@@ -182,6 +184,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
             }
 
             actions.loadExistingHogFunctions(alertId)
+            actions.destinationsChanged()
         },
     })),
 

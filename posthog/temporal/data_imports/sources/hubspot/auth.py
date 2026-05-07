@@ -1,13 +1,14 @@
 from django.conf import settings
 
-import requests
 import structlog
+
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 
 logger = structlog.get_logger(__name__)
 
 
 def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = None) -> str:
-    res = requests.post(
+    res = make_tracked_session().post(
         "https://api.hubapi.com/oauth/v1/token",
         data={
             "grant_type": "refresh_token",
@@ -30,7 +31,7 @@ def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = Non
 
 
 def hubspot_access_token_is_valid(access_token: str) -> bool:
-    res = requests.get(
+    res = make_tracked_session().get(
         "https://api.hubapi.com/oauth/v1/access-tokens/" + access_token,
     )
     return res.status_code == 200
@@ -55,7 +56,7 @@ def _update_source_job_inputs(source_id: str, access_token: str) -> None:
 
 
 def get_hubspot_access_token_from_code(code: str, redirect_uri: str) -> tuple[str, str]:
-    res = requests.post(
+    res = make_tracked_session().post(
         "https://api.hubapi.com/oauth/v1/token",
         data={
             "grant_type": "authorization_code",

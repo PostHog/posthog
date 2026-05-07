@@ -32,7 +32,7 @@ tools:
         title: Archive experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Archive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date
@@ -95,6 +95,14 @@ tools:
                     (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants
                     with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100%
                     rollout.
+
+
+                    HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant's `key` must be the
+                    literal string `control` (lowercase, no variations). It is the baseline used for analysis and the
+                    experiment runtime treats it specially. If the user describes variants as "A/B", "old/new",
+                    "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not
+                    "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`,
+                    `variant_a`, etc.).
         ui_app: experiment
     experiment-delete:
         operation: experiments_destroy
@@ -126,6 +134,9 @@ tools:
             idempotent: false
         title: Duplicate experiment
         description: >
+            Load the managing-experiment-lifecycle skill for preconditions and side effects.
+
+
             Create a copy of an experiment as a new draft. The duplicate includes the original's metrics, parameters,
             and configuration but starts fresh with no dates or results. Rejects experiments that use legacy metrics
             (ExperimentTrendsQuery/ExperimentFunnelsQuery).
@@ -149,7 +160,7 @@ tools:
         title: End experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             End a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped.
@@ -184,10 +195,11 @@ tools:
             user's reference first.
 
 
-            Returns the full experiment object including: status (draft/running/stopped), start_date and end_date,
-            linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion
-            and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time),
-            stats_config, and type (web/product).
+            Returns the full experiment object including: status (draft/running/paused/stopped — "paused" is a virtual
+            value returned when the experiment is launched but its feature flag has been deactivated), start_date and
+            end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays,
+            conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and
+            recommended_running_time), stats_config, and type (web/product).
         ui_app: experiment
     experiment-holdouts-create:
         operation: experiment_holdouts_create
@@ -220,7 +232,7 @@ tools:
         title: Launch experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Launch a draft experiment. Validates the feature flag has at least 2 multivariate variants with "control" as
@@ -251,17 +263,17 @@ tools:
             the finding-experiments skill for guidance on searching by name, status, recency, or description.
 
 
-            Supports filtering by status ("draft", "running", "stopped", "complete" which maps to stopped, or "all"),
-            archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name.
-            Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and "status").
-            Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use
-            the returned ID for get/update/lifecycle tools.
+            Supports filtering by status ("draft", "running", "paused", "stopped", "complete" which maps to stopped, or
+            "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on
+            name. Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and
+            "status"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics
+            summary. Use the returned ID for get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
-                    Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, no end date),
-                    "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived
-                    experiments.
+                    Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active),
+                    "paused" (launched, flag deactivated — mutually exclusive with running), "stopped" or "complete"
+                    (both mean ended), "all" (no filter). Defaults to all non-archived experiments.
         ui_app: experiment-list
         response:
             include:
@@ -289,7 +301,7 @@ tools:
         title: Pause experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Pause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer
@@ -318,7 +330,7 @@ tools:
         title: Reset experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Reset an experiment back to draft state. Clears start_date, end_date, conclusion, conclusion_comment, and
@@ -348,7 +360,7 @@ tools:
         title: Resume experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Resume a paused experiment by reactivating its feature flag (sets flag active=true). Users are re-bucketed
@@ -394,7 +406,7 @@ tools:
         title: Ship experiment variant
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Ship a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant
@@ -463,7 +475,7 @@ tools:
         title: Unarchive experiment
         description: >
             Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
-            user's reference first.
+            user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
             Unarchive an archived experiment to restore it to the default list view.

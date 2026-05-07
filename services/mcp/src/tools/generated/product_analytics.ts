@@ -3,12 +3,17 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    InsightsActivityRetrieveParams,
+    InsightsActivityRetrieveQueryParams,
+    InsightsAllActivityRetrieveQueryParams,
     InsightsCreateBody,
     InsightsDestroyParams,
     InsightsListQueryParams,
     InsightsPartialUpdateBody,
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
+    InsightsRetrieveQueryParams,
+    InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -27,8 +32,32 @@ const AssistantDataVisualizationGoalLine = z.object({
     value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
 })
 
+const AssistantDataVisualizationYAxisSettings = z.object({
+    label: z.string().describe('Label rendered beside this Y axis.').optional(),
+    scale: z.enum(['linear', 'logarithmic']).describe('Scale used for this Y axis.').optional(),
+    showGridLines: z.coerce.boolean().describe('Show grid lines for this Y axis.').optional(),
+    showTicks: z.coerce.boolean().describe('Show tick labels on this Y axis.').optional(),
+    startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
+})
+
+const AssistantDataVisualizationAxisDisplaySettings = z.object({
+    yAxisPosition: z
+        .enum(['left', 'right'])
+        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
+        .optional(),
+})
+
+const AssistantDataVisualizationAxisSettings = z.object({
+    display: AssistantDataVisualizationAxisDisplaySettings.describe(
+        'Display settings for a plotted Y series.'
+    ).optional(),
+})
+
 const AssistantDataVisualizationAxis = z.object({
     column: z.string().describe('Name of a column returned by the SQL query to map onto this axis.'),
+    settings: AssistantDataVisualizationAxisSettings.describe(
+        'Optional series settings. Only applies to Y-axis series.'
+    ).optional(),
 })
 
 const AssistantDataVisualizationChartSettings = z.object({
@@ -36,6 +65,10 @@ const AssistantDataVisualizationChartSettings = z.object({
         .array(AssistantDataVisualizationGoalLine)
         .describe('Horizontal goal lines drawn across the chart.')
         .optional(),
+    leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
+    rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
+        'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
+    ).optional(),
     seriesBreakdownColumn: z
         .string()
         .nullable()
@@ -52,6 +85,7 @@ const AssistantDataVisualizationChartSettings = z.object({
     xAxis: AssistantDataVisualizationAxis.describe(
         'Column used as the X axis. Typically a time bucket or categorical column.'
     ).optional(),
+    xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
     yAxis: z
         .array(AssistantDataVisualizationAxis)
         .describe('One or more numeric columns plotted as Y series.')
@@ -165,6 +199,21 @@ const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> 
 })
 
 const InsightGetSchema = InsightsRetrieveParams.omit({ project_id: true })
+    .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
+    .extend({
+        filters_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+            ),
+        variables_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            ),
+    })
 
 const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-get',
@@ -174,6 +223,10 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
         const result = await context.api.request<Schemas.Insight>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                filters_override: params.filters_override,
+                variables_override: params.variables_override,
+            },
         })
         const filtered = omitResponseFields(result, [
             'result',
@@ -242,6 +295,74 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Sc
     },
 })
 
+const InsightsActivityRetrieveSchema = InsightsActivityRetrieveParams.omit({ project_id: true }).extend(
+    InsightsActivityRetrieveQueryParams.omit({ format: true }).shape
+)
+
+const insightsActivityRetrieve = (): ToolBase<
+    typeof InsightsActivityRetrieveSchema,
+    WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
+> => ({
+    name: 'insights-activity-retrieve',
+    schema: InsightsActivityRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsActivityRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'detail.changes.*.before',
+                    'detail.changes.*.after',
+                    'detail.trigger',
+                    'detail.type',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/insights')
+    },
+})
+
+const InsightsAllActivityRetrieveSchema = InsightsAllActivityRetrieveQueryParams.omit({ format: true })
+
+const insightsAllActivityRetrieve = (): ToolBase<
+    typeof InsightsAllActivityRetrieveSchema,
+    WithPostHogUrl<Schemas.ActivityLogPaginatedResponse>
+> => ({
+    name: 'insights-all-activity-retrieve',
+    schema: InsightsAllActivityRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsAllActivityRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/activity/`,
+            query: {
+                limit: params.limit,
+                page: params.page,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'detail.changes.*.before',
+                    'detail.changes.*.after',
+                    'detail.trigger',
+                    'detail.type',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/insights')
+    },
+})
+
 const InsightsListSchema = InsightsListQueryParams.omit({ format: true, basic: true, refresh: true })
 
 const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Schemas.PaginatedInsightList>> => ({
@@ -306,10 +427,67 @@ const insightsList = (): ToolBase<typeof InsightsListSchema, WithPostHogUrl<Sche
     },
 })
 
+const InsightsTrendingRetrieveSchema = InsightsTrendingRetrieveQueryParams.omit({ format: true })
+
+const insightsTrendingRetrieve = (): ToolBase<
+    typeof InsightsTrendingRetrieveSchema,
+    WithPostHogUrl<Schemas.PaginatedTrendingInsightList>
+> => ({
+    name: 'insights-trending-retrieve',
+    schema: InsightsTrendingRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InsightsTrendingRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTrendingInsightList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/trending/`,
+            query: {
+                days: params.days,
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'short_id',
+                    'name',
+                    'derived_name',
+                    'description',
+                    'tags',
+                    'favorited',
+                    'dashboards',
+                    'created_at',
+                    'created_by',
+                    'last_modified_at',
+                    'last_modified_by',
+                    'last_viewed_at',
+                    'view_count',
+                    'viewers',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/insights/${item.short_id}`))
+                ),
+            },
+            '/insights'
+        )
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'insight-create': insightCreate,
     'insight-delete': insightDelete,
     'insight-get': insightGet,
     'insight-update': insightUpdate,
+    'insights-activity-retrieve': insightsActivityRetrieve,
+    'insights-all-activity-retrieve': insightsAllActivityRetrieve,
     'insights-list': insightsList,
+    'insights-trending-retrieve': insightsTrendingRetrieve,
 }

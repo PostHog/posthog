@@ -13,7 +13,7 @@ import { GeoIPService, GeoIp } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
 import { TeamManager } from '../../utils/team-manager'
-import { CdpCoreServicesConfig } from '../cdp-services'
+import { CdpCoreServicesConfig, createCdpReaderRedisPool } from '../cdp-services'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
@@ -64,6 +64,11 @@ export const hogWatcherLatency = new Histogram({
 export const hogTransformationPendingInvocationResults = new Gauge({
     name: 'hog_transformation_pending_invocation_results',
     help: 'Number of invocation results accumulated and waiting to be processed. High values indicate memory accumulation.',
+})
+
+export const hogTransformationUnexpectedErrors = new Counter({
+    name: 'hog_transformation_unexpected_errors_total',
+    help: 'Number of unexpected errors during transformation execution. Any occurrence should trigger an alert as the transformation is skipped.',
 })
 
 export interface TransformationResult {
@@ -242,6 +247,7 @@ export class HogTransformerService {
             try {
                 result = await this.executeHogFunction(hogFunction, globals)
             } catch (err) {
+                hogTransformationUnexpectedErrors.inc()
                 logger.error('⚠️', 'Unexpected error executing transformation', {
                     function_id: hogFunction.id,
                     team_id: event.team_id,
@@ -449,6 +455,8 @@ export function createHogTransformerService(
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
+    const redisReader = createCdpReaderRedisPool(config, redis, 'hog-transformer-redis')
+
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const emailService = new EmailService(
@@ -497,7 +505,8 @@ export function createHogTransformerService(
             observeResultsBufferTimeMs: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
             observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
         },
-        redis
+        redis,
+        redisReader
     )
 
     return new HogTransformerService(

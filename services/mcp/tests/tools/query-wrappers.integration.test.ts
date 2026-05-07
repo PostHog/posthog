@@ -68,6 +68,41 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
         })
+
+        it('should execute trends with a GroupNode', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-trends')
+            const result = (await tool.handler(context, {
+                series: [
+                    {
+                        kind: 'GroupNode',
+                        operator: 'OR',
+                        name: 'Pageviews on Safari, Pageleaves on Chrome',
+                        math: 'total',
+                        nodes: [
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageview',
+                                name: 'Pageview',
+                                math: 'total',
+                                properties: [{ key: '$browser', operator: 'exact', type: 'event', value: ['Safari'] }],
+                            },
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageleave',
+                                name: 'Pageleave',
+                                math: 'total',
+                                properties: [{ key: '$browser', operator: 'exact', type: 'event', value: ['Chrome'] }],
+                            },
+                        ],
+                    },
+                ],
+                dateRange: { date_from: '-7d' },
+                interval: 'day',
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+        })
     })
 
     describe('query-funnel', () => {
@@ -86,6 +121,40 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             // Formatted results should contain pipe-separated values (the formatter output)
             expect(typeof result.results).toBe('object')
+            expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
+        })
+
+        it('should execute a funnel with a GroupNode step using per-node property filters', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-funnel')
+            const result = (await tool.handler(context, {
+                series: [
+                    { kind: 'EventsNode', event: '$pageview' },
+                    {
+                        kind: 'GroupNode',
+                        operator: 'OR',
+                        name: 'Pageview on Safari, Pageleave on Chrome',
+                        nodes: [
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageview',
+                                name: 'Pageview',
+                                properties: [{ key: '$browser', operator: 'exact', type: 'event', value: ['Safari'] }],
+                            },
+                            {
+                                kind: 'EventsNode',
+                                event: '$pageleave',
+                                name: 'Pageleave',
+                                properties: [{ key: '$browser', operator: 'exact', type: 'event', value: ['Chrome'] }],
+                            },
+                        ],
+                    },
+                ],
+                dateRange: { date_from: '-7d' },
+            })) as any
+
+            expect(result).toHaveProperty('results')
+            expect(result).toHaveProperty('_posthogUrl')
             expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
             expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
         })

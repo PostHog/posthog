@@ -10,7 +10,7 @@ InjectedState, but whole-key replacement does not.
 import re
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
@@ -18,6 +18,9 @@ from langgraph.prebuilt import InjectedState
 from posthog.hogql import ast
 
 from posthog.temporal.llm_analytics.eval_reports.report_agent.schema import MAX_REPORT_SECTIONS, Citation, ReportSection
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 # Strict UUID match for validating IDs before string-interpolating into HogQL
 # and before storing in Citation. Generation IDs reach this code from the LLM,
@@ -66,7 +69,14 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
 
 
 def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = None) -> list[list]:
-    """Execute a HogQL query and return results."""
+    """Execute a HogQL query against `events` and return results.
+
+    Used by every query in this module that does NOT read the six stripped
+    heavy columns (`input`, `output`, `output_choices`, `input_state`,
+    `output_state`, `tools`). Sweeping these through the resolver too would
+    only buy uniform `ai_query_source` tagging — a deliberate scope choice,
+    not load-bearing for the strip-heavy migration.
+    """
     from posthog.hogql.parser import parse_select
     from posthog.hogql.query import execute_hogql_query
 
@@ -83,6 +93,34 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
             placeholders=placeholders or {},
             team=team,
         )
+
+    return result.results or []
+
+
+def _execute_hogql_via_ai_events(team: "Team", query_str: str, placeholders: dict | None = None) -> list[list]:
+    """Execute a HogQL query written against `posthog.ai_events` with the events-table fallback.
+
+    Use this only for queries that read heavy columns (`input`, `output`,
+    `output_choices`, `input_state`, `output_state`, `tools`) — those are
+    stripped from `events.properties` post-cutover and only survive in the
+    dedicated `ai_events` table. Other queries should keep using
+    `_execute_hogql` against `events`.
+    """
+    from posthog.hogql.parser import parse_select
+
+    from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+
+    query = parse_select(query_str)
+
+    # `execute_with_ai_events_fallback` wraps its own
+    # `tags_context(product=Product.LLM_ANALYTICS)` internally; no need to
+    # double-wrap here.
+    result = execute_with_ai_events_fallback(
+        query=query,
+        placeholders=placeholders or {},
+        team=team,
+        query_type="EvalReportAgent",
+    )
 
     return result.results or []
 
@@ -401,8 +439,6 @@ def sample_generation_details(
     Args:
         generation_ids: List of generation IDs to look up (max 20)
     """
-    team_id = state["team_id"]
-
     if not generation_ids:
         return json.dumps([])
 
@@ -418,33 +454,56 @@ def sample_generation_details(
     # which the SDK doesn't set). Match on the event uuid column.
     # $ai_output is empty for chat-format SDK calls (most OpenAI/Anthropic).
     # The actual content lives in $ai_output_choices. Use COALESCE to fall back.
-    rows = _execute_hogql(
-        team_id,
+    # Reads heavy `input` / `output` / `output_choices` / `input_state` /
+    # `output_state` — must go through ai_events (post-strip those are NULL on
+    # events). On the events fallback the column rewriter rewrites these
+    # native columns back to `properties.$ai_*`, so the coalesce semantics are
+    # preserved on both branches.
+    from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
+    from posthog.models import Team
+
+    team = Team.objects.get(id=state["team_id"])
+    ts_start, ts_end = _widened_ts_window(state)
+    trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
+        team=team,
+        generation_uuids=ids_to_fetch,
+        ts_start=ts_start,
+        ts_end=ts_end,
+        query_type="EvalReportAgentTraceIdResolve",
+    )
+    trace_ids = sorted({tid for tid in trace_id_by_uuid.values() if tid})
+    if not trace_ids:
+        return json.dumps([])
+
+    rows = _execute_hogql_via_ai_events(
+        team,
         """
         SELECT
             toString(uuid) as generation_id,
-            properties.$ai_model as model,
-            properties.$ai_input as input,
+            model,
+            input,
             coalesce(
-                nullIf(properties.$ai_output, ''),
-                properties.$ai_output_choices
+                nullIf(output, ''),
+                output_choices
             ) as output,
-            properties.$ai_input_tokens as input_tokens,
-            properties.$ai_output_tokens as output_tokens,
-            properties.$ai_trace_id as trace_id,
-            properties.$ai_is_error as is_error,
-            properties.$ai_error as error,
+            input_tokens,
+            output_tokens,
+            trace_id,
+            is_error,
+            error,
             properties.$ai_tools_called as tools_called,
             properties.$ai_tool_call_count as tool_call_count,
-            properties.$ai_input_state as input_state,
-            properties.$ai_output_state as output_state
-        FROM events
+            input_state,
+            output_state
+        FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
+            AND trace_id IN {trace_ids}
             AND toString(uuid) IN {ids}
         LIMIT {limit}
         """,
         placeholders={
             "ids": ast.Array(exprs=[ast.Constant(value=gid) for gid in ids_to_fetch]),
+            "trace_ids": ast.Array(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
             "limit": ast.Constant(value=len(ids_to_fetch)),
         },
     )
@@ -497,6 +556,10 @@ def get_generation_detail(
     if not _UUID_RE.fullmatch(generation_id):
         return json.dumps({"error": "Invalid generation ID format"})
 
+    from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
+    from posthog.models import Team
+
+    team = Team.objects.get(id=team_id)
     ts_start, ts_end = _widened_ts_window(state)
     shared_placeholders = {
         "generation_id": ast.Constant(value=generation_id),
@@ -504,41 +567,57 @@ def get_generation_detail(
         "ts_end": ast.Constant(value=ts_end),
     }
 
-    # Full generation event data
-    gen_rows = _execute_hogql(
-        team_id,
+    trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
+        team=team,
+        generation_uuids=[generation_id],
+        ts_start=ts_start,
+        ts_end=ts_end,
+        query_type="EvalReportAgentTraceIdResolve",
+    )
+    trace_id = trace_id_by_uuid.get(generation_id)
+    if not trace_id:
+        return json.dumps({"error": f"Generation {generation_id} not found"})
+
+    gen_placeholders = {
+        "generation_id": shared_placeholders["generation_id"],
+        "trace_id": ast.Constant(value=trace_id),
+    }
+
+    # Full generation event data — heavy `input` / `output` / `output_choices` /
+    # `tools` / `input_state` / `output_state` only survive on ai_events.
+    gen_rows = _execute_hogql_via_ai_events(
+        team,
         """
         SELECT
             toString(uuid) as generation_id,
-            properties.$ai_model as model,
-            properties.$ai_provider as provider,
-            properties.$ai_input as input,
+            model,
+            provider,
+            input,
             coalesce(
-                nullIf(properties.$ai_output, ''),
-                properties.$ai_output_choices
+                nullIf(output, ''),
+                output_choices
             ) as output,
-            properties.$ai_input_tokens as input_tokens,
-            properties.$ai_output_tokens as output_tokens,
-            properties.$ai_total_cost_usd as cost,
-            properties.$ai_latency as latency,
-            properties.$ai_trace_id as trace_id,
+            input_tokens,
+            output_tokens,
+            total_cost_usd as cost,
+            latency,
+            trace_id,
             properties.$ai_base_url as base_url,
             timestamp,
-            properties.$ai_is_error as is_error,
-            properties.$ai_error as error,
+            is_error,
+            error,
             properties.$ai_tools_called as tools_called,
             properties.$ai_tool_call_count as tool_call_count,
-            properties.$ai_tools as tools_available,
-            properties.$ai_input_state as input_state,
-            properties.$ai_output_state as output_state
-        FROM events
+            tools as tools_available,
+            input_state,
+            output_state
+        FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
+            AND trace_id = {trace_id}
             AND toString(uuid) = {generation_id}
-            AND timestamp >= {ts_start}
-            AND timestamp < {ts_end}
         LIMIT 1
         """,
-        placeholders=shared_placeholders,
+        placeholders=gen_placeholders,
     )
 
     if not gen_rows:
@@ -624,32 +703,50 @@ def get_generation_text_repr(
     Args:
         generation_id: The generation event UUID to look up
     """
-    import orjson
+    from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
+    from posthog.models import Team
 
-    from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr
-
-    team_id = state["team_id"]
+    from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr_from_ai_events_row
 
     if not _UUID_RE.fullmatch(generation_id):
         return json.dumps({"error": "Invalid generation ID format"})
 
+    team = Team.objects.get(id=state["team_id"])
     ts_start, ts_end = _widened_ts_window(state)
 
-    rows = _execute_hogql(
-        team_id,
+    trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
+        team=team,
+        generation_uuids=[generation_id],
+        ts_start=ts_start,
+        ts_end=ts_end,
+        query_type="EvalReportAgentTraceIdResolve",
+    )
+    trace_id = trace_id_by_uuid.get(generation_id)
+    if not trace_id:
+        return json.dumps({"error": f"Generation {generation_id} not found"})
+
+    rows = _execute_hogql_via_ai_events(
+        team,
         """
-        SELECT uuid, event, timestamp, properties
-        FROM events
+        SELECT
+            toString(uuid) as uuid,
+            event,
+            timestamp,
+            input,
+            output,
+            output_choices,
+            tools,
+            is_error,
+            error
+        FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
+            AND trace_id = {trace_id}
             AND toString(uuid) = {generation_id}
-            AND timestamp >= {ts_start}
-            AND timestamp < {ts_end}
         LIMIT 1
         """,
         placeholders={
             "generation_id": ast.Constant(value=generation_id),
-            "ts_start": ast.Constant(value=ts_start),
-            "ts_end": ast.Constant(value=ts_end),
+            "trace_id": ast.Constant(value=trace_id),
         },
     )
 
@@ -657,18 +754,19 @@ def get_generation_text_repr(
         return json.dumps({"error": f"Generation {generation_id} not found"})
 
     row = rows[0]
-    props = row[3]
-    if isinstance(props, str):
-        props = orjson.loads(props)
-
-    event_data = {
-        "id": str(row[0]),
-        "event": row[1],
-        "timestamp": row[2].isoformat() if hasattr(row[2], "isoformat") else str(row[2]),
-        "properties": props,
-    }
-
-    text_repr = format_event_text_repr(event=event_data)
+    text_repr = format_event_text_repr_from_ai_events_row(
+        {
+            "uuid": row[0],
+            "event": row[1],
+            "timestamp": row[2],
+            "input": row[3],
+            "output": row[4],
+            "output_choices": row[5],
+            "tools": row[6],
+            "is_error": row[7],
+            "error": row[8],
+        }
+    )
 
     # Cap at 10k chars to avoid blowing up context
     if len(text_repr) > 10_000:
