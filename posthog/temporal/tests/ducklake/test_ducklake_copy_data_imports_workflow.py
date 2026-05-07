@@ -88,7 +88,7 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
 @pytest.mark.django_db
 async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monkeypatch):
     # Mock Delta partition detection since we can't read actual Delta metadata in tests
-    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["created_at"])
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["created_at"])
 
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam, access_key="test_key", access_secret="test_secret"
@@ -143,7 +143,7 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam, monk
 @pytest.mark.django_db
 async def test_prepare_data_imports_ducklake_metadata_activity_no_partition(ateam, monkeypatch):
     # Mock Delta partition detection - returns empty list when no partitions
-    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: [])
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: [])
 
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam, access_key="test_key", access_secret="test_secret"
@@ -189,7 +189,7 @@ async def test_prepare_data_imports_ducklake_metadata_activity_no_partition(atea
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_prepare_data_imports_ducklake_metadata_activity_with_prefix(ateam, monkeypatch):
-    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: [])
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: [])
 
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam, access_key="test_key", access_secret="test_secret"
