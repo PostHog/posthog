@@ -989,9 +989,10 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
     },
     upsert_hog_function: {
-        name: 'Manage CDP functions',
-        description: 'Manage CDP functions for destinations, transformations, and alert delivery',
-        product: Scene.Transformations,
+        name: 'Manage pipeline destinations',
+        description:
+            'Manage pipeline destinations and transformations, including Slack and webhook delivery for alerts',
+        product: Scene.Pipeline,
         icon: iconForType('data_warehouse'),
         modes: [AgentMode.ProductAnalytics],
         displayFormatter: (toolCall) => {

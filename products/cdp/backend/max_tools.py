@@ -31,7 +31,9 @@ from posthog.hogql.parser import parse_program
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.cdp.validation import compile_hog
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from posthog.models.hog_functions.utils import humanize_hog_function_type
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
@@ -343,33 +345,31 @@ class CreateHogFunctionInputsTool(MaxTool):
         return HogFunctionInputsOutput(inputs_schema=inputs_schema)
 
 
-# Function types whose enabled creates produce externally-visible side-effects and should require
-# user approval. `destination` / `site_destination` / `internal_destination` push outbound traffic;
-# `source_webhook` accepts incoming traffic on a registered URL; `site_app` injects JavaScript into
-# every page load. `transformation` runs in-process during ingestion. `warehouse_source_webhook` is
-# rejected entirely by HogFunctionSerializer.validate_type (posthog/api/hog_function.py:266) so it
-# can never reach the dangerous-op gate; it is excluded from this set on purpose.
-_EXTERNAL_SIDE_EFFECT_TYPES: frozenset[HogFunctionType] = frozenset(
+# Function types whose enabled creates require user approval. `destination` /
+# `site_destination` / `internal_destination` push outbound traffic; `source_webhook` accepts
+# incoming traffic on a registered URL; `site_app` injects JavaScript into every page load;
+# `transformation` mutates every event flowing through the team's ingestion pipeline (broader
+# blast radius than any single destination). `warehouse_source_webhook` is rejected entirely by
+# HogFunctionSerializer.validate_type (posthog/api/hog_function.py:266) so it can never reach
+# the dangerous-op gate; it is excluded from this set on purpose.
+_DANGEROUS_CREATE_TYPES: frozenset[HogFunctionType] = frozenset(
     {
         HogFunctionType.DESTINATION,
         HogFunctionType.SITE_DESTINATION,
         HogFunctionType.INTERNAL_DESTINATION,
         HogFunctionType.SOURCE_WEBHOOK,
         HogFunctionType.SITE_APP,
+        HogFunctionType.TRANSFORMATION,
     }
 )
 
 # Recipe payload + event property catalog shared with the MCP cdp-functions-create tool. Single
 # source of truth — edit the markdown, not this constant. See `description_appendix_file` in
-# products/cdp/mcp/cdp_functions.yaml for the MCP-side consumer. The file is read at import time
-# but wrapped so a missing markdown degrades to a recipe-less description rather than killing the
-# import graph (which would also disable unrelated tools in this module).
-try:
-    _INSIGHT_ALERT_DESTINATION_RECIPE = (
-        Path(__file__).resolve().parent.parent / "recipes" / "insight_alert_destination.md"
-    ).read_text(encoding="utf-8")
-except FileNotFoundError:
-    _INSIGHT_ALERT_DESTINATION_RECIPE = ""
+# products/cdp/mcp/cdp_functions.yaml for the MCP-side consumer, which hard-fails on a missing
+# file; we match that here so a build mistake doesn't silently degrade the tool description.
+_INSIGHT_ALERT_DESTINATION_RECIPE = (
+    Path(__file__).resolve().parent.parent / "recipes" / "insight_alert_destination.md"
+).read_text(encoding="utf-8")
 
 _UPSERT_HOG_FUNCTION_PRELUDE = dedent(
     """
@@ -494,22 +494,28 @@ class UpsertHogFunctionTool(MaxTool):
 
     async def is_dangerous_operation(self, action: UpsertHogFunctionAction, **kwargs) -> bool:
         if isinstance(action, UpdateHogFunctionAction):
-            # No-op updates short-circuit to "no changes" before any external effect — don't waste
-            # the user's approval on something that isn't going to do anything anyway.
+            # `_handle_update` short-circuits with a no-changes message when nothing is set, so
+            # there is nothing for the user to approve.
             changes = action.model_dump(exclude={"action", "function_id"}, exclude_unset=True)
             return bool(changes)
-        return action.enabled and action.type in _EXTERNAL_SIDE_EFFECT_TYPES
+        return action.enabled and action.type in _DANGEROUS_CREATE_TYPES
 
     async def format_dangerous_operation_preview(self, action: UpsertHogFunctionAction, **kwargs) -> str:
         if isinstance(action, UpdateHogFunctionAction):
             fn = await self._resolve_function(action.function_id)
             label = f"'{fn.name}'" if fn else f"(ID: {action.function_id})"
             changed_fields = sorted(action.model_dump(exclude={"action", "function_id"}, exclude_unset=True).keys())
-            field_summary = f" — fields: {', '.join(f'`{f}`' for f in changed_fields)}" if changed_fields else ""
+            field_summary = f" — changing: {', '.join(f'`{f}`' for f in changed_fields)}" if changed_fields else ""
             return f"**Update** function {label}{field_summary}"
 
         name = action.name or action.template_id or action.type
-        return f"**Create** {action.type} '{name}' (enabled — will start processing matching events immediately)"
+        type_label = humanize_hog_function_type(action.type)
+        status = (
+            "enabled — will start processing matching events immediately"
+            if action.enabled
+            else "disabled — will not run until enabled"
+        )
+        return f"**Create** {type_label} '{name}' ({status})"
 
     async def _arun_impl(self, action: UpsertHogFunctionAction) -> tuple[str, dict[str, Any]]:
         if isinstance(action, CreateHogFunctionAction):
@@ -532,8 +538,15 @@ class UpsertHogFunctionTool(MaxTool):
         except drf_serializers.ValidationError as e:
             return f"Validation failed: {e.detail}", {"error": "validation_failed", "details": e.detail}
         except Exception as e:
+            # Don't echo the raw exception text to the LLM (and through it to the browser): DB /
+            # ORM messages can include table or column names. capture_exception preserves the full
+            # error for diagnostics in PostHog Sentry.
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"Failed to create function: {str(e)}", {"error": "creation_failed", "details": str(e)}
+            return "Failed to create function due to an internal error. Please try again.", {
+                "error": "creation_failed",
+            }
+
+        await sync_to_async(self._log_activity)(function, activity="created", previous=None)
 
         status = "enabled" if function.enabled else "disabled"
         artifact = self._artifact_for(function)
@@ -554,13 +567,21 @@ class UpsertHogFunctionTool(MaxTool):
         if not data:
             return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
+        # Re-fetch a fresh instance so changes_between has a frozen "before" snapshot —
+        # serializer.save() mutates the existing reference in place.
+        before_update = await HogFunction.objects.aget(pk=function.id)
         try:
             function = await sync_to_async(self._save_via_serializer)(data, instance=function)
         except drf_serializers.ValidationError as e:
             return f"Validation failed: {e.detail}", {"error": "validation_failed", "details": e.detail}
         except Exception as e:
+            # See _handle_create — same rationale for not echoing str(e).
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
-            return f"Failed to update function: {str(e)}", {"error": "update_failed", "details": str(e)}
+            return "Failed to update function due to an internal error. Please try again.", {
+                "error": "update_failed",
+            }
+
+        await sync_to_async(self._log_activity)(function, activity="updated", previous=before_update)
 
         artifact = self._artifact_for(function)
         return (
@@ -577,6 +598,23 @@ class UpsertHogFunctionTool(MaxTool):
             "function_type": function.type,
             "enabled": function.enabled,
         }
+
+    def _log_activity(self, function: HogFunction, *, activity: str, previous: HogFunction | None) -> None:
+        # Mirror what HogFunctionViewSet.perform_create / perform_update write so that agent-driven
+        # mutations show up in the same audit trail as human edits.
+        detail_kwargs: dict[str, Any] = {"name": function.name, "type": humanize_hog_function_type(function.type)}
+        if previous is not None:
+            detail_kwargs["changes"] = changes_between("HogFunction", previous=previous, current=function)
+        log_activity(
+            organization_id=self._team.organization_id,
+            team_id=self._team.id,
+            user=self._user,
+            was_impersonated=False,
+            item_id=str(function.id),
+            scope="HogFunction",
+            activity=activity,
+            detail=Detail(**detail_kwargs),
+        )
 
     def _save_via_serializer(self, data: dict[str, Any], *, instance: HogFunction | None) -> HogFunction:
         """Routing through the serializer (rather than ``HogFunction.objects.create``) is the blessed
@@ -598,10 +636,13 @@ class UpsertHogFunctionTool(MaxTool):
         return serializer.save(team=team) if instance is None else serializer.save()
 
     async def _resolve_function(self, function_id: str) -> HogFunction | None:
+        # Match the live viewset's `safely_get_queryset` (posthog/api/hog_function.py): soft-deleted
+        # rows are not reachable for update — un-deleting must go through the explicit API path,
+        # not surface from a Max conversation that happens to remember a stale id.
         normalized = str(function_id).strip()
         if not normalized:
             return None
         try:
-            return await HogFunction.objects.aget(id=normalized, team_id=self._team.id)
+            return await HogFunction.objects.aget(id=normalized, team_id=self._team.id, deleted=False)
         except (HogFunction.DoesNotExist, ValueError):
             return None

@@ -205,11 +205,16 @@ class TestUpsertHogFunctionTool(BaseTest):
         [
             ("enabled_internal_destination", "internal_destination", "template-slack", True, True),
             ("disabled_internal_destination", "internal_destination", "template-slack", False, False),
-            ("enabled_transformation", "transformation", None, True, False),
+            ("enabled_transformation", "transformation", None, True, True),
+            ("disabled_transformation", "transformation", None, False, False),
             ("enabled_destination", "destination", None, True, True),
+            ("disabled_destination", "destination", None, False, False),
             ("enabled_site_destination", "site_destination", None, True, True),
+            ("disabled_site_destination", "site_destination", None, False, False),
             ("enabled_source_webhook", "source_webhook", None, True, True),
+            ("disabled_source_webhook", "source_webhook", None, False, False),
             ("enabled_site_app", "site_app", None, True, True),
+            ("disabled_site_app", "site_app", None, False, False),
         ]
     )
     @pytest.mark.asyncio
@@ -256,7 +261,103 @@ class TestUpsertHogFunctionTool(BaseTest):
         action = UpdateHogFunctionAction(function_id=function_id, name="Renamed", enabled=False)
         preview = await tool.format_dangerous_operation_preview(action)
 
-        assert "fields:" in preview
+        assert "changing:" in preview
         assert "`enabled`" in preview
         assert "`name`" in preview
         assert "Renamed" not in preview  # field values are not leaked into the preview
+
+    @parameterized.expand(
+        [
+            ("enabled", True, "enabled"),
+            ("disabled", False, "disabled"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_create_preview_uses_human_label_and_status(self, _name: str, enabled: bool, expected: str):
+        # Pins the user-facing approval prompt: it must use a human-readable type label (not the
+        # raw `internal_destination` enum value) and reflect `action.enabled` correctly.
+        tool = self._setup_tool()
+        action = CreateHogFunctionAction(
+            type="internal_destination",
+            template_id="template-slack",
+            name="Alert → Slack",
+            filters=self._alert_filter("alert-preview"),
+            enabled=enabled,
+        )
+        preview = await tool.format_dangerous_operation_preview(action)
+
+        assert "internal_destination" not in preview
+        assert "internal destination" in preview
+        assert expected in preview
+
+    @pytest.mark.asyncio
+    async def test_update_skips_soft_deleted_function(self):
+        # The viewset hides soft-deleted rows; mirror that here so an agent that remembers a
+        # stale id can't silently revive the function.
+        tool = self._setup_tool()
+        _, create_artifact = await tool._arun_impl(
+            action=CreateHogFunctionAction(
+                type="internal_destination",
+                template_id="template-slack",
+                name="To be deleted",
+                filters=self._alert_filter("alert-deleted"),
+                inputs={"slack_workspace": {"value": 1}, "channel": {"value": "C0123ABC"}},
+            )
+        )
+        function_id = create_artifact["function_id"]
+
+        await sync_to_async(HogFunction.objects.filter(id=function_id).update)(deleted=True)
+
+        content, artifact = await tool._arun_impl(action=UpdateHogFunctionAction(function_id=function_id, enabled=True))
+
+        assert "not found" in content
+        assert artifact["error"] == "function_not_found"
+
+    @pytest.mark.asyncio
+    async def test_create_writes_activity_log(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        tool = self._setup_tool()
+        _, artifact = await tool._arun_impl(
+            action=CreateHogFunctionAction(
+                type="internal_destination",
+                template_id="template-slack",
+                name="Activity log create",
+                filters=self._alert_filter("alert-activity"),
+                inputs={"slack_workspace": {"value": 1}, "channel": {"value": "C0123ABC"}},
+            )
+        )
+
+        log = await sync_to_async(ActivityLog.objects.get)(
+            scope="HogFunction", item_id=artifact["function_id"], activity="created"
+        )
+        assert log.team_id == self.team.id
+        assert log.user_id == self.user.id
+
+    @pytest.mark.asyncio
+    async def test_update_writes_activity_log_with_changes(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        tool = self._setup_tool()
+        # Create disabled to avoid the post-save plugin-server status check that the serializer
+        # triggers for enabled functions (HogFunctionSerializer.update at hog_function.py:423).
+        _, create_artifact = await tool._arun_impl(
+            action=CreateHogFunctionAction(
+                type="internal_destination",
+                template_id="template-slack",
+                name="Before",
+                enabled=False,
+                filters=self._alert_filter("alert-activity-update"),
+                inputs={"slack_workspace": {"value": 1}, "channel": {"value": "C0123ABC"}},
+            )
+        )
+        function_id = create_artifact["function_id"]
+
+        await tool._arun_impl(action=UpdateHogFunctionAction(function_id=function_id, name="After"))
+
+        log = await sync_to_async(
+            lambda: ActivityLog.objects.filter(scope="HogFunction", item_id=function_id, activity="updated").latest(
+                "created_at"
+            )
+        )()
+        assert any(c["field"] == "name" for c in log.detail["changes"])

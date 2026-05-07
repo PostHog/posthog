@@ -241,13 +241,18 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         properties=properties,
     )
 
+    # The recipe shipped to agents (products/cdp/recipes/insight_alert_destination.md) tells them
+    # `state` is always "Firing" because today this function is only reachable from the firing
+    # branch of dispatch_alert_notification. Pinning the literal here makes that contract
+    # self-enforcing: a future caller from an error / recovery path can't silently leak a
+    # different state into agent-authored Slack templates.
     try:
         props = {
             "alert_id": str(alert.id),
             "alert_name": alert.name,
             "insight_name": alert.insight.name,
             "insight_id": alert.insight.short_id,
-            "state": alert.state,
+            "state": AlertState.FIRING.value,
             "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
             **derive_detector_event_fields(alert.detector_config),
             **properties,
