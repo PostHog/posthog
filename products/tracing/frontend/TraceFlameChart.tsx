@@ -500,7 +500,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 const isUnmatched = !span.matched_filter
                 const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
                 const seriesColor = isError ? ERROR_COLOR : getSeriesColor(seriesIndex)
-                const barColor = isUnmatched ? 'var(--border)' : seriesColor
+                const barColor = seriesColor
                 const isSelected = selectedSpanId === span.uuid
 
                 return (
