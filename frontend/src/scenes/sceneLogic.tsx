@@ -299,25 +299,20 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.debugHog(),
     urls.debugQuery(),
     urls.activity(),
-    // OAuth + third-party integration round-trips. These must complete (i.e. land on their
-    // callback/landing scene and run their effects) even when project onboarding is incomplete,
-    // otherwise the redirect to /onboarding swallows the OAuth response and the integration
-    // never gets created. Covers:
-    //   - /integrations/<kind>/callback (urls.integrationsRedirect, e.g. github/stripe/etc.)
-    //   - /integrations/stripe/confirm-install (urls.stripeConfirmInstall)
-    //   - /integrations/vercel/link-error (urls.vercelLinkError)
-    //   - /account-connected/<kind> (urls.accountConnected — return page after linking GitHub
-    //     etc.; backend at /complete/github-link/ redirects here)
-    //   - /oauth/authorize and any /oauth/* callback path
-    //   - /connect/vercel/link (urls.vercelConnect)
-    //   - /agentic/authorize (urls.agenticAuthorize)
-    //   - /cli/authorize and /cli/live (CLI auth round-trip)
-    '/integrations',
-    '/account-connected',
-    '/oauth',
-    '/connect',
+    // /integrations/* — OAuth + third-party round-trips: must complete (callback/landing effects)
+    // even when onboarding is incomplete, else /onboarding swallows the response. E.g.
+    // /integrations/<kind>/callback (urls.integrationsRedirect), stripe confirm-install, vercel link-error.
+    urls.integrationsRoutesPrefix(),
+    // /account-connected/<kind> — return after linking GitHub etc.; /complete/github-link/ redirects here.
+    urls.accountConnectedRoutesPrefix(),
+    // /oauth/authorize and any /oauth/* callback path.
+    urls.oauthRoutesPrefix(),
+    // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
+    urls.connectRoutesPrefix(),
+    // /agentic/authorize.
     urls.agenticAuthorize(),
-    '/cli',
+    // /cli/authorize, /cli/live (CLI auth round-trip).
+    urls.cliRoutesPrefix(),
     '/startups',
     '/coupons',
 ]
