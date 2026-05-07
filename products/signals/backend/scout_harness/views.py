@@ -410,7 +410,21 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             "mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
         ),
     )
-    @action(detail=False, methods=["get"], url_path="current", url_name="current", pagination_class=None)
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="current",
+        url_name="current",
+        pagination_class=None,
+        # Without explicit `required_scopes`, `APIScopePermission` falls into the
+        # "no scopes declared" branch in `posthog/permissions.py:490` and rejects
+        # the request — the rejection message even reads "does not support
+        # personal API key access" regardless of whether the request was
+        # authenticated via PAK or OAuth, because that branch fires for both.
+        # `signal_agent:read` is the public, user-grantable read scope already
+        # used by `runs-list`, `runs-retrieve`, and `memory-list` on this surface.
+        required_scopes=["signal_agent:read"],
+    )
     def current(self, request: Request, *args, **kwargs) -> Response:
         profile = get_project_profile(team_id=self.team_id)
         return Response(ProjectProfileSerializer(profile.as_dict()).data)
