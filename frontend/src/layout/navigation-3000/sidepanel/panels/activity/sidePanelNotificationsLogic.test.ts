@@ -155,3 +155,41 @@ describe('sidePanelNotificationsLogic.loadGroupChildren', () => {
         expect(logic.values.expandedGroupKeys.has(key)).toBe(false)
     })
 })
+
+describe('sidePanelNotificationsLogic.toggleGroupRead', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/environments/:tid/notifications/mark_read_bulk/': () => [200, { updated: 2 }],
+                '/api/environments/:tid/notifications/mark_unread_bulk/': () => [200, { updated: 2 }],
+            },
+        })
+        initKeaTests()
+        logic = sidePanelNotificationsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => logic.unmount())
+
+    it('marks all children read when group has unread', async () => {
+        const a = makeNotification({ id: 'a', read: false })
+        const b = makeNotification({ id: 'b', read: false })
+        logic.actions.setInAppNotifications([a, b], false)
+        const key = logic.values.groups[0].group_key
+        logic.actions.markGroupChildrenLoaded(key)
+        await logic.actions.toggleGroupRead(logic.values.groups[0])
+        expect(logic.values.groups[0].has_unread).toBe(false)
+    })
+
+    it('marks all children unread when group fully read', async () => {
+        const a = makeNotification({ id: 'a', read: true })
+        const b = makeNotification({ id: 'b', read: true })
+        logic.actions.setInAppNotifications([a, b], false)
+        const key = logic.values.groups[0].group_key
+        logic.actions.markGroupChildrenLoaded(key)
+        await logic.actions.toggleGroupRead(logic.values.groups[0])
+        expect(logic.values.groups[0].has_unread).toBe(true)
+    })
+})

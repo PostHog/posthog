@@ -119,6 +119,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         loadGroupChildren: (group: NotificationGroup) => ({ group }),
         markGroupChildrenLoaded: (groupKey: string) => ({ groupKey }),
         toggleGroupExpanded: (groupKey: string) => ({ groupKey }),
+        toggleGroupRead: (group: NotificationGroup) => ({ group }),
+        setGroupChildrenRead: (groupKey: string, read: boolean) => ({ groupKey, read }),
         initialLoadDone: true,
         startSSE: true,
         stopSSE: true,
@@ -158,6 +160,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     ),
                 markAllAsRead: (state) =>
                     state.map((n) => (n.read ? n : { ...n, read: true, read_at: new Date().toISOString() })),
+                setGroupChildrenRead: (state, { groupKey: key, read }) =>
+                    state.map((n) =>
+                        groupKey(n) === key ? { ...n, read, read_at: read ? new Date().toISOString() : null } : n
+                    ),
             },
         ],
         loadedFromApiCount: [
@@ -503,6 +509,26 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 actions.markGroupChildrenLoaded(group.group_key)
             } catch {
                 // Swallow
+            }
+        },
+        toggleGroupRead: async ({ group }) => {
+            if (!group.full_children_loaded) {
+                await actions.loadGroupChildren(group)
+            }
+            const refreshed = values.groups.find((g) => g.group_key === group.group_key)
+            if (!refreshed) {
+                return
+            }
+            const ids = refreshed.children.map((c) => c.id)
+            const targetRead = refreshed.has_unread
+            actions.setGroupChildrenRead(refreshed.group_key, targetRead)
+            const endpoint = targetRead ? 'mark_read_bulk' : 'mark_unread_bulk'
+            try {
+                await api.create(`api/environments/${values.currentProjectId}/notifications/${endpoint}/`, {
+                    notification_ids: ids,
+                })
+            } catch {
+                // Swallow; selector reflects optimistic state
             }
         },
     })),
