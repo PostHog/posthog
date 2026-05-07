@@ -429,6 +429,7 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
+    | CurrentSelectionItem
 
 export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill'] as const
 

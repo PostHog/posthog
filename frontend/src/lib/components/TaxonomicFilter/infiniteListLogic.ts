@@ -799,18 +799,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.taxonomicGroups,
             ],
             (
-                remoteItems,
-                localItems,
-                listGroupType,
-                topMatchItemsWithSkeletons,
-                searchQuery,
-                contextFilteredRecentItems,
-                contextFilteredPinnedItems,
-                suggestedPinnedMatches,
-                keywordShortcutItems,
-                value,
-                groupType,
-                taxonomicGroups
+                remoteItems: ListStorage,
+                localItems: ListStorage,
+                listGroupType: TaxonomicFilterGroupType,
+                topMatchItemsWithSkeletons: (TaxonomicDefinitionTypes | SkeletonItem)[],
+                searchQuery: string,
+                contextFilteredRecentItems: TaxonomicDefinitionTypes[],
+                contextFilteredPinnedItems: TaxonomicDefinitionTypes[],
+                suggestedPinnedMatches: TaxonomicDefinitionTypes[],
+                keywordShortcutItems: QuickFilterItem[],
+                value: string | number | null | undefined,
+                groupType: TaxonomicFilterGroupType | undefined,
+                taxonomicGroups: TaxonomicFilterGroup[]
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
@@ -853,7 +853,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
                 // see the autocapture/event-type shortcut prominently and pressing Enter picks it.
                 // Real events with the same name remain accessible below the shortcut.
-                let combinedResults: TaxonomicDefinitionTypes[] = [
+                let combinedResults = [
                     ...currentSelectionItems,
                     ...keywordShortcutItems,
                     ...recentPrefix,
