@@ -67,61 +67,70 @@ jobs:
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
 
             # Bin-pack packages into balanced test shards.
-            # Weights are approximate test durations in seconds — update periodically.
+            # Weights are approximate total durations (compile + test) in seconds,
+            # calibrated against 2-week avg CI job times (last updated: 2026-05-07).
+            # TARGET_MINUTES controls max wall-clock per shard; shard count is derived.
             - name: Compute test shards
               id: shards
               if: steps.filter.outputs.rust != 'false'
               shell: python3 {0}
               run: |
-                  import json, os
+                  import json, math, os
 
                   packages = {
-                      "assignment-coordination": 5,
-                      "batch-import-worker": 137,
-                      "capture": 198,
-                      "capture-logs": 130,
-                      "common-alloc": 37,
-                      "common-compression": 14,
-                      "common-cookieless": 72,
-                      "common-database": 10,
-                      "common-dns": 8,
-                      "common-geoip": 4,
-                      "common-hypercache": 93,
-                      "common-kafka": 68,
-                      "common-metrics": 7,
-                      "common-profiler": 49,
-                      "common-s3": 29,
-                      "cyclotron-core": 25,
-                      "cyclotron-janitor": 107,
-                      "cyclotron-node": 22,
-                      "cymbal": 173,
-                      "embedding-worker": 98,
-                      "feature-flags": 241,
-                      "health": 8,
-                      "ingestion-consumer": 5,
-                      "hogvm": 5,
-                      "k8s-awareness": 60,
-                      "kafka-assigner": 150,
-                      "kafka-deduplicator": 239,
-                      "limiters": 23,
-                      "lifecycle": 10,
-                      "personhog-coordination": 30,
-                      "personhog-leader": 30,
-                      "personhog-replica": 49,
-                      "personhog-router": 10,
-                      "posthog-symbol-data": 4,
-                      "property-defs-rs": 93,
-                      "serve-metrics": 8,
+                      "assignment-coordination": 11,
+                      "batch-import-worker": 124,
+                      "capture": 169,
+                      "capture-logs": 108,
+                      "common-alloc": 13,
+                      "common-compression": 6,
+                      "common-cookieless": 42,
+                      "common-database": 13,
+                      "common-dns": 10,
+                      "common-geoip": 13,
+                      "common-hypercache": 94,
+                      "common-kafka": 67,
+                      "common-metrics": 6,
+                      "common-profiler": 51,
+                      "common-s3": 31,
+                      "cyclotron-core": 17,
+                      "cyclotron-janitor": 139,
+                      "cyclotron-node": 31,
+                      "cymbal": 168,
+                      "embedding-worker": 25,
+                      "feature-flags": 181,
+                      "health": 27,
+                      "hogvm": 36,
+                      "ingestion-consumer": 13,
+                      "k8s-awareness": 107,
+                      "kafka-assigner": 84,
+                      "kafka-deduplicator": 211,
+                      "lifecycle": 17,
+                      "limiters": 25,
+                      "personhog-coordination": 24,
+                      "personhog-leader": 115,
+                      "personhog-replica": 140,
+                      "personhog-router": 38,
+                      "posthog-symbol-data": 19,
+                      "property-defs-rs": 136,
+                      "serve-metrics": 14,
                   }
 
-                  TARGET_SHARDS = 8
+                  # Target max minutes for the cargo-test step per shard.
+                  # Total job time ≈ this + ~2.5 min setup overhead.
+                  # Shard count is computed dynamically so adding packages doesn't
+                  # silently blow past the budget — just adds more shards.
+                  TARGET_MINUTES = 8
+                  target_seconds = TARGET_MINUTES * 60
+                  total = sum(packages.values())
+                  num_shards = max(1, math.ceil(total / target_seconds))
 
                   # Greedy bin-packing: largest first into lightest bucket
-                  buckets = [[] for _ in range(TARGET_SHARDS)]
-                  times = [0] * TARGET_SHARDS
+                  buckets = [[] for _ in range(num_shards)]
+                  times = [0] * num_shards
 
                   for pkg, t in sorted(packages.items(), key=lambda x: -x[1]):
-                      lightest = min(range(TARGET_SHARDS), key=lambda i: times[i])
+                      lightest = min(range(num_shards), key=lambda i: times[i])
                       buckets[lightest].append(pkg)
                       times[lightest] += t
 
@@ -136,6 +145,7 @@ jobs:
                   for i, b in enumerate(buckets):
                       if b:
                           print(f"Shard {i + 1} ({times[i]}s): {', '.join(sorted(b))}")
+                  print(f"\nTotal: {total}s across {num_shards} shards (target ≤{target_seconds}s/shard)")
 
                   with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                       f.write(f"matrix={json.dumps(matrix)}\n")
