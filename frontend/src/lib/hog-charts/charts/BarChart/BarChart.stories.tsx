@@ -82,9 +82,6 @@ export const HorizontalGrouped: Story = {
     },
 }
 
-// Mirrors the trends "All events" aggregated bar — single sparse-stacked series
-// at one band. Regression check that the value axis is anchored at 0 and capped
-// just past the bar's value, not centred on the value.
 export const HorizontalAggregatedSingle: Story = {
     render: () => {
         const theme = useReactiveTheme()
