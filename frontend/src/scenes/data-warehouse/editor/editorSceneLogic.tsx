@@ -284,12 +284,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 }
 
                 const updatedName = activeTab?.name !== editingInsight.name
-                // Compare against `sourceQuery` (the durable reducer) rather than
-                // `dataVisualizationLogic.values.query`. The latter is not a declared selector
-                // dependency, so reading it here would memoize against a stale value and leave
-                // the button disabled until something else dirties `sourceQuery`. In-flight
-                // axis/display edits already flow back through `setSourceQuery`, so
-                // `sourceQuery` is always up to date.
                 const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
                 // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
                 const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
