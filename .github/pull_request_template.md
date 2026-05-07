@@ -1,23 +1,9 @@
-<!-- PR authoring rules — read before filling the sections below.
-
-     PR title (conventional commits): <type>(<scope>): <description>
-       Both type and scope are required. Agents commonly skip them — do not.
-       Type: feat | fix | chore (chore covers docs, tests, config, CI, refactors).
-       Scope: the area touched (e.g. insights, cohorts, devex, ci, llma for LLM analytics).
-       Description: lowercase, no trailing period, under 72 chars, imperative mood.
+<!-- Authoring rules (agents: read).
+     Title: <type>(<scope>): <description> — type=feat|fix|chore, scope required, lowercase, no period, <72 chars.
        ✅ feat(insights): add retention graph export
-       ✅ chore(ci): bump node to 24
-       ❌ Add retention export                — missing type and scope
-       ❌ feat: Add retention export.         — capitalized, trailing period, no scope
-
-     PR description: keep sections high-level. Focus on rationale and architecture
-     for the human reviewer, not a step-by-step replay of implementation work.
-
-     Public OSS repo: title and description must be safe for external readers.
-     No internal customer names, private incidents, private Slack threads, or
-     operational metrics (e.g. exact row counts, affected team counts).
-       ❌ fix: patches issue from acme-co prod
-       ❌ fix: works fine on our 12M-row table
+       ❌ feat: Added retention export.   (capitalized, period, no scope)
+     Description: high-level rationale, not a step-by-step replay.
+     Public OSS repo: no internal customers, incidents, or operational metrics.
 -->
 
 ## Problem
