@@ -133,6 +133,13 @@ def _has_python_files(product_dir: Path) -> bool:
     return any(p for p in product_dir.rglob("*.py") if p.name != "__init__.py")
 
 
+def _cap(items: list[str], limit: int) -> list[str]:
+    """Truncate a list, appending an ellipsis row when items were dropped."""
+    if len(items) <= limit:
+        return items
+    return [*items[:limit], f"… and {len(items) - limit} more"]
+
+
 def _count_tach_depends_on(block: str) -> tuple[int, list[str]]:
     """Count non-baseline depends_on entries in a tach block.
 
@@ -198,7 +205,7 @@ def score_models(name: str, backend_dir: Path, assigned_model_counts: dict[str, 
         )
         next_steps.append(
             "Once devex has scheduled and merged the move, the rest of the maturity dimensions "
-            "(facade, presentation, boundaries) become unblockable and you can tackle them yourself."
+            "(facade, presentation, boundaries) become actionable and you can tackle them yourself."
         )
 
     return DimensionScore("models", pct, detail, next_steps=next_steps, skills=skills)
@@ -438,7 +445,7 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
             f"down into facade/logic and return contract dataclasses instead — presentation "
             f"should never hit the ORM."
         )
-        evidence.append(("ORM call sites", orm_locations[:25]))
+        evidence.append(("ORM call sites", _cap(orm_locations, 25)))
 
     # Serializers — check canonical then legacy location
     serializers_path = backend_dir / "presentation" / "serializers.py"
@@ -608,7 +615,7 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, list[s
                 f"(listed below). If a real dependency exists, route through that product's "
                 f"facade so the coupling is interface-level rather than module-level."
             )
-            evidence.append(("tach depends_on", [f"products.{d}" for d in cross_deps]))
+            evidence.append(("tach depends_on", list(cross_deps)))
     else:
         parts.append("not in tach.toml")
         next_steps.append(
@@ -651,10 +658,7 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, list[s
             f"`interfaces` to match."
         )
         # Cap evidence so the report doesn't explode for products with hundreds of violations
-        shown = inbound[:25]
-        if len(inbound) > len(shown):
-            shown = [*shown, f"… and {len(inbound) - len(shown)} more"]
-        evidence.append(("inbound violations", shown))
+        evidence.append(("inbound violations", _cap(inbound, 25)))
 
     skills = ["/isolating-product-facade-contracts"] if next_steps else []
     return DimensionScore(
@@ -722,7 +726,7 @@ def score_codegen(product_dir: Path) -> DimensionScore:
             evidence.append(("call sites", items))
         skills.append("/adopting-generated-api-types")
         skills.append("/improving-drf-endpoints")
-    elif score < 100:
+    elif score < 100 and total_calls > 0:
         next_steps.append(
             "All API calls are accounted for but none use the generated client. Run "
             "`hogli build:openapi` and migrate to the generated functions in "
@@ -887,13 +891,12 @@ def generate_report(scores: list[ProductScore]) -> str:
     return "\n".join(lines)
 
 
-def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
+def generate_detail(ps: ProductScore) -> str:
     """Generate detailed single-product maturity breakdown with tree connectors.
 
-    When verbose=True (the default), each dimension that scored below 100 is followed
-    by a "to fix" block listing concrete agent-actionable steps, an "evidence" section
-    with structured findings (call sites, violations, etc.), and the skills to invoke.
-    Set verbose=False for a terse listing matching the original output.
+    Each dimension that scored below 100 is followed by a "to fix" block listing
+    concrete agent-actionable steps, an "evidence" section with structured
+    findings (call sites, violations, etc.), and the skills to invoke.
     """
     lines: list[str] = []
 
@@ -905,14 +908,11 @@ def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
     lines.append("")
 
     applicable = list(ps.dimensions)
-    wrap_width = 88
+    target_line_width = 100
     for i, dim in enumerate(applicable):
         is_last = i == len(applicable) - 1
         connector = "\u2514\u2500" if is_last else "\u251c\u2500"
         lines.append(_dim_line(dim, connector))
-
-        if not verbose:
-            continue
 
         has_body = bool(dim.next_steps or dim.skills or dim.evidence)
         if not has_body:
@@ -926,6 +926,8 @@ def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
         gutter = f"  {guide}     "  # column under "\u251c\u2500 <name>"
         bullet_indent = f"{gutter}  "
         cont_indent = f"{gutter}    "
+        # Wrap so the rendered line (gutter + bullet + text) stays under target.
+        wrap_width = max(40, target_line_width - len(cont_indent))
 
         blank = f"  {guide}"
         sections_emitted = 0
