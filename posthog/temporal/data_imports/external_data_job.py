@@ -44,10 +44,6 @@ from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
-from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
-    SyncNewSchemasActivityInputs,
-    sync_new_schemas_activity,
-)
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -308,17 +304,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
 
-            await workflow.execute_activity(
-                sync_new_schemas_activity,
-                SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
-                ),
-            )
+            # Schema discovery used to run here on every per-schema sync, which scales
+            # disastrously for sources with thousands of schemas (each schema's tick
+            # re-fetches the entire upstream listing). It now runs on its own
+            # per-source `discover-schemas` schedule — see
+            # `data_load.service.sync_discover_schemas_schedule` and the
+            # `backfill_discovery_schedules` management command for the migration path.
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,

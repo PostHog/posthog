@@ -13,7 +13,6 @@ from posthog.temporal.data_imports.external_data_job import (
     create_external_data_job_model_activity,
     create_source_templates,
     import_data_activity_sync,
-    sync_new_schemas_activity,
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
@@ -27,6 +26,7 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     EmitDataImportSignalsWorkflow,
     emit_data_import_signals_activity,
 )
+from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import sync_new_schemas_activity
 
 WORKFLOWS = [
     ExternalDataJobWorkflow,
