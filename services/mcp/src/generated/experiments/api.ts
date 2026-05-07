@@ -1180,7 +1180,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
         stats_config: zod.unknown().nullish(),
         scheduling_config: zod.unknown().nullish(),
-        allow_unknown_events: zod.boolean().default(experimentsCreateBodyAllowUnknownEventsDefault),
+        allow_unknown_events: zod
+            .boolean()
+            .default(experimentsCreateBodyAllowUnknownEventsDefault)
+            .describe(
+                "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it)."
+            ),
         _create_in_folder: zod.string().optional(),
         conclusion: zod
             .union([
@@ -2356,7 +2361,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
         stats_config: zod.unknown().nullish(),
         scheduling_config: zod.unknown().nullish(),
-        allow_unknown_events: zod.boolean().optional(),
+        allow_unknown_events: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it)."
+            ),
         _create_in_folder: zod.string().optional(),
         conclusion: zod
             .union([
@@ -3559,7 +3569,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe('Secondary metrics for additional measurements. Same format as primary metrics.'),
         stats_config: zod.unknown().nullish(),
         scheduling_config: zod.unknown().nullish(),
-        allow_unknown_events: zod.boolean().default(experimentsDuplicateCreateBodyAllowUnknownEventsDefault),
+        allow_unknown_events: zod
+            .boolean()
+            .default(experimentsDuplicateCreateBodyAllowUnknownEventsDefault)
+            .describe(
+                "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it)."
+            ),
         _create_in_folder: zod.string().optional(),
         conclusion: zod
             .union([
