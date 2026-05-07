@@ -145,7 +145,6 @@ class TestLinkedinAdsClient:
         mock_client_instance.finder.return_value = mock_response
 
         client = LinkedinAdsClient(self.access_token)
-        # Date range fits within a single weekly chunk → exactly one finder call.
         pages = list(
             client.get_analytics(
                 account_id=self.account_id,

@@ -269,8 +269,6 @@ def _flatten_linkedin_record(
             flattened["last_modified_time"] = last_modified_time
 
         elif field_name in ("createdAt", "lastModifiedAt"):
-            # CreativeV11 uses bare epoch-ms longs instead of changeAuditStamps;
-            # normalize to the same virtual columns campaigns produce.
             timestamp_ms = record.get(field_name)
             virtual_name = "created_time" if field_name == "createdAt" else "last_modified_time"
             if isinstance(timestamp_ms, int):
@@ -311,8 +309,7 @@ def _flatten_linkedin_record(
         if value is not None:
             if field_name in FLOAT_FIELDS:
                 value = float(value)
-            # Creatives ship `id` as a URN; extract the int so it joins with
-            # `creative_id` in creative_stats. Other resources pass through.
+            # Extract the int from creative `id` URN so it joins with `creative_id` in creative_stats.
             elif field_name == "id" and isinstance(value, str) and value.startswith("urn:li:"):
                 urn_result = _extract_type_and_id_from_urn(value)
                 if urn_result is None:

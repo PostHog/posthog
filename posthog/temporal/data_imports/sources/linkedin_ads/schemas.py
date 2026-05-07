@@ -123,8 +123,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.Creatives: {
         "resource_name": "creatives",
-        # CreativeV11 has no `type` or `changeAuditStamps`; timestamps are bare
-        # longs the flattener turns into created_time / last_modified_time.
+        # CreativeV11 rejects `type` and `changeAuditStamps` — don't add them here.
         "field_names": [
             "id",
             "account",
@@ -201,7 +200,6 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.CreativeStats: {
         "resource_name": "creative_stats",
-        # Same metric set as the other Stats resources (uniform analytics schema).
         "field_names": [
             "impressions",
             "clicks",
