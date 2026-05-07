@@ -93,11 +93,15 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
     return wrapper
 
 
+def _close_initialized_connections() -> None:
+    for conn in django.db.connections.all(initialized_only=True):
+        conn.close()
+
+
 def _close_db_connections() -> None:
     """Close old database connections to prevent usage of stale connections in long-running Temporal workers."""
     if not settings.TEST:
-        for conn in django.db.connections.all(initialized_only=True):
-            conn.close()
+        _close_initialized_connections()
 
 
 def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
