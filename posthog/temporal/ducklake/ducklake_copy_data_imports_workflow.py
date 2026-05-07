@@ -204,7 +204,9 @@ async def prepare_data_imports_ducklake_metadata_activity(
         source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
 
         # Get partition column from Delta metadata (source of truth)
-        partition_column = _detect_data_imports_partition_column(source_table_uri, team_id=inputs.team_id)
+        partition_column = await database_sync_to_async(_detect_data_imports_partition_column)(
+            source_table_uri, team_id=inputs.team_id
+        )
 
         staging_uri: str | None = None
         if not is_dev_mode():
