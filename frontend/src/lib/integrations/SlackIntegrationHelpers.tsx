@@ -83,8 +83,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
     const [localValue, setLocalValue] = useState<string | null>(null)
 
-    // 1s tick so the cooldown countdown rendered by `getChannelRefreshButtonDisabledReason` updates each second
-    usePeriodicRerender(1000)
+    const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
+    // Tick every second only while the cooldown is active so the countdown updates; idle otherwise (kea state changes drive rerenders).
+    usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 0)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
@@ -138,7 +139,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 action={{
                     children: <span className="Link">Refresh channels</span>,
                     onClick: () => loadAllSlackChannels(true),
-                    disabledReason: getChannelRefreshButtonDisabledReason(),
+                    disabledReason: channelRefreshButtonDisabledReason,
                 }}
                 emptyStateComponent={
                     <p className="text-secondary italic p-1">

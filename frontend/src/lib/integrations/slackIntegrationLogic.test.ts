@@ -57,26 +57,17 @@ describe('slackIntegrationLogic — getChannelRefreshButtonDisabledReason', () =
         }).toFinishAllListeners()
     }
 
-    it('disables the refresh button immediately after a refresh', async () => {
-        await refreshAt(dayjs(FIXED_NOW).toISOString())
-        expect(logic.values.getChannelRefreshButtonDisabledReason()).not.toBe('')
-    })
-
-    it('still disables the refresh button just before the cooldown elapses', async () => {
-        await refreshAt(
-            dayjs(FIXED_NOW)
-                .subtract(SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS - 1, 'seconds')
-                .toISOString()
-        )
-        expect(logic.values.getChannelRefreshButtonDisabledReason()).not.toBe('')
-    })
-
-    it('enables the refresh button once the cooldown has elapsed', async () => {
-        await refreshAt(
-            dayjs(FIXED_NOW)
-                .subtract(SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS + 1, 'seconds')
-                .toISOString()
-        )
-        expect(logic.values.getChannelRefreshButtonDisabledReason()).toBe('')
+    it.each<[string, number, boolean]>([
+        ['stays disabled immediately after a refresh', 0, false],
+        ['stays disabled just before the cooldown elapses', SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS - 1, false],
+        ['enables once the cooldown has elapsed', SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS + 1, true],
+    ])('refresh button %s', async (_label, secondsAgo, expectEnabled) => {
+        await refreshAt(dayjs(FIXED_NOW).subtract(secondsAgo, 'seconds').toISOString())
+        const reason = logic.values.getChannelRefreshButtonDisabledReason()
+        if (expectEnabled) {
+            expect(reason).toBe('')
+        } else {
+            expect(reason).not.toBe('')
+        }
     })
 })
