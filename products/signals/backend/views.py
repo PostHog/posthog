@@ -893,13 +893,7 @@ class SignalReportViewSet(
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
     def reingest(self, request, pk=None, **kwargs):
-        """Re-ingest a report's signals. Staff-only."""
-        if not request.user.is_staff:
-            return Response(
-                {"error": "Only staff users can reingest reports."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Re-ingest a report's signals (same team access as other report actions)."""
         report = cast(SignalReport, self.get_object())
         report_id = str(report.id)
         team_id = self.team.id
