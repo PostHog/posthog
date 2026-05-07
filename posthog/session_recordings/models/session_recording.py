@@ -78,6 +78,9 @@ class SessionRecording(UUIDTModel):
 
     storage_version = models.CharField(blank=True, null=True, max_length=20)
 
+    # User-defined label to identify this recording in playlists
+    name = models.CharField(max_length=200, null=True, blank=True)
+
     retention_period_days = models.IntegerField(blank=True, null=True)
 
     # DYNAMIC FIELDS

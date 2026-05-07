@@ -49,8 +49,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
-import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
+import { recordingMutationsLogic } from '../recordingMutationsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
@@ -519,7 +519,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
             exportsLogic,
             ['startReplayExport'],
-            deletedRecordingsLogic,
+            recordingMutationsLogic,
             ['addDeletedRecordings'],
         ],
     })),
@@ -563,6 +563,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         syncSnapshotsWithPlayer: true,
         exportRecordingToFile: true,
         deleteRecording: true,
+        renameRecording: (name: string | null) => ({ name }),
         openExplorer: true,
         takeScreenshot: true,
         getClip: (format: ExporterFormat, duration: number = 5, filename?: string) => ({ format, duration, filename }),
@@ -2088,6 +2089,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 error: 'Export failed!',
                 pending: 'Exporting recording...',
             })
+        },
+        renameRecording: async ({ name }) => {
+            const resolvedName = name || null
+            try {
+                await api.recordings.update(props.sessionRecordingId, {
+                    name: resolvedName,
+                })
+                lemonToast.success(resolvedName ? 'Recording renamed' : 'Recording name cleared')
+                recordingMutationsLogic.actions.recordingRenamed(props.sessionRecordingId, resolvedName)
+                actions.loadRecordingData()
+            } catch {
+                lemonToast.error('Failed to rename recording')
+            }
         },
         deleteRecording: async () => {
             try {

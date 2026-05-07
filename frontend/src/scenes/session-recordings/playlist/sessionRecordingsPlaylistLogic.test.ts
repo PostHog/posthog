@@ -8,9 +8,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ActionFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
+import { recordingMutationsLogic } from '../recordingMutationsLogic'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
@@ -628,7 +628,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({ otherRecordings: [aRecording, bRecording] })
 
-                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+                recordingMutationsLogic.actions.addDeletedRecordings(['abc'])
 
                 await expectLogic(logic).toMatchValues({
                     otherRecordings: [bRecording],
@@ -640,7 +640,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({ selectedRecordingId: 'abc' })
 
-                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+                recordingMutationsLogic.actions.addDeletedRecordings(['abc'])
 
                 await expectLogic(logic).toMatchValues({
                     selectedRecordingId: null,
@@ -652,7 +652,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({ selectedRecordingId: 'abc' })
 
-                deletedRecordingsLogic.actions.addDeletedRecordings(['def'])
+                recordingMutationsLogic.actions.addDeletedRecordings(['def'])
 
                 await expectLogic(logic).toMatchValues({
                     selectedRecordingId: 'abc',
@@ -704,7 +704,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
 
                 // delete abc — should no longer be in hiddenRecordings
-                deletedRecordingsLogic.actions.addDeletedRecordings(['abc'])
+                recordingMutationsLogic.actions.addDeletedRecordings(['abc'])
 
                 await expectLogic(logic).toMatchValues({
                     hiddenRecordings: [],

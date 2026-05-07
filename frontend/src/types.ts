@@ -1873,6 +1873,8 @@ export interface SessionRecordingType {
     summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
+    /** User-defined label for this recording. */
+    name?: string | null
 }
 
 export interface SessionRecordingUpdateType {
@@ -1880,6 +1882,7 @@ export interface SessionRecordingUpdateType {
     analyzed?: boolean
     player_metadata?: Record<string, any> | null
     durations?: Record<string, any> | null
+    name?: string | null
     $pathname: string
 }
 

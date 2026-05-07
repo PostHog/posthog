@@ -7,13 +7,23 @@ import {
     IconEllipsis,
     IconMinusSmall,
     IconNotebook,
+    IconPencil,
     IconPlusSmall,
     IconTrash,
 } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonDialog,
+    LemonInput,
+    LemonMenu,
+    LemonMenuItems,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -133,9 +143,16 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
 }
 
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
-    const { logicProps, isMuted, hasReachedExportFullVideoLimit } = useValues(sessionRecordingPlayerLogic)
-    const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
-        useActions(sessionRecordingPlayerLogic)
+    const { logicProps, isMuted, hasReachedExportFullVideoLimit, sessionPlayerMetaData } =
+        useValues(sessionRecordingPlayerLogic)
+    const {
+        deleteRecording,
+        setIsFullScreen,
+        exportRecordingToFile,
+        exportRecordingToVideoFile,
+        setMuted,
+        renameRecording,
+    } = useActions(sessionRecordingPlayerLogic)
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
 
@@ -162,9 +179,39 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     )
 
     const items: LemonMenuItems = useMemo(() => {
+        const currentName = sessionPlayerMetaData?.name || ''
         const itemsArray: LemonMenuItems = [
             {
                 label: () => <AddToNotebookButton fullWidth={true} />,
+            },
+            {
+                label: currentName ? 'Rename recording' : 'Name recording',
+                icon: <IconPencil />,
+                onClick: () => {
+                    LemonDialog.openForm({
+                        title: currentName ? 'Rename recording' : 'Name recording',
+                        initialValues: { name: currentName },
+                        content: (
+                            <LemonField name="name">
+                                <LemonInput
+                                    placeholder="Enter a name for this recording"
+                                    maxLength={200}
+                                    autoFocus
+                                    data-attr="replay-recording-name-input"
+                                />
+                            </LemonField>
+                        ),
+                        primaryButtonProps: {
+                            children: 'Save',
+                        },
+                        onSubmit: ({ name }) => renameRecording(name?.trim() || null),
+                    })
+                },
+                disabledReason: getAccessControlDisabledReason(
+                    AccessControlResourceType.SessionRecording,
+                    AccessControlLevel.Editor
+                ),
+                'data-attr': 'replay-rename-recording',
             },
             {
                 label: 'Skip inactivity',
@@ -240,6 +287,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         isMuted,
         setMuted,
         hasReachedExportFullVideoLimit,
+        sessionPlayerMetaData?.name,
     ])
 
     return (

@@ -57,8 +57,8 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { recordingMutationsLogic } from '../recordingMutationsLogic'
 import { filtersFromUniversalFilterGroups } from '../utils'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
@@ -558,8 +558,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['setHideViewedRecordings'],
             playlistFiltersLogic,
             ['setIsFiltersExpanded'],
-            deletedRecordingsLogic,
-            ['addDeletedRecordings'],
+            recordingMutationsLogic,
+            ['addDeletedRecordings', 'recordingRenamed'],
         ],
         values: [
             featureFlagLogic,
@@ -568,8 +568,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['autoplayDirection', 'hideViewedRecordings'],
             groupsModel,
             ['groupsTaxonomicTypes'],
-            deletedRecordingsLogic,
-            ['deletedRecordingIds'],
+            recordingMutationsLogic,
+            ['deletedRecordingIds', 'renamedRecordings'],
         ],
     })),
 
@@ -847,6 +847,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                         return { ...s }
                     }),
+
+                recordingRenamed: (state, { id, name }) => state.map((s) => (s.id === id ? { ...s, name } : s)),
             },
         ],
         selectedRecordingId: [
@@ -1488,12 +1490,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         // pinnedRecordings is a lazyLoader so we can't add filtering there directly
         visiblePinnedRecordings: [
-            (s) => [s.pinnedRecordings, s.deletedRecordingIds],
-            (pinnedRecordings, deletedRecordingIds): SessionRecordingType[] => {
-                if (deletedRecordingIds.size === 0) {
-                    return pinnedRecordings
-                }
-                return pinnedRecordings.filter((r) => !deletedRecordingIds.has(r.id))
+            (s) => [s.pinnedRecordings, s.deletedRecordingIds, s.renamedRecordings],
+            (pinnedRecordings, deletedRecordingIds, renamedRecordings): SessionRecordingType[] => {
+                return pinnedRecordings
+                    .filter((r) => !deletedRecordingIds.has(r.id))
+                    .map((r) => (r.id in renamedRecordings ? { ...r, name: renamedRecordings[r.id] } : r))
             },
         ],
 

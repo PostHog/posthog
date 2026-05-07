@@ -349,7 +349,13 @@ export const SessionRecordingPreview = memo(
                     <div className="grow overflow-hidden flex flex-col gap-y-2 ml-1">
                         <div className="flex items-center justify-between gap-x-0.5">
                             <div className="flex overflow-hidden font-medium ph-no-capture">
-                                <span className="truncate">{asDisplay(recording.person)}</span>
+                                {recording.name ? (
+                                    <Tooltip title={asDisplay(recording.person)}>
+                                        <span className="truncate">{recording.name}</span>
+                                    </Tooltip>
+                                ) : (
+                                    <span className="truncate">{asDisplay(recording.person)}</span>
+                                )}
                             </div>
 
                             {playlistTimestampFormat === TimestampFormat.Relative ? (
@@ -439,6 +445,7 @@ export const SessionRecordingPreview = memo(
     },
     (prevProps, nextProps) =>
         prevProps.recording.id === nextProps.recording.id &&
+        prevProps.recording.name === nextProps.recording.name &&
         prevProps.isActive === nextProps.isActive &&
         prevProps.selectable === nextProps.selectable
 )

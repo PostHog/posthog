@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { RecordingSegment } from '~/types'
 
-import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
+import { recordingMutationsLogic } from '../recordingMutationsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
     BLOB_SOURCE_V2,
@@ -470,7 +470,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 blobV2PollingDisabled: true,
             })
             logic.mount()
-            deletedRecordingsLogic.mount()
+            recordingMutationsLogic.mount()
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
@@ -478,7 +478,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 .toDispatchActions(['deleteRecording'])
                 .toFinishAllListeners()
 
-            expect(deletedRecordingsLogic.values.deletedRecordingIds.has('3')).toBe(false)
+            expect(recordingMutationsLogic.values.deletedRecordingIds.has('3')).toBe(false)
             resumeKeaLoadersErrors()
         })
     })

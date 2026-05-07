@@ -684,6 +684,65 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert len(mock_capture.call_args_list) == 1
         assert mock_capture.call_args_list[0][1]["event"] == "recording analyzed"
 
+    @parameterized.expand(
+        [
+            ("set_name", "My important recording", "My important recording"),
+            ("clear_name_with_empty", "", None),
+            ("clear_name_with_null", None, None),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_update_session_recording_name(
+        self, _name: str, input_name: str | None, expected_name: str | None, mock_capture: MagicMock
+    ):
+        session_id = f"test_name_{_name}"
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=base_time.isoformat(),
+            distinct_id="u1",
+        )
+        # ensure a PG row exists so clearing works
+        self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}",
+            {"name": "Placeholder"},
+        )
+
+        payload = {"name": input_name} if input_name is not None else {"name": None}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}",
+            payload,
+            format="json",
+        )
+        assert response.status_code == 200
+
+        recording = SessionRecording.objects.get(session_id=session_id, team=self.team)
+        assert recording.name == expected_name
+
+        assert any(c[1]["event"] == "recording renamed" for c in mock_capture.call_args_list)
+
+    def test_get_session_recording_includes_name(self):
+        session_id = "test_get_name"
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=base_time.isoformat(),
+            distinct_id="u1",
+        )
+        SessionRecording.objects.create(
+            session_id=session_id,
+            team=self.team,
+            name="Named recording",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}")
+        assert response.status_code == 200
+        assert response.json()["name"] == "Named recording"
+
     def test_update_session_recording_invalid_data(self):
         session_id = "test_update_invalid_data"
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)

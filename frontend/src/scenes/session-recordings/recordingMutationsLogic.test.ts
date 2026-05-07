@@ -2,14 +2,14 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { deletedRecordingsLogic } from './deletedRecordingsLogic'
+import { recordingMutationsLogic } from './recordingMutationsLogic'
 
-describe('deletedRecordingsLogic', () => {
-    let logic: ReturnType<typeof deletedRecordingsLogic.build>
+describe('recordingMutationsLogic', () => {
+    let logic: ReturnType<typeof recordingMutationsLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        logic = deletedRecordingsLogic()
+        logic = recordingMutationsLogic()
         logic.mount()
     })
 

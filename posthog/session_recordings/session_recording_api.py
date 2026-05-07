@@ -387,6 +387,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "activity_score",
             "has_summary",
             "summary_outcome",
+            "name",
             "external_references",
         ]
 
@@ -452,11 +453,17 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
     viewed = serializers.BooleanField(required=False)
     analyzed = serializers.BooleanField(required=False)
     player_metadata = serializers.JSONField(required=False)
+    name = serializers.CharField(
+        required=False,
+        max_length=200,
+        allow_blank=True,
+        allow_null=True,
+        help_text="User-defined label for this recording.",
+    )
 
-    def validate(self, data):
-        if not data.get("viewed") and not data.get("analyzed"):
-            raise serializers.ValidationError("At least one of 'viewed' or 'analyzed' must be provided.")
-
+    def validate(self, data: dict) -> dict:
+        if not data.get("viewed") and not data.get("analyzed") and "name" not in data:
+            raise serializers.ValidationError("At least one of 'viewed', 'analyzed', or 'name' must be provided.")
         return data
 
 
@@ -948,6 +955,24 @@ class SessionRecordingViewSet(
                     user=user,
                     event="recording analyzed",
                     properties=event_properties,
+                    team=self.team,
+                    request=request,
+                )
+
+        if "name" in serializer.validated_data:
+            new_name = serializer.validated_data["name"] or None
+            recording.name = new_name
+            if recording.pk:
+                recording.save(update_fields=["name"])
+            else:
+                # The Postgres row may not exist yet (recordings are lazily created from ClickHouse)
+                recording.save()
+
+            if isinstance(user, User) and not user.is_anonymous:
+                report_user_action(
+                    user=user,
+                    event="recording renamed",
+                    properties={**event_properties, "new_name": new_name},
                     team=self.team,
                     request=request,
                 )
