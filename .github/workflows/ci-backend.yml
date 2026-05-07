@@ -326,6 +326,159 @@ jobs:
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
 
+    # Pick which Django tests to run. On PRs the snob shadow selector narrows
+    # the run to test files reachable from the diff; everywhere else (master,
+    # merge_group, run_legacy via turbo-discover, or a selector full-run signal)
+    # we fall back to the full matrix. The full suite still runs in the merge
+    # queue, which is the safety net.
+    select-tests:
+        name: Select tests
+        needs: [changes, turbo-discover]
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            mode: ${{ steps.classify.outputs.mode }}
+            core_files: ${{ steps.classify.outputs.core_files }}
+            poe_files: ${{ steps.classify.outputs.poe_files }}
+            temporal_files: ${{ steps.classify.outputs.temporal_files }}
+            run_poe: ${{ steps.classify.outputs.run_poe }}
+            run_temporal: ${{ steps.classify.outputs.run_temporal }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+
+            - name: Decide whether to force a full run
+              id: force_full
+              env:
+                  EVENT: ${{ github.event_name }}
+                  RUN_LEGACY: ${{ needs.turbo-discover.outputs.run_legacy }}
+                  TURBO_RESULT: ${{ needs.turbo-discover.result }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  force=false
+                  if [[ "$EVENT" != "pull_request" ]]; then
+                      # merge_group, push, scheduled — always full.
+                      force=true
+                  elif [[ "$RUN_LEGACY" == "true" ]]; then
+                      # turbo-discover detected product->legacy graph impact;
+                      # the diff-based selector can't see this, so run everything.
+                      force=true
+                  elif [[ "$TURBO_RESULT" != "success" && "$TURBO_RESULT" != "skipped" ]]; then
+                      # Conservative — turbo-discover failed.
+                      force=true
+                  fi
+                  echo "force=$force" >> "$GITHUB_OUTPUT"
+
+            - name: Run shadow selector
+              id: select
+              # continue-on-error so a selector or git fetch failure doesn't cascade
+              # to a skipped Django matrix and a falsely-green gate. Classify reads
+              # steps.select.outcome (pre-continue-on-error) to detect the failure.
+              continue-on-error: true
+              if: steps.force_full.outputs.force == 'false'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  uv run tools/snob_backend_test_selection_shadow.py \
+                      --base-ref "origin/$BASE_REF" \
+                      > /tmp/selection.json
+
+            - name: Classify selection into segments
+              id: classify
+              env:
+                  FORCE_FULL: ${{ steps.force_full.outputs.force }}
+                  SELECT_OUTCOME: ${{ steps.select.outcome }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  fall_back_to_full() {
+                      echo "mode=full" >> "$GITHUB_OUTPUT"
+                      echo "core_files=" >> "$GITHUB_OUTPUT"
+                      echo "poe_files=" >> "$GITHUB_OUTPUT"
+                      echo "temporal_files=" >> "$GITHUB_OUTPUT"
+                      echo "run_poe=true" >> "$GITHUB_OUTPUT"
+                      echo "run_temporal=true" >> "$GITHUB_OUTPUT"
+                  }
+
+                  if [[ "$FORCE_FULL" == "true" ]]; then
+                      fall_back_to_full
+                      exit 0
+                  fi
+
+                  if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
+                      echo "::warning::shadow selector did not produce output; running full suite"
+                      fall_back_to_full
+                      exit 0
+                  fi
+
+                  full_run_reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
+                  if [[ "$full_run_reasons" -gt 0 ]]; then
+                      echo "Selector requested full run:"
+                      jq -r '.ast.full_run_reasons[]' /tmp/selection.json
+                      fall_back_to_full
+                      exit 0
+                  fi
+
+                  # Partition selected files by the Django segment that owns them.
+                  # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
+                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags)
+                  #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
+                  #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
+                  #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal
+                  # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
+                  # matrix — turbo-tests handles them.
+                  core=()
+                  poe=()
+                  temporal=()
+                  while IFS= read -r f; do
+                      [[ -z "$f" ]] && continue
+                      case "$f" in
+                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*)
+                              temporal+=("$f")
+                              ;;
+                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
+                              poe+=("$f")
+                              core+=("$f")
+                              ;;
+                          posthog/dags/*|common/hogvm/python/test/*)
+                              # Explicitly --ignore'd by the Core invocation; nothing to do.
+                              ;;
+                          posthog/*|ee/*)
+                              core+=("$f")
+                              ;;
+                      esac
+                  done < <(jq -r '.combined.tests[]?' /tmp/selection.json)
+
+                  echo "mode=selected" >> "$GITHUB_OUTPUT"
+                  echo "core_files=${core[*]:-}" >> "$GITHUB_OUTPUT"
+                  echo "poe_files=${poe[*]:-}" >> "$GITHUB_OUTPUT"
+                  echo "temporal_files=${temporal[*]:-}" >> "$GITHUB_OUTPUT"
+                  echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+                  echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+                  echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal"
+
+            - name: Upload selection artifact
+              if: always() && steps.select.outcome == 'success'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: select-tests-output
+                  path: /tmp/selection.json
+                  if-no-files-found: ignore
+                  retention-days: 14
+
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
@@ -1138,7 +1291,7 @@ jobs:
 
     build_django_matrix:
         name: Build Django matrix
-        needs: [changes, get_clickhouse_versions]
+        needs: [changes, get_clickhouse_versions, select-tests]
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -1150,62 +1303,114 @@ jobs:
               env:
                   OLDEST_SUPPORTED_IMAGE: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   COMPAT_MATRIX_JSON: ${{ needs.get_clickhouse_versions.outputs.compat_matrix }}
+                  MODE: ${{ needs.select-tests.outputs.mode }}
+                  RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
+                  RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
+                  CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
-                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 39) | {
-                      segment: "Core",
-                      "person-on-events": false,
-                      "python-version": "3.12.12",
-                      "clickhouse-server-image": $image,
-                      concurrency: 38,
-                      group: .,
-                      artifact_key: ("core-" + (.|tostring)),
-                      compat: false
-                    }]
-                  ')
-
-                  core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 8) | {
-                      segment: "Core",
-                      "person-on-events": true,
-                      "python-version": "3.12.12",
-                      "clickhouse-server-image": $image,
-                      concurrency: 7,
-                      group: .,
-                      artifact_key: ("core-poe-" + (.|tostring)),
-                      compat: false
-                    }]
-                  ')
-
-                  temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
-                    [range(1; 8) | {
-                      segment: "Temporal",
-                      "person-on-events": false,
-                      "python-version": "3.12.12",
-                      "clickhouse-server-image": $image,
-                      concurrency: 7,
-                      group: .,
-                      artifact_key: ("temporal-" + (.|tostring)),
-                      compat: false
-                    }]
-                  ')
-
-                  compat_source="${COMPAT_MATRIX_JSON:-[]}"
-                  compat=$(jq -cn --argjson compat "$compat_source" '
-                    [
-                      $compat
-                      | to_entries[]
-                      | .value + {
+                  if [[ "$MODE" == "selected" ]]; then
+                      # Selected mode: collapse to one shard per active segment, skip
+                      # segments with no selected files, drop compat entirely.
+                      core_count=0
+                      [[ -n "$CORE_FILES" ]] && core_count=1
+                      core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
+                        [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": false,
                           "python-version": "3.12.12",
-                          compat: true,
-                          artifact_key: ("compat-" + ((.key + 1)|tostring))
-                        }
-                    ]
-                  ')
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "core-1",
+                          compat: false
+                        }]
+                      ')
+                      poe_count=0
+                      [[ "$RUN_POE" == "true" ]] && poe_count=1
+                      core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Core",
+                          "person-on-events": true,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "core-poe-1",
+                          compat: false
+                        }]
+                      ')
+                      temporal_count=0
+                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=1
+                      temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Temporal",
+                          "person-on-events": false,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "temporal-1",
+                          compat: false
+                        }]
+                      ')
+                      compat="[]"
+                  else
+                      core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                        [range(1; 39) | {
+                          segment: "Core",
+                          "person-on-events": false,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: 38,
+                          group: .,
+                          artifact_key: ("core-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
+
+                      core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                        [range(1; 8) | {
+                          segment: "Core",
+                          "person-on-events": true,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: 7,
+                          group: .,
+                          artifact_key: ("core-poe-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
+
+                      temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                        [range(1; 8) | {
+                          segment: "Temporal",
+                          "person-on-events": false,
+                          "python-version": "3.12.12",
+                          "clickhouse-server-image": $image,
+                          concurrency: 7,
+                          group: .,
+                          artifact_key: ("temporal-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
+
+                      compat_source="${COMPAT_MATRIX_JSON:-[]}"
+                      compat=$(jq -cn --argjson compat "$compat_source" '
+                        [
+                          $compat
+                          | to_entries[]
+                          | .value + {
+                              segment: "Core",
+                              "person-on-events": false,
+                              "python-version": "3.12.12",
+                              compat: true,
+                              artifact_key: ("compat-" + ((.key + 1)|tostring))
+                            }
+                        ]
+                      ')
+                  fi
 
                   include=$(jq -cn \
                     --argjson core "$core" \
@@ -1215,10 +1420,11 @@ jobs:
                     '$core + $core_persons_on_events + $temporal + $compat')
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
-                  echo "Django matrix size: $(jq -r 'length' <<< "$include")"
+                  echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
 
     django:
-        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix]
+        needs:
+            [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix, select-tests]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
@@ -1466,30 +1672,50 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
+                  MODE: ${{ needs.select-tests.outputs.mode }}
+                  CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
+                  POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
-                      matrix.compat
-                      && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
-                      || (
-                      matrix.person-on-events
-                      && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
-                      || 'posthog'
-                      )
-                  }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
-                      --ignore=posthog/temporal \
-                      --ignore=posthog/dags \
-                      --ignore=common/hogvm/python/test \
-                      ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
-                      ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
-                      --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                      --durations=1000 --durations-min=1.0 --store-durations \
-                      --splitting-algorithm=duration_based_chunks \
-                      --reruns 2 --reruns-delay 1 \
-                      -r fEsxX \
-                      --junitxml=junit-core.xml \
-                      $PYTEST_ARGS
+                  if [[ "$MODE" == "selected" ]]; then
+                      # Selected mode: run only the test files chosen by the snob shadow selector.
+                      # No --splits/--group (no sharding), no --store-durations (don't pollute timing
+                      # data with a partial run), no --reruns (selected runs should fail loud so flaky
+                      # tests get fixed instead of masked; the merge queue still has reruns).
+                      if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
+                          targets="$POE_FILES"
+                      else
+                          targets="$CORE_FILES"
+                      fi
+                      # shellcheck disable=SC2086
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
+                          -r fEsxX \
+                          --junitxml=junit-core.xml \
+                          $PYTEST_ARGS
+                  else
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
+                          matrix.compat
+                          && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
+                          || (
+                          matrix.person-on-events
+                          && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
+                          || 'posthog'
+                          )
+                      }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
+                          --ignore=posthog/temporal \
+                          --ignore=posthog/dags \
+                          --ignore=common/hogvm/python/test \
+                          ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
+                          ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
+                          --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
+                          --durations=1000 --durations-min=1.0 --store-durations \
+                          --splitting-algorithm=duration_based_chunks \
+                          --reruns 2 --reruns-delay 1 \
+                          -r fEsxX \
+                          --junitxml=junit-core.xml \
+                          $PYTEST_ARGS
+                  fi
                   exit_code=$?
                   set -e
                   if [ $exit_code -eq 5 ]; then
@@ -1534,16 +1760,26 @@ jobs:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+                  MODE: ${{ needs.select-tests.outputs.mode }}
+                  TEMPORAL_FILES: ${{ needs.select-tests.outputs.temporal_files }}
               run: |
                   set +e
-                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
-                      --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                      --durations=100 --durations-min=1.0 --store-durations \
-                      --splitting-algorithm=duration_based_chunks \
-                      --reruns 2 --reruns-delay 1 \
-                      -r fEsxX \
-                      --junitxml=junit-temporal.xml \
-                      $PYTEST_ARGS
+                  if [[ "$MODE" == "selected" ]]; then
+                      # shellcheck disable=SC2086
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=600 --timeout-method=thread $TEMPORAL_FILES -m "not async_migrations" \
+                          -r fEsxX \
+                          --junitxml=junit-temporal.xml \
+                          $PYTEST_ARGS
+                  else
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                          --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
+                          --durations=100 --durations-min=1.0 --store-durations \
+                          --splitting-algorithm=duration_based_chunks \
+                          --reruns 2 --reruns-delay 1 \
+                          -r fEsxX \
+                          --junitxml=junit-temporal.xml \
+                          $PYTEST_ARGS
+                  fi
                   exit_code=$?
                   set -e
                   if [ $exit_code -eq 5 ]; then
