@@ -22,7 +22,10 @@ export function CIMDVerificationTokens(): JSX.Element {
                 Verification tokens link a CIMD partner application to this organization. Add the token to your CIMD
                 metadata document under <code>posthog_verification_token</code>. Verified partners get a higher default
                 rate limit for account provisioning and a clear identity trail. See the{' '}
-                <Link to="https://posthog.com/docs" target="_blank">
+                <Link
+                    to="https://posthog.com/docs/integrate/provisioning#host-a-cimd-metadata-document"
+                    target="_blank"
+                >
                     docs
                 </Link>{' '}
                 for the metadata format.
