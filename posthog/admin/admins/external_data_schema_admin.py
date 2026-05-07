@@ -273,6 +273,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             messages.error(request, f"Schema {schema_id} not found.")
             return redirect(reverse("admin:data_warehouse_externaldataschema_changelist"))
 
+        # Both checkboxes default to off: an unchecked checkbox isn't sent in the
+        # POST body, so .get() returns None, and `None == "on"` is False.
         reset_pipeline = request.POST.get("reset_pipeline") == "on"
         billable = request.POST.get("billable") == "on"
 
