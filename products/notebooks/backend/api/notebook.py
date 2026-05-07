@@ -762,9 +762,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
 
         content = data["content"]
-        notebook_before = Notebook.objects.get(pk=notebook.pk)
 
         if result.status == "accepted":
+            notebook_before = Notebook.objects.get(pk=notebook.pk)
             Notebook.objects.filter(pk=notebook.pk).update(
                 content=annotate_python_nodes(content) if isinstance(content, dict) else content,
                 text_content=data.get("text_content", ""),
@@ -789,8 +789,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
             return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
 
-        # Save was rejected, server's content is unchanged.
-        # Snapshot the attempted save state so the user has a recovery path.
+        # Snapshot the rejected save attempt so user has a recovery path
         log_notebook_activity(
             activity=f"save_rejected_{result.status}",  # save_rejected_conflict | save_rejected_stale
             notebook=notebook,
@@ -803,7 +802,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     type="Notebook",
                     field="content",
                     action="changed",
-                    before=notebook_before.content,
+                    before=notebook.content,
                     after=content,
                 ),
             ],
