@@ -58,7 +58,7 @@ function buildExposureDatasets(timeseries: ExperimentExposureTimeSeries[]): {
     return { labels, datasets }
 }
 
-function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
+export function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
     const { canvasRef } = useChart({
         getConfig: () => {
             if (!exposures?.timeseries?.length) {

@@ -1,13 +1,15 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -27,6 +29,27 @@ import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+    const [debounced, setDebounced] = useState(value)
+    useEffect(() => {
+        if (value) {
+            const timer = setTimeout(() => setDebounced(value), delayMs)
+            return () => clearTimeout(timer)
+        }
+        setDebounced(value)
+    }, [value, delayMs])
+    return debounced
+}
+
+function RelativeTime({ timestamp }: { timestamp: string }): JSX.Element {
+    const [, setTick] = useState(0)
+    useEffect(() => {
+        const interval = setInterval(() => setTick((t) => t + 1), 30000)
+        return () => clearInterval(interval)
+    }, [])
+    return <>{dayjs(timestamp).fromNow()}</>
+}
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -53,7 +76,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow } = useValues(logic)
+    const { workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending } = useValues(logic)
+    const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
 
     const showBlockedRuns = useFeatureFlag('WORKFLOWS_REPLAY_BLOCKED_RUNS')
 
@@ -124,6 +148,17 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                         tabs={tabs}
                         sceneInset
+                        rightSlot={
+                            showSaving ? (
+                                <span className="text-xs text-tertiary flex items-center gap-1">
+                                    <Spinner textColored /> Saving…
+                                </span>
+                            ) : lastSavedAt ? (
+                                <span className="text-xs text-tertiary">
+                                    Last saved <RelativeTime timestamp={lastSavedAt} />
+                                </span>
+                            ) : null
+                        }
                         className={clsx({
                             'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
                         })}
