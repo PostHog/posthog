@@ -60,7 +60,7 @@ describe('initPostHogMcpAnalytics', () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        await initPostHogMcpAnalytics(server, identity)
+        const result = await initPostHogMcpAnalytics(server, identity)
 
         expect(track).toHaveBeenCalledWith(
             server,
@@ -81,13 +81,14 @@ describe('initPostHogMcpAnalytics', () => {
                 reportMissing: true,
             })
         )
+        expect(result).toMatchObject({ action: 'initialized', contextEnabled: false })
     })
 
     it('enables required context only when explicitly requested', async () => {
         const server = new McpServer({ name: 'test', version: '1.0.0' })
         const identity = createMockIdentity()
 
-        await initPostHogMcpAnalytics(server, identity, { contextEnabled: true })
+        const result = await initPostHogMcpAnalytics(server, identity, { contextEnabled: true })
 
         expect(track).toHaveBeenCalledWith(
             server,
@@ -97,6 +98,7 @@ describe('initPostHogMcpAnalytics', () => {
                 reportMissing: true,
             })
         )
+        expect(result).toMatchObject({ action: 'initialized', contextEnabled: true })
     })
 
     it.each(['POSTHOG_ANALYTICS_API_KEY', 'POSTHOG_ANALYTICS_HOST'] as const)(
@@ -106,9 +108,10 @@ describe('initPostHogMcpAnalytics', () => {
             const server = new McpServer({ name: 'test', version: '1.0.0' })
             const identity = createMockIdentity()
 
-            await initPostHogMcpAnalytics(server, identity)
+            const result = await initPostHogMcpAnalytics(server, identity)
 
             expect(track).not.toHaveBeenCalled()
+            expect(result).toMatchObject({ action: 'skipped', reason: 'missing_config' })
         }
     )
 
@@ -196,7 +199,7 @@ describe('initPostHogMcpAnalytics', () => {
             throw new Error('PostHog MCP analytics init failed')
         })
 
-        await expect(initPostHogMcpAnalytics(server, identity)).resolves.toBeUndefined()
+        await expect(initPostHogMcpAnalytics(server, identity)).resolves.toMatchObject({ action: 'failed' })
     })
 
     it('swallows errors if analytics identity resolution throws', async () => {
@@ -205,7 +208,7 @@ describe('initPostHogMcpAnalytics', () => {
             getDistinctId: vi.fn().mockRejectedValue(new Error('identity unavailable')),
         })
 
-        await expect(initPostHogMcpAnalytics(server, identity)).resolves.toBeUndefined()
+        await expect(initPostHogMcpAnalytics(server, identity)).resolves.toMatchObject({ action: 'failed' })
         expect(track).not.toHaveBeenCalled()
     })
 })

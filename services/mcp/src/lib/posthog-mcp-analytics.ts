@@ -9,9 +9,25 @@ export type PostHogMcpAnalyticsOptions = {
     contextEnabled: boolean
 }
 
-function logPostHogMcpAnalytics(data: Record<string, unknown>): void {
-    console.info('[MCP]', JSON.stringify({ event: 'posthog_mcp_analytics', ...data }))
-}
+export type PostHogMcpAnalyticsInitResult =
+    | {
+          action: 'initialized'
+          contextEnabled: boolean
+          tracingEnabled: true
+          aiTracingEnabled: true
+          reportMissingEnabled: true
+      }
+    | {
+          action: 'skipped'
+          reason: 'missing_config'
+          hasApiKey: boolean
+          hasHost: boolean
+      }
+    | {
+          action: 'failed'
+          errorName: string
+          errorMessage: string
+      }
 
 async function buildEventTags(identity: PostHogMcpAnalyticsIdentityProvider): Promise<Record<string, string>> {
     const sessionUuid = await identity.getSessionUuid()
@@ -84,17 +100,16 @@ export async function initPostHogMcpAnalytics(
     server: McpServer,
     identity: PostHogMcpAnalyticsIdentityProvider,
     options: PostHogMcpAnalyticsOptions = { contextEnabled: false }
-): Promise<void> {
+): Promise<PostHogMcpAnalyticsInitResult> {
     const posthogApiKey = env.POSTHOG_ANALYTICS_API_KEY
     const posthogHost = env.POSTHOG_ANALYTICS_HOST
     if (!posthogApiKey || !posthogHost) {
-        logPostHogMcpAnalytics({
+        return {
             action: 'skipped',
             reason: 'missing_config',
             hasApiKey: !!posthogApiKey,
             hasHost: !!posthogHost,
-        })
-        return
+        }
     }
 
     try {
@@ -119,19 +134,20 @@ export async function initPostHogMcpAnalytics(
             eventProperties: async () => buildEventProperties(identity),
             redactSensitiveInformation: (text) => Promise.resolve(redactSensitiveInformation(text)),
         })
-        logPostHogMcpAnalytics({
+
+        return {
             action: 'initialized',
             contextEnabled: options.contextEnabled,
             tracingEnabled: true,
             aiTracingEnabled: true,
             reportMissingEnabled: true,
-        })
+        }
     } catch (error) {
-        logPostHogMcpAnalytics({
+        // Observability initialization must never block MCP server startup.
+        return {
             action: 'failed',
             errorName: error instanceof Error ? error.name : 'UnknownError',
             errorMessage: error instanceof Error ? error.message : String(error),
-        })
-        // Observability initialization must never block MCP server startup.
+        }
     }
 }
