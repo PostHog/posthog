@@ -17,8 +17,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     `team_id` Int64,
     `property_type` LowCardinality(String),
     `property_key` String,
-    `property_value` String,
-    `_timestamp` DateTime
+    `property_value` String
 ) ENGINE = {engine}
 """
 
@@ -50,15 +49,27 @@ SETTINGS
         table_name=TABLE_NAME,
         engine=AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED),
         extra_fields=""",
-    INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1""",
+    INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3), preprocessor = lower(property_value)) GRANULARITY 1""",
     )
 
 
 def KAFKA_PROPERTY_VALUES_TABLE_SQL_FN() -> str:
     return KAFKA_PROPERTY_VALUES_TABLE_SQL.format(
         table_name=KAFKA_TABLE_NAME,
-        engine=kafka_engine(topic=KAFKA_CLICKHOUSE_PROPERTY_VALUES, group=CONSUMER_GROUP_PROPERTY_VALUES),
+        engine=kafka_engine(
+            topic=KAFKA_CLICKHOUSE_PROPERTY_VALUES,
+            group=CONSUMER_GROUP_PROPERTY_VALUES,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
     )
+
+
+def DROP_KAFKA_PROPERTY_VALUES_TABLE_SQL() -> str:
+    return f"DROP TABLE IF EXISTS {KAFKA_TABLE_NAME}"
+
+
+def DROP_PROPERTY_VALUES_MV_SQL() -> str:
+    return f"DROP TABLE IF EXISTS {MV_NAME}"
 
 
 def PROPERTY_VALUES_MV_SQL() -> str:
@@ -71,7 +82,7 @@ AS SELECT
     property_key,
     property_value,
     toUInt64(1) as property_count,
-    _timestamp as last_seen
+    coalesce(_timestamp, now()) as last_seen
 FROM {database}.{kafka_table}
 WHERE lengthUTF8(property_key) > 0
   AND lengthUTF8(property_key) <= 400  -- matches Django PropertyDefinition.name max_length

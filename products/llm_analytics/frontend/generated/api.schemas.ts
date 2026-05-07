@@ -1087,6 +1087,11 @@ export interface ScoreDefinitionApi {
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
+    /**
+     * UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.
+     * @nullable
+     */
+    readonly current_version_id: string | null
     /** Current immutable scorer configuration. */
     readonly config: ScoreDefinitionConfigApi
     /** User who created the scorer. */
@@ -1147,6 +1152,11 @@ export interface PatchedScoreDefinitionMetadataApi {
 export interface ScoreDefinitionNewVersionApi {
     /** Next immutable scorer configuration. */
     config: ScoreDefinitionConfigApi
+    /**
+     * Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check.
+     * @minimum 1
+     */
+    base_version?: number
 }
 
 /**
@@ -1163,7 +1173,7 @@ export const SentimentRequestAnalysisLevelEnumApi = {
 
 export interface SentimentRequestApi {
     /**
-     * Trace IDs or generation IDs to classify, depending on analysis_level.
+     * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
      * @minItems 1
      * @maxItems 5
      */
@@ -1211,6 +1221,21 @@ export type SentimentBatchResponseApiResults = { [key: string]: SentimentResultA
 
 export interface SentimentBatchResponseApi {
     results: SentimentBatchResponseApiResults
+}
+
+/**
+ * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
+
+`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+path used (dateRange, filterTestAccounts, properties), so the migration is
+behaviour-preserving for callers that pass a request unchanged.
+ */
+export interface SentimentGenerationsRequestApi {
+    filters?: unknown
+}
+
+export interface SentimentGenerationsResponseApi {
+    results: unknown[][]
 }
 
 /**
@@ -2346,6 +2371,10 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 

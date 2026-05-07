@@ -206,15 +206,15 @@ export function createExecTool(
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
-
                     let input: Record<string, unknown>
                     if (!jsonBody) {
                         input = {}
                     } else {
                         try {
                             input = JSON.parse(jsonBody) as Record<string, unknown>
-                        } catch {
-                            throw new Error(`Invalid JSON input: ${jsonBody}`)
+                        } catch (err) {
+                            const detail = err instanceof Error ? err.message : String(err)
+                            throw new Error(`Invalid JSON input: ${detail}`)
                         }
                     }
 
@@ -254,7 +254,7 @@ export function createExecTool(
                                 handlerResult: result,
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
-                                params: forceJson ? { ...input, output_format: 'json' } : input,
+                                params: useJson ? { ...input, output_format: 'json' } : input,
                                 // Consumer is the UI-apps host; keep `structuredContent` for the UI.
                                 // Passing `undefined` bypasses the coding-agent suppression in
                                 // `buildToolResultPayload` because this path explicitly wants it.

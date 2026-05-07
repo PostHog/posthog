@@ -1772,17 +1772,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 })
 
                 // Record to recents (deferred to avoid render loop).
-                // Skip property groups — these are just the key-picking step;
-                // the complete filter (with operator + value) is recorded by propertyFilterLogic.
-                // Skip QuickFilterItem shortcuts — they are synthetic, not real data definitions.
+                // Record here when:
+                //   - the consumer says the selection is final (selectingKeyOnly), or
+                //   - we're re-clicking a recent that already has a complete propertyFilter, or
+                //   - this isn't a property-style group (so propertyFilterLogic isn't going to record it).
+                // QuickFilterItem shortcuts are synthetic, never recorded.
                 const hasCompletePropertyFilter = hasRecentContext(item) && item._recentContext.propertyFilter
-                const isRecordedByPropertyFilterLogic =
-                    !hasCompletePropertyFilter &&
-                    (PROPERTY_TAXONOMIC_GROUP_TYPES.has(sourceGroupType) ||
-                        SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(sourceGroupType) ||
-                        sourceGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
+                const isPropertyFilterLogicGroup =
+                    PROPERTY_TAXONOMIC_GROUP_TYPES.has(sourceGroupType) ||
+                    SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(sourceGroupType) ||
+                    sourceGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
+                const recordHereNow = props.selectingKeyOnly || hasCompletePropertyFilter || !isPropertyFilterLogicGroup
 
-                if (!isRecordedByPropertyFilterLogic && !isQuickFilterItem(item)) {
+                if (recordHereNow && !isQuickFilterItem(item)) {
                     setTimeout(() => {
                         if (recentTaxonomicFiltersLogic.isMounted()) {
                             const stripped = hasRecentContext(item) ? stripRecentContext(item) : item
@@ -1790,17 +1792,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             const sourceGroupName = hasRecentContext(item)
                                 ? item._recentContext.sourceGroupName
                                 : group.name
-                            const propertyFilterFromRecent = hasRecentContext(item)
-                                ? item._recentContext.propertyFilter
-                                : undefined
-                            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-                                sourceGroupType,
-                                sourceGroupName,
+                            const propertyFilterFromRecent =
+                                !props.selectingKeyOnly && hasRecentContext(item)
+                                    ? item._recentContext.propertyFilter
+                                    : undefined
+                            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                                groupType: sourceGroupType,
+                                groupName: sourceGroupName,
                                 value,
-                                cleanItem,
-                                teamLogic.values.currentTeamId ?? undefined,
-                                propertyFilterFromRecent
-                            )
+                                item: cleanItem,
+                                teamId: teamLogic.values.currentTeamId ?? undefined,
+                                propertyFilter: propertyFilterFromRecent,
+                                selectingKeyOnly: !!props.selectingKeyOnly,
+                            })
                         }
                     }, 0)
                 }

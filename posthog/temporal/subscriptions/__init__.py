@@ -5,6 +5,7 @@ from posthog.temporal.subscriptions.activities import (
     deliver_subscription,
     fetch_due_subscriptions_activity,
     update_delivery_record,
+    validate_subscription_for_delivery,
 )
 from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.workflows import (
@@ -17,6 +18,7 @@ WORKFLOWS = [ScheduleAllSubscriptionsWorkflow, HandleSubscriptionValueChangeWork
 
 ACTIVITIES = [
     fetch_due_subscriptions_activity,
+    validate_subscription_for_delivery,
     create_export_assets,
     deliver_subscription,
     advance_next_delivery_date,

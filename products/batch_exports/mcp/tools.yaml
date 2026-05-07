@@ -1,0 +1,178 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Data pipelines
+feature: batch_exports
+url_prefix: /data-pipelines/destinations
+ui_apps: {}
+tools:
+    batch-export-create:
+        operation: batch_exports_create
+        enabled: true
+        scopes:
+            - batch_export:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create batch export
+        description: >
+            Create a new batch export. Typed destination config schemas are available for Databricks and AzureBlob
+            destinations — both require a team-scoped Integration (use integrations-list to find one). Other destination
+            types are permitted by the API but typically must be created via the PostHog UI because their credentials
+            are stored in the destination config. Always specify the model field (events, persons, or sessions) —
+            omitting it defaults to events but the field should be set explicitly.
+        exclude_params:
+            - id
+            - team_id
+            - created_at
+            - last_updated_at
+            - last_paused_at
+            - latest_runs
+            - filters
+            - hogql_query
+            - start_at
+            - end_at
+            - integration
+    batch-export-delete:
+        operation: batch_exports_destroy
+        enabled: true
+        scopes:
+            - batch_export:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete batch export
+        description: >
+            Soft-delete a batch export. Stops all future scheduled runs and hides the export from list and get
+            operations. Historic run records remain attached to the deleted export in the database.
+    batch-export-get:
+        operation: batch_exports_retrieve
+        enabled: true
+        scopes:
+            - batch_export:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get batch export
+        description: >
+            Get a batch export by ID. Returns full non-sensitive configuration including destination type and config,
+            linked Integration id (for Databricks and AzureBlob), schedule, model, and the 10 most recent runs.
+    batch-export-update:
+        operation: batch_exports_partial_update
+        enabled: true
+        scopes:
+            - batch_export:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update batch export
+        description: >
+            Partially update a batch export. Top-level fields (name, paused, interval, schema, filters) work for any
+            destination type. Destination config updates are only typed for Databricks and AzureBlob destinations. Do
+            not change the model field on an existing export — the destination table schema is created on the first run,
+            so switching models causes errors unless the table name is also changed.
+        exclude_params:
+            - id
+            - team_id
+            - created_at
+            - last_updated_at
+            - last_paused_at
+            - latest_runs
+            - filters
+            - hogql_query
+            - integration
+    batch-exports-backfills-cancel-create:
+        operation: batch_exports_backfills_cancel_create
+        enabled: false
+    batch-exports-backfills-create:
+        operation: batch_exports_backfills_create
+        enabled: false
+    batch-exports-backfills-list:
+        operation: batch_exports_backfills_list
+        enabled: false
+    batch-exports-backfills-retrieve:
+        operation: batch_exports_backfills_retrieve
+        enabled: false
+    batch-exports-create:
+        operation: batch_exports_create
+        enabled: false
+    batch-exports-destroy:
+        operation: batch_exports_destroy
+        enabled: false
+    batch-exports-list:
+        operation: batch_exports_list
+        enabled: true
+        scopes:
+            - batch_export:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List batch exports
+        description: >
+            List batch exports in the project. Batch exports send event, person, or session data on a schedule to
+            destinations like S3, Snowflake, BigQuery, Databricks, Azure Blob, Postgres, Redshift, or HTTP. Returns
+            destination type, interval, paused state, and non-sensitive config; credentials are never exposed. Use
+            batch-export-get with the ID for full details including latest runs, query, and filters.
+        response:
+            include:
+                - id
+                - name
+                - model
+                - destination
+                - interval
+                - paused
+                - created_at
+                - last_updated_at
+                - start_at
+                - end_at
+    batch-exports-logs-retrieve:
+        operation: batch_exports_logs_retrieve
+        enabled: false
+    batch-exports-partial-update:
+        operation: batch_exports_partial_update
+        enabled: false
+    batch-exports-pause-create:
+        operation: batch_exports_pause_create
+        enabled: false
+    batch-exports-retrieve:
+        operation: batch_exports_retrieve
+        enabled: false
+    batch-exports-run-test-step-create:
+        operation: batch_exports_run_test_step_create
+        enabled: false
+    batch-exports-run-test-step-new-create:
+        operation: batch_exports_run_test_step_new_create
+        enabled: false
+    batch-exports-runs-cancel-create:
+        operation: batch_exports_runs_cancel_create
+        enabled: false
+    batch-exports-runs-list:
+        operation: batch_exports_runs_list
+        enabled: false
+    batch-exports-runs-logs-retrieve:
+        operation: batch_exports_runs_logs_retrieve
+        enabled: false
+    batch-exports-runs-retrieve:
+        operation: batch_exports_runs_retrieve
+        enabled: false
+    batch-exports-runs-retry-create:
+        operation: batch_exports_runs_retry_create
+        enabled: false
+    batch-exports-test-retrieve:
+        operation: batch_exports_test_retrieve
+        enabled: false
+    batch-exports-unpause-create:
+        operation: batch_exports_unpause_create
+        enabled: false
+    batch-exports-update:
+        operation: batch_exports_update
+        enabled: false

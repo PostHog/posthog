@@ -98,7 +98,7 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
@@ -385,6 +385,32 @@ class InsightBasicSerializer(
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
     def _dashboard_tiles(self, instance):
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+
+
+class TrendingInsightSerializer(InsightBasicSerializer):
+    """Insight enriched with view-count and recent-viewer fields, used by the trending action."""
+
+    view_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Number of distinct viewers in the time window. Higher values indicate insights that more people "
+            "in the project actively look at, which is a strong proxy for which insights matter."
+        ),
+    )
+    viewers = UserBasicSerializer(
+        many=True,
+        read_only=True,
+        help_text="Up to 3 of the most recent users who viewed this insight in the time window.",
+    )
+    # Surfaced here (not on InsightBasicSerializer) so agents ranking trending insights can see
+    # who is currently iterating on each — useful context alongside the view-count signal.
+    last_modified_by = UserBasicSerializer(
+        read_only=True,
+        help_text="User who last modified this insight, or null if never modified after creation.",
+    )
+
+    class Meta(InsightBasicSerializer.Meta):
+        fields = [*InsightBasicSerializer.Meta.fields, "view_count", "viewers", "last_modified_by"]
 
 
 class _InsightQuerySchema(RootModel):
@@ -1472,14 +1498,39 @@ class InsightViewSet(
         response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=False)
+    @extend_schema(
+        operation_id="insights_trending_retrieve",
+        filters=False,
+        parameters=[
+            OpenApiParameter(
+                name="days",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Time window in days to compute view counts over. Defaults to 7. Larger windows surface "
+                    "consistently popular insights; smaller windows surface what's hot right now."
+                ),
+                required=False,
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Maximum number of insights to return. Defaults to 10. Capped at 100.",
+                required=False,
+            ),
+        ],
+        responses={200: TrendingInsightSerializer(many=True)},
+        description=(
+            "Returns insights ranked by view count over the last N days (default 7), highest first. Each "
+            "result includes the same metadata as the standard insights list, plus a `view_count` and up to "
+            "3 recent `viewers`. Useful for surfacing the most-used insights in a project."
+        ),
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["insight:read"])
     def trending(self, request: request.Request, *args, **kwargs) -> Response:
-        """
-        Returns trending insights based on view count in the last N days (default 7).
-        Defaults to returning top 10 insights.
-        """
         try:
-            days = int(request.GET.get("days", "1"))
+            days = int(request.GET.get("days", "7"))
             limit = min(int(request.GET.get("limit", "10")), 100)
         except (ValueError, TypeError):
             raise ValidationError("days and limit must be valid integers")
@@ -1488,6 +1539,7 @@ class InsightViewSet(
 
         queryset = (
             Insight.objects.filter(team__project_id=self.team.project_id)
+            .select_related("created_by", "last_modified_by", "team")
             .annotate(
                 view_count=Count(
                     "insightviewed",
@@ -1501,16 +1553,13 @@ class InsightViewSet(
         queryset = self._filter_queryset_by_access_level(queryset)
         queryset = queryset[:limit]
         queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
+        insights = list(queryset)
 
-        response = InsightBasicSerializer(queryset, many=True)
-        data = response.data
-
-        # Batch fetch all viewers to avoid N+1 queries
-        insight_ids = [item["id"] for item in data]
+        # Batch fetch viewers once to avoid N+1 queries
         all_viewers = (
             InsightViewed.objects.filter(
                 team=self.team,
-                insight_id__in=insight_ids,
+                insight_id__in=[insight.pk for insight in insights],
                 last_viewed_at__gte=cutoff_date,
                 user__isnull=False,
             )
@@ -1521,18 +1570,19 @@ class InsightViewSet(
         viewers_by_insight: dict[int, list] = {}
         for viewer in all_viewers:
             iid = viewer.insight_id
-            if iid not in viewers_by_insight:
-                viewers_by_insight[iid] = []
-            if len(viewers_by_insight[iid]) < 3:
-                viewers_by_insight[iid].append(viewer.user)
+            bucket = viewers_by_insight.setdefault(iid, [])
+            if len(bucket) < 3:
+                bucket.append(viewer.user)
 
-        instance_map = {instance.pk: instance for instance in queryset}
-        for item in data:
-            item["viewers"] = UserBasicSerializer(viewers_by_insight.get(item["id"], []), many=True).data
-            instance = instance_map.get(item["id"])
-            item["view_count"] = getattr(instance, "view_count", 0) if instance else 0
+        for insight in insights:
+            insight.viewers = viewers_by_insight.get(insight.pk, [])
 
-        return Response(data=data, status=status.HTTP_200_OK)
+        data = TrendingInsightSerializer(insights, many=True, context=self.get_serializer_context()).data
+        # Wrap in the standard paginated envelope so the response shape matches the auto-generated
+        # OpenAPI schema (drf-spectacular wraps `many=True` responses as `Paginated*List` when the
+        # viewset has a paginator). This keeps the MCP-generated client and any other typed consumer
+        # happy. There's no real pagination — `limit` already caps the result set.
+        return Response({"count": len(data), "next": None, "previous": None, "results": data})
 
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")
@@ -2050,7 +2100,31 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(status=status.HTTP_201_CREATED)
 
-    @extend_schema(operation_id="insights_all_activity_retrieve")
+    @extend_schema(
+        operation_id="insights_all_activity_retrieve",
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Page size. Defaults to 10.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="1-indexed page number. Defaults to 1.",
+                required=False,
+            ),
+        ],
+        responses={200: ActivityLogPaginatedResponseSerializer},
+        description=(
+            "Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, "
+            "what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have "
+            "been working on recently."
+        ),
+    )
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -2059,6 +2133,29 @@ When set, the specified dashboard's filters and date range override will be appl
         activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="Page size. Defaults to 10.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description="1-indexed page number. Defaults to 1.",
+                required=False,
+            ),
+        ],
+        responses={200: ActivityLogPaginatedResponseSerializer},
+        description=(
+            "Audit trail for a single insight — every change made to it, by whom, and when. Use this when you "
+            "want the change history of a specific insight; use the project-wide activity endpoint for a broader view."
+        ),
+    )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))

@@ -1,5 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { PluginEvent } from '~/plugin-scaffold'
+import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
@@ -7,6 +9,7 @@ import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import {
+    AppMetricsOutput,
     DlqOutput,
     EVENTS_OUTPUT,
     EventOutput,
@@ -29,6 +32,7 @@ import { createReadOnlyProcessGroupsStep } from '../event-processing/readonly-pr
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
+import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '../pipelines/extensions/tophog'
 import { createBatch, createUnwrapper } from '../pipelines/helpers'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
@@ -37,6 +41,8 @@ import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-red
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
 import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
+import { KeyedRateLimiterStepOptions, createKeyedRateLimiterStep } from './keyed-rate-limiter-step'
+import { createLoadErrorTrackingSettingsStep } from './load-error-tracking-settings-step'
 import { createFetchPersonBatchStep } from './person-properties-step'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 
@@ -52,7 +58,7 @@ export interface ErrorTrackingPipelineInput {
 export type ErrorTrackingPipelineOutput = void
 
 export type ErrorTrackingOutputs = IngestionOutputs<
-    EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput
+    EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | AppMetricsOutput
 >
 
 export interface ErrorTrackingPipelineConfig {
@@ -70,8 +76,44 @@ export interface ErrorTrackingPipelineConfig {
     overflowRedirectService?: OverflowRedirectService
     /** Service for refreshing TTLs on overflow lane events. */
     overflowLaneTTLRefreshService?: OverflowRedirectService
+    /**
+     * Rate limiter step specs to apply pre-Cymbal. Each becomes its own batch step in
+     * the pipeline, run in array order. Empty / undefined → no rate limiting.
+     *
+     * Pre-Cymbal placement saves symbolication cost on dropped events. If a future
+     * limiter needs Cymbal-derived data (e.g. the proper exception fingerprint), add
+     * a `postCymbalRateLimiters` slot rather than reorder this one.
+     */
+    preCymbalRateLimiters?: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[]
+    /**
+     * When provided, an error-tracking-settings load step runs before the rate limiter
+     * chain so per-team overrides can be read synchronously from the input.
+     */
+    errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
+}
+
+/**
+ * Shape consumed by pre-Cymbal rate limiter step specs. The pipeline guarantees these
+ * fields are present at the insertion point (after team resolution, before Cymbal).
+ */
+export interface PreCymbalRateLimiterInput {
+    team: { id: number }
+    event: PluginEvent
+    errorTrackingSettings?: ErrorTrackingSettings | null
+}
+
+/**
+ * Apply each rate limiter spec as its own pre-Cymbal batch step. The chain's TOutput
+ * is wider than the spec's input type, but `KeyedRateLimiterStepOptions<T>` is
+ * contravariant in T, so a narrower spec assigns into the wider chain context.
+ */
+function applyKeyedRateLimiters<TInput, TOutput, CInput, COutput, R extends string>(
+    builder: BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R>,
+    specs: KeyedRateLimiterStepOptions<TOutput>[]
+): BatchPipelineBuilder<TInput, TOutput, CInput, COutput, R> {
+    return specs.reduce((b, spec) => b.pipeBatch(createKeyedRateLimiterStep(spec)), builder)
 }
 
 /**
@@ -115,6 +157,8 @@ export function createErrorTrackingPipeline(
         overflowEnabled,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
+        preCymbalRateLimiters,
+        errorTrackingSettingsManager,
         topHog,
     } = config
 
@@ -149,6 +193,9 @@ export function createErrorTrackingPipeline(
                                 })),
                             ])
                         )
+                        // Attach per-team error-tracking settings. No-op when the manager isn't wired
+                        // (rate limiter disabled) — keeps the type chain consistent regardless.
+                        .pipe(createLoadErrorTrackingSettingsStep(errorTrackingSettingsManager))
                 )
                 // Map team to context for handleIngestionWarnings, and carry
                 // the Kafka message byte size through for Cymbal batch chunking.
@@ -165,9 +212,13 @@ export function createErrorTrackingPipeline(
                     }),
                     (b) =>
                         b
-                            .teamAware((b) =>
-                                b
-                                    .gather()
+                            .teamAware((b) => {
+                                // Pre-Cymbal rate limit chain runs FIRST so that events we'd drop
+                                // never consume overflow-redirect cycles or symbolication budget.
+                                // Each spec becomes its own batch step, applied in array order.
+                                // Empty / undefined → no-op.
+                                const afterRateLimit = applyKeyedRateLimiters(b.gather(), preCymbalRateLimiters ?? [])
+                                const preCymbal = afterRateLimit
                                     // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
                                         createRateLimitToOverflowStep(
@@ -177,46 +228,50 @@ export function createErrorTrackingPipeline(
                                     )
                                     // Refresh TTLs for overflow lane events (keeps Redis flags alive)
                                     .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
-                                    // Process through Cymbal as a batch (before enrichment - Cymbal only
-                                    // needs raw exception data, not person/geoip/group data).
-                                    // Retry on transient failures (5xx, timeout, network errors).
-                                    // 10 tries with 100ms base sleep and 2x backoff (capped at 10s)
-                                    // gives ~30s total budget to ride out a Cymbal restart.
-                                    .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
-                                        tries: 10,
-                                        sleepMs: 100,
-                                    })
-                                    // Enrich, prepare, create, and emit events
-                                    // Batch fetch person (read-only, no updates)
-                                    .pipeBatch(createFetchPersonBatchStep(personRepository))
-                                    .sequentially((b) =>
-                                        b
-                                            // Run Hog transformations (including GeoIP if team has it enabled)
-                                            .pipe(createHogTransformEventStep(hogTransformer))
-                                            // Prepare event for emission
-                                            .pipe(createErrorTrackingPrepareEventStep())
-                                            // Map group types to indexes (read-only, no new group types created)
-                                            .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
-                                            .pipe(createCreateEventStep(EVENTS_OUTPUT))
-                                            .pipe(
-                                                topHogWrapper(
-                                                    createEmitEventStep({
-                                                        outputs,
-                                                        groupId,
-                                                    }),
-                                                    [
-                                                        count('emitted_events', (input) => ({
-                                                            team_id: String(input.teamId),
-                                                        })),
-                                                        count('emitted_events_per_distinct_id', (input) => ({
-                                                            team_id: String(input.teamId),
-                                                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
-                                                        })),
-                                                    ]
+                                return (
+                                    preCymbal
+                                        // Process through Cymbal as a batch (before enrichment - Cymbal only
+                                        // needs raw exception data, not person/geoip/group data).
+                                        // Retry on transient failures (5xx, timeout, network errors).
+                                        // 10 tries with 100ms base sleep and 2x backoff (capped at 10s)
+                                        // gives ~30s total budget to ride out a Cymbal restart.
+                                        .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
+                                            tries: 10,
+                                            sleepMs: 100,
+                                        })
+                                        // Enrich, prepare, create, and emit events
+                                        // Batch fetch person (read-only, no updates)
+                                        .pipeBatch(createFetchPersonBatchStep(personRepository))
+                                        .sequentially((b) =>
+                                            b
+                                                // Run Hog transformations (including GeoIP if team has it enabled)
+                                                .pipe(createHogTransformEventStep(hogTransformer))
+                                                // Prepare event for emission
+                                                .pipe(createErrorTrackingPrepareEventStep())
+                                                // Map group types to indexes (read-only, no new group types created)
+                                                .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
+                                                .pipe(createCreateEventStep(EVENTS_OUTPUT))
+                                                .pipe(
+                                                    topHogWrapper(
+                                                        createEmitEventStep({
+                                                            outputs,
+                                                            groupId,
+                                                        }),
+                                                        [
+                                                            count('emitted_events', (input) => ({
+                                                                team_id: String(input.teamId),
+                                                            })),
+                                                            count('emitted_events_per_distinct_id', (input) => ({
+                                                                team_id: String(input.teamId),
+                                                                distinct_id:
+                                                                    input.eventsToEmit[0]?.event.distinct_id ?? '',
+                                                            })),
+                                                        ]
+                                                    )
                                                 )
-                                            )
-                                    )
-                            )
+                                        )
+                                )
+                            })
                             .handleIngestionWarnings(outputs)
                 )
         )
