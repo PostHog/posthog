@@ -546,6 +546,44 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 (notification: InAppNotification): string | null =>
                     buildNotificationSourcePath(notification),
         ],
+        groups: [
+            (s) => [s.inAppNotifications],
+            (notifications: InAppNotification[]): NotificationGroup[] => {
+                const groups: NotificationGroup[] = []
+                const byKey = new Map<string, NotificationGroup>()
+                for (const n of notifications) {
+                    const key = groupKey(n)
+                    const existing = byKey.get(key)
+                    if (existing) {
+                        existing.children.push(n)
+                        existing.count = existing.children.length
+                        if (dayjs(n.created_at).isBefore(existing.first_seen)) {
+                            existing.first_seen = n.created_at
+                        }
+                        if (dayjs(n.created_at).isAfter(existing.last_seen)) {
+                            existing.last_seen = n.created_at
+                        }
+                        if (!n.read) {
+                            existing.has_unread = true
+                        }
+                        continue
+                    }
+                    const group: NotificationGroup = {
+                        group_key: key,
+                        representative: n,
+                        count: 1,
+                        first_seen: n.created_at,
+                        last_seen: n.created_at,
+                        children: [n],
+                        has_unread: !n.read,
+                        full_children_loaded: false,
+                    }
+                    byKey.set(key, group)
+                    groups.push(group)
+                }
+                return groups
+            },
+        ],
     }),
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
