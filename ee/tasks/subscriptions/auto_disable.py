@@ -29,6 +29,11 @@ UNSUPPORTED_TARGET_DISABLE_REASON = DisableReason(
     description="Unsupported delivery channel",
     user_message="Cannot re-enable {target_type} subscription: this delivery channel is not currently supported.",
 )
+SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
+    key="slack_permission_revoked",
+    description="PostHog can no longer post to this Slack channel",
+    user_message="Cannot re-enable {target_type} subscription: PostHog can't post to this Slack channel. Reconnect Slack or re-add the bot to the channel, then try again.",
+)
 
 logger = structlog.get_logger(__name__)
 
