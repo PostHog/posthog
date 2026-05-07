@@ -109,7 +109,7 @@ class StripeSource(
             name=SchemaExternalDataSourceType.STRIPE,
             caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
-            - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
+            - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payment methods**, **Payouts**, and **Products**
             - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
             - Under the **Connect** resource type, select *read* for the **entire resource**
             - Under the **Webhooks** resource type, select *write* for **Webhook endpoints** (required for automatic webhook creation)
@@ -226,7 +226,12 @@ If automatic creation failed due to a permissions error and you're using a restr
             "403 Client Error: Forbidden for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
             "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
             "Invalid API Key provided": None,
-            "PermissionError": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
+            # Surface Stripe's raw permission message — it names the specific scope that's missing
+            # (e.g. "Having the 'rak_payment_method_read' permission would allow this request to
+            # continue"), which is more actionable than a generic "check your permissions" toast.
+            # `_clean_stripe_error_message` collapses the redacted-key asterisk run before the
+            # message reaches this layer, so it stays toast-sized.
+            "PermissionError": None,
             # Deterministic credential/config errors from _get_api_key and OAuthMixin
             "Missing Stripe API key": "Stripe API key is not configured. Please update the source configuration.",
             "Missing Stripe integration ID": "Stripe integration ID is not configured. Please reconnect your Stripe account.",

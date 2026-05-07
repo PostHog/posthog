@@ -14,9 +14,12 @@ from products.logs.backend.models import LogsExclusionRule
 def _sampling_rule_summary(rule: LogsExclusionRule) -> str:
     if rule.rule_type == LogsExclusionRule.RuleType.PATH_DROP:
         patterns = (rule.config or {}).get("patterns") or []
-        return f"Path drop ({len(patterns)} pattern(s))"
+        key = (rule.config or {}).get("match_attribute_key")
+        if key:
+            return f"Drop rule on `{key}` ({len(patterns)} pattern(s))"
+        return f"Drop rule ({len(patterns)} pattern(s))"
     if rule.rule_type == LogsExclusionRule.RuleType.SEVERITY_SAMPLING:
-        return "Severity sampling"
+        return "Drop by severity rule"
     if rule.rule_type == LogsExclusionRule.RuleType.RATE_LIMIT:
         return "Rate limit (planned)"
     return str(rule.rule_type)

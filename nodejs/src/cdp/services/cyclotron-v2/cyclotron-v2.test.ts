@@ -59,6 +59,9 @@ interface RawJobRow {
     last_transition: string | Date
     parent_run_id: string | null
     state: Buffer | null
+    distinct_id: string | null
+    person_id: string | null
+    action_id: string | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -191,6 +194,65 @@ describe('Cyclotron V2', () => {
             expect(await totalJobCount()).toBe(0)
         })
 
+        // [columnName, initKey, sampleValueFactory]
+        const lookupColumns: Array<[keyof RawJobRow, keyof CyclotronV2JobInit, () => string]> = [
+            ['distinct_id', 'distinctId', () => 'user-42'],
+            ['person_id', 'personId', () => uuidv7()],
+            ['action_id', 'actionId', () => 'action-7'],
+        ]
+
+        it.each(lookupColumns)('createJob persists %s when provided', async (column, initKey, factory) => {
+            const value = factory()
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, [initKey]: value })
+            const row = await queryJob(id)
+            expect(row[column]).toBe(value)
+        })
+
+        it.each(lookupColumns)('createJob defaults %s to null when omitted', async (column) => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const row = await queryJob(id)
+            expect(row[column]).toBeNull()
+        })
+
+        it.each(lookupColumns)('bulkCreateJobs persists %s per row', async (column, initKey, factory) => {
+            const a = factory()
+            const b = factory()
+            const ids = await manager.bulkCreateJobs([
+                { teamId: 1, queueName: QUEUE, [initKey]: a },
+                { teamId: 1, queueName: QUEUE, [initKey]: b },
+                { teamId: 1, queueName: QUEUE },
+            ])
+            expect(ids).toHaveLength(3)
+            const rows = await assertPool.query<RawJobRow>(
+                `SELECT id, ${column} FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id`,
+                [ids]
+            )
+            const byId = new Map(rows.rows.map((r) => [r.id, r[column]]))
+            expect(byId.get(ids[0])).toBe(a)
+            expect(byId.get(ids[1])).toBe(b)
+            expect(byId.get(ids[2])).toBeNull()
+        })
+
+        // Only distinct_id and person_id are indexed; action_id intentionally is not.
+        const indexedLookupColumns = lookupColumns.filter(([col]) => col !== 'action_id')
+
+        it.each(indexedLookupColumns)(
+            'partial index supports lookup by (team_id, %s)',
+            async (column, initKey, factory) => {
+                const shared = factory()
+                await manager.createJob({ teamId: 1, queueName: QUEUE, [initKey]: shared })
+                await manager.createJob({ teamId: 1, queueName: QUEUE, [initKey]: shared })
+                await manager.createJob({ teamId: 2, queueName: QUEUE, [initKey]: shared })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                const res = await assertPool.query<{ count: string }>(
+                    `SELECT COUNT(*) AS count FROM cyclotron_jobs WHERE team_id = $1 AND ${column} = $2`,
+                    [1, shared]
+                )
+                expect(Number(res.rows[0].count)).toBe(2)
+            }
+        )
+
         it('backpressure throws when queue depth exceeds limit', async () => {
             const smallManager = createManager({ depthLimit: 2, depthCheckIntervalMs: 0 })
             await smallManager.connect()
@@ -201,6 +263,23 @@ describe('Cyclotron V2', () => {
             } finally {
                 await smallManager.disconnect()
             }
+        })
+
+        it('createJob rejects non-UUID personId before reaching the database', async () => {
+            await expect(manager.createJob({ teamId: 1, queueName: QUEUE, personId: 'not-a-uuid' })).rejects.toThrow(
+                /uuid/i
+            )
+        })
+
+        it('bulkCreateJobs rejects non-UUID values without writing any rows', async () => {
+            const before = await totalJobCount()
+            await expect(
+                manager.bulkCreateJobs([
+                    { teamId: 1, queueName: QUEUE, personId: uuidv7() },
+                    { teamId: 1, queueName: QUEUE, personId: 'bad-uuid' as any },
+                ])
+            ).rejects.toThrow(/uuid/i)
+            expect(await totalJobCount()).toBe(before)
         })
     })
 
@@ -305,6 +384,91 @@ describe('Cyclotron V2', () => {
 
             const row = await queryJob(id)
             expect(row.state).toBeNull()
+        })
+
+        it('reschedule({ actionId }) updates action_id column', async () => {
+            const { id, job } = await seedAndDequeue({ actionId: 'step-a' })
+            await job.reschedule({ actionId: 'step-b' })
+
+            const row = await queryJob(id)
+            expect(row.action_id).toBe('step-b')
+        })
+
+        it('reschedule({ actionId: null }) clears action_id', async () => {
+            const { id, job } = await seedAndDequeue({ actionId: 'step-a' })
+            await job.reschedule({ actionId: null })
+
+            const row = await queryJob(id)
+            expect(row.action_id).toBeNull()
+        })
+
+        it('reschedule() without actionId leaves action_id unchanged', async () => {
+            const { id, job } = await seedAndDequeue({ actionId: 'step-a' })
+            await job.reschedule({ state: Buffer.from('new-state') })
+
+            const row = await queryJob(id)
+            expect(row.action_id).toBe('step-a')
+        })
+
+        it('dequeued job exposes distinctId, personId, and actionId', async () => {
+            const personId = uuidv7()
+            const { job } = await seedAndDequeue({
+                distinctId: 'd-on-job',
+                personId,
+                actionId: 'a-on-job',
+            })
+            expect(job.distinctId).toBe('d-on-job')
+            expect(job.personId).toBe(personId)
+            expect(job.actionId).toBe('a-on-job')
+        })
+
+        it('reschedule rejects non-UUID personId before reaching the database', async () => {
+            const { job } = await seedAndDequeue()
+            await expect(job.reschedule({ personId: 'bad-uuid' as any })).rejects.toThrow(/uuid/i)
+        })
+
+        it('reschedule({ distinctId }) updates distinct_id column', async () => {
+            const { id, job } = await seedAndDequeue({ distinctId: 'd-old' })
+            await job.reschedule({ distinctId: 'd-new' })
+
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBe('d-new')
+        })
+
+        it('reschedule({ distinctId: null }) clears distinct_id', async () => {
+            const { id, job } = await seedAndDequeue({ distinctId: 'd-old' })
+            await job.reschedule({ distinctId: null })
+
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBeNull()
+        })
+
+        it('reschedule({ personId }) updates person_id column', async () => {
+            const original = uuidv7()
+            const next = uuidv7()
+            const { id, job } = await seedAndDequeue({ personId: original })
+            await job.reschedule({ personId: next })
+
+            const row = await queryJob(id)
+            expect(row.person_id).toBe(next)
+        })
+
+        it('reschedule({ personId: null }) clears person_id', async () => {
+            const { id, job } = await seedAndDequeue({ personId: uuidv7() })
+            await job.reschedule({ personId: null })
+
+            const row = await queryJob(id)
+            expect(row.person_id).toBeNull()
+        })
+
+        it('reschedule() without identifiers leaves them unchanged', async () => {
+            const original = uuidv7()
+            const { id, job } = await seedAndDequeue({ distinctId: 'd-keep', personId: original })
+            await job.reschedule({ state: Buffer.from('new-state') })
+
+            const row = await queryJob(id)
+            expect(row.distinct_id).toBe('d-keep')
+            expect(row.person_id).toBe(original)
         })
 
         it('heartbeat() extends last_heartbeat', async () => {

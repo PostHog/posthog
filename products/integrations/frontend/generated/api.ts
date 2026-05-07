@@ -29,6 +29,7 @@ import type {
     SlackChannelsResponseApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
+    UsersIntegrationsGithubBranchesRetrieveParams,
     UsersIntegrationsGithubReposRetrieveParams,
     UsersIntegrationsListParams,
 } from './api.schemas'
@@ -237,6 +238,51 @@ export const integrationsDestroy = async (projectId: string, id: number, options
     return apiMutator<void>(getIntegrationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_environments/`
+}
+
+export const integrationsAnthropicManagedAgentEnvsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_vaults/`
+}
+
+export const integrationsAnthropicManagedAgentVaultsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agents/`
+}
+
+export const integrationsAnthropicManagedAgentsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -570,6 +616,46 @@ export const integrationsDomainConnectCheckRetrieve = async (
 }
 
 /**
+ * Reuse a GitHub installation already linked to a sibling team in the same organization.
+ */
+export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/link_existing/`
+}
+
+export const integrationsGithubLinkExistingCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+/**
+ * Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one.
+ */
+export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/oauth_authorize/`
+}
+
+export const integrationsGithubOauthAuthorizeCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+/**
  * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
  * @summary List personal GitHub integrations
  */
@@ -620,6 +706,45 @@ export const usersIntegrationsGithubDestroy = async (
 }
 
 /**
+ * List branches for a repository accessible to a personal GitHub installation.
+ * @summary List branches for a personal GitHub installation repository
+ */
+export const getUsersIntegrationsGithubBranchesRetrieveUrl = (
+    uuid: string,
+    installationId: string,
+    params: UsersIntegrationsGithubBranchesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/users/${uuid}/integrations/github/${installationId}/branches/?${stringifiedParams}`
+        : `/api/users/${uuid}/integrations/github/${installationId}/branches/`
+}
+
+export const usersIntegrationsGithubBranchesRetrieve = async (
+    uuid: string,
+    installationId: string,
+    params: UsersIntegrationsGithubBranchesRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubBranchesResponseApi> => {
+    return apiMutator<GitHubBranchesResponseApi>(
+        getUsersIntegrationsGithubBranchesRetrieveUrl(uuid, installationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
  * List repositories accessible to a specific GitHub installation (paginated, cached).
  * @summary List repositories for a personal GitHub installation
  */
@@ -654,6 +779,28 @@ export const usersIntegrationsGithubReposRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+/**
+ * Refresh repositories accessible to a specific GitHub installation.
+ * @summary Refresh repositories for a personal GitHub installation
+ */
+export const getUsersIntegrationsGithubReposRefreshCreateUrl = (uuid: string, installationId: string) => {
+    return `/api/users/${uuid}/integrations/github/${installationId}/repos/refresh/`
+}
+
+export const usersIntegrationsGithubReposRefreshCreate = async (
+    uuid: string,
+    installationId: string,
+    options?: RequestInit
+): Promise<GitHubReposRefreshResponseApi> => {
+    return apiMutator<GitHubReposRefreshResponseApi>(
+        getUsersIntegrationsGithubReposRefreshCreateUrl(uuid, installationId),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }

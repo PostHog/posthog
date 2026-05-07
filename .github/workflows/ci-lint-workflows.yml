@@ -4,8 +4,9 @@ on:
     pull_request:
         paths:
             - .github/workflows/**
-            - .github/scripts/**
             - services/**
+            - tools/hogli-commands/hogli_commands/workflow_lint/**
+            - hogli.yaml
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -15,42 +16,27 @@ permissions:
     contents: read
 
 jobs:
-    check-timeouts:
+    lint-workflows:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
             - uses: actions/checkout@v6
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2'
-            - run: uv run .github/scripts/check-ci-timeouts.py
 
-    check-semgrep-services-coverage:
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        steps:
-            - uses: actions/checkout@v6
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  version: '0.10.2'
-            - run: uv run .github/scripts/check-semgrep-services-coverage.py
+                  python-version-file: 'pyproject.toml'
 
-    check-dorny-paths-filter:
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        steps:
-            - uses: actions/checkout@v6
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  version: '0.10.2'
-            - run: uv run .github/scripts/check-dorny-paths-filter.py
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
-    check-concurrency:
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        steps:
-            - uses: actions/checkout@v6
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2'
-            - run: uv run .github/scripts/check-ci-concurrency.py
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Lint workflows
+              run: ./bin/hogli lint:workflows

@@ -12,9 +12,19 @@ export interface CodeInviteRedeemRequestApi {
     code: string
 }
 
-export interface ErrorResponseApi {
-    /** Error message */
-    error: string
+export interface TaskRunErrorResponseApi {
+    /** Human-readable validation error */
+    detail?: string
+    /** Human-readable error message */
+    error?: string
+    /** Machine-readable error type */
+    type?: string
+    /** Machine-readable error code */
+    code?: string
+    /** Request field associated with the error */
+    attr?: string
+    /** Artifact ids that could not be resolved for the run */
+    missing_artifact_ids?: string[]
 }
 
 /**
@@ -243,6 +253,11 @@ export interface TaskApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * User-scoped GitHub integration to use for user-authored cloud runs.
+     * @nullable
+     */
+    github_user_integration?: string | null
     /** @nullable */
     signal_report?: string | null
     signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
@@ -300,6 +315,11 @@ export interface PatchedTaskApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * User-scoped GitHub integration to use for user-authored cloud runs.
+     * @nullable
+     */
+    github_user_integration?: string | null
     /** @nullable */
     signal_report?: string | null
     signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
@@ -448,7 +468,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
 * `xhigh` - xhigh
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Claude runtimes.
 
@@ -532,7 +552,7 @@ export interface CodexTaskRunCreateSchemaApi {
 * `xhigh` - xhigh
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
 
@@ -572,7 +592,7 @@ export interface TaskRunResumeRequestSchemaApi {
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
 }
 
@@ -580,21 +600,6 @@ export type TaskRunCreateRequestSchemaApi =
     | ClaudeTaskRunCreateSchemaApi
     | CodexTaskRunCreateSchemaApi
     | TaskRunResumeRequestSchemaApi
-
-export interface TaskRunErrorResponseApi {
-    /** Human-readable validation error */
-    detail?: string
-    /** Human-readable error message */
-    error?: string
-    /** Machine-readable error type */
-    type?: string
-    /** Machine-readable error code */
-    code?: string
-    /** Request field associated with the error */
-    attr?: string
-    /** Artifact ids that could not be resolved for the run */
-    missing_artifact_ids?: string[]
-}
 
 /**
  * * `plan` - plan
@@ -766,9 +771,9 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
  * `failed` - Failed
  * `cancelled` - Cancelled
  */
-export type TaskRunDetailStatusEnumApi = (typeof TaskRunDetailStatusEnumApi)[keyof typeof TaskRunDetailStatusEnumApi]
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
 
-export const TaskRunDetailStatusEnumApi = {
+export const TaskRunStatusEnumApi = {
     NotStarted: 'not_started',
     Queued: 'queued',
     InProgress: 'in_progress',
@@ -781,10 +786,9 @@ export const TaskRunDetailStatusEnumApi = {
  * * `local` - Local
  * `cloud` - Cloud
  */
-export type TaskRunDetailEnvironmentEnumApi =
-    (typeof TaskRunDetailEnvironmentEnumApi)[keyof typeof TaskRunDetailEnvironmentEnumApi]
+export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
 
-export const TaskRunDetailEnvironmentEnumApi = {
+export const TaskRunEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
 } as const
@@ -823,12 +827,12 @@ export interface TaskRunDetailApi {
      * @nullable
      */
     branch?: string | null
-    status?: TaskRunDetailStatusEnumApi
+    status?: TaskRunStatusEnumApi
     /** Execution environment
 
 * `local` - Local
 * `cloud` - Cloud */
-    environment?: TaskRunDetailEnvironmentEnumApi
+    environment?: TaskRunEnvironmentEnumApi
     /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
     readonly runtime_adapter: RuntimeAdapterEnumApi | NullEnumApi | null
     /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
@@ -1419,6 +1423,38 @@ export interface RepositoryReadinessResponseApi {
     scan?: ScanEvidenceApi
 }
 
+export interface TaskSummariesRequestApi {
+    /**
+     * Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.
+     * @maxItems 5000
+     */
+    ids: string[]
+}
+
+export interface TaskRunSummaryApi {
+    status: TaskRunStatusEnumApi | NullEnumApi | null
+    environment: TaskRunEnvironmentEnumApi | NullEnumApi | null
+}
+
+export interface TaskSummaryApi {
+    readonly id: string
+    readonly title: string
+    /** @nullable */
+    readonly repository: string | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly latest_run: TaskRunSummaryApi | null
+}
+
+export interface PaginatedTaskSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskSummaryApi[]
+}
+
 export type SandboxListParams = {
     /**
      * Number of results to return per page.
@@ -1447,7 +1483,7 @@ export type TasksListParams = {
      */
     created_by?: number
     /**
-     * When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.
+     * When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.
      */
     internal?: boolean
     /**
@@ -1558,4 +1594,15 @@ export type TasksRepositoryReadinessRetrieveParams = {
      * @maximum 30
      */
     window_days?: number
+}
+
+export type TasksSummariesCreateParams = {
+    /**
+     * Page size for the paginated response.
+     */
+    limit?: number
+    /**
+     * Offset into the result set for pagination.
+     */
+    offset?: number
 }
