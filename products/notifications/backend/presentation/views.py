@@ -1,9 +1,11 @@
 from typing import cast
 
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -101,11 +103,62 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         return queryset
 
+    def _apply_filters(self, queryset: QuerySet, request: Request) -> QuerySet:
+        params = request.query_params
+        for field in ("notification_type", "target_type", "target_id", "resource_type", "resource_id"):
+            value = params.get(field)
+            if value:
+                queryset = queryset.filter(
+                    **{field: value}
+                )  # nosemgrep: orm-field-injection -- field comes from a fixed tuple
+        for field, lookup in (("created_after", "created_at__gte"), ("created_before", "created_at__lt")):
+            raw = params.get(field)
+            if not raw:
+                continue
+            # Django decodes "+" timezone offsets in query strings as " "; restore before parsing.
+            parsed = parse_datetime(raw.replace(" ", "+"))
+            if parsed is None:
+                raise ValidationError({field: f"Invalid ISO 8601 timestamp: {raw}"})
+            queryset = queryset.filter(
+                **{lookup: parsed}
+            )  # nosemgrep: orm-field-injection -- lookup comes from a fixed tuple
+        return queryset
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="notification_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by notification type",
+            ),
+            OpenApiParameter(name="target_type", type=str, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="target_id", type=str, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="resource_type", type=str, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(name="resource_id", type=str, location=OpenApiParameter.QUERY, required=False),
+            OpenApiParameter(
+                name="created_after",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="ISO 8601 timestamp; only events at or after this time",
+            ),
+            OpenApiParameter(
+                name="created_before",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="ISO 8601 timestamp; only events strictly before this time",
+            ),
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         if not self._is_feature_enabled():
             return Response({"results": [], "next": None, "previous": None, "count": 0})
 
         queryset = self._get_base_queryset()
+        queryset = self._apply_filters(queryset, request)
         queryset = self._filter_by_access_control(queryset)
         page = self.paginate_queryset(queryset)
         if page is not None:

@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from rest_framework.test import APIClient
 
@@ -133,6 +136,123 @@ class TestNotificationsAPI(BaseTest):
         )
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
         assert len(resp.json()["results"]) == 1
+
+    def test_list_filter_by_notification_type(self):
+        NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Alert",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?notification_type=alert_firing")
+        assert resp.status_code == 200
+        results = resp.json()["results"]
+        assert len(results) == 1
+        assert results[0]["notification_type"] == "alert_firing"
+
+    def test_list_filter_by_target(self):
+        other_user = User.objects.create_and_join(self.organization, "other2@test.com", "password")
+        NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Other",
+            body="",
+            target_type="user",
+            target_id=str(other_user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        resp = self.client.get(
+            f"/api/environments/{self.team.id}/notifications/?target_type=user&target_id={self.user.id}"
+        )
+        assert resp.status_code == 200
+        results = resp.json()["results"]
+        assert len(results) == 1
+        assert results[0]["target_id"] == str(self.user.id)
+
+    def test_list_filter_by_resource(self):
+        NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="With resource",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+            resource_type="insight",
+            resource_id="abc123",
+        )
+        resp = self.client.get(
+            f"/api/environments/{self.team.id}/notifications/?resource_type=insight&resource_id=abc123"
+        )
+        assert resp.status_code == 200
+        results = resp.json()["results"]
+        assert len(results) == 1
+        assert results[0]["resource_id"] == "abc123"
+
+    def test_list_filter_invalid_datetime_returns_400(self):
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?created_after=not-a-date")
+        assert resp.status_code == 400
+
+    def test_list_filter_combines_with_and(self):
+        # event with type=alert_firing but different resource — should not match
+        NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Other resource",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+            resource_type="insight",
+            resource_id="other",
+        )
+        # event matching both filters
+        match = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Match",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+            resource_type="insight",
+            resource_id="abc",
+        )
+        resp = self.client.get(
+            f"/api/environments/{self.team.id}/notifications/"
+            f"?notification_type=alert_firing&resource_type=insight&resource_id=abc"
+        )
+        assert resp.status_code == 200
+        ids = [r["id"] for r in resp.json()["results"]]
+        assert ids == [str(match.id)]
+
+    def test_list_filter_by_created_window(self):
+        old = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Old",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        NotificationEvent.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=2))
+
+        cutoff = (timezone.now() - timedelta(days=1)).isoformat()
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?created_after={cutoff}")
+        assert resp.status_code == 200
+        ids = {r["id"] for r in resp.json()["results"]}
+        assert str(old.id) not in ids
+        assert str(self.event.id) in ids
 
 
 class TestNotificationsAPIFeatureFlagDisabled(BaseTest):
