@@ -42630,6 +42630,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MessagingPreferencesExportOptOutsRetrieveParams = {
+    /**
+     * Optional category key. When omitted, exports recipients who opted out of all marketing communications (the `$all` bucket).
+     */
+    category_key?: string;
+    };
+
     export type MessagingTemplatesListParams = {
     /**
      * Number of results to return per page.

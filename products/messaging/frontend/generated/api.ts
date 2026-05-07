@@ -12,6 +12,7 @@ import type {
     MessageCategoryApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
+    MessagingPreferencesExportOptOutsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageTemplateListApi,
@@ -252,6 +253,39 @@ export const messagingCategoriesSaveWebhookConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(messageCategoryApi),
+    })
+}
+
+/**
+ * Export opt-out recipients as CSV. Returns a `text/csv` attachment with columns `Recipient` and `Opt-out date` (ISO-8601 UTC), filtered identically to the `opt_outs` endpoint.
+ */
+export const getMessagingPreferencesExportOptOutsRetrieveUrl = (
+    projectId: string,
+    params?: MessagingPreferencesExportOptOutsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/messaging_preferences/export_opt_outs/?${stringifiedParams}`
+        : `/api/environments/${projectId}/messaging_preferences/export_opt_outs/`
+}
+
+export const messagingPreferencesExportOptOutsRetrieve = async (
+    projectId: string,
+    params?: MessagingPreferencesExportOptOutsRetrieveParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getMessagingPreferencesExportOptOutsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
