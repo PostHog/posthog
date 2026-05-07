@@ -126,7 +126,12 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
         return integration.access_token
 
     def get_schemas(
-        self, config: GithubSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: GithubSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

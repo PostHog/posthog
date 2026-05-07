@@ -72,6 +72,7 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         clean_url = validate_deploy_url(config.deploy_url)
         schemas_response = get_json_schemas(clean_url, config.deploy_key)

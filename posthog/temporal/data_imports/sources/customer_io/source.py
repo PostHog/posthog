@@ -157,6 +157,7 @@ class CustomerIOSource(
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # `supports_append=False` on the webhook schemas: events arrive via the realtime
         # webhook pipeline (not the polling sync), so user-facing append/full-refresh

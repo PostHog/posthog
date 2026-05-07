@@ -49,7 +49,12 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
         }
 
     def get_schemas(
-        self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: BigQuerySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
             config,

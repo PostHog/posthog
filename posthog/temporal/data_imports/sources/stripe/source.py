@@ -260,6 +260,7 @@ If automatic creation failed due to a permissions error and you're using a restr
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

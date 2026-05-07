@@ -24,7 +24,12 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
         return ExternalDataSourceType.DOIT
 
     def get_schemas(
-        self, config: DoItSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: DoItSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         reports = doit_list_reports(config)
 

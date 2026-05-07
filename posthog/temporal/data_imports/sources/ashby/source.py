@@ -43,7 +43,12 @@ class AshbySource(SimpleSource[AshbySourceConfig]):
         raise NotImplementedError()
 
     def get_schemas(
-        self, config: AshbySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: AshbySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         raise NotImplementedError()
 
