@@ -1,184 +1,178 @@
-# Testing hog-charts
+# Testing
 
-Render a chart, drive interactions through the `chart` accessor, assert against a structured tooltip snapshot or the chart's DOM. Pure logic is tested at the `core/` layer, never against the canvas.
+Render a chart, read the DOM through the `chart` accessor, drive interactions through `hoverAtIndex` / `clickAtIndex` and the tooltip helpers. Never reach into the canvas or `scales._private`. Pure logic is tested at the `core/` layer, not at the chart level.
 
-## TL;DR
+This file documents the conventions encoded in the `testing/` module. They apply to chart-level tests under `charts/` and to overlay tests under `overlays/`.
+
+## The DOM is the testing contract
+
+`data-attr` selectors and the `HogChart` accessor are the stable surface chart-level tests assert against. Renaming a `data-attr` is a breaking change — it breaks consumers' tests as much as renaming an exported type. JSdom's canvas is a stub (`getContext('2d')` returns a no-op context), so canvas pixels aren't a viable test surface anyway — assertions go through the DOM.
+
+## Testing module API
+
+### `renderHogChart`
+
+Wraps `@testing-library/react`'s `render` and attaches a `chart` accessor. Throws if no hog-charts canvas mounted — use plain `render` for non-chart components.
 
 ```tsx
-import { renderHogChart } from 'lib/hog-charts/testing'
-
-it('shows the hovered series in the tooltip', async () => {
-  const { chart } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
-  chart.hoverAtIndex(1)
-  const tooltip = await chart.waitForTooltip()
-  expect(tooltip.label).toBe('Tue')
-  expect(tooltip.seriesData).toHaveLength(SERIES.length)
-})
+const { chart, container } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
+expect(chart.seriesCount).toBe(SERIES.length)
 ```
 
-That's the whole shape: render → hover → snapshot → assert. No `beforeEach`, no `cleanup()`, no DOM-level glue.
+### The `HogChart` accessor
 
-## What `renderHogChart` does
-
-- Calls `render(ui)` from `@testing-library/react`.
-- Auto-installs the jsdom mocks (`ResizeObserver`, `getBoundingClientRect`) and a synchronous `requestAnimationFrame` shim. Idempotent — only happens once per test run.
-- Calls `cleanup()` and removes any tooltip portal left behind by a previous test (RTL's auto-cleanup doesn't always reach `FloatingPortal` children).
-- Intercepts the (optional) `tooltip` render prop via `cloneElement` so `chart.waitForTooltip()` can return the structured `TooltipContext` the chart computed. If the consumer didn't pass a tooltip we fall through to `DefaultTooltip` — same as the chart's natural default. If they did, we wrap and call through unchanged.
-- Reads `ui.props.labels.length` and caches it on the accessor so `chart.hoverAtIndex(i)` doesn't need a `totalLabels` argument.
-- Returns the standard `RenderResult` with a `chart` accessor attached.
-
-## The `chart` accessor
-
-`chart` is the **single surface** for chart-level tests. Reads come from the DOM; interactions fire real events; the tooltip snapshot includes the structured `TooltipContext` the chart computed.
+Reads what the chart rendered without poking at internals or canvas pixels. Helpers below take a `wrapper` argument — that's `chart.element`.
 
 ```tsx
-chart.element // wrapper div
-chart.seriesCount // visible series count, from the canvas's aria-label
-chart.yTicks() // ['0', '20', '40', …]
-chart.yRightTicks() // right-axis ticks (multi-axis charts)
+const { chart } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
+
+chart.element // wrapper div for this chart
+chart.seriesCount // number of non-excluded series rendered
+chart.yTicks() // ['0', '10', '20', …]
+chart.yRightTicks() // right-axis ticks for multi-axis charts
 chart.xTicks() // post-collision-avoidance x ticks
 chart.hasRightAxis // boolean
-chart.referenceLines() // [{ label, position, color, orientation }, …]
-chart.valueLabels() // [{ text, color }, …]
-chart.anomalyPoints() // [{ element, color }, …]  (TimeSeriesLineChart)
+
+chart.referenceLines() // [{ label: 'Target', position: 142, color: 'rgb(...)', orientation: 'horizontal' }, …]
+chart.valueLabels() // [{ text: '50%', color: 'rgb(...)' }, …]
 chart.annotationBadges() // HTMLElement[]
-
-chart.hoverAtIndex(i) // mouseMove over labels[i]; uses the cached label count
-await chart.clickAtIndex(i) // hover-then-click; resolves after the click handler runs
-const tooltip = await chart.waitForTooltip()
 ```
 
-### The tooltip snapshot
+### Interaction helpers
 
-`chart.waitForTooltip()` returns once the tooltip portal mounts:
+Map a label index to canvas coordinates and fire the right event. `clickAtIndex` is hover-then-click — the chart's click handler reads live tooltip context to choose between pinning and `onPointClick`, so a bare `fireEvent.click` without a prior hover takes the wrong branch.
+
+```tsx
+chart.hoverAtIndex(1) // mouseMove over labels[1]
+await chart.clickAtIndex(1) // hover then click
+```
+
+The label count comes from `ui.props.labels`, captured at `renderHogChart` time. Outside `renderHogChart` (e.g. when calling `getHogChart(scope)` on a custom render tree), use the module-level `hoverAtIndex(wrapper, i, totalLabels)` / `clickAtIndex(wrapper, i, totalLabels)` instead.
+
+### Tooltip helpers
+
+`chart.waitForTooltip()` resolves once the tooltip mounts and returns a snapshot — the structured `TooltipContext` the chart computed plus the rendered portal element and an `isPinned` flag.
 
 ```tsx
 const tooltip = await chart.waitForTooltip()
-
-tooltip.label // 'Tue'
-tooltip.dataIndex // 1
-tooltip.seriesData // [{ series, value, color }, …] — same structure the chart's tooltip prop receives
-tooltip.position // { x, y } in canvas pixels
-tooltip.hoverPosition // cursor coords when known, else null
-tooltip.element // the rendered portal element — for DOM assertions
-tooltip.isPinned // true when the user has pinned via click
+expect(tooltip.label).toBe('Tue')
+expect(tooltip.seriesData).toHaveLength(2)
+expect(tooltip.element.textContent).toContain('Tue')
+expect(tooltip.isPinned).toBe(false)
 ```
 
-Prefer the structured fields. Reach for `tooltip.element` when you need to assert on the rendered tooltip's text or a custom render prop's output.
+The tooltip mounts in a `FloatingPortal` on the document root, so it isn't inside `chart.element`. Module-level `waitForHogChartTooltip()` / `getHogChartTooltip()` are still exported for cases where you don't have a `chart` accessor handy (e.g. an insight tree behind kea wrappers — see `frontend/src/test/insight-testing/`).
 
-## Custom render functions / external usage
-
-`getHogChart(scope)` works on **any** rendered tree for **DOM-rendered** properties — axis ticks, value labels, reference lines, annotation badges, the canvas wrapper, the rendered tooltip element:
+## Boilerplate
 
 ```tsx
-import { render, fireEvent } from '@testing-library/react'
-import { ensureJsdom, getHogChart, waitForHogChartTooltip } from 'lib/hog-charts/testing'
+import type { ChartTheme, Series } from '../core/types'
+import { renderHogChart } from '../testing'
+import { LineChart } from './LineChart'
 
-ensureJsdom()
+const THEME: ChartTheme = { colors: ['#111', '#222'], backgroundColor: '#ffffff' }
+const LABELS = ['Mon', 'Tue', 'Wed']
+const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
 
-it('renders a chart somewhere deep in the dashboard', async () => {
-  const { container } = render(<Dashboard />)
-  const chart = getHogChart(container)
-  expect(chart.referenceLines()).toHaveLength(1)
-  expect(chart.yTicks()).toContain('0')
-
-  fireEvent.mouseMove(chart.element, { clientX: 200, clientY: 200 })
-  const tooltipEl = await waitForHogChartTooltip()
-  expect(tooltipEl.textContent).toContain('Tue')
+describe('LineChart', () => {
+  it('formats percent-stack y-ticks by default', () => {
+    const { chart } = renderHogChart(
+      <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ percentStackView: true }} />
+    )
+    expect(chart.yTicks().some((t) => t.endsWith('%'))).toBe(true)
+  })
 })
 ```
 
-What you **don't** get from `getHogChart(scope)` directly:
-
-- `chart.hoverAtIndex(i)` / `chart.clickAtIndex(i)` — they need the label count, which `renderHogChart` reads off the chart's props. With a custom render, fire mouse events directly or use the module-level `hoverAtIndex(wrapper, i, totalLabels)`.
-- `chart.waitForTooltip()` returning a structured `TooltipSnapshot` — the tooltip-prop interception lives in `renderHogChart`. Use the module-level `waitForHogChartTooltip()` for the element. If you also need the structured `TooltipContext`, render the chart at the top level via `renderHogChart` instead.
-
-The full structured experience requires `renderHogChart`; everything DOM-shaped works with a plain `render`.
+`renderHogChart` installs the jsdom mocks (`ResizeObserver`, `getBoundingClientRect`) and a synchronous `requestAnimationFrame` shim on first call — without them the chart sees 0×0 and the static-layer draw doesn't flush before assertions. It also calls `cleanup()` and removes any leftover tooltip portal, so test files don't need a `beforeEach`/`afterEach` for those. Use the explicit `setupJsdom()` / `setupSyncRaf()` only when you need fine-grained teardown control.
 
 ## Recipes
 
-### Pin the tooltip on click
+### Hover and pin a tooltip
 
 ```tsx
-it('pins on click when pinnable', async () => {
+it('pins the tooltip on click when pinnable', async () => {
   const { chart } = renderHogChart(
     <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
   )
+
   await chart.clickAtIndex(1)
   const tooltip = await chart.waitForTooltip()
   expect(tooltip.isPinned).toBe(true)
 })
 ```
 
-### Custom tooltip render prop
+### Assert against the structured tooltip context
 
-When the consumer passes `tooltip`, the chart calls it with the (possibly narrowed) `TooltipContext`. The same context is on `tooltip.seriesData` etc. — usually you can assert against the snapshot directly without round-tripping through DOM:
+The `chart.waitForTooltip()` snapshot includes the same `TooltipContext` the chart's `tooltip` render prop would receive — read `seriesData`, `label`, `dataIndex`, etc. directly without round-tripping through DOM.
 
 ```tsx
-it('passes hovered seriesData to the tooltip prop', async () => {
+it('passes hovered seriesData to the tooltip', async () => {
   const { chart } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
+
   chart.hoverAtIndex(1)
   const tooltip = await chart.waitForTooltip()
-  expect(tooltip.seriesData).toHaveLength(SERIES.length)
+  expect(tooltip.seriesData.map((s) => s.value)).toEqual([2])
 })
 ```
 
-Reach for `tooltip.element.textContent` when the test specifically asserts what the user sees rendered.
+When the test cares about what the user actually sees rendered, reach for `tooltip.element.textContent`.
 
 ### Click a data point
 
+Use `chart.clickAtIndex` to fire a click on a specific column and assert that the chart's `onPointClick` callback received the expected `PointClickData` (`seriesIndex`, `dataIndex`, `series`, `value`, `label`, `crossSeriesData`). It resolves after the click handler runs.
+
 ```tsx
-it('invokes onPointClick', async () => {
+it('invokes onPointClick with the clicked column', async () => {
   const onPointClick = jest.fn()
   const { chart } = renderHogChart(
     <LineChart series={SERIES} labels={LABELS} theme={THEME} onPointClick={onPointClick} />
   )
+
   await chart.clickAtIndex(1)
-  expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 1, label: 'Tue' }))
+  expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 1, label: 'Tue', value: 2 }))
 })
 ```
 
-### Reference lines and value labels
+### Render a second y-axis
+
+When a series declares `yAxisId: 'right'`, the chart renders a right-side y-axis. Assert through the accessor's `hasRightAxis` and `yRightTicks()`.
 
 ```tsx
-const { chart } = renderHogChart(
-  <LineChart series={SERIES} labels={LABELS} theme={THEME}>
-    <ReferenceLine value={15} label="Target" />
-  </LineChart>
-)
-expect(chart.referenceLines()).toEqual([expect.objectContaining({ label: 'Target', orientation: 'horizontal' })])
+it('renders a right axis when a series opts in', () => {
+  const series: Series[] = [
+    { key: 'a', label: 'A', data: [10, 20, 30] },
+    { key: 'b', label: 'B', data: [1000, 2000, 3000], yAxisId: 'right' },
+  ]
+  const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
+
+  expect(chart.hasRightAxis).toBe(true)
+  expect(chart.yRightTicks().length).toBeGreaterThan(0)
+})
 ```
 
-### Render error captured by ChartErrorBoundary
+### Catch a render error
+
+Each chart wraps its inner tree in `ChartErrorBoundary`, which surfaces render errors through the `onError` prop instead of unmounting the parent. To trigger one, force a throw during render — the simplest forcing function is a `tooltip` render prop that throws, since the boundary covers tooltip rendering during hover.
 
 ```tsx
-it('reports render errors through onError', async () => {
+it('reports render errors through onError', () => {
   const onError = jest.fn()
   const tooltip = (): React.ReactNode => {
     throw new Error('boom')
   }
-  const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-  try {
-    const { chart } = renderHogChart(
-      <LineChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
-    )
-    chart.hoverAtIndex(1)
-    await waitFor(() => expect(onError).toHaveBeenCalled())
-  } finally {
-    consoleErrorSpy.mockRestore()
-  }
+  const { chart } = renderHogChart(
+    <LineChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
+  )
+
+  chart.hoverAtIndex(1)
+  expect(onError).toHaveBeenCalled()
 })
 ```
 
-## Pure unit tests (`core/`)
-
-Geometry, scales, interactions, and canvas drawing live as pure functions in `core/` and are tested directly. No `renderHogChart`. Mock the canvas only when asserting on draw calls — and prefer asserting on the structured output of helpers (e.g. `computeSeriesBars`) over snooping on `ctx.moveTo.mock.calls`.
-
-When a test does need a canvas mock, sample one representative call rather than asserting on every call in a loop. `drawGrid` emits the same shape per tick, so testing one tick is enough; for-loops over `mock.calls` invite branching logic in tests, which we avoid.
-
 ## Anti-patterns
 
-**Don't mock `core/canvas-renderer`.** Reaching into draw-function call lists tests an internal contract through a side channel. Test the geometry directly in `core/`:
+**Don't mock `core/canvas-renderer`.** Reaching into draw-function call lists tests an internal contract through a side channel:
 
 ```tsx
 // wrong
@@ -186,41 +180,14 @@ jest.mock('../core/canvas-renderer', () => ({ ...jest.requireActual('../core/can
 expect((drawBars as jest.Mock).mock.calls[0][2][0].corners.topLeft).toBe(true)
 ```
 
-**Don't read `scales._private`.** Opaque chart-type-private slot. Anything reachable through it is reachable more cleanly at the chart type's pure-scale layer.
+The geometry that produced those calls lives in `core/bar-layout.ts` — test it directly in `core/bar-layout.test.ts` against `computeSeriesBars`.
 
-**Don't inspect canvas pixels.** JSdom's canvas is a stub — no `getContext('2d')` spies, no pixel snapshots.
+**Don't read `scales._private`.** It's an opaque chart-type-private slot. Anything reachable through it is reachable more cleanly at the chart type's pure-scale layer.
 
-**Don't write `it.each` matrices that only assert "a canvas rendered".** Each row should read at least one observable property of that permutation.
+**Don't inspect canvas pixels.** No `getContext('2d')` spies, no pixel snapshots — JSdom's canvas is a stub anyway.
 
-**Don't reach into React internals.** `useRef` values, internal effects, and d3 scale objects are not test surface. The accessor and tooltip snapshot are.
+**Don't fall back to `container.querySelector('canvas')` for canvas presence.** `renderHogChart` already throws when the canvas is missing.
 
-**Don't add boilerplate that's now automatic.** `setupJsdom()` / `setupSyncRaf()` / `cleanup()` in `beforeEach` / `afterEach` are no longer needed — `renderHogChart` handles all three. Use the explicit functions only when you need fine-grained teardown control (rare).
+**Don't write `it.each` matrices that only assert "a canvas rendered".** Each row should read at least one observable property of that permutation — `chart.yTicks().some(t => t.endsWith('%'))` for a percent layout, `chart.hasRightAxis` for a multi-axis case.
 
-## Module reference
-
-```ts
-import {
-  renderHogChart, // render + chart accessor (full structured tooltip + hover/click)
-  getHogChart, // accessor over an already-rendered tree (DOM-only by default)
-  ensureJsdom, // explicit one-time jsdom setup; renderHogChart calls this
-  setupJsdom, // returns teardown — for tests with fine-grained mock control
-  setupSyncRaf, // returns teardown — for fine-grained RAF control
-  dimensions,
-  mockRect, // jsdom mock dimensions in CSS pixels
-  makeSeries, // small `Series` fixture builder
-
-  // Module-level interaction/tooltip helpers — used outside renderHogChart's scope
-  hoverAtIndex, // hoverAtIndex(wrapper, i, totalLabels)
-  clickAtIndex, // clickAtIndex(wrapper, i, totalLabels)
-  waitForHogChartTooltip, // resolves to the portal element
-  getHogChartTooltip, // sync read; null if not mounted
-  HOG_CHARTS_TOOLTIP_SELECTOR, // for custom queries
-} from 'lib/hog-charts/testing'
-
-import type {
-  HogChart, // accessor type (generic on series Meta)
-  GetHogChartOptions, // options for getHogChart (capture closure, totalLabels)
-  TooltipSnapshot, // chart.waitForTooltip() return type
-  HogChartTooltip, // raw tooltip handle (element + isPinned)
-} from 'lib/hog-charts/testing'
-```
+**Don't reach into React internals.** `useRef` values, internal effects, and d3 scale objects are not test surface. The accessor and tooltip helpers are the entire surface.
