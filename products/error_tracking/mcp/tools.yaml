@@ -354,9 +354,6 @@ tools:
     error-tracking-symbol-sets-bulk-start-upload-create:
         operation: error_tracking_symbol_sets_bulk_start_upload_create
         enabled: false
-    error-tracking-symbol-sets-create:
-        operation: error_tracking_symbol_sets_create
-        enabled: false
     error-tracking-symbol-sets-destroy:
         operation: error_tracking_symbol_sets_destroy
         enabled: false
@@ -401,9 +398,6 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
-    error-tracking-symbol-sets-partial-update:
-        operation: error_tracking_symbol_sets_partial_update
-        enabled: false
     error-tracking-symbol-sets-retrieve:
         operation: error_tracking_symbol_sets_retrieve
         enabled: true
@@ -426,12 +420,6 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
-    error-tracking-symbol-sets-start-upload-create:
-        operation: error_tracking_symbol_sets_start_upload_create
-        enabled: false
-    error-tracking-symbol-sets-update:
-        operation: error_tracking_symbol_sets_update
-        enabled: false
 wrappers:
     query-error-tracking-issues:
         schema_ref: AssistantErrorTrackingQuery
