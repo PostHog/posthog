@@ -105,6 +105,9 @@ The two are deliberately not the same name. A future contributor autocompleting 
 
 ## Known limitations
 
-- **`_base_manager`**: Django uses `_base_manager` (not `objects`) for related-object access like `repo.runs.all()`. This bypasses the scoped manager. Related-object traversal is still safe because the FK constrains the result set — but the `team_id` filter is not applied.
+- **Django framework managers (`_default_manager` and `_base_manager`)**: admin queryset, `ForeignKeyRawIdWidget` label rendering, related-object access (e.g. `repo.runs.all()`), generic relations, `prefetch_related`, and DRF default querysets all go through these.
+  Per Django's contract they expect an unfiltered manager — `TeamScopedManager` would raise on missing context.
+  `ProductTeamModel.Meta.default_manager_name = "all_teams"` redirects `_default_manager` (and `_base_manager`, which inherits from `_default_manager` when `base_manager_name` is unset) to the unscoped `all_teams` manager so the framework just works.
+  `Model.objects` (the explicit attribute) stays bound to `TeamScopedManager` — user code that types it explicitly stays fail-closed.
+  The `team_id` filter is not applied on these framework paths; related-object traversal stays correct because the FK already constrains the result set, but anything reading through `_default_manager` is genuinely cross-team.
 - **Raw SQL**: `cursor.execute()` and `QuerySet.raw()` bypass managers entirely.
-- **Django framework internals (`_default_manager`)**: admin queryset, `ForeignKeyRawIdWidget` label rendering, related-object access, generic relations, `prefetch_related`, and DRF default querysets all go through `Model._default_manager`. Per Django's contract those internals expect an unfiltered manager — `TeamScopedManager` would raise. `ProductTeamModel.Meta.default_manager_name = "all_teams"` redirects `_default_manager` (and `_base_manager`, which inherits from it) to the unscoped `all_teams` manager so the framework just works. `Model.objects` (the explicit attribute) stays bound to `TeamScopedManager` — user code that types it explicitly stays fail-closed.

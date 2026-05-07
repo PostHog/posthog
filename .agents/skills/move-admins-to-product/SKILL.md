@@ -28,20 +28,17 @@ Don't migrate core posthog admins (Organization, Team, User, Dashboard, etc.). T
    Expect three call sites: a file under `posthog/admin/admins/`, an entry in `posthog/admin/admins/__init__.py` (`from .x_admin import …` and the `__all__` list), and an explicit `admin.site.register(Model, …Admin)` line in `posthog/admin/__init__.py::register_all_admin()`.
 
 2. **Decide the registration shape.** Check `products/<name>/package.json`:
-
    - **Not isolated** (no `backend:contract-check` script): use `@admin.register(Model)` decorators in `products/<name>/backend/admin.py`. Django's stock admin autodiscover at `AdminConfig.ready()` walks `INSTALLED_APPS` and imports each app's `admin` submodule, which fires the decorators. No edits needed in `posthog/admin/__init__.py`.
    - **Isolated** (has `backend:contract-check`): tach forbids `posthog/` from importing `products.<name>.backend.admin` directly. Don't use `@admin.register` — use an explicit `ADMIN_REGISTRATIONS = ((Model, AdminClass), …)` tuple at the bottom of `backend/admin.py`, and add the product's app name (`products.<name>.backend`) to `_PRODUCTS_WITH_DYNAMIC_ADMIN` in `posthog/admin/__init__.py`. The string-based `importlib.import_module(f"{app}.admin")` keeps the tach interface honest while letting `register_all_admin()` wire up the registrations against the current `admin.site`.
 
 3. **Move the file.** `posthog/admin/admins/<x>_admin.py` → `products/<name>/backend/admin.py`. If the product already has an `admin.py`, append the class. Adjust imports — model imports go from absolute (`posthog.…`) to relative (`from .models import …`), or absolute to the product's path if the product chose absolute style.
 
 4. **Strip the central wiring.**
-
    - Remove the file from `posthog/admin/admins/`.
    - Remove the `from .<x>_admin import …Admin` line and the matching entry in `__all__` from `posthog/admin/admins/__init__.py`.
    - Remove the `from posthog.admin.admins import …Admin` and the explicit `admin.site.register(Model, …Admin)` lines from `posthog/admin/__init__.py::register_all_admin()`.
 
 5. **Verify.**
-
    - `tach check --dependencies --interfaces` — no boundary regression.
    - `posthog/admin/test_admin.py::TestAdmin::test_register_admin_models_succeeds` — exercises `register_all_admin()` end-to-end. The canonical guardrail.
    - `ruff check` and `ruff format --check` on the changed files.

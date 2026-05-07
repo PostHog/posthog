@@ -45,15 +45,23 @@ class ProductTeamModel(models.Model):
     and reads agree on where data lives — same convention as
     RootTeamMixin for main-DB models.
 
-    Two managers:
+    Two managers, with `default_manager_name = "all_teams"` set in `Meta`
+    so Django's framework reads through the unscoped sibling:
     - `objects` (TeamScopedManager): fail-closed, auto-scopes by context.
-      Raises TeamScopeError when no context is set. This is the manager
-      Django admin / Model.objects / `_default_manager` resolves to.
-    - `all_teams` (plain Manager): bypass for admin / migrations / contexts
-      that genuinely need cross-team access. Named distinctly from the
-      queryset method `Model.objects.unscoped()` to avoid the autocomplete
-      footgun where `Model.unscoped.filter(...)` looks like "I'm being
-      explicit about scoping" but actually returns every team's rows.
+      Raises TeamScopeError when no context is set. This is what user
+      code reaches for explicitly — `Model.objects.filter(...)` stays
+      fail-closed.
+    - `all_teams` (plain Manager): bypass for admin, migrations, and any
+      Django framework internal that uses `_default_manager` /
+      `_base_manager` (admin widgets, related-object access, generic
+      relations, `prefetch_related`, DRF default querysets). Per Django's
+      contract those framework managers shouldn't filter, so they're
+      pointed at `all_teams` rather than the scoped manager.
+
+      Named distinctly from the queryset method `Model.objects.unscoped()`
+      to avoid the autocomplete footgun where `Model.unscoped.filter(...)`
+      looks like "I'm being explicit about scoping" but actually returns
+      every team's rows.
     """
 
     team_id = models.BigIntegerField(db_index=True)

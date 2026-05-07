@@ -63,7 +63,6 @@ def _short(value: str | None, length: int = 12) -> str:
     return f"{value[:length]}…"
 
 
-@admin.register(Repo)
 class RepoAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -524,6 +523,13 @@ class ToleratedHashAdmin(admin.ModelAdmin):
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
+    def has_delete_permission(self, request: HttpRequest, obj: ToleratedHash | None = None) -> bool:
+        # Tolerated hashes are written by the diff pipeline and read by future
+        # runs to skip re-diffing known-acceptable variants. Deleting one from
+        # admin would silently re-introduce diffs that were intentionally
+        # tolerated; treat as ingestion-owned.
+        return False
+
     @admin.display(description="Identifier", ordering="identifier")
     def identifier_short(self, hash_obj: ToleratedHash) -> str:
         return _short(hash_obj.identifier, 60)
@@ -592,6 +598,15 @@ class QuarantinedIdentifierAdmin(admin.ModelAdmin):
         "updated_at",
     )
 
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: QuarantinedIdentifier | None = None) -> bool:
+        # Quarantine rows are an audit trail (each row is an event, unquarantine
+        # marks expires_at instead of deleting). Removing one would lose that
+        # history; treat as ingestion-owned.
+        return False
+
     @admin.display(description="Identifier", ordering="identifier")
     def identifier_short(self, q: QuarantinedIdentifier) -> str:
         return _short(q.identifier, 60)
@@ -617,8 +632,8 @@ class QuarantinedIdentifierAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', url, q.created_by_id)
 
 
-# Read by `posthog.admin._import_self_registering_product_admins`. Order is
-# preserved as the registration order, which determines admin sidebar order.
+# Read by `posthog.admin._register_dynamic_product_admins`. Order is preserved
+# as the registration order, which determines admin sidebar order.
 ADMIN_REGISTRATIONS: tuple[tuple[type, type[admin.ModelAdmin]], ...] = (
     (Repo, RepoAdmin),
     (Artifact, ArtifactAdmin),
