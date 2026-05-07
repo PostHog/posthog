@@ -144,6 +144,7 @@ SELECT
 FROM posthog.ai_events AS ai_events
 WHERE event = '$ai_generation'
     AND trace_id IN {trace_ids}
+    AND uuid IN {uuids}
     AND timestamp >= {ts_start}
     AND timestamp <= {ts_end}
 GROUP BY trace_id
@@ -357,6 +358,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 return Response({"results": []}, status=status.HTTP_200_OK)
 
             trace_ids = [str(row.trace_id) for row in preflight_rows]
+            uuids = [str(row.uuid) for row in preflight_rows]
             ts_start = min(row.created_at for row in preflight_rows)
             ts_end = max(row.timestamp for row in preflight_rows)
 
@@ -366,6 +368,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     query=heavy_query,
                     placeholders={
                         "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
+                        "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in uuids]),
                         "ts_start": ast.Constant(value=ts_start),
                         "ts_end": ast.Constant(value=ts_end),
                     },

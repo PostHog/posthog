@@ -177,7 +177,9 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
 
         heavy_placeholders = mock_heavy.call_args.kwargs["placeholders"]
         trace_id_values = [c.value for c in heavy_placeholders["trace_ids"].exprs]
+        uuid_values = [c.value for c in heavy_placeholders["uuids"].exprs]
         assert trace_id_values == ["trace-1", "trace-2"]
+        assert uuid_values == ["uuid-1", "uuid-2"]
         assert heavy_placeholders["ts_start"].value == datetime(2026, 4, 27, 6, 0, tzinfo=UTC)
         assert heavy_placeholders["ts_end"].value == datetime(2026, 4, 27, 7, 0, tzinfo=UTC)
 
