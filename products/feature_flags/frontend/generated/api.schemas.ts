@@ -769,6 +769,94 @@ export interface FeatureFlagStatusResponseApi {
     reason: string
 }
 
+export interface FeatureFlagTestEvaluationRequestApi {
+    /** User distinct ID to test against (mutually exclusive with person_id) */
+    distinct_id?: string
+    /** Person ID to test against (mutually exclusive with distinct_id) */
+    person_id?: string
+    /**
+     * Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.
+     * @nullable
+     */
+    timestamp?: string | null
+    /** Groups for feature flag evaluation (JSON object, defaults to empty dict) */
+    groups?: unknown
+}
+
+/**
+ * Person properties at the time of evaluation (for historical evaluations)
+ */
+export type FeatureFlagTestEvaluationResponseApiPersonProperties = { [key: string]: unknown }
+
+export interface FeatureFlagConditionPropertyAnalysisApi {
+    /** Property key */
+    key: string
+    /** Comparison operator */
+    operator: string
+    /** Expected property value */
+    value: unknown
+    /** Property type (person, group, etc.) */
+    type: string
+    /** Actual property value from user */
+    actual_value: unknown | null
+    /** Whether this property condition matched */
+    matched: boolean
+    /** Human-readable explanation of the match result */
+    explanation: string
+}
+
+export interface FeatureFlagConditionAnalysisApi {
+    /** Index of this condition in the feature flag */
+    index: number
+    /** True when this condition was the one that determined the flag's outcome. Use this to find the winning condition — at most one condition per flag is True. */
+    matched: boolean
+    /** True when every property in this condition evaluated to true, regardless of whether this condition was the eventual winner. */
+    properties_matched?: boolean
+    /** Human-readable explanation of why this condition matched/didn't match */
+    explanation: string
+    /** Rollout percentage for this condition (0.0-100.0) */
+    rollout_percentage: number
+    /** Whether this condition matched properties but was excluded due to rollout */
+    rollout_excluded: boolean
+    /**
+     * Variant associated with this condition
+     * @nullable
+     */
+    variant: string | null
+    /** Analysis of each property in this condition */
+    properties: FeatureFlagConditionPropertyAnalysisApi[]
+}
+
+export interface FeatureFlagTestEvaluationResponseApi {
+    /** Feature flag key */
+    flag_key: string
+    /** The evaluated value of the feature flag (boolean or variant key string) */
+    result: unknown
+    /** The reason for the evaluation result */
+    reason: string
+    /**
+     * The index of the condition that matched, if applicable
+     * @nullable
+     */
+    condition_index: number | null
+    /** Payload associated with the flag result, if any */
+    payload: unknown | null
+    /** Person properties at the time of evaluation (for historical evaluations) */
+    person_properties: FeatureFlagTestEvaluationResponseApiPersonProperties
+    /**
+     * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
+     * @nullable
+     */
+    evaluation_distinct_id: string | null
+    /** Detailed analysis of each condition in the feature flag */
+    conditions: FeatureFlagConditionAnalysisApi[]
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
 
 /**

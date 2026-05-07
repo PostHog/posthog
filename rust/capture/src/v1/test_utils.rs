@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 
 use axum::http::Method;
@@ -130,16 +129,9 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
     }
 }
 
-pub fn events_map(events: Vec<WrappedEvent>) -> HashMap<Uuid, WrappedEvent> {
-    events.into_iter().map(|e| (e.uuid, e)).collect()
-}
-
-pub fn find_by_did<'a>(
-    events: &'a HashMap<Uuid, WrappedEvent>,
-    distinct_id: &str,
-) -> &'a WrappedEvent {
+pub fn find_by_did<'a>(events: &'a [WrappedEvent], distinct_id: &str) -> &'a WrappedEvent {
     events
-        .values()
+        .iter()
         .find(|e| e.event.distinct_id == distinct_id)
         .unwrap()
 }
@@ -271,6 +263,88 @@ pub fn realistic_batch() -> Vec<WrappedEvent> {
         realistic_identify("user-42"),
         realistic_custom("user-42", "button_clicked"),
     ]
+}
+
+/// 6-event batch with `user-pos-{0..5}` distinct_ids and per-slot state:
+/// 0=Ok/Main, 1=Drop, 2=Ok/Main, 3=Limited, 4=Ok/Overflow, 5=Ok/Historical.
+pub fn realistic_ordered_mixed_batch() -> Vec<WrappedEvent> {
+    let pageview_ok = realistic_pageview("user-pos-0");
+
+    let mut malformed = realistic_pageview("user-pos-1");
+    malformed.event.event = String::new();
+    malformed.event.timestamp = "bad".to_string();
+    malformed.adjusted_timestamp = None;
+    malformed.result = EventResult::Drop;
+    malformed.details = Some("missing_event_name");
+
+    let identify_ok = realistic_identify("user-pos-2");
+
+    let mut exception_limited = realistic_custom("user-pos-3", "$exception");
+    exception_limited.result = EventResult::Limited;
+    exception_limited.destination = Destination::Drop;
+    exception_limited.details = Some("exceptions_over_quota");
+
+    let click_overflow =
+        realistic_custom("user-pos-4", "button_clicked").with_destination(Destination::Overflow);
+
+    let pageview_historical =
+        realistic_pageview("user-pos-5").with_destination(Destination::AnalyticsHistorical);
+
+    vec![
+        pageview_ok,
+        malformed,
+        identify_ok,
+        exception_limited,
+        click_overflow,
+        pageview_historical,
+    ]
+}
+
+/// Two distinct `Event`s sharing one UUID — for the dup-uuid bail.
+pub fn realistic_dup_uuid_pair() -> (Event, Event) {
+    let shared_uuid = Uuid::new_v4().to_string();
+    let first = Event {
+        event: "$pageview".to_string(),
+        uuid: shared_uuid.clone(),
+        distinct_id: "user-dup-A".to_string(),
+        timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+        session_id: Some("01jq9abc-def0-1234-5678-9abcdef01234".to_string()),
+        window_id: Some("01jq9xyz-0000-4321-8765-fedcba987654".to_string()),
+        options: Options {
+            cookieless_mode: Some(false),
+            disable_skew_adjustment: None,
+            product_tour_id: None,
+            process_person_profile: Some(true),
+        },
+        properties: raw_obj(r#"{"$current_url":"https://app.example.com/dashboard"}"#),
+    };
+    let second = Event {
+        event: "$identify".to_string(),
+        uuid: shared_uuid,
+        distinct_id: "user-dup-B".to_string(),
+        timestamp: "2026-03-19T14:30:01.000Z".to_string(),
+        session_id: Some("01jq9abc-def0-1234-5678-9abcdef01234".to_string()),
+        window_id: None,
+        options: default_options(),
+        properties: raw_obj(r#"{"$set":{"email":"user@example.com"}}"#),
+    };
+    (first, second)
+}
+
+/// One Ok event per `Destination` variant + one pre-marked Drop, with
+/// ordinal `user-dest-{0..5}` distinct_ids.
+pub fn realistic_spread_destinations() -> Vec<WrappedEvent> {
+    let main = realistic_pageview("user-dest-0").with_destination(Destination::AnalyticsMain);
+    let historical =
+        realistic_pageview("user-dest-1").with_destination(Destination::AnalyticsHistorical);
+    let overflow = realistic_pageview("user-dest-2").with_destination(Destination::Overflow);
+    let dlq = realistic_pageview("user-dest-3").with_destination(Destination::Dlq);
+    let custom = realistic_pageview("user-dest-4")
+        .with_destination(Destination::Custom("custom_topic".to_string()));
+    let dropped = realistic_pageview("user-dest-5")
+        .with_result(EventResult::Drop, Some("invalid_distinct_id"))
+        .with_destination(Destination::Drop);
+    vec![main, historical, overflow, dlq, custom, dropped]
 }
 
 /// Builder for mutating a WrappedEvent after creation.
