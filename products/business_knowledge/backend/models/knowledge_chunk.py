@@ -17,7 +17,7 @@ class KnowledgeChunk(models.Model):
     refreshes.
     """
 
-    id = models.UUIDField(primary_key=True, editable=False)
+    id = models.UUIDField(primary_key=True, editable=False)  # set by logic.py via deterministic uuid5
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source = models.ForeignKey(KnowledgeSource, on_delete=models.CASCADE, related_name="chunks")
     document = models.ForeignKey(KnowledgeDocument, on_delete=models.CASCADE, related_name="chunks")
@@ -31,7 +31,7 @@ class KnowledgeChunk(models.Model):
     content = models.TextField()
     # Rough character length; kept separately so the agent can ORDER BY / LIMIT
     # without loading content into HogQL context.
-    char_count = models.IntegerField()
+    char_count = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = TeamScopedManager()
@@ -51,3 +51,10 @@ class KnowledgeChunk(models.Model):
                 name="bk_chunk_unique_position",
             ),
         ]
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.pk is None:
+            raise ValueError(
+                "KnowledgeChunk.id must be set before save — use logic.py's deterministic chunk_id() to compute it."
+            )
+        super().save(*args, **kwargs)
