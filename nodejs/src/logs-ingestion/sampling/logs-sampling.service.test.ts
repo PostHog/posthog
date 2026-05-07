@@ -5,7 +5,7 @@ import type { LogsSettings } from '~/types'
 
 import { type LogRecord, decodeLogRecords, encodeLogRecords } from '../log-record-avro'
 import { compileRuleSet } from './compile-rules'
-import { type SamplingRateContext, processBufferWithSampling } from './process-buffer-with-sampling'
+import { LogsSamplingService } from './logs-sampling.service'
 
 const LOG_RECORD_AVRO = avro.Type.forSchema({
     type: 'record',
@@ -49,7 +49,7 @@ function baseLog(uuid: string, serviceName: string): LogRecord {
     }
 }
 
-describe('processBufferWithSampling', () => {
+describe('LogsSamplingService', () => {
     it('batches rate_limit lines and drops when tokensBefore is below pending count', async () => {
         const ruleSet = compileRuleSet([
             {
@@ -77,8 +77,8 @@ describe('processBufferWithSampling', () => {
             }),
         }
 
-        const rateCtx: SamplingRateContext = { teamId: 99, redis: mockRedis, ttlSeconds: 60 }
-        const result = await processBufferWithSampling(buffer, logsSettings, ruleSet, rateCtx)
+        const service = new LogsSamplingService(mockRedis, 60)
+        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 99)
 
         expect(result.recordsDropped).toBe(1)
         expect(result.recordsDroppedByRuleId.get('rl-1')).toBe(1)
@@ -106,8 +106,8 @@ describe('processBufferWithSampling', () => {
             usePipeline: jest.fn(() => Promise.resolve(null)),
         }
 
-        const rateCtx: SamplingRateContext = { teamId: 1, redis: mockRedis, ttlSeconds: 60 }
-        const result = await processBufferWithSampling(buffer, logsSettings, ruleSet, rateCtx)
+        const service = new LogsSamplingService(mockRedis, 60)
+        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 1)
 
         expect(result.recordsDropped).toBe(0)
         expect(result.recordsDroppedByRuleId.size).toBe(0)

@@ -21,7 +21,7 @@ import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import type { CompiledRuleSet } from './sampling/evaluate'
-import { type SamplingRateContext, processBufferWithSampling } from './sampling/process-buffer-with-sampling'
+import { LogsSamplingService } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
@@ -124,7 +124,7 @@ export class LogsIngestionConsumer {
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
-    private readonly logsSamplingRateLimitTtlSeconds: number
+    private samplingService: LogsSamplingService
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
 
@@ -160,7 +160,7 @@ export class LogsIngestionConsumer {
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(config, this.redis)
-        this.logsSamplingRateLimitTtlSeconds = config.LOGS_LIMITER_TTL_SECONDS
+        this.samplingService = new LogsSamplingService(this.redis, config.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = overrides.LOGS_SAMPLING_ENABLED_TEAMS ?? config.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = overrides.LOGS_SAMPLING_KILLSWITCH ?? config.LOGS_SAMPLING_KILLSWITCH
     }
@@ -226,14 +226,12 @@ export class LogsIngestionConsumer {
         })
 
         if (useSamplingPipeline && ruleSet) {
-            const rateCtx: SamplingRateContext | null = ruleSet.hasRateLimitRules
-                ? {
-                      teamId: message.teamId,
-                      redis: this.redis,
-                      ttlSeconds: this.logsSamplingRateLimitTtlSeconds,
-                  }
-                : null
-            const sampled = await processBufferWithSampling(message.message.value!, logsSettings, ruleSet, rateCtx)
+            const sampled = await this.samplingService.processBuffer(
+                message.message.value!,
+                logsSettings,
+                ruleSet,
+                message.teamId
+            )
             if (sampled.recordsDropped > 0) {
                 logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
             }
