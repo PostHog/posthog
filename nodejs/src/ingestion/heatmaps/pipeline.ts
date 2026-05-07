@@ -1,10 +1,12 @@
 import { Message } from 'node-rdkafka'
 
+import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
+
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
+import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
@@ -13,26 +15,32 @@ import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import {
     EventFiltersBatchContext,
+    createApplyEventFiltersStep,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
 import { addTeamToContext, getTokenAndDistinctId } from '../common/subpipelines/helpers'
-import {
-    PostTeamPreprocessingSubpipelineConfig,
-    createPostTeamPreprocessingSubpipeline,
-} from '../common/subpipelines/post-team-preprocessing'
-import { createPreTeamPreprocessingSubpipeline } from '../common/subpipelines/pre-team-preprocessing'
 import { CookielessManager } from '../cookieless/cookieless-manager'
+import {
+    createApplyCookielessProcessingStep,
+    createApplyEventRestrictionsStep,
+    createApplyPersonProcessingRestrictionsStep,
+    createParseHeadersStep,
+    createParseKafkaMessageStep,
+    createResolveTeamStep,
+    createValidateEventMetadataStep,
+    createValidateEventPropertiesStep,
+    createValidateHistoricalMigrationStep,
+} from '../event-preprocessing'
+import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
+import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
-import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { HeatmapEventOptions, createHeatmapSubpipeline } from './heatmap-subpipeline'
 
 export interface HeatmapsPipelineConfig {
-    eventSchemaEnforcementEnabled: boolean
-    overflowEnabled: boolean
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
@@ -53,14 +61,11 @@ export interface HeatmapsPipelineDeps {
     teamManager: TeamManager
     eventFilterManager: EventFilterManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    eventSchemaEnforcementManager: EventSchemaEnforcementManager
     cookielessManager: CookielessManager
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    overflowRedirectService?: OverflowRedirectService
-    overflowLaneTTLRefreshService?: OverflowRedirectService
     promiseScheduler: PromiseScheduler
 }
 
@@ -75,63 +80,40 @@ export interface HeatmapsPipelineContext {
 /**
  * Top-level heatmaps ingestion pipeline.
  *
- * Mirrors the analytics pipeline shape — pre-team preprocessing, post-team
- * preprocessing, group-by `(token, distinct_id)`, concurrently/sequentially —
- * but the per-event step is the heatmap subpipeline rather than the per-distinct-id
- * pipeline. The kafka topic this consumer reads is assumed to carry only
- * `$$heatmap` events; no event-type classification happens here.
+ * Mirrors the analytics-pipeline shape but inlines a heatmap-specific pre-team
+ * and post-team chain to drop steps that don't apply to a heatmap-only topic:
+ *   pre-team: no `dropExceptionEvents`, `validateAiEventTokens`,
+ *     `enrichSurveyPersonProperties` (heatmap topic doesn't carry those events).
+ *   post-team: no schema enforcement (no user schemas for `$$heatmap`),
+ *     no rate-limit-to-overflow, no overflow-lane-TTL-refresh
+ *     (heatmaps don't redirect to overflow).
  *
- * Persons/groups behavior matches what the joined pipeline did for heatmap events
- * before extraction: post-team preprocessing prefetches persons and writes
- * personless distinct ids; the heatmap subpipeline calls `processGroupsStep`.
+ * Persons + groups behavior preserved (matches what the joined pipeline did
+ * for heatmap events): `prefetchPersonsStep`, `processPersonlessDistinctIds`,
+ * `processGroupsStep` all run.
  */
 export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TContext extends HeatmapsPipelineContext>(
     config: HeatmapsPipelineConfig,
     deps: HeatmapsPipelineDeps
 ) {
-    const {
-        eventSchemaEnforcementEnabled,
-        overflowEnabled,
-        preservePartitionLocality,
-        personsPrefetchEnabled,
-        cdpHogWatcherSampleRate,
-        outputs,
-        perEventOptions,
-    } = config
+    const { preservePartitionLocality, personsPrefetchEnabled, cdpHogWatcherSampleRate, outputs, perEventOptions } =
+        config
 
     const {
         teamManager,
         eventFilterManager,
         eventIngestionRestrictionManager,
-        eventSchemaEnforcementManager,
         cookielessManager,
         personsStore,
         groupStore,
         groupTypeManager,
         hogTransformer,
-        overflowRedirectService,
-        overflowLaneTTLRefreshService,
         promiseScheduler,
     } = deps
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
         outputs,
         promiseScheduler,
-    }
-
-    const postTeamConfig: PostTeamPreprocessingSubpipelineConfig = {
-        eventFilterManager,
-        eventIngestionRestrictionManager,
-        eventSchemaEnforcementManager,
-        eventSchemaEnforcementEnabled,
-        cookielessManager,
-        preservePartitionLocality,
-        overflowRedirectService,
-        overflowLaneTTLRefreshService,
-        personsStore,
-        personsPrefetchEnabled,
-        hogTransformer,
-        cdpHogWatcherSampleRate,
     }
 
     const heatmapSubpipelineConfig = {
@@ -149,17 +131,44 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
                 .messageAware((b) =>
                     b
                         .sequentially((b) =>
-                            createPreTeamPreprocessingSubpipeline(b, {
-                                teamManager,
-                                eventIngestionRestrictionManager,
-                                overflowEnabled,
-                                preservePartitionLocality,
-                            })
+                            b
+                                .pipe(createParseHeadersStep())
+                                .pipe(
+                                    createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                                        // Heatmap-only topic — no overflow redirect path.
+                                        overflowEnabled: false,
+                                        preservePartitionLocality,
+                                    })
+                                )
+                                .pipe(createParseKafkaMessageStep())
+                                .pipe(createResolveTeamStep(teamManager))
+                                .pipe(createValidateHistoricalMigrationStep())
                         )
                         .filterMap(addTeamToContext, (b) =>
                             b
                                 .teamAware((b) =>
-                                    createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
+                                    b
+                                        .sequentially((b) =>
+                                            b
+                                                .pipe(createValidateEventMetadataStep())
+                                                .pipe(createValidateEventPropertiesStep())
+                                                .pipe(
+                                                    createApplyPersonProcessingRestrictionsStep(
+                                                        eventIngestionRestrictionManager
+                                                    )
+                                                )
+                                                .pipe(createDropOldEventsStep())
+                                                .pipe(createApplyEventFiltersStep(eventFilterManager))
+                                        )
+                                        .gather()
+                                        .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
+                                        .pipeBatch(prefetchPersonsStep(personsStore, personsPrefetchEnabled))
+                                        .pipeBatch(
+                                            processPersonlessDistinctIdsBatchStep(personsStore, personsPrefetchEnabled)
+                                        )
+                                        .pipeBatch(
+                                            createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate)
+                                        )
                                         .groupBy(getTokenAndDistinctId)
                                         .concurrently((eventsForDistinctId) =>
                                             eventsForDistinctId.sequentially((event) =>

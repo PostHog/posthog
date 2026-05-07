@@ -1,6 +1,5 @@
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
@@ -31,7 +30,6 @@ describe('createHeatmapsConsumer', () => {
             INGESTION_PIPELINE: 'analytics',
             INGESTION_LANE: 'main',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
-            EVENT_SCHEMA_ENFORCEMENT_ENABLED: false,
             INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
             PERSONS_PREFETCH_ENABLED: false,
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
@@ -57,13 +55,11 @@ describe('createHeatmapsConsumer', () => {
             teamManager: makeNoopService() as unknown as TeamManager,
             eventFilterManager: makeNoopService() as unknown as EventFilterManager,
             eventIngestionRestrictionManager: makeNoopService() as unknown as EventIngestionRestrictionManager,
-            eventSchemaEnforcementManager: makeNoopService() as unknown as EventSchemaEnforcementManager,
             cookielessManager: makeNoopService() as unknown as CookielessManager,
             personsStore: makeNoopService() as unknown as BatchWritingPersonsStore,
             groupStore: makeNoopService() as unknown as BatchWritingGroupStore,
             groupTypeManager: makeNoopService() as unknown as GroupTypeManager,
             hogTransformer: makeNoopService() as unknown as HogTransformerService,
-            overflowEnabled: false,
         }
     }
 
