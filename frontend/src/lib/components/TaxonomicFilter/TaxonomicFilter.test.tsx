@@ -142,6 +142,7 @@ describe('TaxonomicFilter', () => {
         it.each([
             {
                 description: 'event series',
+                eventNames: ['$pageview'],
                 currentSelection: {
                     groupType: TaxonomicFilterGroupType.Events,
                     value: '$pageview',
@@ -151,6 +152,7 @@ describe('TaxonomicFilter', () => {
             },
             {
                 description: 'action series',
+                eventNames: ['$pageview'],
                 currentSelection: {
                     groupType: TaxonomicFilterGroupType.Actions,
                     value: 1,
@@ -158,9 +160,19 @@ describe('TaxonomicFilter', () => {
                 },
                 expectedTagText: 'Actions - currently selected',
             },
+            {
+                description: 'event series not yet in the team taxonomy',
+                eventNames: ['not_yet_defined'],
+                currentSelection: {
+                    groupType: TaxonomicFilterGroupType.Events,
+                    value: 'not_yet_defined',
+                    name: 'not_yet_defined',
+                },
+                expectedTagText: 'Events - currently selected',
+            },
         ])(
             'hoists the currently-selected $description to the top of the Suggested-filters list with a single combined tag',
-            async ({ currentSelection, expectedTagText }) => {
+            async ({ eventNames, currentSelection, expectedTagText }) => {
                 renderFilter({
                     suggestedFiltersLabel: 'Suggested series',
                     taxonomicGroupTypes: [
@@ -168,7 +180,7 @@ describe('TaxonomicFilter', () => {
                         TaxonomicFilterGroupType.Events,
                         TaxonomicFilterGroupType.Actions,
                     ],
-                    eventNames: ['$pageview'],
+                    eventNames,
                     currentSelection,
                 })
 
@@ -177,22 +189,6 @@ describe('TaxonomicFilter', () => {
                 })
             }
         )
-
-        it('hoists the currently-selected series even when the event is not in the team taxonomy', async () => {
-            renderFilter({
-                suggestedFiltersLabel: 'Suggested series',
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                eventNames: ['not_yet_defined'],
-                currentSelection: {
-                    groupType: TaxonomicFilterGroupType.Events,
-                    value: 'not_yet_defined',
-                    name: 'not_yet_defined',
-                },
-            })
-            await waitFor(() => {
-                expect(screen.getByText('Events - currently selected')).toBeInTheDocument()
-            })
-        })
 
         it('does not render a "currently selected" tag when currentSelection is omitted', async () => {
             renderFilter({
