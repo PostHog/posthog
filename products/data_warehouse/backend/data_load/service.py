@@ -389,15 +389,6 @@ def _get_discover_schemas_schedule_id(source_id: str) -> str:
     return f"discover-schemas-{source_id}"
 
 
-def _discover_schemas_offset(source_id: str, interval: timedelta) -> timedelta:
-    # Deterministically spread schedules across the interval window so a million
-    # sources sharing the same cadence don't all fire at the same minute. Hashing
-    # on the source_id keeps the offset stable across redeploys.
-    rng = random.Random(source_id)
-    seconds = int(rng.uniform(0, interval.total_seconds()))
-    return timedelta(seconds=seconds)
-
-
 def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
     """Build a Temporal Schedule for the per-source schema-discovery workflow."""
     # Inline import breaks a circular dependency: `sync_new_schemas` needs
@@ -421,11 +412,13 @@ def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
         ),
     )
 
+    # Deterministic per-source offset so sources sharing a cadence don't dogpile.
+    offset_hours, offset_minutes = _jitter_timedelta(DISCOVER_SCHEMAS_INTERVAL, random.Random(str(source.id)))
     spec = ScheduleSpec(
         intervals=[
             ScheduleIntervalSpec(
                 every=DISCOVER_SCHEMAS_INTERVAL,
-                offset=_discover_schemas_offset(str(source.id), DISCOVER_SCHEMAS_INTERVAL),
+                offset=timedelta(hours=offset_hours, minutes=offset_minutes),
             )
         ],
     )
