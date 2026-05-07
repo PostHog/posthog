@@ -44,7 +44,6 @@
   target: runtime-jumphost
 
 - image: flags-consumer
-  bin: flags-consumer
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
 
