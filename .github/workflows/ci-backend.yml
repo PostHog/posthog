@@ -107,8 +107,6 @@ jobs:
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
                         - 'common/__init__.py'
-                        - 'tools/hogli/**'
-                        - 'tools/hogli-commands/**'
                         - 'common/hogql_parser/**'
                         - 'common/hogvm/**'
                         - 'common/ingestion/**'
@@ -154,8 +152,6 @@ jobs:
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
                         - 'common/__init__.py'
-                        - 'tools/hogli/**'
-                        - 'tools/hogli-commands/**'
                         - 'common/hogql_parser/**'
                         - 'common/hogvm/**'
                         - 'common/ingestion/**'
