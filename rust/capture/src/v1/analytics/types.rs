@@ -56,8 +56,11 @@ pub struct Batch {
 pub struct Options {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub disable_skew_adjustment: Option<bool>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        alias = "disable_skew_adjustment"
+    )]
+    pub disable_skew_correction: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product_tour_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -278,7 +281,7 @@ impl WrappedEvent {
         if let Some(cm) = self.event.options.cookieless_mode {
             inject!(buf, first, "$cookieless_mode", &cm);
         }
-        if let Some(dsa) = self.event.options.disable_skew_adjustment {
+        if let Some(dsa) = self.event.options.disable_skew_correction {
             inject!(buf, first, "$ignore_sent_at", &dsa);
         }
         if let Some(ref pti) = self.event.options.product_tour_id {
@@ -633,7 +636,7 @@ mod tests {
                 "window_id": "win-xyz",
                 "options": {
                     "cookieless_mode": true,
-                    "disable_skew_adjustment": true,
+                    "disable_skew_correction": true,
                     "product_tour_id": "tour-123",
                     "process_person_profile": false
                 }
@@ -644,7 +647,7 @@ mod tests {
         assert_eq!(event.session_id.as_deref(), Some("sess-abc"));
         assert_eq!(event.window_id.as_deref(), Some("win-xyz"));
         assert_eq!(event.options.cookieless_mode, Some(true));
-        assert_eq!(event.options.disable_skew_adjustment, Some(true));
+        assert_eq!(event.options.disable_skew_correction, Some(true));
         assert_eq!(event.options.product_tour_id.as_deref(), Some("tour-123"));
         assert_eq!(event.options.process_person_profile, Some(false));
     }
@@ -680,7 +683,7 @@ mod tests {
         assert_eq!(event.session_id, None);
         assert_eq!(event.window_id, None);
         assert_eq!(event.options.cookieless_mode, None);
-        assert_eq!(event.options.disable_skew_adjustment, None);
+        assert_eq!(event.options.disable_skew_correction, None);
         assert_eq!(event.options.product_tour_id, None);
         assert_eq!(event.options.process_person_profile, None);
     }
@@ -1056,7 +1059,7 @@ mod tests {
                 window_id: Some("win-xyz789".to_string()),
                 options: Options {
                     cookieless_mode: Some(false),
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: Some(true),
                 },
@@ -1147,7 +1150,7 @@ mod tests {
                 window_id: Some("win-xyz789".to_string()),
                 options: Options {
                     cookieless_mode: Some(true),
-                    disable_skew_adjustment: Some(true),
+                    disable_skew_correction: Some(true),
                     product_tour_id: Some("tour-onboarding-v2".to_string()),
                     process_person_profile: Some(false),
                 },
@@ -1187,7 +1190,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: Some(false),
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1226,7 +1229,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1258,7 +1261,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: Some(true),
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1293,7 +1296,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1412,7 +1415,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1453,7 +1456,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: Some(true),
                 },
@@ -1492,7 +1495,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
@@ -1528,7 +1531,7 @@ mod tests {
                 window_id: None,
                 options: Options {
                     cookieless_mode: None,
-                    disable_skew_adjustment: None,
+                    disable_skew_correction: None,
                     product_tour_id: None,
                     process_person_profile: None,
                 },
