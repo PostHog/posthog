@@ -92,6 +92,25 @@ def notify_submitted(
     _post(header, blocks)
 
 
+def notify_admin_uploaded(
+    *,
+    document_type: str,
+    company_name: str,
+    uploaded_by_email: str,
+) -> None:
+    header = f":inbox_tray: {document_type} uploaded by admin"
+    blocks: list[dict[str, Any]] = [
+        {"type": "header", "text": {"type": "plain_text", "text": header, "emoji": True}},
+        _fields_block(
+            [
+                ("Company", company_name),
+                ("Uploaded by", uploaded_by_email),
+            ]
+        ),
+    ]
+    _post(header, blocks)
+
+
 def notify_signed(
     *,
     document_type: str,

@@ -92,6 +92,15 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("company_address", response.json()["attr"])
 
+    def test_create_msa_is_rejected_from_public_api(self) -> None:
+        # MSAs only exist via Django admin upload — the public serializer's
+        # ChoiceField does not list MSA, so a POST should 400 on document_type.
+        payload = {**DPA_PAYLOAD, "document_type": "MSA"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("document_type", response.json()["attr"])
+        self.assertFalse(LegalDocument.objects.exists())
+
     def test_list_is_scoped_to_current_organization(self) -> None:
         other_org = Organization.objects.create(name="Other")
         LegalDocument.objects.create(

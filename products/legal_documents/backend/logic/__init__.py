@@ -23,12 +23,11 @@ from posthog.storage import object_storage
 
 from ee.billing.billing_manager import BillingManager
 
+from .. import slack as slack_notifier
 from ..facade.enums import DocumentType
 from ..models import LegalDocument
-from . import (
-    pandadoc as pandadoc_client,
-    slack as slack_notifier,
-)
+from ..storage import signed_pdf_storage_key
+from . import pandadoc as pandadoc_client
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +44,10 @@ def _pandadoc_template_id_for(document_type: str) -> str:
     Resolve the PandaDoc template id for a given document type. One template
     per type, configured via env. Returns an empty string if the matching env
     var isn't set, which surfaces as a clear PandaDocError at send time.
+
+    MSAs intentionally have no PandaDoc template — they can only originate from
+    a staff upload in Django admin, so this function returning empty for MSA
+    short-circuits the unreachable PandaDoc branch with a clear log line.
     """
     if document_type == DocumentType.BAA:
         return settings.PANDADOC_BAA_TEMPLATE_ID
@@ -124,15 +127,6 @@ def mark_document_signed(document: LegalDocument) -> LegalDocument:
     document.status = LegalDocument.Status.SIGNED
     document.save(update_fields=["status", "updated_at"])
     return document
-
-
-def signed_pdf_storage_key(document: LegalDocument) -> str:
-    """
-    Canonical key under which the signed PDF lives in object storage. The
-    document uuid is the natural identifier and never changes, so admins
-    regenerating the envelope for the same row just overwrite the old object.
-    """
-    return f"{settings.OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER}/{document.id}.pdf"
 
 
 # Short-enough that leaked URLs stop working on a human timescale, long enough
