@@ -26,6 +26,11 @@ export interface ColumnConfigurationApi {
     /** @maxLength 255 */
     name?: string
     filters?: unknown
+    /**
+     * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+     * @nullable
+     */
+    order_by?: string[] | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
@@ -50,6 +55,11 @@ export interface PatchedColumnConfigurationApi {
     /** @maxLength 255 */
     name?: string
     filters?: unknown
+    /**
+     * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+     * @nullable
+     */
+    order_by?: string[] | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
@@ -461,6 +471,11 @@ export interface HogQLQueryModifiersApi {
      * @nullable
      */
     sessionIdPushdown?: boolean | null
+    /**
+     * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
+     * @nullable
+     */
+    sessionPropertyPreAggregation?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     /** @nullable */
@@ -2630,11 +2645,12 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
 
-export const AggregationPropertyTypeApi = {
+export const AggregationPropertyType1Api = {
     Event: 'event',
     Person: 'person',
+    DataWarehouse: 'data_warehouse',
 } as const
 
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
@@ -2773,8 +2789,8 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
-    /** The type of property to aggregate on (event or person). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyTypeApi | null
+    /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyType1Api | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
@@ -8002,6 +8018,8 @@ export const MarketingAnalyticsDrillDownLevelApi = {
     Channel: 'channel',
     Source: 'source',
     Campaign: 'campaign',
+    AdGroup: 'ad_group',
+    Ad: 'ad',
     Medium: 'medium',
     Content: 'content',
     Term: 'term',
@@ -9250,6 +9268,8 @@ export const ScaleApi = {
 } as const
 
 export interface YAxisSettingsApi {
+    /** @nullable */
+    label?: string | null
     scale?: ScaleApi | null
     /** @nullable */
     showGridLines?: boolean | null
@@ -9348,6 +9368,8 @@ export interface ChartSettingsApi {
      */
     stackBars100?: boolean | null
     xAxis?: ChartAxisApi | null
+    /** @nullable */
+    xAxisLabel?: string | null
     /** @nullable */
     yAxis?: ChartAxisApi[] | null
     /**

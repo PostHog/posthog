@@ -196,6 +196,10 @@ export interface SnapshotHistoryEntryApi {
     /** @nullable */
     diff_percentage?: number | null
     review_state?: string
+    /** @nullable */
+    ssim_score?: number | null
+    change_kind?: string
+    size_mismatch?: boolean
 }
 
 export interface PaginatedSnapshotHistoryEntryListApi {
@@ -288,6 +292,22 @@ export interface RecomputeResultApi {
     ci_rerun_error?: string | null
 }
 
+export interface DiffClusterApi {
+    x: number
+    y: number
+    width: number
+    height: number
+    pixel_count: number
+    centroid_x: number
+    centroid_y: number
+}
+
+export interface ClusterSummaryApi {
+    items: DiffClusterApi[]
+    total: number
+    truncated: boolean
+}
+
 export type SnapshotApiMetadata = { [key: string]: unknown }
 
 export interface SnapshotApi {
@@ -295,6 +315,7 @@ export interface SnapshotApi {
     baseline_artifact?: ArtifactApi | null
     diff_artifact?: ArtifactApi | null
     reviewed_by?: UserBasicInfoApi | null
+    cluster_summary?: ClusterSummaryApi | null
     id: string
     identifier: string
     result: string
@@ -311,6 +332,10 @@ export interface SnapshotApi {
     tolerated_hash_id?: string | null
     is_quarantined?: boolean
     metadata?: SnapshotApiMetadata
+    /** @nullable */
+    ssim_score?: number | null
+    change_kind?: string
+    size_mismatch?: boolean
 }
 
 export interface PaginatedSnapshotListApi {

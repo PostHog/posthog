@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     BaseMathType,
+    CompareFilter,
     ConversionGoalFilter1,
     ConversionGoalFilter3,
     DateRange,
@@ -439,6 +440,37 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            (MarketingAnalyticsDrillDownLevel.AD_GROUP,),
+            (MarketingAnalyticsDrillDownLevel.AD,),
+        ]
+    )
+    def test_ad_levels_skip_unified_conversion_join(self, level):
+        """At AD_GROUP / AD events can't be attributed to a specific ad, so the query
+        must NOT join with the unified conversion goals CTE. We still select FROM
+        campaign_costs (cost data IS meaningful at these levels via platform reports).
+        """
+        conversion_goal = self._create_test_conversion_goal(goal_id="ad_level_goal")
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=level,
+            draftConversionGoal=conversion_goal,
+        )
+        runner = self._create_query_runner(query)
+
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
+            mock_get_adapters.return_value = []
+            ast_query = runner.to_query()
+
+        column_names = [col.alias if isinstance(col, ast.Alias) else str(col) for col in ast_query.select]
+        # No conversion goal columns at all
+        assert conversion_goal.conversion_goal_name not in column_names
+        assert f"Cost per {conversion_goal.conversion_goal_name}" not in column_names
+
+    @parameterized.expand(
+        [
             ("google", "Paid Search"),
             ("meta", "Paid Social"),
             ("facebook", "Paid Social"),
@@ -525,6 +557,65 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         cost_per_column = f"Cost per {conversion_goal.conversion_goal_name}"
 
         assert (cost_per_column in column_names) == cost_per_expected
+
+    @parameterized.expand(
+        [
+            (
+                MarketingAnalyticsDrillDownLevel.AD_GROUP,
+                MarketingAnalyticsBaseColumns.AD_GROUP_ID,
+            ),
+            (
+                MarketingAnalyticsDrillDownLevel.AD,
+                MarketingAnalyticsBaseColumns.AD_ID,
+            ),
+        ]
+    )
+    def test_ad_levels_compare_join_uses_id(self, level, expected_id_column):
+        """Compare mode at AD_GROUP / AD must join on the platform ID, not the name —
+        otherwise two rows with the same ad-group / ad name across different campaigns
+        would cross-product, and renames between periods would lose continuity.
+        """
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=level,
+            compareFilter=CompareFilter(compare=True),
+        )
+        runner = self._create_query_runner(query)
+
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
+            mock_get_adapters.return_value = []
+            # to_query() goes through the production path and applies drill-down level
+            # to config. Avoids binding the test to the internal `_apply_drill_down_level`
+            # method name / call site.
+            runner.to_query()
+            current = runner._build_main_select_query(conversion_aggregator=None)
+            previous = runner._build_main_select_query(conversion_aggregator=None)
+            join = runner._build_compare_join(current, previous)
+
+        # Walk the join condition AST and collect every Field chain mentioned. The
+        # AD_GROUP_ID / AD_ID column must appear — that's how we know we're joining
+        # by the platform ID, not by the (ambiguous) name.
+        constraint = join.next_join.constraint if join.next_join else None
+        assert constraint is not None
+        referenced_fields: list[str] = []
+
+        def _collect_fields(node: ast.Expr) -> None:
+            if isinstance(node, ast.Field) and node.chain:
+                referenced_fields.append(str(node.chain[-1]))
+            elif isinstance(node, ast.CompareOperation):
+                _collect_fields(node.left)
+                _collect_fields(node.right)
+            elif isinstance(node, (ast.And, ast.Or)):
+                for child in node.exprs:
+                    _collect_fields(child)
+
+        _collect_fields(constraint.expr)
+        assert expected_id_column.value in referenced_fields, (
+            f"Expected compare join at {level} to reference {expected_id_column.value}, got fields: {referenced_fields}"
+        )
 
     @parameterized.expand(
         [

@@ -19,7 +19,7 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                     
                             If a platform you use is not supported by error tracking, we recommend that you reach out to us or contribute to our open-source SDKs before attempting to manually send exceptions.
                     
-                            If you'd rather roll your own exception capturing (or if you're using a platform we don't have an SDK for), you can use the [capture API](/docs/api/capture.md) or \`capture\` method to capture an \`$exception\` event with the following properties:
+                            If you'd rather roll your own exception capturing (or if you're using a platform we don't have an SDK for), you can use the [capture API](https://posthog.com/docs/api/capture) or \`capture\` method to capture an \`$exception\` event with the following properties:
                         `}
                     </Markdown>
                     <div className="LemonMarkdown">

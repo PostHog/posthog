@@ -57,14 +57,14 @@ function recordRecentFromPropertyFilter(propertyFilter: AnyPropertyFilter): void
     if (!groupType) {
         return
     }
-    recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+    recentTaxonomicFiltersLogic.actions.recordRecentFilter({
         groupType,
-        groupType,
-        key,
-        { name: key },
-        teamLogic.values.currentTeamId ?? undefined,
-        propertyFilter
-    )
+        groupName: groupType,
+        value: key,
+        item: { name: key },
+        teamId: teamLogic.values.currentTeamId ?? undefined,
+        propertyFilter,
+    })
 }
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {

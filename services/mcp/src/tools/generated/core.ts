@@ -275,6 +275,9 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
         }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
@@ -425,6 +428,9 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
         }
         if (params.title !== undefined) {
             body['title'] = params.title

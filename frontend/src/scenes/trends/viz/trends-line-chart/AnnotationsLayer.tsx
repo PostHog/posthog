@@ -9,9 +9,6 @@ interface AnnotationsLayerProps {
     insightNumericId: number | 'new'
     /** Per-data-point date strings; used for grouping annotations. */
     dates: string[]
-    /** Custom x-axis tick formatter — must match the one passed to the chart so the
-     *  computed tick set lines up with what the user sees. */
-    xTickFormatter?: (value: string, index: number) => string | null
 }
 
 const WRAPPER_STYLE: React.CSSProperties = {
@@ -25,12 +22,9 @@ const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
     e.stopPropagation()
 }
 
-export function AnnotationsLayer({
-    insightNumericId,
-    dates,
-    xTickFormatter,
-}: AnnotationsLayerProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChartLayout()
+export function AnnotationsLayer({ insightNumericId, dates }: AnnotationsLayerProps): React.ReactElement | null {
+    const { scales, dimensions, labels, axis } = useChartLayout()
+    const xTickFormatter = axis.xTickFormatter
 
     const chartLike = useMemo(() => {
         const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)

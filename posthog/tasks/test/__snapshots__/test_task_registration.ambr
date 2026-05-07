@@ -147,7 +147,6 @@
     'posthog.tasks.usage_report.capture_report',
     'posthog.tasks.usage_report.send_all_org_usage_reports',
     'posthog.tasks.usage_report.send_report_to_billing_service',
-    'posthog.tasks.user_identify.identify_task',
     'posthog.tasks.verify_persons_data_in_sync.verify_persons_data_in_sync',
     'posthog.tasks.warehouse.validate_data_warehouse_table_columns',
   ])
