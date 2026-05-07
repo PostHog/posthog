@@ -195,6 +195,16 @@ describe.each([
                 expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
             })
 
+            it('throws synchronously when queueInvocations fails (does not silently drop)', async () => {
+                const simulatedFailure = new Error(
+                    'error: column "distinct_id" of relation "cyclotron_jobs" does not exist'
+                )
+                mockQueueInvocations.mockRejectedValueOnce(simulatedFailure)
+
+                await expect(processor.processBatch([globals])).rejects.toThrow(simulatedFailure)
+                expect(mockQueueInvocations).toHaveBeenCalled()
+            })
+
             it('should log correct metrics', async () => {
                 const { invocations } = await processor.processBatch([globals])
 

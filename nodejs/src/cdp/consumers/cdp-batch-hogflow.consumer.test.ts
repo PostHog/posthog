@@ -546,6 +546,45 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             await backgroundTask
         })
 
+        it('throws synchronously when queueInvocations fails (does not silently drop)', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'batch',
+                            filters: { properties: [] },
+                        },
+                    })
+                    .build()
+            )
+
+            const mockGetBlastRadiusPersons = jest.fn().mockResolvedValue({
+                users_affected: ['person-1'],
+            })
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
+
+            const simulatedFailure = new Error(
+                'error: column "distinct_id" of relation "cyclotron_jobs" does not exist'
+            )
+            mockQueueInvocations.mockRejectedValueOnce(simulatedFailure)
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                parentRunId: new UUIDT().toString(),
+                filters: {
+                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
+                },
+            }
+
+            await expect(
+                processor['processBatch']([{ batchHogFlowRequest: batchRequest, team, hogFlow }])
+            ).rejects.toThrow(simulatedFailure)
+
+            expect(mockQueueInvocations).toHaveBeenCalled()
+        })
+
         it('should process multiple requests in batch', async () => {
             const hogFlow1 = await insertHogFlow(
                 new FixtureHogFlowBuilder()

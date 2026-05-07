@@ -71,21 +71,25 @@ export class CdpEventsConsumer<
             ...(await this.createHogFlowInvocations(invocationGlobals)),
         ]
 
+        // Synchronous: a failure here must surface to the consumer so kafka offsets
+        // don't advance past unprocessed messages.
+        await instrumentFn({ key: 'cdp.queue_invocations', sendException: false }, () =>
+            this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
+        )
+
         return {
-            // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: Promise.all([
-                instrumentFn({ key: 'cdp.background_task.queue_invocations', sendException: false }, () =>
-                    this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
-                ),
-                instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
+            // Background: only observability work belongs here.
+            backgroundTask: instrumentFn(
+                { key: 'cdp.background_task.monitoring_flush', sendException: false },
+                async () => {
                     try {
                         await this.hogFunctionMonitoringService.flush()
                     } catch (err) {
                         captureException(err)
                         logger.error('🔴', 'Error producing queued messages for monitoring', { err })
                     }
-                }),
-            ]),
+                }
+            ),
             invocations: invocationsToBeQueued,
         }
     }
