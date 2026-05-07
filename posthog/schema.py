@@ -4876,6 +4876,12 @@ class TraceNeighborsQueryResponse(BaseModel):
     )
 
 
+class TraceSpansSparklineBreakdownBy(StrEnum):
+    SERVICE = "service"
+    LATENCY_LOG2 = "latency_log2"
+    SERVICE_AND_LATENCY_LOG2 = "service_and_latency_log2"
+
+
 class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
@@ -19995,6 +20001,10 @@ class TraceSpansQuery(BaseModel):
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
     filterGroup: PropertyGroupFilter | None = None
+    heatmapIncludeQuantiles: bool | None = Field(
+        default=None,
+        description=("When using latency heatmap breakdown, include approximate quantiles per cell (adds CH cost)"),
+    )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -20007,6 +20017,10 @@ class TraceSpansQuery(BaseModel):
     response: TraceSpansQueryResponse | None = None
     rootSpans: bool | None = None
     serviceNames: list[str] | None = None
+    sparklineBreakdownBy: TraceSpansSparklineBreakdownBy | None = Field(
+        default=None,
+        description="Chart aggregation for tracing sparkline / heatmap API",
+    )
     statusCodes: list[int] | None = None
     tags: QueryLogTags | None = None
     traceId: str | None = None

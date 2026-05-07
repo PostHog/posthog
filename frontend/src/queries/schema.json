@@ -37201,6 +37201,10 @@
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
+                "heatmapIncludeQuantiles": {
+                    "description": "When using latency heatmap breakdown, include approximate quantiles per cell (adds CH cost)",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "TraceSpansQuery",
                     "type": "string"
@@ -37233,6 +37237,10 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "sparklineBreakdownBy": {
+                    "$ref": "#/definitions/TraceSpansSparklineBreakdownBy",
+                    "description": "Chart aggregation for tracing sparkline / heatmap API"
                 },
                 "statusCodes": {
                     "items": {
@@ -37301,6 +37309,10 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "TraceSpansSparklineBreakdownBy": {
+            "enum": ["service", "latency_log2", "service_and_latency_log2"],
+            "type": "string"
         },
         "TracesQuery": {
             "additionalProperties": false,

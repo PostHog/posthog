@@ -11,9 +11,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { formatDuration, TraceFlameChart } from './TraceFlameChart'
+import { TracingChartPanel } from './TracingChartPanel'
 import { TracingFilterBar } from './TracingFilterBar'
 import { tracingSceneLogic } from './tracingSceneLogic'
-import { TracingSparkline } from './TracingSparkline'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 import type { Span } from './types'
 
@@ -86,13 +86,17 @@ export default function TracingScene(): JSX.Element {
         spansLoading,
         isTraceModalOpen,
         selectedTraceId,
-        sparklineData,
         sparklineLoading,
         totalSpansMatchingFilters,
         modalSpans,
         isLoadingFullTrace,
+        bubbleUpRows,
+        bubbleUpRowsLoading,
     } = useValues(tracingSceneLogic)
-    const { openTraceModal, closeTraceModal, setDateRange } = useActions(tracingSceneLogic)
+    const { openTraceModal, closeTraceModal, clearBubbleUp } = useActions(tracingSceneLogic)
+
+    const bubbleUpModalOpen = bubbleUpRows != null || bubbleUpRowsLoading
+    const showFilteredSpanCount = !sparklineLoading && totalSpansMatchingFilters > 0
 
     return (
         <SceneContent>
@@ -103,19 +107,14 @@ export default function TracingScene(): JSX.Element {
                     type: 'tracing',
                 }}
             />
-            <TracingSparkline
-                sparklineData={sparklineData}
-                sparklineLoading={sparklineLoading}
-                onDateRangeChange={setDateRange}
-                displayTimezone="UTC"
-            />
+            <TracingChartPanel displayTimezone="UTC" />
             <SceneDivider />
             <TracingFilterBar />
-            {!sparklineLoading && totalSpansMatchingFilters > 0 && (
+            {showFilteredSpanCount ? (
                 <div className="text-xs text-muted px-1">
                     {totalSpansMatchingFilters.toLocaleString()} spans matching filters
                 </div>
-            )}
+            ) : null}
             <LemonTable
                 columns={columns}
                 dataSource={rootSpans}
@@ -124,9 +123,6 @@ export default function TracingScene(): JSX.Element {
                 emptyState="No spans found"
                 onRow={(span) => ({
                     onClick: () => {
-                        // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
-                        // element; react-modal then scrolls it back into view when restoring focus
-                        // on close. Blur so the restore target is <body>, which doesn't scroll.
                         ;(document.activeElement as HTMLElement | null)?.blur?.()
                         openTraceModal(span.trace_id)
                     },
@@ -143,6 +139,31 @@ export default function TracingScene(): JSX.Element {
                     {isLoadingFullTrace && <SpinnerOverlay />}
                     <TraceFlameChart spans={modalSpans} />
                 </div>
+            </LemonModal>
+            <LemonModal
+                title="BubbleUp"
+                description="Attributes enriched in your selection versus the baseline."
+                isOpen={bubbleUpModalOpen}
+                onClose={() => clearBubbleUp()}
+                width="800px"
+            >
+                {bubbleUpRowsLoading ? (
+                    <SpinnerOverlay />
+                ) : (
+                    <LemonTable
+                        loading={false}
+                        dataSource={bubbleUpRows ?? []}
+                        columns={[
+                            { title: 'Key', dataIndex: 'attribute_key' },
+                            { title: 'Value', dataIndex: 'attribute_value' },
+                            { title: 'Type', dataIndex: 'attribute_type' },
+                            { title: 'Lift', dataIndex: 'lift' },
+                            { title: 'In selection', dataIndex: 'inset_count' },
+                            { title: 'Baseline', dataIndex: 'baseline_count' },
+                        ]}
+                        rowKey={(row) => `${row.attribute_key}:${row.attribute_value}:${row.attribute_type}`}
+                    />
+                )}
             </LemonModal>
         </SceneContent>
     )

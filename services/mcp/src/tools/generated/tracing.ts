@@ -3,8 +3,10 @@ import { z } from 'zod'
 
 import {
     TracingSpansAttributesRetrieveQueryParams,
+    TracingSpansBubbleUpCreateBody,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
+    TracingSpansSparklineCreateBody,
     TracingSpansTraceCreateBody,
     TracingSpansTraceCreateParams,
     TracingSpansValuesRetrieveQueryParams,
@@ -58,6 +60,27 @@ const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, unknown> 
     },
 })
 
+const ApmBubbleUpSchema = TracingSpansBubbleUpCreateBody
+
+const apmBubbleUp = (): ToolBase<typeof ApmBubbleUpSchema, unknown> => ({
+    name: 'apm-bubble-up',
+    schema: ApmBubbleUpSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmBubbleUpSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/bubble-up/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
 const ApmServicesListSchema = TracingSpansServiceNamesRetrieveQueryParams
 
 const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => ({
@@ -72,6 +95,27 @@ const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => (
                 dateRange: params.dateRange,
                 search: params.search,
             },
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
+const ApmSparklineQuerySchema = TracingSpansSparklineCreateBody
+
+const apmSparklineQuery = (): ToolBase<typeof ApmSparklineQuerySchema, unknown> => ({
+    name: 'apm-sparkline-query',
+    schema: ApmSparklineQuerySchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSparklineQuerySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/sparkline/`,
+            body,
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
         return filtered
@@ -127,7 +171,9 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-attribute-values-list': apmAttributeValuesList,
     'apm-attributes-list': apmAttributesList,
+    'apm-bubble-up': apmBubbleUp,
     'apm-services-list': apmServicesList,
+    'apm-sparkline-query': apmSparklineQuery,
     'apm-trace-get': apmTraceGet,
     'query-apm-spans': queryApmSpans,
 }

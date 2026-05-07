@@ -333,12 +333,44 @@
         },
         "feature_flag": "tracing"
     },
+    "apm-bubble-up": {
+        "description": "Compare attribute value frequencies inside a brushed time/duration region against the baseline for the current filters. Returns ranked lift scores for span and resource attributes.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Tracing BubbleUp attribute lift",
+        "title": "Tracing BubbleUp attribute lift",
+        "required_scopes": ["tracing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
     "apm-services-list": {
         "description": "List distinct service names that have emitted trace spans. Use to discover available services before filtering spans by service name.",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "List tracing service names",
         "title": "List tracing service names",
+        "required_scopes": ["tracing:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
+    "apm-sparkline-query": {
+        "description": "Aggregated trace span counts over time. Use sparklineBreakdownBy \"service\" for volume by service, \"latency_log2\" or \"service_and_latency_log2\" for a latency heatmap-style breakdown. Narrow date ranges if the query exceeds server limits.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Tracing sparkline / latency heatmap",
+        "title": "Tracing sparkline / latency heatmap",
         "required_scopes": ["tracing:read"],
         "new_mcp": true,
         "annotations": {

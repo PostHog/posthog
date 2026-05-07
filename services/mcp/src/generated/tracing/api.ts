@@ -136,6 +136,19 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .default(tracingSpansQueryCreateBodyQueryOneRootSpansDefault)
                 .describe('Filter to root spans only. Defaults to true.'),
             prefetchSpans: zod.number().optional().describe('Number of child spans to prefetch per trace (1-100).'),
+            sparklineBreakdownBy: zod
+                .enum(['service', 'latency_log2', 'service_and_latency_log2'])
+                .describe(
+                    '* `service` - service\n* `latency_log2` - latency_log2\n* `service_and_latency_log2` - service_and_latency_log2'
+                )
+                .optional()
+                .describe(
+                    'Chart aggregation: volume by service, latency heatmap, or both dimensions.\n\n* `service` - service\n* `latency_log2` - latency_log2\n* `service_and_latency_log2` - service_and_latency_log2'
+                ),
+            heatmapIncludeQuantiles: zod
+                .boolean()
+                .optional()
+                .describe('Include p50/p95/p99 per heatmap cell (latency breakdown only).'),
         })
         .describe('The tracing spans query to execute.'),
 })

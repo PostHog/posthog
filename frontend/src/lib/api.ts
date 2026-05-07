@@ -2820,6 +2820,7 @@ const api = {
             limit?: number
             after?: string
             prefetchSpans?: number
+            rootSpans?: boolean
         }): Promise<{
             results: Record<string, any>[]
             hasMore: boolean
@@ -2851,10 +2852,37 @@ const api = {
             serviceNames?: string[]
             statusCodes?: number[]
             filterGroup?: PropertyGroupFilter
+            rootSpans?: boolean
+            sparklineBreakdownBy?: 'service' | 'latency_log2' | 'service_and_latency_log2'
+            heatmapIncludeQuantiles?: boolean
         }): Promise<{
-            results: { time: string; service: string; count: number }[]
+            results: Record<string, any>[]
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
+        },
+        async bubbleUp(query: {
+            dateRange?: { date_from?: string | null; date_to?: string | null }
+            serviceNames?: string[]
+            statusCodes?: number[]
+            filterGroup?: PropertyGroupFilter
+            rootSpans?: boolean
+            region: {
+                time_from: string
+                time_to: string
+                duration_min_nano: number
+                duration_max_nano: number
+            }
+        }): Promise<{
+            results: {
+                attribute_key: string
+                attribute_value: string
+                attribute_type: string
+                inset_count: number
+                baseline_count: number
+                lift: number
+            }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('bubble-up').create({ data: { query } })
         },
         async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
             return new ApiRequest()

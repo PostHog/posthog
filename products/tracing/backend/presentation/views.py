@@ -11,6 +11,7 @@ No business logic here - that belongs in logic.py via the facade.
 """
 
 import json
+from datetime import UTC, datetime
 
 from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
@@ -27,22 +28,37 @@ from posthog.schema import (
     PropertyGroupFilter,
     TraceSpansQuery,
     TraceSpansQueryResponse,
+    TraceSpansSparklineBreakdownBy,
 )
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
+from ..bubble_up import run_bubble_up
 from ..logic import (
     TraceSpansQueryRunner,
     run_attribute_names_query,
     run_attribute_values_query,
     run_service_names_query,
 )
+from ..pagination import paginate_traces_in_results
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
+
+
+def _parse_iso_datetime_utc(value: str) -> datetime:
+    s = value.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(s)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -136,6 +152,35 @@ class _TracingQueryBodySerializer(serializers.Serializer):
         required=False,
         help_text="Number of child spans to prefetch per trace (1-100).",
     )
+    sparklineBreakdownBy = serializers.ChoiceField(
+        choices=["service", "latency_log2", "service_and_latency_log2"],
+        required=False,
+        help_text="Chart aggregation: volume by service, latency heatmap, or both dimensions.",
+    )
+    heatmapIncludeQuantiles = serializers.BooleanField(
+        required=False,
+        help_text="Include p50/p95/p99 per heatmap cell (latency breakdown only).",
+    )
+
+
+class _TracingBubbleUpRegionSerializer(serializers.Serializer):
+    time_from = serializers.CharField(help_text="ISO 8601 start of brushed time range (inclusive).")
+    time_to = serializers.CharField(help_text="ISO 8601 end of brushed time range (exclusive).")
+    duration_min_nano = serializers.IntegerField(help_text="Minimum duration in nanoseconds (inclusive).")
+    duration_max_nano = serializers.IntegerField(help_text="Maximum duration in nanoseconds (exclusive).")
+
+
+class _TracingBubbleUpRequestSerializer(serializers.Serializer):
+    dateRange = _TracingDateRangeSerializer(required=False, help_text="Overall query date range.")
+    serviceNames = serializers.ListField(child=serializers.CharField(), required=False)
+    statusCodes = serializers.ListField(child=serializers.IntegerField(), required=False)
+    filterGroup = serializers.ListField(child=_SpanPropertyFilterSerializer(), required=False, default=[])
+    rootSpans = serializers.BooleanField(required=False, default=True)
+    region = _TracingBubbleUpRegionSerializer(help_text="Brushed subset to compare against the baseline.")
+
+
+class _TracingBubbleUpQueryRequestSerializer(serializers.Serializer):
+    query = _TracingBubbleUpRequestSerializer(help_text="Bubble-up query parameters.")
 
 
 class _TracingQueryRequestSerializer(serializers.Serializer):
@@ -250,22 +295,21 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             prefetchSpans=prefetch_spans,
         )
 
-        def make_runner(dr: DateRange) -> TraceSpansQueryRunner:
-            return TraceSpansQueryRunner(TraceSpansQuery(**{**spans_query.model_dump(), "dateRange": dr}), self.team)
-
-        results = list(
-            time_sliced_results(
-                runner=TraceSpansQueryRunner(spans_query, self.team),
-                order_by_earliest=order_by == "earliest",
-                make_runner=make_runner,
-            )
+        runner = TraceSpansQueryRunner(spans_query, self.team)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=request.user)
+        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        raw_results = response.results or []
+        trimmed, has_more, next_cursor = paginate_traces_in_results(
+            raw_results,
+            page_size=requested_limit,
+            order_latest=order_by != "earliest",
         )
 
         return Response(
             {
-                "results": results,
-                "hasMore": False,  # TODO: tricky with the traces query as we prefetch an unknown number of spans
-                "nextCursor": None,
+                "results": trimmed,
+                "hasMore": has_more,
+                "nextCursor": next_cursor,
             },
             status=status.HTTP_200_OK,
         )
@@ -286,18 +330,119 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
+        breakdown_raw = query_data.get("sparklineBreakdownBy")
+        breakdown = (
+            TraceSpansSparklineBreakdownBy(breakdown_raw)
+            if breakdown_raw is not None
+            else TraceSpansSparklineBreakdownBy.SERVICE
+        )
+
+        heatmap_include_quantiles = query_data.get("heatmapIncludeQuantiles")
+        if heatmap_include_quantiles is not None and not isinstance(heatmap_include_quantiles, bool):
+            heatmap_include_quantiles = None
+
         spans_query = TraceSpansQuery(
             dateRange=date_range,
             serviceNames=query_data.get("serviceNames", None),
             statusCodes=query_data.get("statusCodes", None),
             filterGroup=filter_group,
+            rootSpans=query_data.get("rootSpans", True),
+            sparklineBreakdownBy=breakdown,
+            heatmapIncludeQuantiles=heatmap_include_quantiles,
         )
 
         runner = TraceSpansSparklineQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        try:
+            response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=request.user)
+        except ExposedHogQLError as exc:
+            return Response(
+                {
+                    "type": "validation_error",
+                    "code": "tracing_sparkline_query_too_large",
+                    "detail": str(exc),
+                    "attr": None,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse):
+            return Response(
+                {"type": "server_error", "detail": "Unexpected sparkline response type"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_TracingBubbleUpQueryRequestSerializer)
+    @action(detail=False, methods=["POST"], url_path="bubble-up", required_scopes=["tracing:read"])
+    def bubble_up(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data.get("filterGroup")), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        region = query_data.get("region") or {}
+        try:
+            t_from = _parse_iso_datetime_utc(str(region["time_from"]))
+            t_to = _parse_iso_datetime_utc(str(region["time_to"]))
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                {
+                    "type": "validation_error",
+                    "code": "invalid_bubble_up_region",
+                    "detail": "region.time_from and region.time_to must be valid ISO 8601 timestamps.",
+                    "attr": "region",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            d_min = int(region["duration_min_nano"])
+            d_max = int(region["duration_max_nano"])
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                {
+                    "type": "validation_error",
+                    "code": "invalid_bubble_up_region",
+                    "detail": "region.duration_min_nano and region.duration_max_nano are required integers.",
+                    "attr": "region",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            results = run_bubble_up(
+                team=self.team,
+                date_range=date_range,
+                service_names=query_data.get("serviceNames"),
+                status_codes=query_data.get("statusCodes"),
+                filter_group=filter_group,
+                root_spans=query_data.get("rootSpans", True),
+                region_time_from=t_from,
+                region_time_to=t_to,
+                region_duration_min_nano=d_min,
+                region_duration_max_nano=d_max,
+            )
+        except ExposedHogQLError as exc:
+            return Response(
+                {
+                    "type": "validation_error",
+                    "code": "tracing_bubble_up_query_too_large",
+                    "detail": str(exc),
+                    "attr": None,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({"results": results}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_TracingTraceRequestSerializer)
     @action(
@@ -334,7 +479,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=request.user)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
 
         return Response(

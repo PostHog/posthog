@@ -11,12 +11,32 @@ import { PropertyGroupFilter } from '~/types'
 
 import type { tracingDataLogicType } from './tracingDataLogicType'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
+import type { TracingSelectedRegion } from './tracingFiltersLogic'
 import type { Span } from './types'
 
 export interface SparklineRow {
     time: string
     service: string
     count: number
+}
+
+export interface HeatmapCellRow {
+    time: string
+    duration_log2_bucket: number
+    service: string
+    count: number
+    p50_nano?: number
+    p95_nano?: number
+    p99_nano?: number
+}
+
+export interface BubbleUpRow {
+    attribute_key: string
+    attribute_value: string
+    attribute_type: string
+    inset_count: number
+    baseline_count: number
+    lift: number
 }
 
 export interface TracingSparklineData {
@@ -120,6 +140,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                         prefetchSpans: PREFETCH_SPANS,
                         limit: DEFAULT_PAGE_SIZE,
+                        rootSpans: true,
                     })
 
                     actions.setSpansAbortController(null)
@@ -142,6 +163,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                         limit: DEFAULT_PAGE_SIZE,
                         after: values.nextCursor,
+                        rootSpans: true,
                     })
 
                     actions.setSpansAbortController(null)
@@ -168,30 +190,56 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             },
         ],
         rawSparklineData: [
-            [] as SparklineRow[],
+            [] as (SparklineRow | HeatmapCellRow)[],
             {
                 fetchSparkline: async () => {
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
+                    const isLatency = values.filters.chartMode === 'latency'
+
                     const response = await api.tracing.sparkline({
                         dateRange: values.utcDateRange,
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        rootSpans: true,
+                        sparklineBreakdownBy: isLatency ? 'service_and_latency_log2' : 'service',
+                        heatmapIncludeQuantiles: isLatency,
                     })
 
                     actions.setSparklineAbortController(null)
-                    return response.results
+                    return response.results as (SparklineRow | HeatmapCellRow)[]
                 },
+            },
+        ],
+        bubbleUpRows: [
+            null as BubbleUpRow[] | null,
+            {
+                fetchBubbleUp: async ({ region }: { region: TracingSelectedRegion }) => {
+                    const res = await api.tracing.bubbleUp({
+                        dateRange: values.utcDateRange,
+                        serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
+                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        rootSpans: true,
+                        region: {
+                            time_from: region.time_from,
+                            time_to: region.time_to,
+                            duration_min_nano: region.duration_min_nano,
+                            duration_max_nano: region.duration_max_nano,
+                        },
+                    })
+                    return res.results
+                },
+                clearBubbleUp: () => null,
             },
         ],
     })),
 
     selectors({
         sparklineData: [
-            (s) => [s.rawSparklineData],
-            (rows: SparklineRow[]): TracingSparklineData => {
-                if (!rows.length) {
+            (s) => [s.rawSparklineData, s.filters],
+            (rows: (SparklineRow | HeatmapCellRow)[], filters): TracingSparklineData => {
+                if (filters.chartMode !== 'volume' || !rows.length) {
                     return { data: [], dates: [], labels: [] }
                 }
 
@@ -199,7 +247,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 let i = -1
                 const labels: string[] = []
                 const dates: string[] = []
-                const accumulated = rows.reduce(
+                const accumulated = (rows as SparklineRow[]).reduce(
                     (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
                             labels.push(
@@ -229,9 +277,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
 
                 const data = Object.entries(accumulated)
                     .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([name, values], index) => ({
+                    .map(([name, vals], index) => ({
                         name,
-                        values: values as number[],
+                        values: vals as number[],
                         color: dataColorVars[index % dataColorVars.length],
                     }))
                     .filter((series) => series.values.reduce((a, b) => a + b) > 0)
@@ -239,9 +287,20 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 return { data, labels, dates }
             },
         ],
+        latencyHeatmapRows: [
+            (s) => [s.rawSparklineData, s.filters],
+            (rows: (SparklineRow | HeatmapCellRow)[], filters): HeatmapCellRow[] => {
+                if (filters.chartMode !== 'latency') {
+                    return []
+                }
+                return rows.filter(
+                    (r): r is HeatmapCellRow => 'duration_log2_bucket' in r && r.duration_log2_bucket != null
+                )
+            },
+        ],
         totalSpansMatchingFilters: [
             (s) => [s.rawSparklineData],
-            (rows: SparklineRow[]): number => rows.reduce((sum, item) => sum + item.count, 0),
+            (rows: (SparklineRow | HeatmapCellRow)[]): number => rows.reduce((sum, item) => sum + item.count, 0),
         ],
         rootSpans: [
             (s) => [s.spans],
@@ -276,7 +335,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         fetchSparklineFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
-                // Sparkline failures are non-critical, don't show toast
+                lemonToast.error(`Chart query failed — try a narrower time range or switch to volume. ${String(error)}`)
             }
         },
     })),

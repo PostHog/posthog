@@ -21,17 +21,6 @@ export interface _TracingDateRangeApi {
 }
 
 /**
- * * `latest` - latest
- * `earliest` - earliest
- */
-export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
-
-export const OrderByEnumApi = {
-    Latest: 'latest',
-    Earliest: 'earliest',
-} as const
-
-/**
  * * `span` - span
  * `span_attribute` - span_attribute
  * `span_resource_attribute` - span_resource_attribute
@@ -99,6 +88,58 @@ export interface _SpanPropertyFilterApi {
     value?: unknown | null
 }
 
+export interface _TracingBubbleUpRegionApi {
+    /** ISO 8601 start of brushed time range (inclusive). */
+    time_from: string
+    /** ISO 8601 end of brushed time range (exclusive). */
+    time_to: string
+    /** Minimum duration in nanoseconds (inclusive). */
+    duration_min_nano: number
+    /** Maximum duration in nanoseconds (exclusive). */
+    duration_max_nano: number
+}
+
+export interface _TracingBubbleUpRequestApi {
+    /** Overall query date range. */
+    dateRange?: _TracingDateRangeApi
+    serviceNames?: string[]
+    statusCodes?: number[]
+    filterGroup?: _SpanPropertyFilterApi[]
+    rootSpans?: boolean
+    /** Brushed subset to compare against the baseline. */
+    region: _TracingBubbleUpRegionApi
+}
+
+export interface _TracingBubbleUpQueryRequestApi {
+    /** Bubble-up query parameters. */
+    query: _TracingBubbleUpRequestApi
+}
+
+/**
+ * * `latest` - latest
+ * `earliest` - earliest
+ */
+export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
+
+export const OrderByEnumApi = {
+    Latest: 'latest',
+    Earliest: 'earliest',
+} as const
+
+/**
+ * * `service` - service
+ * `latency_log2` - latency_log2
+ * `service_and_latency_log2` - service_and_latency_log2
+ */
+export type _TracingQueryBodySparklineBreakdownByEnumApi =
+    (typeof _TracingQueryBodySparklineBreakdownByEnumApi)[keyof typeof _TracingQueryBodySparklineBreakdownByEnumApi]
+
+export const _TracingQueryBodySparklineBreakdownByEnumApi = {
+    Service: 'service',
+    LatencyLog2: 'latency_log2',
+    ServiceAndLatencyLog2: 'service_and_latency_log2',
+} as const
+
 export interface _TracingQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
@@ -123,6 +164,14 @@ export interface _TracingQueryBodyApi {
     rootSpans?: boolean
     /** Number of child spans to prefetch per trace (1-100). */
     prefetchSpans?: number
+    /** Chart aggregation: volume by service, latency heatmap, or both dimensions.
+
+* `service` - service
+* `latency_log2` - latency_log2
+* `service_and_latency_log2` - service_and_latency_log2 */
+    sparklineBreakdownBy?: _TracingQueryBodySparklineBreakdownByEnumApi
+    /** Include p50/p95/p99 per heatmap cell (latency breakdown only). */
+    heatmapIncludeQuantiles?: boolean
 }
 
 export interface _TracingQueryRequestApi {

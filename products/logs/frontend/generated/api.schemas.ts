@@ -1040,9 +1040,10 @@ export interface _LogsServicesResponseApi {
  * * `severity` - severity
  * `service` - service
  */
-export type SparklineBreakdownByEnumApi = (typeof SparklineBreakdownByEnumApi)[keyof typeof SparklineBreakdownByEnumApi]
+export type _LogsSparklineBodySparklineBreakdownByEnumApi =
+    (typeof _LogsSparklineBodySparklineBreakdownByEnumApi)[keyof typeof _LogsSparklineBodySparklineBreakdownByEnumApi]
 
-export const SparklineBreakdownByEnumApi = {
+export const _LogsSparklineBodySparklineBreakdownByEnumApi = {
     Severity: 'severity',
     Service: 'service',
 } as const
@@ -1062,7 +1063,7 @@ export interface _LogsSparklineBodyApi {
 
 * `severity` - severity
 * `service` - service */
-    sparklineBreakdownBy?: SparklineBreakdownByEnumApi
+    sparklineBreakdownBy?: _LogsSparklineBodySparklineBreakdownByEnumApi
 }
 
 export interface _LogsSparklineRequestApi {

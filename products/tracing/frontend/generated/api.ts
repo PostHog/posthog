@@ -12,6 +12,7 @@ import type {
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
+    _TracingBubbleUpQueryRequestApi,
     _TracingQueryRequestApi,
     _TracingTraceRequestApi,
 } from './api.schemas'
@@ -43,6 +44,23 @@ export const tracingSpansAttributesRetrieve = async (
     return apiMutator<void>(getTracingSpansAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTracingSpansBubbleUpCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/tracing/spans/bubble-up/`
+}
+
+export const tracingSpansBubbleUpCreate = async (
+    projectId: string,
+    _tracingBubbleUpQueryRequestApi: _TracingBubbleUpQueryRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingSpansBubbleUpCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingBubbleUpQueryRequestApi),
     })
 }
 

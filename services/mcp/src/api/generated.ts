@@ -20938,6 +20938,15 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
+    export type TraceSpansSparklineBreakdownBy = typeof TraceSpansSparklineBreakdownBy[keyof typeof TraceSpansSparklineBreakdownBy];
+
+
+    export const TraceSpansSparklineBreakdownBy = {
+      Service: 'service',
+      LatencyLog2: 'latency_log2',
+      ServiceAndLatencyLog2: 'service_and_latency_log2',
+    } as const;
+
     export interface TraceSpansQuery {
       /**
        * Cursor for fetching the next page of results
@@ -20946,6 +20955,11 @@ export namespace Schemas {
       after?: string | null;
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
+      /**
+       * When using latency heatmap breakdown, include approximate quantiles per cell (adds CH cost)
+       * @nullable
+       */
+      heatmapIncludeQuantiles?: boolean | null;
       kind?: TraceSpansQueryKind;
       /** @nullable */
       limit?: number | null;
@@ -20964,6 +20978,8 @@ export namespace Schemas {
       rootSpans?: boolean | null;
       /** @nullable */
       serviceNames?: string[] | null;
+      /** Chart aggregation for tracing sparkline / heatmap API */
+      sparklineBreakdownBy?: TraceSpansSparklineBreakdownBy | null;
       /** @nullable */
       statusCodes?: number[] | null;
       tags?: QueryLogTags | null;
@@ -37323,18 +37339,6 @@ export namespace Schemas {
       Mapped: 'mapped',
     } as const;
 
-    /**
-     * * `severity` - severity
-    * `service` - service
-     */
-    export type SparklineBreakdownByEnum = typeof SparklineBreakdownByEnum[keyof typeof SparklineBreakdownByEnum];
-
-
-    export const SparklineBreakdownByEnum = {
-      Severity: 'severity',
-      Service: 'service',
-    } as const;
-
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -39292,6 +39296,18 @@ export namespace Schemas {
       summary?: _LogsServicesSummary;
     }
 
+    /**
+     * * `severity` - severity
+    * `service` - service
+     */
+    export type _LogsSparklineBodySparklineBreakdownByEnum = typeof _LogsSparklineBodySparklineBreakdownByEnum[keyof typeof _LogsSparklineBodySparklineBreakdownByEnum];
+
+
+    export const _LogsSparklineBodySparklineBreakdownByEnum = {
+      Severity: 'severity',
+      Service: 'service',
+    } as const;
+
     export interface _LogsSparklineBody {
       /** Date range for the sparkline. Defaults to last hour. */
       dateRange?: _DateRange;
@@ -39307,7 +39323,7 @@ export namespace Schemas {
 
     * `severity` - severity
     * `service` - service */
-      sparklineBreakdownBy?: SparklineBreakdownByEnum;
+      sparklineBreakdownBy?: _LogsSparklineBodySparklineBreakdownByEnum;
     }
 
     export interface _LogsSparklineBucket {
@@ -39423,6 +39439,47 @@ export namespace Schemas {
       date_to?: string | null;
     }
 
+    export interface _TracingBubbleUpRegion {
+      /** ISO 8601 start of brushed time range (inclusive). */
+      time_from: string;
+      /** ISO 8601 end of brushed time range (exclusive). */
+      time_to: string;
+      /** Minimum duration in nanoseconds (inclusive). */
+      duration_min_nano: number;
+      /** Maximum duration in nanoseconds (exclusive). */
+      duration_max_nano: number;
+    }
+
+    export interface _TracingBubbleUpRequest {
+      /** Overall query date range. */
+      dateRange?: _TracingDateRange;
+      serviceNames?: string[];
+      statusCodes?: number[];
+      filterGroup?: _SpanPropertyFilter[];
+      rootSpans?: boolean;
+      /** Brushed subset to compare against the baseline. */
+      region: _TracingBubbleUpRegion;
+    }
+
+    export interface _TracingBubbleUpQueryRequest {
+      /** Bubble-up query parameters. */
+      query: _TracingBubbleUpRequest;
+    }
+
+    /**
+     * * `service` - service
+    * `latency_log2` - latency_log2
+    * `service_and_latency_log2` - service_and_latency_log2
+     */
+    export type _TracingQueryBodySparklineBreakdownByEnum = typeof _TracingQueryBodySparklineBreakdownByEnum[keyof typeof _TracingQueryBodySparklineBreakdownByEnum];
+
+
+    export const _TracingQueryBodySparklineBreakdownByEnum = {
+      Service: 'service',
+      LatencyLog2: 'latency_log2',
+      ServiceAndLatencyLog2: 'service_and_latency_log2',
+    } as const;
+
     export interface _TracingQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -39447,6 +39504,14 @@ export namespace Schemas {
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
+      /** Chart aggregation: volume by service, latency heatmap, or both dimensions.
+
+    * `service` - service
+    * `latency_log2` - latency_log2
+    * `service_and_latency_log2` - service_and_latency_log2 */
+      sparklineBreakdownBy?: _TracingQueryBodySparklineBreakdownByEnum;
+      /** Include p50/p95/p99 per heatmap cell (latency breakdown only). */
+      heatmapIncludeQuantiles?: boolean;
     }
 
     export interface _TracingQueryRequest {

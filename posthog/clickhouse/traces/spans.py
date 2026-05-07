@@ -72,6 +72,23 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
             resource_fingerprint
     ),
 
+    PROJECTION projection_latency_heatmap_buckets
+    (
+        SELECT
+            team_id,
+            time_bucket,
+            toStartOfMinute(timestamp),
+            floor(log2(greatest(duration_nano, 1))) AS duration_log2_bucket,
+            service_name,
+            count() AS event_count
+        GROUP BY
+            team_id,
+            time_bucket,
+            toStartOfMinute(timestamp),
+            duration_log2_bucket,
+            service_name
+    ),
+
     PROJECTION projection_index_trace_id
     (
         SELECT _part_offset

@@ -54,6 +54,23 @@ tools:
             include:
                 - results
                 - count
+    apm-bubble-up:
+        operation: tracing_spans_bubble_up_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Tracing BubbleUp attribute lift
+        description: >
+            Compare attribute value frequencies inside a brushed time/duration region against the baseline for the
+            current filters. Returns ranked lift scores for span and resource attributes.
+        feature_flag: tracing
+        response:
+            include:
+                - results
     apm-services-list:
         operation: tracing_spans_service_names_retrieve
         enabled: true
@@ -73,7 +90,22 @@ tools:
                 - results
     apm-sparkline-query:
         operation: tracing_spans_sparkline_create
-        enabled: false
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Tracing sparkline / latency heatmap
+        description: >
+            Aggregated trace span counts over time. Use sparklineBreakdownBy "service" for volume by service,
+            "latency_log2" or "service_and_latency_log2" for a latency heatmap-style breakdown. Narrow date ranges if
+            the query exceeds server limits.
+        feature_flag: tracing
+        response:
+            include:
+                - results
     apm-trace-get:
         operation: tracing_spans_trace_create
         enabled: true

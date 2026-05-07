@@ -11,14 +11,28 @@ import type { tracingFiltersLogicType } from './tracingFiltersLogicType'
 export const DEFAULT_DATE_RANGE: DateRange = { date_from: '-1h', date_to: null }
 export const DEFAULT_SERVICE_NAMES: string[] = []
 export const DEFAULT_ORDER_BY = 'latest' as const
+export const DEFAULT_CHART_MODE = 'volume' as const
+export const DEFAULT_HEATMAP_Y_SCALE = 'log' as const
 
 export type TracingOrderBy = 'latest' | 'earliest'
+export type TracingChartMode = 'volume' | 'latency'
+export type TracingHeatmapYScale = 'linear' | 'log'
+
+export interface TracingSelectedRegion {
+    time_from: string
+    time_to: string
+    duration_min_nano: number
+    duration_max_nano: number
+}
 
 export interface TracingFilters {
     dateRange: DateRange
     serviceNames: string[]
     filterGroup: UniversalFiltersGroup
     orderBy: TracingOrderBy
+    chartMode: TracingChartMode
+    heatmapYScale: TracingHeatmapYScale
+    selectedRegion: TracingSelectedRegion | null
 }
 
 export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
@@ -30,6 +44,10 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setOrderBy: (orderBy: TracingOrderBy) => ({ orderBy }),
         setFilters: (filters: Partial<TracingFilters>) => ({ filters }),
+        setChartMode: (chartMode: TracingChartMode) => ({ chartMode }),
+        setHeatmapYScale: (heatmapYScale: TracingHeatmapYScale) => ({ heatmapYScale }),
+        setSelectedRegion: (selectedRegion: TracingSelectedRegion | null) => ({ selectedRegion }),
+        clearSelectedRegion: true,
     }),
 
     reducers({
@@ -63,16 +81,58 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 setFilters: (state, { filters }) => (filters.orderBy as TracingOrderBy) ?? state,
             },
         ],
+        chartMode: [
+            DEFAULT_CHART_MODE as TracingChartMode,
+            {
+                setChartMode: (_, { chartMode }) => chartMode,
+                setFilters: (state, { filters }) => (filters.chartMode as TracingChartMode) ?? state,
+            },
+        ],
+        heatmapYScale: [
+            DEFAULT_HEATMAP_Y_SCALE as TracingHeatmapYScale,
+            {
+                setHeatmapYScale: (_, { heatmapYScale }) => heatmapYScale,
+                setFilters: (state, { filters }) => (filters.heatmapYScale as TracingHeatmapYScale) ?? state,
+            },
+        ],
+        selectedRegion: [
+            null as TracingSelectedRegion | null,
+            {
+                setSelectedRegion: (_, { selectedRegion }) => selectedRegion,
+                clearSelectedRegion: () => null,
+                setFilters: (state, { filters }) =>
+                    filters.selectedRegion !== undefined ? filters.selectedRegion : state,
+            },
+        ],
     }),
 
     selectors({
         filters: [
-            (s) => [s.dateRange, s.serviceNames, s.filterGroup, s.orderBy],
-            (dateRange, serviceNames, filterGroup, orderBy): TracingFilters => ({
+            (s) => [
+                s.dateRange,
+                s.serviceNames,
+                s.filterGroup,
+                s.orderBy,
+                s.chartMode,
+                s.heatmapYScale,
+                s.selectedRegion,
+            ],
+            (
                 dateRange,
                 serviceNames,
                 filterGroup,
                 orderBy,
+                chartMode,
+                heatmapYScale,
+                selectedRegion
+            ): TracingFilters => ({
+                dateRange,
+                serviceNames,
+                filterGroup,
+                orderBy,
+                chartMode,
+                heatmapYScale,
+                selectedRegion,
             }),
         ],
         utcDateRange: [

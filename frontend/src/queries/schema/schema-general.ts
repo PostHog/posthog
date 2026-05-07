@@ -3011,6 +3011,8 @@ export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & 
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
+export type TraceSpansSparklineBreakdownBy = 'service' | 'latency_log2' | 'service_and_latency_log2'
+
 export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     kind: NodeKind.TraceSpansQuery
     dateRange: DateRange
@@ -3026,6 +3028,10 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
     prefetchSpans?: integer
+    /** Chart aggregation for tracing sparkline / heatmap API */
+    sparklineBreakdownBy?: TraceSpansSparklineBreakdownBy
+    /** When using latency heatmap breakdown, include approximate quantiles per cell (adds CH cost) */
+    heatmapIncludeQuantiles?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
