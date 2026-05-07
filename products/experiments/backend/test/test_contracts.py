@@ -3,6 +3,10 @@ Tests for experiment contracts (DTOs).
 
 These tests verify that our frozen dataclasses are immutable,
 hashable, and have the correct structure.
+
+NOTE: Tests for FeatureFlagVariant and CreateFeatureFlagInput were removed
+in PR #4 to keep the facade simple. The facade only supports the old
+parameters format for now.
 """
 
 from datetime import UTC, datetime
@@ -10,13 +14,7 @@ from datetime import UTC, datetime
 import pytest
 from freezegun import freeze_time
 
-from products.experiments.backend.facade.contracts import (
-    CreateExperimentInput,
-    CreateFeatureFlagInput,
-    Experiment,
-    FeatureFlag,
-    FeatureFlagVariant,
-)
+from products.experiments.backend.facade.contracts import CreateExperimentInput, Experiment, FeatureFlag
 
 
 class TestContractImmutability:
@@ -25,21 +23,6 @@ class TestContractImmutability:
     @pytest.mark.parametrize(
         ("instance", "field_name", "new_value"),
         [
-            pytest.param(
-                FeatureFlagVariant(key="test", split_percent=50),
-                "key",
-                "modified",
-                id="FeatureFlagVariant",
-            ),
-            pytest.param(
-                CreateFeatureFlagInput(
-                    key="test",
-                    variants=(FeatureFlagVariant(key="control", split_percent=100),),
-                ),
-                "key",
-                "modified",
-                id="CreateFeatureFlagInput",
-            ),
             pytest.param(
                 CreateExperimentInput(name="Test", feature_flag_key="test-flag"),
                 "name",
@@ -92,37 +75,6 @@ class TestContractImmutability:
 class TestContractHashability:
     """Test that contracts are hashable (required for Turbo caching)."""
 
-    @pytest.mark.parametrize(
-        "instance",
-        [
-            pytest.param(
-                FeatureFlagVariant(key="test", split_percent=50),
-                id="FeatureFlagVariant",
-            ),
-            pytest.param(
-                CreateFeatureFlagInput(
-                    key="test",
-                    variants=(FeatureFlagVariant(key="control", split_percent=100),),
-                ),
-                id="CreateFeatureFlagInput",
-            ),
-            pytest.param(
-                CreateExperimentInput(
-                    name="Test",
-                    feature_flag_key="test-flag",
-                    feature_flag_filters=CreateFeatureFlagInput(
-                        key="test-flag",
-                        variants=(FeatureFlagVariant(key="control", split_percent=100),),
-                    ),
-                ),
-                id="CreateExperimentInput_with_feature_flag_filters",
-            ),
-        ],
-    )
-    def test_input_contracts_are_hashable(self, instance):
-        """Test that input contracts can be hashed (raises TypeError if not hashable)."""
-        hash(instance)
-
     @freeze_time("2026-03-21T12:00:00Z")
     @pytest.mark.parametrize(
         "instance",
@@ -156,8 +108,8 @@ class TestContractHashability:
     def test_experiment_input_with_parameters_is_not_hashable(self):
         """Test that CreateExperimentInput with parameters dict is not hashable.
 
-        The parameters field exists only for backwards compatibility during migration.
-        New code should use feature_flag_filters which is hashable.
+        The parameters field contains mutable types (dict/list) so the DTO
+        is not hashable when those fields are set.
         """
         input_dto = CreateExperimentInput(
             name="Test",
@@ -167,55 +119,6 @@ class TestContractHashability:
 
         with pytest.raises(TypeError, match="unhashable type"):
             hash(input_dto)
-
-
-class TestFeatureFlagVariant:
-    def test_create_variant(self):
-        """Test creating a feature flag variant."""
-        variant = FeatureFlagVariant(
-            key="control",
-            name="Control",
-            split_percent=50,
-        )
-
-        assert variant.key == "control"
-        assert variant.name == "Control"
-        assert variant.split_percent == 50
-
-
-class TestCreateFeatureFlagInput:
-    def test_create_flag_input_minimal(self):
-        """Test creating flag input with minimal fields."""
-        input_dto = CreateFeatureFlagInput(
-            key="my-flag",
-            variants=(
-                FeatureFlagVariant(key="control", split_percent=50),
-                FeatureFlagVariant(key="test", split_percent=50),
-            ),
-        )
-
-        assert input_dto.key == "my-flag"
-        assert len(input_dto.variants) == 2
-        assert input_dto.name is None
-
-    def test_create_flag_input_full(self):
-        """Test creating flag input with all fields."""
-        input_dto = CreateFeatureFlagInput(
-            key="my-flag",
-            name="My Flag",
-            variants=(
-                FeatureFlagVariant(key="control", split_percent=50),
-                FeatureFlagVariant(key="test", split_percent=50),
-            ),
-            rollout_percentage=100,
-            aggregation_group_type_index=0,
-            ensure_experience_continuity=True,
-        )
-
-        assert input_dto.name == "My Flag"
-        assert input_dto.rollout_percentage == 100
-        assert input_dto.aggregation_group_type_index == 0
-        assert input_dto.ensure_experience_continuity is True
 
 
 class TestCreateExperimentInput:
@@ -229,32 +132,10 @@ class TestCreateExperimentInput:
         assert input_dto.name == "My Experiment"
         assert input_dto.feature_flag_key == "my-flag"
         assert input_dto.description == ""
-        assert input_dto.feature_flag_filters is None
         assert input_dto.parameters is None
 
-    def test_create_experiment_input_with_new_flag_format(self):
-        """Test creating experiment with new feature flag filters format."""
-        flag_input = CreateFeatureFlagInput(
-            key="my-flag",
-            name="My Flag",
-            variants=(
-                FeatureFlagVariant(key="control", split_percent=50),
-                FeatureFlagVariant(key="test", split_percent=50),
-            ),
-        )
-
-        input_dto = CreateExperimentInput(
-            name="My Experiment",
-            feature_flag_key="my-flag",
-            feature_flag_filters=flag_input,
-        )
-
-        assert input_dto.feature_flag_filters is not None
-        assert input_dto.feature_flag_filters.key == "my-flag"
-        assert len(input_dto.feature_flag_filters.variants) == 2
-
-    def test_create_experiment_input_with_old_parameters_format(self):
-        """Test creating experiment with old parameters format."""
+    def test_create_experiment_input_with_parameters_format(self):
+        """Test creating experiment with parameters format."""
         input_dto = CreateExperimentInput(
             name="My Experiment",
             feature_flag_key="my-flag",

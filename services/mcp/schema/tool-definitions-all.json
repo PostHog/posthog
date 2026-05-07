@@ -1400,7 +1400,7 @@
         }
     },
     "error-tracking-suppression-rules-create": {
-        "description": "Create an error tracking suppression rule for the current project. Provide optional `filters` and optional `sampling_rate`; omit `filters` to create a match-all suppression rule.",
+        "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. Prefer `sampling_rate` to dampen noisy issues rather than fully suppressing when uncertain. Confirm with the user before creating any rule that could match more than one distinct error.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking suppression rule",
@@ -1819,7 +1819,7 @@
         }
     },
     "experiment-ship-variant": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the feature flag for 100% of users and cannot be undone via the API. Even when the user has asked you to ship a specific variant, ask them to confirm with the variant key and target experiment before invoking this tool.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Ship experiment variant",
@@ -2566,12 +2566,57 @@
             "readOnlyHint": false
         }
     },
+    "insights-activity-retrieve": {
+        "description": "Audit trail for a single insight by numeric `id`. Returns a paginated list of every change made to it (created, edited, deleted, restored), including who made each change and which fields changed. The full `before`/`after` diff blobs are omitted to keep responses agent-friendly — to inspect the current state of the insight after a change, call `insight-get` with the insight's `short_id`. Paginate with `limit` and `page`.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get insight activity log",
+        "title": "Get insight activity log",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insights-all-activity-retrieve": {
+        "description": "Project-wide audit trail of changes to all insights, most recent first. Returns who created, edited, deleted, or restored each insight and which fields changed. Useful for surfacing what people (or agents) have been working on recently. The full `before`/`after` diff blobs are omitted to keep responses agent-friendly — drill into a specific insight with `insights-activity-retrieve` (or `insight-get` for current state). Paginate with `limit` and `page`.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get recent insight activity across the project",
+        "title": "Get recent insight activity across the project",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "insights-list": {
         "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Get all insights",
         "title": "Get all insights",
+        "required_scopes": ["insight:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insights-trending-retrieve": {
+        "description": "Returns the most-viewed insights in the project, ranked by view count over the last N days (default 7). Use this to surface the insights that matter most to the team — the ones people actually open. Each result includes standard insight metadata plus `view_count` and up to 3 recent `viewers`. Returns metadata only — call `insight-query` with the returned `short_id` to fetch the actual data for any of them.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get most-viewed insights",
+        "title": "Get most-viewed insights",
         "required_scopes": ["insight:read"],
         "new_mcp": true,
         "annotations": {

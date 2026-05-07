@@ -69,9 +69,10 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
-    "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
+    "products.query_performance_ai.orchestrator.apps.QueryPerformanceAiConfig",
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
+    "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
 ]
 
 INSTALLED_APPS = [
