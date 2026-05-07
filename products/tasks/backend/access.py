@@ -6,6 +6,8 @@ from .models import CodeInviteRedemption
 
 
 def _is_tasks_flag_enabled(user: User) -> bool:
+    if not user.distinct_id:
+        return False
     org = getattr(user, "organization", None)
     kwargs: dict = {
         "only_evaluate_locally": False,
