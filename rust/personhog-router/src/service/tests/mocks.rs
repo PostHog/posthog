@@ -19,10 +19,10 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, Person, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::sync::Mutex;
 use tonic::Status;
@@ -255,6 +255,14 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<GetGroupsBatchResponse, Status> {
         self.check_error()?;
         Ok(GetGroupsBatchResponse { results: vec![] })
+    }
+
+    async fn list_groups(&self, _request: ListGroupsRequest) -> Result<ListGroupsResponse, Status> {
+        self.check_error()?;
+        Ok(ListGroupsResponse {
+            groups: vec![],
+            has_more: false,
+        })
     }
 
     async fn get_group_type_mappings_by_team_id(

@@ -27,6 +27,7 @@ from posthog.temporal.common.schedule import (
     a_delete_schedule,
     a_schedule_exists,
     a_trigger_schedule,
+    a_unpause_schedule,
     a_update_schedule,
     create_schedule,
     delete_schedule,
@@ -207,6 +208,11 @@ def pause_external_data_schedule(id: str):
 def unpause_external_data_schedule(id: str):
     temporal = sync_connect()
     unpause_schedule(temporal, schedule_id=id)
+
+
+async def a_unpause_external_data_schedule(id: str):
+    temporal = await async_connect()
+    await a_unpause_schedule(temporal, schedule_id=id)
 
 
 def delete_external_data_schedule(schedule_id: str):

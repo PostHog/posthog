@@ -15,6 +15,7 @@ DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
 INGESTION_PIPELINES = [
     {"value": "analytics", "label": "Analytics Pipeline"},
     {"value": "session_recordings", "label": "Session Recordings Pipeline"},
+    {"value": "errortracking", "label": "Error Tracking Pipeline"},
 ]
 
 
@@ -33,6 +34,7 @@ class RestrictionType(models.TextChoices):
 class IngestionPipeline(models.TextChoices):
     ANALYTICS = "analytics"
     SESSION_RECORDINGS = "session_recordings"
+    ERRORTRACKING = "errortracking"
 
 
 class EventIngestionRestrictionConfig(UUIDTModel):
