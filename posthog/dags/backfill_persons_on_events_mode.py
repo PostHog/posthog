@@ -16,14 +16,92 @@ flag-resolved value so behavior is preserved on a per-team basis. After the job
 completes platform-wide, the cache_key for any given query is fully
 deterministic across pods.
 
+Important: this job evaluates flags SERVER-SIDE (without `only_evaluate_locally`),
+unlike the team property it replaces. The team property uses local-only eval to
+avoid per-request latency, but local-only is itself the source of the variance
+this job is meant to resolve. A cold Dagster worker would otherwise persist the
+fall-through default for every team, silently migrating teams off their intended
+mode. Server-side eval consults the flag service directly so each team gets its
+canonical resolved value regardless of SDK hydration state in the worker.
+
 Idempotent: skips teams that already have `personsOnEventsMode` set.
 """
 
-import dagster
+from django.conf import settings
 
+import dagster
+import posthoganalytics
+
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners
 from posthog.dags.common.ops import get_all_team_ids_op
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
+
+
+def _resolve_persons_on_events_mode_server_side(team: Team) -> PersonsOnEventsMode:
+    """
+    Evaluate the same two flags `team.person_on_events_mode_flag_based_default` consults,
+    but server-side (no `only_evaluate_locally`). Used by the backfill so the persisted
+    value is determined by the flag service's canonical state, not the worker's local
+    SDK hydration state.
+    """
+    # Env overrides short-circuit any flag eval — same as the team property.
+    v2_override = getattr(settings, "PERSON_ON_EVENTS_V2_OVERRIDE", None)
+    poe_override = getattr(settings, "PERSON_ON_EVENTS_OVERRIDE", None)
+
+    if is_cloud():
+        v2_enabled = (
+            v2_override
+            if v2_override is not None
+            else posthoganalytics.feature_enabled(
+                "persons-on-events-v2-reads-enabled",
+                str(team.uuid),
+                groups={"organization": str(team.organization_id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization_id),
+                        "created_at": team.organization.created_at.isoformat()
+                        if team.organization.created_at
+                        else None,
+                    }
+                },
+                send_feature_flag_events=False,
+            )
+        )
+        if v2_enabled:
+            return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+
+        poe_enabled = (
+            poe_override
+            if poe_override is not None
+            else posthoganalytics.feature_enabled(
+                "persons-on-events-person-id-no-override-properties-on-events",
+                str(team.uuid),
+                groups={"project": str(team.id)},
+                group_properties={
+                    "project": {
+                        "id": str(team.id),
+                        "created_at": team.created_at.isoformat() if team.created_at else None,
+                        "uuid": team.uuid,
+                    }
+                },
+                send_feature_flag_events=False,
+            )
+        )
+        if poe_enabled:
+            return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+
+        return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+
+    # Self-hosted: instance settings only, no SDK involvement (no variance to resolve).
+    if v2_override if v2_override is not None else get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"):
+        return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+    if poe_override if poe_override is not None else get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+        return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+    return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
 
 
 @dagster.op
@@ -33,7 +111,21 @@ def persist_persons_on_events_mode_op(
 ) -> dict[str, int]:
     """For each team in the batch, persist its current `personsOnEventsMode` into `team.modifiers`."""
 
-    teams = list(Team.objects.filter(id__in=team_ids).only("id", "modifiers"))
+    # Pulls `organization` and `created_at` because server-side flag eval includes them
+    # as group_properties — fetching them up front avoids per-team queries during eval.
+    teams = list(
+        Team.objects.filter(id__in=team_ids)
+        .select_related("organization")
+        .only(
+            "id",
+            "uuid",
+            "modifiers",
+            "organization_id",
+            "created_at",
+            "organization__id",
+            "organization__created_at",
+        )
+    )
     not_found = len(team_ids) - len(teams)
     if not_found > 0:
         context.log.warning(f"{not_found} team IDs not found in the database, skipping")
@@ -49,11 +141,8 @@ def persist_persons_on_events_mode_op(
             continue
 
         try:
-            # Resolve via the team property (consults env override + feature flag locally)
-            # and freeze the result. Each team gets the value its current code path would
-            # have produced — this is intentional: we are persisting current behavior, not
-            # changing it.
-            resolved_mode = team.person_on_events_mode_flag_based_default
+            # Server-side flag eval — no `only_evaluate_locally`. See module docstring.
+            resolved_mode = _resolve_persons_on_events_mode_server_side(team)
         except Exception as e:
             context.log.warning(f"team {team.id}: failed to resolve mode ({e}), skipping")
             skipped_errored += 1
