@@ -1000,7 +1000,8 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             None, // global_rate_limiter_token_distinctid
             quota_limiter,
             TokenDropper::default(),
-            None, // event_restriction_service
+            None,
+            None, // errortracking_event_restriction_service // event_restriction_service
             false,
             unit.mode,
             String::from("capture"),

@@ -8,7 +8,8 @@ use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
-    EventRestrictionService, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
+    EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
+    RestrictionType,
 };
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
@@ -85,7 +86,8 @@ async fn setup_recordings_router_with_restriction(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    let service = EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+    let service =
+        EventRestrictionService::new(Pipeline::SessionRecordings, Duration::from_secs(300));
 
     let mut manager = RestrictionManager::new();
     manager.restrictions.insert(
@@ -108,6 +110,7 @@ async fn setup_recordings_router_with_restriction(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
+        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Recordings,
         String::from("capture-recordings"),
@@ -449,7 +452,8 @@ async fn setup_recordings_router_with_redirect_to_topic(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    let service = EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+    let service =
+        EventRestrictionService::new(Pipeline::SessionRecordings, Duration::from_secs(300));
 
     let mut manager = RestrictionManager::new();
     manager.restrictions.insert(
@@ -472,6 +476,7 @@ async fn setup_recordings_router_with_redirect_to_topic(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
+        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Recordings,
         String::from("capture-recordings"),

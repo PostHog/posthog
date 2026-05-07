@@ -10,11 +10,9 @@ use tokio::sync::RwLock;
 use tokio::time::interval;
 use tracing::{error, info, warn};
 
-use crate::config::CaptureMode;
-
 use super::repository::EventRestrictionsRepository;
 use super::types::{
-    AppliedRestrictions, EventContext, Restriction, RestrictionSet, RestrictionType,
+    AppliedRestrictions, EventContext, Pipeline, Restriction, RestrictionSet, RestrictionType,
 };
 
 /// Manages restrictions by token.
@@ -63,12 +61,12 @@ impl RestrictionManager {
     /// a likely dead Redis connection and triggers a reconnect.
     pub async fn from_repository(
         repository: &dyn EventRestrictionsRepository,
-        pipeline: CaptureMode,
+        pipeline: Pipeline,
     ) -> Result<Self, CustomRedisError> {
-        info!(pipeline = %pipeline.as_pipeline_name(), "Fetching event restrictions");
+        info!(pipeline = %pipeline.as_str(), "Fetching event restrictions");
 
         let mut manager = Self::new();
-        let pipeline_str = pipeline.as_pipeline_name();
+        let pipeline_str = pipeline.as_str();
 
         // Fetch all restriction types in parallel
         let fetch_futures = RestrictionType::all()
@@ -160,12 +158,12 @@ pub struct EventRestrictionService {
     manager: Arc<RwLock<RestrictionManager>>,
     last_successful_refresh: Arc<AtomicI64>,
     fail_open_after: Duration,
-    pipeline: CaptureMode,
+    pipeline: Pipeline,
 }
 
 impl EventRestrictionService {
     /// Create a new service. Call `start_refresh_task` to begin background updates.
-    pub fn new(pipeline: CaptureMode, fail_open_after: Duration) -> Self {
+    pub fn new(pipeline: Pipeline, fail_open_after: Duration) -> Self {
         Self {
             manager: Arc::new(RwLock::new(RestrictionManager::new())),
             last_successful_refresh: Arc::new(AtomicI64::new(0)),
@@ -191,7 +189,7 @@ impl EventRestrictionService {
             Output = Result<Arc<dyn EventRestrictionsRepository>, common_redis::CustomRedisError>,
         >,
     {
-        let pipeline_str = self.pipeline.as_pipeline_name();
+        let pipeline_str = self.pipeline.as_str();
         let mut interval = interval(refresh_interval);
         let mut repository: Option<Arc<dyn EventRestrictionsRepository>> = None;
 
@@ -231,7 +229,7 @@ impl EventRestrictionService {
     /// Fetch restrictions from repository and update the local cache.
     /// Returns `true` on success, `false` if all fetches failed (dead connection).
     async fn refresh_from_repository(&self, repository: &dyn EventRestrictionsRepository) -> bool {
-        let pipeline_str = self.pipeline.as_pipeline_name();
+        let pipeline_str = self.pipeline.as_str();
 
         match RestrictionManager::from_repository(repository, self.pipeline).await {
             Ok(new_manager) => {
@@ -308,7 +306,7 @@ impl EventRestrictionService {
         if self.is_stale_at(event.now_ts) {
             gauge!(
                 "capture_event_restrictions_stale",
-                "pipeline" => self.pipeline.as_pipeline_name().to_string()
+                "pipeline" => self.pipeline.as_str().to_string()
             )
             .set(1.0);
             return AppliedRestrictions::default();
@@ -400,7 +398,7 @@ mod tests {
         )
         .await;
 
-        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
             .await
             .unwrap();
 
@@ -443,7 +441,7 @@ mod tests {
         )
         .await;
 
-        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
             .await
             .unwrap();
 
@@ -490,7 +488,7 @@ mod tests {
         .await;
 
         // Fetch for analytics pipeline
-        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
             .await
             .unwrap();
 
@@ -522,7 +520,7 @@ mod tests {
         repo.set_entries(RestrictionType::DropEvent, Some(vec![old_entry, new_entry]))
             .await;
 
-        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
             .await
             .unwrap();
 
@@ -547,7 +545,7 @@ mod tests {
         )
         .await;
 
-        let result = RestrictionManager::from_repository(&repo, CaptureMode::Events).await;
+        let result = RestrictionManager::from_repository(&repo, Pipeline::Analytics).await;
         assert!(result.is_err());
     }
 
@@ -556,7 +554,7 @@ mod tests {
         let repo = MockRestrictionsRepository::new();
         // Don't set any entries
 
-        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
             .await
             .unwrap();
 
@@ -579,7 +577,7 @@ mod tests {
         )
         .await;
 
-        let manager = RestrictionManager::from_repository(&repo, CaptureMode::Events)
+        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
             .await
             .unwrap();
 
@@ -602,7 +600,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_is_stale_when_never_refreshed() {
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
         // last_successful_refresh is 0, so should be stale (fail-open)
         let applied = service.get_restrictions("token", &event_ctx_now()).await;
         assert!(applied.is_empty());
@@ -610,7 +608,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_returns_restrictions_after_update() {
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -630,7 +628,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_fail_open_after_timeout() {
         let service = EventRestrictionService::new(
-            CaptureMode::Events,
+            Pipeline::Analytics,
             Duration::from_secs(1), // 1 second timeout
         );
 
@@ -669,7 +667,7 @@ mod tests {
         let (shutdown_token, lifecycle_handle) = test_lifecycle();
         let shutdown_token_clone = shutdown_token.clone();
 
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
         let service_clone = service.clone();
 
         let handle = tokio::spawn(async move {
@@ -706,7 +704,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_task_retries_connection_while_fail_open() {
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
         let (shutdown_token, lifecycle_handle) = test_lifecycle();
         let shutdown_token_clone = shutdown_token.clone();
         let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -749,7 +747,7 @@ mod tests {
         let connect_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = connect_count.clone();
 
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
         let service_clone = service.clone();
 
         let handle = tokio::spawn(async move {
@@ -796,7 +794,7 @@ mod tests {
         let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = attempt_count.clone();
 
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
         let service_clone = service.clone();
 
         let handle = tokio::spawn(async move {

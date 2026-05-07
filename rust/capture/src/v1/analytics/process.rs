@@ -352,9 +352,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::config::CaptureMode;
     use crate::event_restrictions::{
-        Restriction, RestrictionManager, RestrictionScope, RestrictionType,
+        Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
     use crate::v1::analytics::types::{Batch, Event, Options};
     use crate::v1::sinks::Destination;
@@ -804,7 +803,7 @@ mod tests {
         restrictions: Vec<Restriction>,
     ) -> EventRestrictionService {
         let service =
-            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+            EventRestrictionService::new(Pipeline::Analytics, StdDuration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(token.to_string(), restrictions);
         service.update(manager).await;
@@ -814,7 +813,7 @@ mod tests {
     #[tokio::test]
     async fn restrictions_no_restrictions_passthrough() {
         let service =
-            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+            EventRestrictionService::new(Pipeline::Analytics, StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
 
         let mut events = vec![wrapped_event("$pageview", "user-1")];
@@ -1541,7 +1540,7 @@ mod tests {
 
         // Stage 2: restrictions (no rules → passthrough, still iterates).
         let service =
-            EventRestrictionService::new(CaptureMode::Events, StdDuration::from_secs(300));
+            EventRestrictionService::new(Pipeline::Analytics, StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
         let now_ts = Utc::now().timestamp();
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;

@@ -7,8 +7,8 @@ use capture::ai_s3::MockBlobStorage;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
-    EventRestrictionService, Restriction, RestrictionFilters, RestrictionManager, RestrictionScope,
-    RestrictionType,
+    EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
+    RestrictionScope, RestrictionType,
 };
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
@@ -164,6 +164,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         quota_limiter,
         TokenDropper::default(),
         options.event_restriction_service,
+        None,  // errortracking_event_restriction_service
         false, // metrics
         CaptureMode::Events,
         String::from("capture-otel-test"),
@@ -294,7 +295,7 @@ fn make_two_span_request() -> ExportTraceServiceRequest {
 }
 
 async fn make_restriction_service(restrictions: Vec<Restriction>) -> EventRestrictionService {
-    let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+    let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
     let mut manager = RestrictionManager::new();
     manager.restrictions.insert(TOKEN.to_string(), restrictions);
     service.update(manager).await;

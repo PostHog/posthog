@@ -4,6 +4,58 @@ use metrics::counter;
 
 use crate::config::CaptureMode;
 
+/// Logical ingestion pipeline a restriction is scoped to. Distinct from
+/// [`CaptureMode`] — a single capture deployment (e.g. `CaptureMode::Events`)
+/// produces events to multiple pipelines (`Analytics` for normal events,
+/// `ErrorTracking` for `$exception` events). Each pipeline owns its own
+/// restriction config in Redis and its own [`EventRestrictionService`].
+///
+/// String values must match Django's `EventIngestionRestrictionConfig.pipelines`
+/// — the Redis JSON entries are filtered against [`Pipeline::as_str`].
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum Pipeline {
+    Analytics,
+    SessionRecordings,
+    Ai,
+    ErrorTracking,
+}
+
+impl Pipeline {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Analytics => "analytics",
+            Self::SessionRecordings => "session_recordings",
+            Self::Ai => "ai",
+            Self::ErrorTracking => "errortracking",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "analytics" => Some(Self::Analytics),
+            "session_recordings" => Some(Self::SessionRecordings),
+            "ai" => Some(Self::Ai),
+            "errortracking" => Some(Self::ErrorTracking),
+            _ => None,
+        }
+    }
+}
+
+/// The default pipeline for a capture deployment — i.e. the pipeline that
+/// "owns" most events flowing through that mode. The events deployment also
+/// produces to [`Pipeline::ErrorTracking`] for `$exception` events; that
+/// secondary pipeline is wired up explicitly in `setup.rs`, not via this
+/// conversion.
+impl From<CaptureMode> for Pipeline {
+    fn from(mode: CaptureMode) -> Self {
+        match mode {
+            CaptureMode::Events => Self::Analytics,
+            CaptureMode::Recordings => Self::SessionRecordings,
+            CaptureMode::Ai => Self::Ai,
+        }
+    }
+}
+
 /// Restriction types that can be applied to events in capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RestrictionType {
@@ -129,9 +181,9 @@ pub struct AppliedRestrictions {
 
 impl AppliedRestrictions {
     /// Build from a RestrictionSet and emit per-type metrics.
-    pub(crate) fn from_restrictions(restrictions: RestrictionSet, pipeline: CaptureMode) -> Self {
+    pub(crate) fn from_restrictions(restrictions: RestrictionSet, pipeline: Pipeline) -> Self {
         let mut result = Self::default();
-        let pipeline_str = pipeline.as_pipeline_name();
+        let pipeline_str = pipeline.as_str();
 
         for restriction_type in RestrictionType::all() {
             if restrictions.contains(restriction_type) {
@@ -299,20 +351,40 @@ mod tests {
     }
 
     #[test]
-    fn test_ingestion_pipeline_parse() {
+    fn test_pipeline_parse() {
+        assert_eq!(Pipeline::parse("analytics"), Some(Pipeline::Analytics));
         assert_eq!(
-            CaptureMode::parse_pipeline_name("analytics"),
-            Some(CaptureMode::Events)
+            Pipeline::parse("session_recordings"),
+            Some(Pipeline::SessionRecordings)
         );
+        assert_eq!(Pipeline::parse("ai"), Some(Pipeline::Ai));
         assert_eq!(
-            CaptureMode::parse_pipeline_name("session_recordings"),
-            Some(CaptureMode::Recordings)
+            Pipeline::parse("errortracking"),
+            Some(Pipeline::ErrorTracking)
         );
+        assert_eq!(Pipeline::parse("unknown"), None);
+    }
+
+    #[test]
+    fn test_pipeline_as_str_roundtrip() {
+        for pipeline in [
+            Pipeline::Analytics,
+            Pipeline::SessionRecordings,
+            Pipeline::Ai,
+            Pipeline::ErrorTracking,
+        ] {
+            assert_eq!(Pipeline::parse(pipeline.as_str()), Some(pipeline));
+        }
+    }
+
+    #[test]
+    fn test_pipeline_from_capture_mode() {
+        assert_eq!(Pipeline::from(CaptureMode::Events), Pipeline::Analytics);
         assert_eq!(
-            CaptureMode::parse_pipeline_name("ai"),
-            Some(CaptureMode::Ai)
+            Pipeline::from(CaptureMode::Recordings),
+            Pipeline::SessionRecordings
         );
-        assert_eq!(CaptureMode::parse_pipeline_name("unknown"), None);
+        assert_eq!(Pipeline::from(CaptureMode::Ai), Pipeline::Ai);
     }
 
     #[test]

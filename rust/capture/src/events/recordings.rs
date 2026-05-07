@@ -527,7 +527,7 @@ mod tests {
 
     // ============ Restriction tests ============
 
-    use crate::config::CaptureMode;
+    use crate::event_restrictions::Pipeline;
     use crate::event_restrictions::{
         EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
     };
@@ -576,7 +576,7 @@ mod tests {
         });
 
         let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+            EventRestrictionService::new(Pipeline::SessionRecordings, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -607,7 +607,7 @@ mod tests {
         });
 
         let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+            EventRestrictionService::new(Pipeline::SessionRecordings, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -640,7 +640,7 @@ mod tests {
         });
 
         let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+            EventRestrictionService::new(Pipeline::SessionRecordings, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -673,7 +673,7 @@ mod tests {
         });
 
         let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+            EventRestrictionService::new(Pipeline::SessionRecordings, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -726,7 +726,7 @@ mod tests {
         });
 
         let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+            EventRestrictionService::new(Pipeline::SessionRecordings, Duration::from_secs(300));
 
         // Create a restriction that only applies to a different session
         let mut manager = RestrictionManager::new();
@@ -852,7 +852,7 @@ mod tests {
         });
 
         let service =
-            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+            EventRestrictionService::new(Pipeline::SessionRecordings, Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
             "test_token".to_string(),
@@ -1014,7 +1014,7 @@ mod tests {
             // force_overflow short-circuits the limiter branch; the pipeline
             // must skip the redis call AND the histogram record.
             let service =
-                EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
+                EventRestrictionService::new(Pipeline::SessionRecordings, Duration::from_secs(300));
             let mut manager = RestrictionManager::new();
             manager.restrictions.insert(
                 "test_token".to_string(),
