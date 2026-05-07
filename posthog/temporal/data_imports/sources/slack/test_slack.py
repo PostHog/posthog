@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS
 from posthog.temporal.data_imports.sources.slack.slack import (
     SlackResumeConfig,
     _channel_messages_generator,
@@ -326,16 +327,14 @@ class TestFetchAllChannelsCached:
         invalidate_channels_cache("token", authed_user="U_INSTALLER")
 
 
-class TestSlackSourceInvalidateSchemaCache:
+class TestSlackSourceGetSchemasForceRefresh:
     def setup_method(self) -> None:
         django_cache.clear()
 
     def teardown_method(self) -> None:
         django_cache.clear()
 
-    def test_invalidate_clears_cached_channels_for_integration(self) -> None:
-        from posthog.temporal.data_imports.sources.slack.source import SlackSource
-
+    def _build_mocks(self) -> tuple[Any, Any]:
         config = MagicMock()
         config.slack_integration_id = 42
 
@@ -343,30 +342,39 @@ class TestSlackSourceInvalidateSchemaCache:
         integration.access_token = "token"
         integration.config = {"authed_user": {"id": "U_INSTALLER"}}
 
-        source = SlackSource()
-        with patch.object(source, "get_oauth_integration", return_value=integration):
-            with patch(
-                "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
-                side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
-            ) as mock_fetch:
-                first = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
-                source.invalidate_schema_cache(config, team_id=1)
-                second = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
+        return config, integration
 
-        assert first == [{"id": "C1", "name": "general"}]
-        assert second == [{"id": "C2", "name": "renamed"}]
-        assert mock_fetch.call_count == 2
-
-    def test_invalidate_is_no_op_when_integration_unreadable(self) -> None:
+    def test_force_refresh_bypasses_channels_cache(self) -> None:
         from posthog.temporal.data_imports.sources.slack.source import SlackSource
 
-        config = MagicMock()
-        config.slack_integration_id = 42
-
+        config, integration = self._build_mocks()
         source = SlackSource()
-        with patch.object(source, "get_oauth_integration", side_effect=Exception("boom")):
-            # Must not raise — if we can't read the integration there's nothing to invalidate.
-            source.invalidate_schema_cache(config, team_id=1)
+
+        with (
+            patch.object(source, "get_oauth_integration", return_value=integration),
+            patch(
+                "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+                side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
+            ) as mock_fetch,
+            patch(
+                "posthog.temporal.data_imports.sources.slack.source.is_webhook_feature_flag_enabled",
+                return_value=False,
+            ),
+        ):
+            first = source.get_schemas(config, team_id=1)
+            cached = source.get_schemas(config, team_id=1)
+            forced = source.get_schemas(config, team_id=1, force_refresh=True)
+
+        # Two upstream fetches total: the first cold call and the force_refresh call.
+        # The middle call must be a cache hit.
+        assert mock_fetch.call_count == 2
+
+        def channel_names(schemas: Any) -> set[str]:
+            return {s.name for s in schemas if s.name not in ENDPOINTS}
+
+        assert channel_names(first) == {"C1"}
+        assert channel_names(cached) == {"C1"}
+        assert channel_names(forced) == {"C2"}
 
 
 class TestSlackSourceChannelsEndpoint:

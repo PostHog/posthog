@@ -75,19 +75,20 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return {}
 
     def get_schemas(
-        self, config: ConfigType, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ConfigType,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        raise NotImplementedError()
+        """Return the list of schemas available for this source.
 
-    def invalidate_schema_cache(self, config: ConfigType, team_id: int) -> None:
-        """Invalidate any cached schema discovery results for this source.
-
-        Sources that cache expensive schema discovery (e.g. paginated upstream API
-        listings) should override this to clear those caches so the next call to
-        ``get_schemas`` fetches fresh data. Default is a no-op for sources that do
-        not cache.
+        ``force_refresh=True`` instructs the source to bypass any internal cache
+        of upstream schema discovery (e.g. paginated API listings). Sources
+        without caches can ignore the flag.
         """
-        return None
+        raise NotImplementedError()
 
     @property
     @abstractmethod

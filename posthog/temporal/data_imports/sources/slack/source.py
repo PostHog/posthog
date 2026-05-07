@@ -165,21 +165,13 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             "Slack access token not found": "Your Slack access token is missing. Please reconnect the source.",
         }
 
-    def invalidate_schema_cache(self, config: SlackSourceConfig, team_id: int) -> None:
-        try:
-            integration = self.get_oauth_integration(config.slack_integration_id, team_id)
-        except Exception:
-            # If the integration is missing or unreadable there's nothing to invalidate;
-            # the next `get_schemas` call will surface the underlying error.
-            return None
-        access_token = integration.access_token
-        if not access_token:
-            return None
-        invalidate_channels_cache(access_token, self._get_authed_user_id(integration))
-        return None
-
     def get_schemas(
-        self, config: SlackSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: SlackSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = [
             SourceSchema(
@@ -199,6 +191,8 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         msg_config = messages_endpoint_config()
         webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
         authed_user = self._get_authed_user_id(integration)
+        if force_refresh:
+            invalidate_channels_cache(access_token, authed_user)
         channels = get_channels(access_token, authed_user)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
