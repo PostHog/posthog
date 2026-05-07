@@ -127,7 +127,7 @@ export function BulkUpdateTagsButton({ resource, selectedIds, onSuccess }: BulkU
                 </div>
             }
         >
-            <LemonButton type="secondary" size="small" icon={<IconPencil />} onClick={open} loading={loading}>
+            <LemonButton type="secondary" size="small" icon={<IconPencil />} onClick={open}>
                 Update tags
             </LemonButton>
         </Popover>

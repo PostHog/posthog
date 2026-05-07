@@ -278,7 +278,6 @@ export function DashboardsTable({
                             : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
                     rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
                     headerAriaLabel: 'Select all dashboards on this page',
-                    noun: ['dashboard', 'dashboards'],
                     renderActions: (ctx) => (
                         <BulkUpdateTagsButton
                             resource="dashboards"

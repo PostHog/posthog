@@ -1063,7 +1063,6 @@ export function SavedInsights(): JSX.Element {
                             rowAriaLabel: (insight: QueryBasedInsightModel) =>
                                 `Select insight ${insight.name || 'Untitled'}`,
                             headerAriaLabel: 'Select all insights on this page',
-                            noun: ['insight', 'insights'],
                             renderActions: (ctx) => (
                                 <BulkUpdateTagsButton
                                     resource="insights"

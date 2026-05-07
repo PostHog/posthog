@@ -332,14 +332,9 @@ export function OverviewTab({
     const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
     const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
-    const {
-        bulkDeleteResponseLoading,
-        matchingFlagIds,
-        matchingFlagIdsLoading,
-        bulkDeleteResponse,
-        allMatchingSelected,
-    } = useValues(flagSelectionLogic)
-    const { selectAllMatching, bulkDeleteFlags, setAllMatchingSelected } = useActions(flagSelectionLogic)
+    const { bulkDeleteResponseLoading, matchingFlagIds, matchingFlagIdsLoading, bulkDeleteResponse } =
+        useValues(flagSelectionLogic)
+    const { selectAllMatching, bulkDeleteFlags } = useActions(flagSelectionLogic)
 
     const selectionHandleRef = useRef<BulkSelectionHandle | null>(null)
     const lastAppliedMatchingFlagIdsRef = useRef<typeof matchingFlagIds>(null)
@@ -580,13 +575,15 @@ export function OverviewTab({
                     handleRef: selectionHandleRef,
                     renderActions: (ctx) => {
                         const totalMatchingCount = effectiveCount
+                        const isAllMatchingSelected =
+                            matchingFlagIds !== null && ctx.selectedCount === matchingFlagIds.ids.length
                         const showSelectAllMatchingBanner =
-                            !allMatchingSelected &&
+                            !isAllMatchingSelected &&
                             ctx.selectedCount >= FLAGS_PER_PAGE &&
                             totalMatchingCount > ctx.selectedCount
                         return (
                             <>
-                                {allMatchingSelected && (
+                                {isAllMatchingSelected && (
                                     <span className="text-muted text-sm">
                                         All {ctx.selectedCount} matching flags selected
                                     </span>
@@ -604,10 +601,7 @@ export function OverviewTab({
                                 <BulkUpdateTagsButton
                                     resource="feature_flags"
                                     selectedIds={ctx.selectedKeys as ReadonlyArray<number>}
-                                    onSuccess={() => {
-                                        ctx.clearSelection()
-                                        setAllMatchingSelected(false)
-                                    }}
+                                    onSuccess={ctx.clearSelection}
                                 />
                                 <LemonButton
                                     type="primary"
@@ -626,7 +620,7 @@ export function OverviewTab({
                                                 onClick: () =>
                                                     bulkDeleteFlags({
                                                         ids: ctx.selectedKeys as number[],
-                                                        allMatching: allMatchingSelected,
+                                                        allMatching: isAllMatchingSelected,
                                                     }),
                                                 size: 'small',
                                             },

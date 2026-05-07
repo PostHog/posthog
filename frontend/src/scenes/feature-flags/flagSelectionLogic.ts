@@ -34,7 +34,6 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
     actions({
         showResultsModal: (result: BulkDeleteResult) => ({ result }),
         hideResultsModal: true,
-        setAllMatchingSelected: (allMatchingSelected: boolean) => ({ allMatchingSelected }),
     }),
 
     reducers({
@@ -43,12 +42,6 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             {
                 showResultsModal: (_, { result }) => result,
                 hideResultsModal: () => null,
-            },
-        ],
-        allMatchingSelected: [
-            false as boolean,
-            {
-                setAllMatchingSelected: (_, { allMatchingSelected }) => allMatchingSelected,
             },
         ],
     }),
@@ -93,16 +86,9 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
     }),
 
     listeners(({ actions }) => ({
-        loadMatchingFlagIdsSuccess: () => {
-            actions.setAllMatchingSelected(true)
-        },
-        loadMatchingFlagIdsFailure: () => {
-            actions.setAllMatchingSelected(false)
-        },
         bulkDeleteFlagsSuccess: ({ bulkDeleteResponse }) => {
             if (bulkDeleteResponse) {
                 actions.showResultsModal(bulkDeleteResponse)
-                actions.setAllMatchingSelected(false)
                 actions.loadFeatureFlags()
             }
         },

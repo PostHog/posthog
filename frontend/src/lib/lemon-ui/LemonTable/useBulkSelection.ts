@@ -34,7 +34,10 @@ export interface BulkSelectionConfig<T extends Record<string, any>> {
     renderActions: (ctx: BulkSelectionContext<T>) => ReactNode
     /** Per-row gate. Return `false` or `{ disabledReason }` to disable that row's checkbox. */
     isRowSelectable?: (record: T, rowIndex: number) => BulkSelectionRowGate
-    /** Override how a record is mapped to a selection key. Defaults to LemonTable's `rowKey`. */
+    /** Override how a record is mapped to a selection key. Defaults to LemonTable's `rowKey`.
+     *  The function MUST be deterministic per-record (depend on the record only, not the row
+     *  index) — selection identity is keyed by the return value, so an index-dependent rowKey
+     *  would collapse selection to whatever the function returns at index 0. */
     getKey?: (record: T) => BulkSelectionKey
     /** aria-label for the per-row checkbox (receives the record). */
     rowAriaLabel?: (record: T) => string
@@ -56,7 +59,7 @@ export interface UseBulkSelectionResult<T> {
     /** True when there is at least one selectable row on the page. Used to decide whether the
      *  header checkbox does anything. */
     pageHasSelectableRows: boolean
-    toggleRow: (key: BulkSelectionKey, rowIndex: number) => void
+    toggleRow: (key: BulkSelectionKey, rowIndex: number, shiftKeyHeld?: boolean) => void
     toggleAllOnPage: () => void
     clearSelection: () => void
     setSelectedKeys: (keys: ReadonlyArray<BulkSelectionKey>) => void
@@ -71,13 +74,7 @@ export interface UseBulkSelectionParams<T extends Record<string, any>> {
 }
 
 function gateAllowsSelection(gate: BulkSelectionRowGate): boolean {
-    if (gate === true) {
-        return true
-    }
-    if (gate === false) {
-        return false
-    }
-    return false
+    return gate === true
 }
 
 function assignBulkSelectionRef(ref: BulkSelectionRef, value: BulkSelectionHandle | null): void {
@@ -99,21 +96,8 @@ export function useBulkSelection<T extends Record<string, any>>({
 }: UseBulkSelectionParams<T>): UseBulkSelectionResult<T> {
     const [selectedKeys, setSelectedKeysState] = useState<BulkSelectionKey[]>([])
     const previouslyCheckedIndexRef = useRef<number | null>(null)
-    const shiftKeyHeldRef = useRef(false)
     const selectedKeysRef = useRef<BulkSelectionKey[]>(selectedKeys)
     selectedKeysRef.current = selectedKeys
-
-    useEffect(() => {
-        const onKeyChange = (event: KeyboardEvent): void => {
-            shiftKeyHeldRef.current = event.shiftKey
-        }
-        window.addEventListener('keydown', onKeyChange)
-        window.addEventListener('keyup', onKeyChange)
-        return () => {
-            window.removeEventListener('keydown', onKeyChange)
-            window.removeEventListener('keyup', onKeyChange)
-        }
-    }, [])
 
     const selectedKeysSet = useMemo(() => new Set(selectedKeys), [selectedKeys])
 
@@ -142,12 +126,16 @@ export function useBulkSelection<T extends Record<string, any>>({
     }, [])
 
     const toggleRow = useCallback(
-        (key: BulkSelectionKey, rowIndex: number): void => {
+        (key: BulkSelectionKey, rowIndex: number, shiftKeyHeld: boolean = false): void => {
+            // Capture the anchor index *outside* the state setter — it could be invoked
+            // asynchronously (concurrent rendering) and re-reading the ref then would already see
+            // the value we're about to write below.
+            const previouslyCheckedIndex = previouslyCheckedIndexRef.current
+            previouslyCheckedIndexRef.current = rowIndex
             setSelectedKeysState((current) => {
                 const currentSet = new Set(current)
-                const previouslyCheckedIndex = previouslyCheckedIndexRef.current
 
-                if (shiftKeyHeldRef.current && previouslyCheckedIndex !== null) {
+                if (shiftKeyHeld && previouslyCheckedIndex !== null) {
                     const start = Math.min(previouslyCheckedIndex, rowIndex)
                     const end = Math.max(previouslyCheckedIndex, rowIndex)
                     const rangeKeys: BulkSelectionKey[] = []
@@ -174,7 +162,6 @@ export function useBulkSelection<T extends Record<string, any>>({
                 }
                 return [...current, key]
             })
-            previouslyCheckedIndexRef.current = rowIndex
         },
         [pageRecords, getKey, isRowSelectable]
     )

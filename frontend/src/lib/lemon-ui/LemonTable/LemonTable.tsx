@@ -25,6 +25,10 @@ import { TableRow } from './TableRow'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { BulkSelectionConfig, useBulkSelection } from './useBulkSelection'
 
+/** Sentinel passed to `useBulkSelection` when `bulkSelection` is undefined — the hook still runs
+ *  unconditionally so hook order is stable, but its result is never read. */
+const UNUSED_ROW_KEY = (): string | number => 0
+
 export interface LemonTableProps<T extends Record<string, any>> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
     id?: string
@@ -231,7 +235,7 @@ export function LemonTable<T extends Record<string, any>>({
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
-    const resolveRowKey = useMemo(() => {
+    const resolveRowKey = useMemo<(record: T) => string | number>(() => {
         if (bulkSelection?.getKey) {
             return bulkSelection.getKey
         }
@@ -242,8 +246,10 @@ export function LemonTable<T extends Record<string, any>>({
             const key = rowKey
             return (record: T): string | number => record[key]
         }
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        return (_record: T): string | number => 0
+        // The constructor throws above if `bulkSelection` is set without a key source, so this
+        // sentinel is only reached when `bulkSelection` is undefined and the hook's results aren't
+        // consumed anyway.
+        return UNUSED_ROW_KEY
     }, [bulkSelection, rowKey])
 
     const bulk = useBulkSelection<T>({
@@ -253,6 +259,7 @@ export function LemonTable<T extends Record<string, any>>({
         handleRef: bulkSelection?.handleRef,
     })
 
+    const effectiveNoun = bulkSelection?.noun ?? nouns
     const selectionColumn = useMemo<LemonTableColumn<T, undefined> | null>(() => {
         if (!bulkSelection) {
             return null
@@ -264,8 +271,10 @@ export function LemonTable<T extends Record<string, any>>({
                 <LemonCheckbox
                     checked={bulk.isSomeOnPageSelected ? 'indeterminate' : bulk.isAllOnPageSelected}
                     onChange={bulk.toggleAllOnPage}
-                    aria-label={bulkSelection.headerAriaLabel ?? 'Select all on this page'}
-                    disabledReason={!bulk.pageHasSelectableRows ? 'No rows on this page can be selected' : null}
+                    aria-label={bulkSelection.headerAriaLabel ?? `Select all ${effectiveNoun[1]} on this page`}
+                    disabledReason={
+                        !bulk.pageHasSelectableRows ? `No ${effectiveNoun[1]} on this page can be selected` : null
+                    }
                 />
             ),
             render: function RenderBulkSelectionCell(_, record: T, recordIndex: number) {
@@ -281,14 +290,16 @@ export function LemonTable<T extends Record<string, any>>({
                 return (
                     <LemonCheckbox
                         checked={bulk.selectedKeysSet.has(key)}
-                        onChange={() => bulk.toggleRow(key, pageIndex)}
+                        onChange={(_value, event) =>
+                            bulk.toggleRow(key, pageIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
+                        }
                         disabledReason={disabledReason}
                         aria-label={bulkSelection.rowAriaLabel?.(record)}
                     />
                 )
             },
         }
-    }, [bulkSelection, bulk, resolveRowKey, paginationState.currentStartIndex])
+    }, [bulkSelection, bulk, resolveRowKey, paginationState.currentStartIndex, effectiveNoun])
 
     const columnGroups = useMemo<LemonTableColumnGroup<T>[]>(() => {
         if (!selectionColumn) {
@@ -366,7 +377,7 @@ export function LemonTable<T extends Record<string, any>>({
             style={style}
             data-attr={dataAttr}
         >
-            {bulkSelection && <BulkSelectionBar context={bulk.context} config={bulkSelection} />}
+            {bulkSelection && <BulkSelectionBar context={bulk.context} config={bulkSelection} noun={effectiveNoun} />}
             <ScrollableShadows
                 innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
                 direction={allowContentScroll ? undefined : 'horizontal'}
