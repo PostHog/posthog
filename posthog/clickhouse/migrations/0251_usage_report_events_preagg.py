@@ -9,10 +9,10 @@ from posthog.models.usage_report_events_preagg.sql import (
 )
 
 operations = [
-    # 1. Sharded data table on the main cluster (data nodes only).
+    # 1. Sharded data table on the AUX cluster (kept off the main events ingestion path).
     run_sql_with_exceptions(
         SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
+        node_roles=[NodeRole.AUX],
         sharded=True,
     ),
     # 2. Distributed read view on data nodes (queries fan out from here).

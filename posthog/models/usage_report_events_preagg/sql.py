@@ -4,7 +4,6 @@ from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_USAGE_REPORT_EVENTS_P
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
-# Aggregate table names
 USAGE_REPORT_EVENTS_PREAGG_TABLE = "usage_report_events_preagg"
 SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE = f"sharded_{USAGE_REPORT_EVENTS_PREAGG_TABLE}"
 WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE = f"writable_{USAGE_REPORT_EVENTS_PREAGG_TABLE}"
@@ -13,28 +12,24 @@ USAGE_REPORT_EVENTS_PREAGG_MV = f"{USAGE_REPORT_EVENTS_PREAGG_TABLE}_mv"
 # Dedicated Kafka engine table. We do NOT reuse `kafka_events_json_ws` (the
 # main events ingestion path) — every MV attached to a Kafka engine table
 # shares its consumer offsets, so a slow or broken aggregate MV would
-# back-pressure the main events pipeline. By creating our own Kafka table
-# with its own consumer group, this aggregate has an independent consumer
-# and an independent failure domain.
-KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE = "kafka_usage_report_events_preagg"
+# back-pressure the main events pipeline. Own consumer group, own failure domain.
+KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE = f"kafka_{USAGE_REPORT_EVENTS_PREAGG_TABLE}"
 
 USAGE_REPORT_EVENTS_PREAGG_TTL_DAYS = 14
 
 
-# Aggregate column list — shared across sharded, distributed, and writable tables.
 USAGE_REPORT_EVENTS_PREAGG_COLUMNS = """
     date Date,
     team_id Int64,
     person_mode LowCardinality(String),
     lib LowCardinality(String),
     event String,
-    distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64)),
+    distinct_events_unique AggregateFunction(uniqExact, Tuple(UInt64, UInt64, UInt64)),
     event_count AggregateFunction(sum, UInt64)
 """.strip()
 
 
 # Slim Kafka engine table schema — only the columns the MV projects.
-# Matches the corresponding fields in posthog/models/event/sql.py:EVENTS_TABLE_BASE_SQL.
 # JSONEachRow ignores unknown fields, so the events_json topic payloads work as-is.
 _KAFKA_USAGE_REPORT_EVENTS_PREAGG_COLUMNS = """
     uuid UUID,
@@ -67,7 +62,13 @@ CREATE TABLE IF NOT EXISTS {USAGE_REPORT_EVENTS_PREAGG_TABLE}
 (
     {USAGE_REPORT_EVENTS_PREAGG_COLUMNS}
 )
-ENGINE = {Distributed(data_table=SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE, sharding_key="sipHash64(team_id)")}
+ENGINE = {
+        Distributed(
+            data_table=SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE,
+            sharding_key="sipHash64(date)",
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        )
+    }
 """
 
 
@@ -77,7 +78,13 @@ CREATE TABLE IF NOT EXISTS {WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE}
 (
     {USAGE_REPORT_EVENTS_PREAGG_COLUMNS}
 )
-ENGINE = {Distributed(data_table=SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE, sharding_key="sipHash64(team_id)")}
+ENGINE = {
+        Distributed(
+            data_table=SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE,
+            sharding_key="sipHash64(date)",
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        )
+    }
 """
 
 
@@ -99,8 +106,8 @@ SETTINGS kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_
 
 
 def USAGE_REPORT_EVENTS_PREAGG_MV_SQL() -> str:
-    # Reads `$lib` from the JSON `properties` blob — the slim Kafka table
-    # doesn't project it as a top-level column.
+    # Dedup tuple includes `event` (avoids cross-event uuid collisions) but not `date`
+    # (so day-boundary replays still dedupe).
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {USAGE_REPORT_EVENTS_PREAGG_MV}
 TO {WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE}
@@ -110,7 +117,7 @@ AS SELECT
     person_mode,
     JSONExtractString(properties, '$lib') AS lib,
     event,
-    uniqExactState((cityHash64(distinct_id), cityHash64(toString(uuid)))) AS distinct_events_unique,
+    uniqExactState((cityHash64(distinct_id), cityHash64(toString(uuid)), cityHash64(event))) AS distinct_events_unique,
     sumState(toUInt64(1)) AS event_count
 FROM {KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE}
 GROUP BY date, team_id, person_mode, lib, event

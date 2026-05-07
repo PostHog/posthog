@@ -86,19 +86,11 @@ def _wait_for_team_row(
 
 class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
-        # Aggregate tables — created here (not registered in posthog/clickhouse/schema.py)
-        # so the test is fully self-contained and aligned with the migration's intent.
         sync_execute(SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
         sync_execute(DISTRIBUTED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
         sync_execute(WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
-        # Dedicated Kafka source for this aggregate — own consumer group, isolated
-        # from the main events ingestion path.
         sync_execute(KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
-        # The MV under test.
         sync_execute(USAGE_REPORT_EVENTS_PREAGG_MV_SQL())
-        # Start with a clean slate for our test team's rows. We can't truncate
-        # the whole table (other tests may have written to it), so we filter by
-        # our isolated team_id everywhere instead.
         sync_execute(
             f"DELETE FROM {SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE} WHERE team_id = %(t)s",
             {"t": TEST_TEAM_ID},
@@ -153,7 +145,7 @@ class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
         producer.flush()
 
         unique_count, total_count = _wait_for_team_row(TEST_TEAM_ID, expected_unique=1, expected_total=2)
-        self.assertEqual(unique_count, 1, "uniqExactMerge should dedupe identical (distinct_id, uuid) tuples")
+        self.assertEqual(unique_count, 1, "uniqExactMerge should dedupe identical (distinct_id, uuid, event) tuples")
         # event_count is summed across all rows including replays, so total_count
         # is at least 2. May be larger if the kafka consumer buffered earlier replays.
         self.assertGreaterEqual(total_count, 2)
