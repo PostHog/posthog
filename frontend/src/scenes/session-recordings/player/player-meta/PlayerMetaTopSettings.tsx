@@ -19,7 +19,6 @@ import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-m
 import {
     ModesWithInteractions,
     PLAYBACK_SPEEDS,
-    SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
@@ -161,8 +160,7 @@ export function PlayerMetaTopSettings(): JSX.Element {
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
 
-    const playerMode = mode ?? SessionRecordingPlayerMode.Standard
-    const showControlsLayoutToggle = ModesWithInteractions.includes(playerMode)
+    const showControlsLayoutToggle = !!mode && ModesWithInteractions.includes(mode)
 
     return (
         <div
