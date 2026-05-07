@@ -157,6 +157,8 @@ export const SessionRecordingPlaylistsRecordingsCreateBody = /* @__PURE__ */ zod
     _create_in_folder: zod.string().optional(),
 })
 
+export const sessionRecordingsUpdateBodyNameMax = 200
+
 export const SessionRecordingsUpdateBody = /* @__PURE__ */ zod.object({
     person: zod
         .object({
@@ -175,7 +177,10 @@ export const SessionRecordingsUpdateBody = /* @__PURE__ */ zod.object({
                 .describe('Timestamp of the last event from this person, or null.'),
         })
         .optional(),
+    name: zod.string().max(sessionRecordingsUpdateBodyNameMax).nullish(),
 })
+
+export const sessionRecordingsPartialUpdateBodyNameMax = 200
 
 export const SessionRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     person: zod
@@ -195,4 +200,5 @@ export const SessionRecordingsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .describe('Timestamp of the last event from this person, or null.'),
         })
         .optional(),
+    name: zod.string().max(sessionRecordingsPartialUpdateBodyNameMax).nullish(),
 })

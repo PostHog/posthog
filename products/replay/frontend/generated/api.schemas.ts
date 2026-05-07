@@ -261,6 +261,11 @@ export interface SessionRecordingApi {
     readonly activity_score: number | null
     readonly has_summary: boolean
     readonly summary_outcome: OutcomeApi | null
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    name?: string | null
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
 }
@@ -321,6 +326,11 @@ export interface PatchedSessionRecordingApi {
     readonly activity_score?: number | null
     readonly has_summary?: boolean
     readonly summary_outcome?: OutcomeApi | null
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    name?: string | null
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
 }
