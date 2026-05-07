@@ -22,9 +22,9 @@ that issue instead of spawning new fingerprints.
 
 | Tool                                           | Purpose                                                |
 | ---------------------------------------------- | ------------------------------------------------------ |
-| `posthog:query-error-tracking-issues`          | Find candidate duplicate issues                        |
-| `posthog:error-tracking-issues-retrieve`       | Pull individual issue details                          |
-| `posthog:execute-sql`                          | Inspect raw exception events to confirm same cause     |
+| `posthog:query-error-tracking-issues-list`     | Find candidate duplicate issues                        |
+| `posthog:query-error-tracking-issue`           | Pull compact details for an individual issue           |
+| `posthog:query-error-tracking-issue-events`    | Sampled `$exception` events with stack and message     |
 | `posthog:error-tracking-issues-merge-create`   | Merge existing issues into a target                    |
 | `posthog:error-tracking-issues-split-create`   | Surgically split fingerprints back out if a merge errs |
 | `posthog:error-tracking-grouping-rules-create` | Auto-group future events into one issue                |
@@ -50,10 +50,10 @@ brand-new pattern you're getting ahead of.
 
 ### Step 1 — Confirm the duplicates
 
-Search by exception type or message to find candidates.
+Search by exception type or message to find candidates:
 
 ```json
-posthog:query-error-tracking-issues
+posthog:query-error-tracking-issues-list
 {
   "searchQuery": "TypeError: Cannot read property",
   "status": "active",
@@ -63,24 +63,21 @@ posthog:query-error-tracking-issues
 }
 ```
 
-For each candidate, fetch a sample to compare:
+For each candidate, pull one sampled exception event to compare stack, type,
+and message:
 
-```sql
-posthog:execute-sql
-SELECT
-    properties.$exception_issue_id AS issue_id,
-    any(properties.$exception_type) AS type,
-    any(properties.$exception_message) AS message,
-    any(properties.$exception_stack_trace_raw) AS stack,
-    count() AS occurrences,
-    uniq(person_id) AS users
-FROM events
-WHERE event = '$exception'
-    AND properties.$exception_issue_id IN (<candidate_issue_ids>)
-    AND timestamp > now() - INTERVAL 30 DAY
-GROUP BY issue_id
-ORDER BY occurrences DESC
+```json
+posthog:query-error-tracking-issue-events
+{
+  "issueId": "<candidate_issue_id>",
+  "limit": 1,
+  "verbosity": "stack"
+}
 ```
+
+Run this once per candidate. The tool defaults to `onlyAppFrames: true`, which
+makes the top in-app frame stand out at a glance. If two candidates share the
+same top frame and same exception type, they're almost certainly the same bug.
 
 They share a root cause if all three are true:
 
