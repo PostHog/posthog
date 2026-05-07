@@ -19,76 +19,67 @@ changed, where it happens, and whether a replay shows the cause.
 
 ## Available tools
 
-| Tool                                     | Purpose                                                          |
-| ---------------------------------------- | ---------------------------------------------------------------- |
-| `posthog:error-tracking-issues-retrieve` | Issue metadata (description, assignee, fingerprint, status)      |
-| `posthog:query-error-tracking-issues`    | Aggregated metrics (users, sessions, volume sparkline)           |
-| `posthog:execute-sql`                    | Sample exception events, breakdowns, release / flag correlations |
-| `posthog:query-session-recordings-list`  | Linked replays (delegate ranking to `finding-replay-for-issue`)  |
-| `posthog:read-data-schema`               | Confirm property keys before filtering on them                   |
+| Tool                                        | Purpose                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| `posthog:query-error-tracking-issue`        | Compact issue details (status, assignee, top frame, release, aggregates) |
+| `posthog:query-error-tracking-issue-events` | Sampled `$exception` events with stack, URL, browser, `$session_id`      |
+| `posthog:execute-sql`                       | Breakdowns and release / flag correlations the typed tools don't cover   |
+| `posthog:query-session-recordings-list`     | Linked replays (delegate ranking to `finding-replay-for-issue`)          |
+| `posthog:read-data-schema`                  | Confirm property keys before filtering on them                           |
 
 ## Workflow
 
 ### Step 1 — Establish the issue baseline
 
-Fetch the issue record and aggregated metrics in parallel.
+Fetch the issue record with its compact aggregates and a sparkline:
 
 ```json
-posthog:error-tracking-issues-retrieve
-{ "id": "<issue_id>" }
-```
-
-```json
-posthog:query-error-tracking-issues
+posthog:query-error-tracking-issue
 {
   "issueId": "<issue_id>",
   "dateRange": { "date_from": "-30d" },
-  "volumeResolution": 1
+  "includeSparkline": true,
+  "volumeResolution": 12
 }
 ```
 
 Capture: `name`, `description`, `status`, `first_seen`, `last_seen`, `assignee`,
-`fingerprint`, total `users`, `sessions`, `occurrences`, and the volume sparkline.
+total `occurrences` / `users` / `sessions`, top in-app frame, latest release
+metadata, and the volume buckets.
 
 The sparkline tells you the shape — flat, spike, ramp, or recurring — and that
-shape drives the rest of the investigation.
+shape drives the rest of the investigation. If the user only asked a status
+question, skip `includeSparkline` to save tokens.
 
 ### Step 2 — Pull a sample exception event
 
 A captured event has the stack frames, URL, browser, and properties needed to
-reason about cause. Pull one recent and one early sample to compare.
+reason about cause. Pull a recent sample first, then an early one to compare.
 
-```sql
-posthog:execute-sql
-SELECT
-    timestamp,
-    properties.$exception_type AS type,
-    properties.$exception_message AS message,
-    properties.$exception_stack_trace_raw AS stack,
-    properties.$current_url AS url,
-    properties.$browser AS browser,
-    properties.$browser_version AS browser_version,
-    properties.$os AS os,
-    properties.$lib AS sdk,
-    properties.$lib_version AS sdk_version,
-    properties.$release AS release,
-    person_id
-FROM events
-WHERE event = '$exception'
-    AND properties.$exception_issue_id = '<issue_id>'
-ORDER BY timestamp DESC
-LIMIT 1
+```json
+posthog:query-error-tracking-issue-events
+{
+  "issueId": "<issue_id>",
+  "limit": 1,
+  "verbosity": "stack"
+}
 ```
 
-Repeat with `ORDER BY timestamp ASC` for the earliest captured event. If they
-look materially different — different stack, different URL pattern — the issue
-may be a grouping mistake. Flag it for `grouping-noisy-errors` instead of
-continuing the investigation as if it were one bug.
+Use `verbosity: "raw"` only if the truncated stack hides the answer. The tool
+defaults to `onlyAppFrames: true`, which strips vendor frames; flip to `false`
+when the bug appears to live in a third-party library.
+
+For the earliest sample, narrow `dateRange.date_from` to a window around the
+issue's `first_seen` and call again. If recent and earliest events look
+materially different — different stack root, different URL pattern — the issue
+may be a grouping mistake. Flag for `grouping-noisy-errors` instead of
+continuing as if it were one bug.
 
 ### Step 3 — Run breakdowns to isolate the cause
 
-Run the breakdowns the issue's shape suggests. Don't run all of them blindly;
-each breakdown costs a query and clutters the synthesis.
+Breakdowns aren't a typed tool — drop into `execute-sql`. Run only the
+breakdowns the issue's shape suggests; each one costs a query and clutters the
+synthesis.
 
 | Sparkline shape   | First breakdown to try                                            |
 | ----------------- | ----------------------------------------------------------------- |
@@ -184,6 +175,6 @@ Keep the synthesis tight. The user wants the answer, not a tour of the data.
 - Don't propose a fix in the synthesis unless the cause is obvious from the
   sample stack. Hypotheses backed by data are more useful than confident
   guesses.
-- If `error-tracking-issues-retrieve` returns an `external_issues` array, the
-  issue is already linked to a Linear / Jira / GitHub ticket. Mention the link
-  in the synthesis so the user doesn't open a duplicate.
+- If `query-error-tracking-issue` returns an `external_issues` array, the issue
+  is already linked to a Linear / Jira / GitHub ticket. Mention the link in the
+  synthesis so the user doesn't open a duplicate.
