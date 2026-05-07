@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis'
 
-const LUA_TOKEN_BUCKET = `
+const LUA_TOKEN_BUCKET_V2 = `
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
 local cost = tonumber(ARGV[2])
@@ -61,16 +61,9 @@ redis.call('expire', key, expiry)
 return {tokensBefore, tokensAfter}
 `
 
-export const defineLuaTokenBucket = (client: Redis) => {
-    // NOTE: We removed the original command and both checks point at the new one
-    // Once deployed, we can follow up to use the non-v2 caller
-    client.defineCommand('checkRateLimit', {
-        numberOfKeys: 1,
-        lua: LUA_TOKEN_BUCKET,
-    })
-
+export const defineLuaTokenBucketV2 = (client: Redis) => {
     client.defineCommand('checkRateLimitV2', {
         numberOfKeys: 1,
-        lua: LUA_TOKEN_BUCKET,
+        lua: LUA_TOKEN_BUCKET_V2,
     })
 }
