@@ -456,7 +456,9 @@ export const InfiniteListRow = ({
 
     const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
 
-    const isSelected = listGroupType === groupType && itemValue === normalizedValue
+    const isSelected =
+        (listGroupType === groupType && itemValue === normalizedValue) ||
+        !!(item as { isCurrentSelection?: boolean })?.isCurrentSelection
 
     const isHighlighted = rowIndex === highlightedIndex && isActiveTab
 
