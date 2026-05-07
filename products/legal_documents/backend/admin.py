@@ -1,4 +1,4 @@
-from typing import Any
+from typing import IO, Any, cast
 
 from django import forms
 from django.contrib import admin, messages
@@ -68,8 +68,6 @@ class LegalDocumentAdminForm(forms.ModelForm):
 
 
 class LegalDocumentAdmin(admin.ModelAdmin):
-    form = LegalDocumentAdminForm
-
     list_display = (
         "id",
         "document_type",
@@ -163,6 +161,19 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             return self.add_fieldsets
         return self.fieldsets
 
+    def get_form(
+        self, request: HttpRequest, obj: LegalDocument | None = None, change: bool = False, **kwargs: Any
+    ) -> Any:
+        # Add view uses LegalDocumentAdminForm (with the required signed_pdf
+        # FileField). The change view falls back to Django's default ModelForm
+        # for the model — `signed_pdf` is a non-model class attribute, so it
+        # would otherwise be inherited by modelform_factory's subclass and
+        # block "Save" with a "This field is required" error even though the
+        # change view renders no upload widget.
+        if obj is None:
+            kwargs["form"] = LegalDocumentAdminForm
+        return super().get_form(request, obj, change, **kwargs)
+
     def get_readonly_fields(
         self, request: HttpRequest, obj: LegalDocument | None = None
     ) -> tuple[str, ...] | list[str]:
@@ -198,7 +209,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                 try:
                     object_storage.write_stream(
                         signed_pdf_storage_key(obj),
-                        pdf.file,
+                        cast(IO[bytes], pdf),
                         extras={"ContentType": "application/pdf"},
                     )
                 except Exception as exc:
@@ -216,10 +227,13 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             ) from exc
 
         try:
+            # AnonymousUser has no .email attribute; staff-only gating means we
+            # always have an authenticated User here, but mypy can't narrow
+            # request.user across has_add_permission, so use getattr.
             slack_notifier.notify_admin_uploaded(
                 document_type=obj.document_type,
                 company_name=obj.company_name,
-                uploaded_by_email=request.user.email or "",
+                uploaded_by_email=getattr(request.user, "email", "") or "",
             )
         except Exception as exc:
             # Slack errors must never break the admin save — the row + PDF are

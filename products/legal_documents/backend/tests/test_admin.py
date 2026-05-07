@@ -5,8 +5,9 @@ from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.core.exceptions import ValidationError
-from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.test import RequestFactory
+from django.utils.datastructures import MultiValueDict
 
 from parameterized import parameterized
 
@@ -14,12 +15,21 @@ from posthog.models.organization import OrganizationMembership
 
 from products.legal_documents.backend.admin import LegalDocumentAdmin, LegalDocumentAdminForm
 from products.legal_documents.backend.models import LegalDocument
+from products.legal_documents.backend.storage import signed_pdf_storage_key
 
 _VALID_PDF_BYTES = b"%PDF-1.4\nfake pdf bytes for testing\n%%EOF"
 
 
 def _pdf_file(name: str = "agreement.pdf", content: bytes = _VALID_PDF_BYTES) -> SimpleUploadedFile:
     return SimpleUploadedFile(name, content, content_type="application/pdf")
+
+
+def _files(pdf: UploadedFile | None = None) -> MultiValueDict[str, UploadedFile]:
+    """Build the typed MultiValueDict the form constructor expects."""
+    mvd: MultiValueDict[str, UploadedFile] = MultiValueDict()
+    if pdf is not None:
+        mvd["signed_pdf"] = pdf
+    return mvd
 
 
 class TestLegalDocumentAdminForm(APIBaseTest):
@@ -35,12 +45,12 @@ class TestLegalDocumentAdminForm(APIBaseTest):
         return data
 
     def test_valid_pdf_passes_validation(self) -> None:
-        form = LegalDocumentAdminForm(data=self._form_data(), files={"signed_pdf": _pdf_file()})
+        form = LegalDocumentAdminForm(data=self._form_data(), files=_files(_pdf_file()))
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_non_pdf_extension_is_rejected(self) -> None:
         bad_file = SimpleUploadedFile("agreement.txt", b"not a pdf", content_type="text/plain")
-        form = LegalDocumentAdminForm(data=self._form_data(), files={"signed_pdf": bad_file})
+        form = LegalDocumentAdminForm(data=self._form_data(), files=_files(bad_file))
         self.assertFalse(form.is_valid())
         self.assertIn("signed_pdf", form.errors)
 
@@ -48,19 +58,19 @@ class TestLegalDocumentAdminForm(APIBaseTest):
         # .pdf extension passes the FileExtensionValidator, but if the browser
         # reports a non-application/pdf content type the form should still reject.
         bad_file = SimpleUploadedFile("agreement.pdf", _VALID_PDF_BYTES, content_type="image/png")
-        form = LegalDocumentAdminForm(data=self._form_data(), files={"signed_pdf": bad_file})
+        form = LegalDocumentAdminForm(data=self._form_data(), files=_files(bad_file))
         self.assertFalse(form.is_valid())
         self.assertIn("signed_pdf", form.errors)
 
     def test_oversized_pdf_is_rejected(self) -> None:
         # 26 MiB — over the 25 MiB cap.
         oversized = SimpleUploadedFile("big.pdf", b"x" * (26 * 1024 * 1024), content_type="application/pdf")
-        form = LegalDocumentAdminForm(data=self._form_data(), files={"signed_pdf": oversized})
+        form = LegalDocumentAdminForm(data=self._form_data(), files=_files(oversized))
         self.assertFalse(form.is_valid())
         self.assertIn("signed_pdf", form.errors)
 
     def test_missing_pdf_is_rejected(self) -> None:
-        form = LegalDocumentAdminForm(data=self._form_data(), files={})
+        form = LegalDocumentAdminForm(data=self._form_data(), files=_files())
         self.assertFalse(form.is_valid())
         self.assertIn("signed_pdf", form.errors)
 
@@ -89,7 +99,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
                 "company_address": "1 Analytics Way, SF CA",
                 "representative_email": "ada@acme.example",
             },
-            files={"signed_pdf": _pdf_file()},
+            files=_files(_pdf_file()),
         )
         self.assertTrue(form.is_valid(), form.errors)
         return form
@@ -159,7 +169,7 @@ class TestLegalDocumentAdminSave(APIBaseTest):
                 "company_address": "1 Analytics Way, SF CA",
                 "representative_email": "ada@acme.example",
             },
-            files={"signed_pdf": _pdf_file()},
+            files=_files(_pdf_file()),
         )
         self.assertFalse(form.is_valid())
         self.assertEqual(LegalDocument.objects.filter(document_type="DPA").count(), 1)
@@ -174,11 +184,34 @@ class TestLegalDocumentAdminSave(APIBaseTest):
             representative_email="ada@acme.example",
             status=LegalDocument.Status.SIGNED,
         )
-        document_id = document.id  # obj.delete() clears the pk on the in-memory instance.
+        # Snapshot before delete: obj.delete() clears the pk on the in-memory
+        # instance, so signed_pdf_storage_key(document) would compute against
+        # id=None afterwards.
+        expected_key = signed_pdf_storage_key(document)
+        document_id = document.id
         self.admin.delete_model(self._request(), document)
 
-        mock_storage.delete.assert_called_once_with(f"legal_documents/{document_id}.pdf")
+        mock_storage.delete.assert_called_once_with(expected_key)
         self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
+
+    def test_change_view_form_saves_without_signed_pdf(self) -> None:
+        # The add form (LegalDocumentAdminForm) declares signed_pdf
+        # as a required FileField. If it leaks into the change view's form,
+        # "Save" on an existing row fails with "This field is required" even
+        # though no upload widget is rendered.
+        document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SIGNED,
+        )
+        change_form_class = self.admin.get_form(self._request(), obj=document, change=True)
+
+        # The change-view form must not declare signed_pdf. (Plain ModelForm
+        # subclass returned by modelform_factory has no extra non-model fields.)
+        self.assertNotIn("signed_pdf", change_form_class.base_fields)
 
     @patch("products.legal_documents.backend.admin.object_storage")
     def test_delete_model_swallows_s3_errors(self, mock_storage: Any) -> None:
