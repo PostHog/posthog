@@ -368,11 +368,19 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project profile — deterministic snapshot of \"what's true about this project\".
 
-    Singleton per team — there's no list, retrieve, or write surface. The agent calls the
-    `list` action right after reading its skill to orient on this team's product mix,
+    Singleton per team — there's no list, retrieve, or write surface. The agent calls
+    `current` right after reading its skill to orient on this team's product mix,
     integrations, signal coverage, and existing inbox surface in one tool call instead of
     burning 4-5 discovery calls. Lazy-recomputes on cache miss / TTL expiry / source-version
     bump; the response is always either the latest cached profile or a freshly-built one.
+
+    Exposed as a `@action(detail=False, url_path="current")` rather than `list()` so the
+    OpenAPI spec — and every generated client downstream of it (`api.ts`, MCP tool
+    response shape, etc.) — types the response as a single `ProjectProfileApi` instead
+    of `ProjectProfileApi[]`. drf-spectacular and Orval treat the bare `list` action as
+    a paginated collection by URL convention even when `responses=ProjectProfileSerializer`
+    is set; routing through a named action breaks that convention without changing the
+    semantics.
     """
 
     serializer_class = ProjectProfileSerializer
@@ -402,6 +410,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             "mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
         ),
     )
-    def list(self, request: Request, *args, **kwargs) -> Response:
+    @action(detail=False, methods=["get"], url_path="current", url_name="current", pagination_class=None)
+    def current(self, request: Request, *args, **kwargs) -> Response:
         profile = get_project_profile(team_id=self.team_id)
         return Response(ProjectProfileSerializer(profile.as_dict()).data)

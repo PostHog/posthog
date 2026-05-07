@@ -14,7 +14,6 @@ tables only" rule and warrant their own iteration.
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from typing import Any
 
 from django.db.models import Count, Max
@@ -188,10 +187,15 @@ def _existing_inbox_reports(team: Team) -> dict[str, Any]:
     surfaced to humans.
     """
     excluded = {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED}
-    qs = SignalReport.objects.filter(team=team).exclude(status__in=excluded).values_list("status", flat=True)
-    counter: Counter[str] = Counter(qs)
-    by_status = [{"status": status, "count": count} for status, count in sorted(counter.items())]
-    return {"total": sum(counter.values()), "by_status": by_status}
+    rows = (
+        SignalReport.objects.filter(team=team)
+        .exclude(status__in=excluded)
+        .values("status")
+        .annotate(count=Count("id"))
+        .order_by("status")
+    )
+    by_status = [{"status": row["status"], "count": row["count"]} for row in rows]
+    return {"total": sum(row["count"] for row in by_status), "by_status": by_status}
 
 
 def _recent_dashboards(team: Team) -> list[dict[str, Any]]:

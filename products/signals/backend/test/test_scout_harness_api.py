@@ -364,7 +364,7 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
 class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """The project profile is the agent's orientation surface — read once at run start.
 
-    There's only one operation (`list` returns the singleton current profile), so the
+    There's only one operation (`current` returns the singleton current profile), so the
     surface is small. These tests cover lazy compute on first call, cache-hit reuse,
     and team isolation.
     """
