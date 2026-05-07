@@ -125,6 +125,9 @@ await buildInParallel(
             }
 
             if (config.name === 'Exporter') {
+                if (!isDev) {
+                    reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
+                }
                 writeExporterHtml(chunks, entrypoints)
             }
 
