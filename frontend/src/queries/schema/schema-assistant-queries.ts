@@ -1253,6 +1253,41 @@ export interface AssistantTrendsActorsQuery {
     includeRecordings?: boolean
 }
 
+/** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
+export type AssistantLifecycleStatus = 'new' | 'returning' | 'resurrecting' | 'dormant'
+
+/**
+ * Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows
+ * are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.
+ *
+ * Use the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight
+ * is a 4-row stack (new / returning / resurrecting / dormant) per day.
+ *
+ * Note: lifecycle insights only support a single series and do not expose `compareFilter`, so
+ * `series` and `compare` selectors are intentionally omitted.
+ */
+export interface AssistantLifecycleActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source lifecycle insight query whose bucket we are drilling into. */
+    source: AssistantLifecycleQuery
+
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
+
+    /**
+     * Lifecycle status to drill into for the given day. Must be one of the bucket names visible
+     * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
+     */
+    status: AssistantLifecycleStatus
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
+}
+
 /**
  * Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency,
  * token usage, costs, errors, and other metadata. Use for AI observability — debugging

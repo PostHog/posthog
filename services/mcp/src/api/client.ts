@@ -960,6 +960,81 @@ export class ApiClient {
             return normalized
         }
 
+        const runActorsQuery = async (
+            query: Record<string, unknown>,
+            select: readonly string[],
+            orderBy: readonly string[] = []
+        ): Promise<{
+            query: Record<string, unknown>
+            results: { columns: string[]; results: any[][] }
+            hasMore: boolean
+            offset: number
+        }> => {
+            const normalized = normalizeQuery(query)
+            const includeRecordings = Boolean(normalized.includeRecordings)
+            const finalSelect = includeRecordings ? [...select, 'matched_recordings'] : [...select]
+
+            const wrappedQuery = {
+                kind: 'ActorsQuery',
+                source: normalized,
+                select: finalSelect,
+                orderBy: [...orderBy],
+                limit: 100,
+            }
+
+            const response = await this.request<{
+                results: any[][]
+                hasMore?: boolean
+                offset?: number
+            }>({
+                method: 'POST',
+                path: `/api/environments/${projectId}/query/`,
+                body: { query: wrappedQuery },
+            })
+
+            const baseUrl = this.getProjectBaseUrl(projectId)
+
+            // `actor` → 3 columns, `matched_recordings` → recordings, everything else passes through.
+            const columns: string[] = []
+            for (const field of finalSelect) {
+                if (field === 'actor') {
+                    columns.push('distinct_id', 'email', 'name')
+                } else if (field === 'matched_recordings') {
+                    columns.push('recordings')
+                } else {
+                    columns.push(field)
+                }
+            }
+
+            const results = (response.results ?? []).map((row) => {
+                const cells: any[] = []
+                for (let i = 0; i < finalSelect.length; i++) {
+                    const field = finalSelect[i]
+                    const cell = row[i]
+                    if (field === 'actor') {
+                        const props = cell?.properties ?? {}
+                        cells.push(cell?.distinct_ids?.[0] ?? null, props.email, props.name)
+                    } else if (field === 'matched_recordings') {
+                        const links = (cell ?? [])
+                            .map((r: any) => r.session_id)
+                            .filter(Boolean)
+                            .map((sessionId: string) => `${baseUrl}/replay/${sessionId}`)
+                        cells.push(links)
+                    } else {
+                        cells.push(cell)
+                    }
+                }
+                return cells
+            })
+
+            return {
+                query: wrappedQuery,
+                results: { columns, results },
+                hasMore: response.hasMore ?? false,
+                offset: response.offset ?? 0,
+            }
+        }
+
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
                 return this.fetchJson<{ results: unknown[] }>(queryUrl, {
@@ -980,66 +1055,10 @@ export class ApiClient {
                 })
             },
 
-            trendsActors: async ({
-                query,
-            }: {
-                query: Record<string, unknown>
-            }): Promise<{
-                query: Record<string, unknown>
-                results: { columns: readonly string[]; results: (string | number | null)[][] }
-                hasMore: boolean
-                offset: number
-            }> => {
-                const normalized = normalizeQuery(query)
-                const includeRecordings = Boolean(normalized.includeRecordings)
-                const wrappedQuery = {
-                    kind: 'ActorsQuery',
-                    source: normalized,
-                    select: includeRecordings
-                        ? ['actor', 'event_count', 'matched_recordings']
-                        : ['actor', 'event_count'],
-                    orderBy: ['event_count DESC', 'actor_id DESC'],
-                    limit: 100,
-                }
+            trendsActors: async ({ query }: { query: Record<string, unknown> }) =>
+                runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
 
-                const response = await this.request<{
-                    results: any[][]
-                    hasMore?: boolean
-                    offset?: number
-                }>({
-                    method: 'POST',
-                    path: `/api/environments/${projectId}/query/`,
-                    body: { query: wrappedQuery },
-                })
-
-                const baseUrl = this.getProjectBaseUrl(projectId)
-                const results = (response.results ?? []).map((row) => {
-                    const [actor, count] = row
-                    const properties = actor.properties ?? {}
-                    const distinctId = actor.distinct_ids?.[0] ?? null
-                    const base = [distinctId, properties.email, properties.name, count]
-                    if (includeRecordings) {
-                        const recordingLinks = (row[2] ?? [])
-                            .map((r: any) => r.session_id)
-                            .filter(Boolean)
-                            .map((sessionId: string) => `${baseUrl}/replay/${sessionId}`)
-                        return [...base, recordingLinks]
-                    }
-                    return base
-                })
-
-                return {
-                    query: wrappedQuery,
-                    results: {
-                        columns: includeRecordings
-                            ? ['distinct_id', 'email', 'name', 'event_count', 'recordings']
-                            : ['distinct_id', 'email', 'name', 'event_count'],
-                        results,
-                    },
-                    hasMore: response.hasMore ?? false,
-                    offset: response.offset ?? 0,
-                }
-            },
+            lifecycleActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
         }
     }
 

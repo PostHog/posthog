@@ -2320,6 +2320,35 @@
             "required": ["id", "kind", "name"],
             "type": "object"
         },
+        "AssistantLifecycleActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.\n\nUse the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight is a 4-row stack (new / returning / resurrecting / dormant) per day.\n\nNote: lifecycle insights only support a single series and do not expose `compareFilter`, so `series` and `compare` selectors are intentionally omitted.",
+            "properties": {
+                "day": {
+                    "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+                    "type": "string"
+                },
+                "includeRecordings": {
+                    "default": true,
+                    "description": "Whether to include matched session recordings for each actor.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantLifecycleQuery",
+                    "description": "The source lifecycle insight query whose bucket we are drilling into."
+                },
+                "status": {
+                    "$ref": "#/definitions/AssistantLifecycleStatus",
+                    "description": "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted)."
+                }
+            },
+            "required": ["kind", "source", "day", "status"],
+            "type": "object"
+        },
         "AssistantLifecycleEventsNode": {
             "additionalProperties": false,
             "properties": {
@@ -2445,6 +2474,11 @@
                     "$ref": "#/definitions/AssistantLifecycleActionsNode"
                 }
             ]
+        },
+        "AssistantLifecycleStatus": {
+            "description": "A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`.",
+            "enum": ["new", "returning", "resurrecting", "dormant"],
+            "type": "string"
         },
         "AssistantMessage": {
             "additionalProperties": false,

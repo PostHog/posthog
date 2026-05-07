@@ -92,11 +92,18 @@ describe('createQueryWrapper _posthogUrl', () => {
             kind: 'ActorsQuery',
             source: { kind: 'InsightActorsQuery', day: '2024-01-15' },
         })
-        const factory = createQueryWrapper({ name: 'test', schema, kind: 'InsightActorsQuery' })
+
+        const actorsSchema = z.object({
+            day: z.string().optional(),
+            source: z.looseObject({ kind: z.string() }),
+        })
+
+        const factory = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })
         const tool = factory()
 
         const result = (await tool.handler(context, {
-            series: [{ kind: 'EventsNode', event: '$pageview' }],
+            day: '2024-01-15',
+            source: { kind: 'TrendsQuery' },
         })) as any
 
         const hash = result._posthogUrl.split('#q=')[1]
