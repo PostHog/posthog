@@ -1,0 +1,20 @@
+{
+    "name": "pi-clickhouse-autoresearch",
+    "version": "0.1.0",
+    "description": "Reusable ClickHouse query optimization orchestration for pi-autoresearch.",
+    "keywords": [
+        "autoresearch",
+        "clickhouse",
+        "pi-package"
+    ],
+    "license": "MIT",
+    "type": "module",
+    "pi": {
+        "skills": [
+            "./skills"
+        ],
+        "prompts": [
+            "./prompts"
+        ]
+    }
+}

@@ -187,6 +187,15 @@ async fn process_request_inner(
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
+            // Compute auth status once to avoid repeated header parsing and allocation
+            let is_internal = authentication::is_internal_request(&context);
+
+            let override_defs = if is_internal {
+                request.override_flags_definitions.as_ref()
+            } else {
+                None
+            };
+
             let filtered_flags = flags::fetch_and_filter(
                 &flag_service,
                 team.id,
@@ -194,6 +203,7 @@ async fn process_request_inner(
                 &context.headers,
                 request.evaluation_runtime,
                 request.evaluation_contexts.as_ref(),
+                override_defs,
             )
             .await?;
 
@@ -215,13 +225,25 @@ async fn process_request_inner(
                 context.request_id,
                 request.is_flags_disabled(),
                 request.flag_keys.clone(),
+                Some(is_internal && context.meta.detailed_analysis.unwrap_or(false)),
+                if is_internal {
+                    context.meta.only_use_override_person_properties
+                } else {
+                    None
+                },
             )
             .await?;
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {
-                billing::record_usage(&context, &filtered_flags, team.id, metrics_data.library)
-                    .await;
+                billing::record_usage(
+                    &context,
+                    &filtered_flags,
+                    team.id,
+                    metrics_data.library,
+                    is_internal,
+                )
+                .await;
             }
 
             response
