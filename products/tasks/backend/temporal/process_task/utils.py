@@ -332,6 +332,15 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     return github_integration.integration.access_token or None
 
 
+def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
+    """Return the installation access token from a UserIntegration, refreshing if expired."""
+    integration = UserIntegration.objects.get(id=github_user_integration_id)
+    github_integration = UserGitHubIntegration(integration)
+    if github_integration.access_token_expired():
+        github_integration.refresh_access_token()
+    return github_integration.integration.sensitive_config.get("access_token") or None
+
+
 def _normalize_repository(repository: str | None) -> str | None:
     if not repository:
         return None
@@ -527,24 +536,33 @@ def get_sandbox_github_token(
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
-        elif github_integration_id is None:
+            return get_github_token(github_integration_id)
+        if github_integration_id is None:
+            # No team fallback — let the integration's raise propagate with its specific message.
             token = user_github_integration.get_usable_user_access_token()
             if token is None:
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
             return token
-        else:
-            try:
-                token = user_github_integration.get_usable_user_access_token()
-            except ReauthorizationRequired:
-                token = None
-            if token is not None:
-                return token
-
+        try:
+            token = user_github_integration.get_usable_user_access_token()
+        except ReauthorizationRequired:
+            token = None
+        if token is not None:
+            return token
+        return get_github_token(github_integration_id)
+    elif pr_authorship_mode == PrAuthorshipMode.BOT:
+        if github_integration_id is not None:
+            return get_github_token(github_integration_id)
+        # BOT fallback for teams without an Integration row: borrow the
+        # installation access token from the UserIntegration the task was created with.
+        if github_user_integration_id:
+            return get_user_github_token(github_user_integration_id)
+        return None
+    # No authorship mode resolved (legacy callers without state and without a task).
     if github_integration_id is None:
         return None
-
     return get_github_token(github_integration_id)
 
 
