@@ -254,6 +254,107 @@ class TestNotificationsAPI(BaseTest):
         assert str(old.id) not in ids
         assert str(self.event.id) in ids
 
+    def test_mark_read_bulk(self):
+        e2 = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Two",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        e3 = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Three",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_read_bulk/",
+            {"notification_ids": [str(self.event.id), str(e2.id), str(e3.id)]},
+            format="json",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 3
+        for ev in (self.event, e2, e3):
+            assert NotificationReadState.objects.filter(notification_event=ev, user=self.user).exists()
+
+    def test_mark_read_bulk_skips_non_recipient(self):
+        other_user_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Other",
+            body="",
+            target_type="user",
+            target_id="999",
+            resolved_user_ids=[],
+        )
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_read_bulk/",
+            {"notification_ids": [str(other_user_event.id), str(self.event.id)]},
+            format="json",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 1
+        assert not NotificationReadState.objects.filter(notification_event=other_user_event, user=self.user).exists()
+
+    def test_mark_unread_bulk(self):
+        NotificationReadState.objects.create(notification_event=self.event, user=self.user)
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_unread_bulk/",
+            {"notification_ids": [str(self.event.id)]},
+            format="json",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 1
+        assert not NotificationReadState.objects.filter(notification_event=self.event, user=self.user).exists()
+
+    def test_mark_read_bulk_empty(self):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_read_bulk/",
+            {"notification_ids": []},
+            format="json",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 0
+
+    def test_mark_unread_bulk_skips_non_recipient(self):
+        other_user_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Other",
+            body="",
+            target_type="user",
+            target_id="999",
+            resolved_user_ids=[],
+        )
+        # Pre-create a read state for the user's own event so it has something to delete
+        NotificationReadState.objects.create(notification_event=self.event, user=self.user)
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_unread_bulk/",
+            {"notification_ids": [str(other_user_event.id), str(self.event.id)]},
+            format="json",
+        )
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 1
+        assert not NotificationReadState.objects.filter(notification_event=self.event, user=self.user).exists()
+
+    def test_mark_read_bulk_non_list_returns_400(self):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_read_bulk/",
+            {"notification_ids": "not-a-list"},
+            format="json",
+        )
+        assert resp.status_code == 400
+
 
 class TestNotificationsAPIFeatureFlagDisabled(BaseTest):
     def setUp(self):

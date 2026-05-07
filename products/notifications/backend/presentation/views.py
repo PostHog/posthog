@@ -4,7 +4,8 @@ from django.db.models import Exists, OuterRef, QuerySet, Subquery
 from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import serializers as drf_serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
@@ -20,6 +21,11 @@ from products.notifications.backend.cache import get_unread_count, invalidate_un
 from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES
 from products.notifications.backend.models import NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
+
+_BULK_NOTIFICATION_IDS_SCHEMA = inline_serializer(
+    name="BulkNotificationIdsRequest",
+    fields={"notification_ids": drf_serializers.ListField(child=drf_serializers.UUIDField())},
+)
 
 
 class NotificationPagination(LimitOffsetPagination):
@@ -222,3 +228,57 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         NotificationReadState.objects.filter(notification_event=event, user=user).delete()
         invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
+
+    @extend_schema(request=_BULK_NOTIFICATION_IDS_SCHEMA)
+    @action(methods=["POST"], detail=False, url_path="mark_read_bulk")
+    def mark_read_bulk(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"updated": 0})
+
+        user = self._get_user()
+        ids = request.data.get("notification_ids", [])
+        if not isinstance(ids, list):
+            raise ValidationError({"notification_ids": "Expected a list of UUIDs."})
+        if not ids:
+            return Response({"updated": 0})
+
+        eligible_ids = list(
+            NotificationEvent.objects.filter(
+                id__in=ids,
+                organization_id=self.team.organization_id,
+                resolved_user_ids__contains=[user.id],
+            ).values_list("id", flat=True)
+        )
+        if eligible_ids:
+            read_states = [NotificationReadState(notification_event_id=eid, user=user) for eid in eligible_ids]
+            NotificationReadState.objects.bulk_create(read_states, ignore_conflicts=True)
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"updated": len(eligible_ids)})
+
+    @extend_schema(request=_BULK_NOTIFICATION_IDS_SCHEMA)
+    @action(methods=["POST"], detail=False, url_path="mark_unread_bulk")
+    def mark_unread_bulk(self, request: Request, **kwargs) -> Response:
+        if not self._is_feature_enabled():
+            return Response({"updated": 0})
+
+        user = self._get_user()
+        ids = request.data.get("notification_ids", [])
+        if not isinstance(ids, list):
+            raise ValidationError({"notification_ids": "Expected a list of UUIDs."})
+        if not ids:
+            return Response({"updated": 0})
+
+        eligible_ids = list(
+            NotificationEvent.objects.filter(
+                id__in=ids,
+                organization_id=self.team.organization_id,
+                resolved_user_ids__contains=[user.id],
+            ).values_list("id", flat=True)
+        )
+        if eligible_ids:
+            NotificationReadState.objects.filter(
+                notification_event_id__in=eligible_ids,
+                user=user,
+            ).delete()
+            invalidate_unread_count(user.id, self.team.organization_id)
+        return Response({"updated": len(eligible_ids)})
