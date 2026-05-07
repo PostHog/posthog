@@ -378,6 +378,97 @@ def delete_cdc_extraction_schedule(source_id: str) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Schema discovery scheduling (source-level)
+# ---------------------------------------------------------------------------
+
+DISCOVER_SCHEMAS_INTERVAL = timedelta(days=1)
+
+
+def _get_discover_schemas_schedule_id(source_id: str) -> str:
+    return f"discover-schemas-{source_id}"
+
+
+def _discover_schemas_offset(source_id: str, interval: timedelta) -> timedelta:
+    # Deterministically spread schedules across the interval window so a million
+    # daily-cadence sources don't all fire at the same minute. Hashing on the
+    # source_id keeps the offset stable across redeploys.
+    rng = random.Random(source_id)
+    seconds = int(rng.uniform(0, interval.total_seconds()))
+    return timedelta(seconds=seconds)
+
+
+def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
+    """Build a Temporal Schedule for the per-source schema-discovery workflow."""
+    from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import SyncNewSchemasActivityInputs
+
+    inputs = SyncNewSchemasActivityInputs(source_id=str(source.id), team_id=source.team_id)
+
+    action = ScheduleActionStartWorkflow(
+        "discover-schemas",
+        asdict(inputs),
+        id=_get_discover_schemas_schedule_id(str(source.id)),
+        task_queue=str(settings.DATA_WAREHOUSE_TASK_QUEUE),
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(seconds=10),
+            maximum_interval=timedelta(seconds=60),
+            maximum_attempts=3,
+            non_retryable_error_types=["NondeterminismError"],
+        ),
+    )
+
+    spec = ScheduleSpec(
+        intervals=[
+            ScheduleIntervalSpec(
+                every=DISCOVER_SCHEMAS_INTERVAL,
+                offset=_discover_schemas_offset(str(source.id), DISCOVER_SCHEMAS_INTERVAL),
+            )
+        ],
+    )
+
+    return Schedule(
+        action=action,
+        spec=spec,
+        state=ScheduleState(note=f"Discover schemas schedule for source: {source.id}"),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+
+def sync_discover_schemas_schedule(source: ExternalDataSource, create: bool = False) -> None:
+    """Create or update the per-source schema-discovery Temporal schedule.
+
+    On ``create=True`` triggers an immediate run so a brand-new source picks up
+    its initial schema list right away. On ``create=False`` (or when the
+    schedule turns out not to exist), upserts idempotently — this makes the
+    helper safe for both fresh deploys and the backfill management command.
+    """
+    temporal = sync_connect()
+    schedule_id = _get_discover_schemas_schedule_id(str(source.id))
+    schedule = get_discover_schemas_schedule(source)
+
+    if create:
+        create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+        return
+
+    try:
+        update_schedule(temporal, id=schedule_id, schedule=schedule)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+        else:
+            raise
+
+
+def delete_discover_schemas_schedule(source_id: str) -> None:
+    schedule_id = _get_discover_schemas_schedule_id(source_id)
+    try:
+        delete_external_data_schedule(schedule_id)
+    except Exception:
+        # delete_external_data_schedule already swallows NOT_FOUND; defensively
+        # ignore other races (e.g. schedule deleted between fetch and delete).
+        pass
+
+
 _CDC_SLOT_CLEANUP_SCHEDULE_ID = "cdc-slot-cleanup-global"
 
 

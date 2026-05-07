@@ -5,6 +5,7 @@ from posthog.temporal.data_imports.cdc.activities import (
 )
 from posthog.temporal.data_imports.cdc.workflows import CDCExtractionWorkflow, CDCSlotCleanupWorkflow
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow, produce_to_cdp_kafka_activity
+from posthog.temporal.data_imports.discover_schemas_workflow import DiscoverSchemasWorkflow
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     calculate_table_size_activity,
@@ -27,7 +28,13 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     emit_data_import_signals_activity,
 )
 
-WORKFLOWS = [ExternalDataJobWorkflow, CDPProducerJobWorkflow, CDCExtractionWorkflow, CDCSlotCleanupWorkflow]
+WORKFLOWS = [
+    ExternalDataJobWorkflow,
+    CDPProducerJobWorkflow,
+    CDCExtractionWorkflow,
+    CDCSlotCleanupWorkflow,
+    DiscoverSchemasWorkflow,
+]
 
 ACTIVITIES = [
     create_external_data_job_model_activity,
