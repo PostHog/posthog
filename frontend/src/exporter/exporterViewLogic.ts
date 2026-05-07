@@ -103,3 +103,24 @@ export const exporterViewLogic = kea<exporterViewLogicType>([
 export const getCurrentExporterData = (): ExportedData | undefined => {
     return exporterViewLogic.findMounted()?.values.exportedData
 }
+
+/**
+ * Synchronous check for "this bundle is rendering a shared/exported view".
+ *
+ * Reads `window.POSTHOG_EXPORTED_DATA` directly because that global is set by
+ * Django before any React code runs. Going through the kea logic (via
+ * `getCurrentExporterData`) is unreliable from inside a leaf component's
+ * `useEffect` — React fires child effects before parent ones, so the
+ * `BindLogic` wrapping `<Exporter>` may not have mounted `exporterViewLogic`
+ * yet by the time a deeply-nested gate checks. Direct global access is
+ * synchronous and there's no mount-order risk.
+ *
+ * Falls back to the kea check for non-exporter contexts (Storybook, jest)
+ * where `POSTHOG_EXPORTED_DATA` isn't injected.
+ */
+export const isSharedView = (): boolean => {
+    if (typeof window !== 'undefined' && window.POSTHOG_EXPORTED_DATA) {
+        return true
+    }
+    return !!getCurrentExporterData()
+}

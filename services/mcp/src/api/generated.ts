@@ -15082,6 +15082,121 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `passed` - passed
+    * `warned` - warned
+    * `failed` - failed
+    * `skipped` - skipped
+     */
+    export type DiagnosticCheckResultStatusEnum = typeof DiagnosticCheckResultStatusEnum[keyof typeof DiagnosticCheckResultStatusEnum];
+
+
+    export const DiagnosticCheckResultStatusEnum = {
+      Passed: 'passed',
+      Warned: 'warned',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * * `dns` - dns
+    * `config` - config
+    * `wait` - wait
+    * `retry` - retry
+     */
+    export type DiagnosticRemediationTypeEnum = typeof DiagnosticRemediationTypeEnum[keyof typeof DiagnosticRemediationTypeEnum];
+
+
+    export const DiagnosticRemediationTypeEnum = {
+      Dns: 'dns',
+      Config: 'config',
+      Wait: 'wait',
+      Retry: 'retry',
+    } as const;
+
+    export interface DiagnosticDnsRecord {
+      /** DNS record name (the hostname the record is set on). */
+      name: string;
+      /** DNS record type, e.g. CNAME, CAA, A. */
+      type: string;
+      /** DNS record value to set. */
+      value: string;
+    }
+
+    export interface DiagnosticRemediation {
+      /** Category of fix. dns: customer must change DNS records. config: customer must adjust their server config (e.g. allow port 80). wait: no action — the system will resolve on its own. retry: hit Retry.
+
+    * `dns` - dns
+    * `config` - config
+    * `wait` - wait
+    * `retry` - retry */
+      type: DiagnosticRemediationTypeEnum;
+      /** One-line, action-oriented summary of what to do. */
+      summary: string;
+      /** DNS records the customer should add (empty when remediation is not DNS-based). */
+      records: DiagnosticDnsRecord[];
+    }
+
+    export interface DiagnosticCheckResult {
+      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+      id: string;
+      /** Human-readable check name. */
+      name: string;
+      /** passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.
+
+    * `passed` - passed
+    * `warned` - warned
+    * `failed` - failed
+    * `skipped` - skipped */
+      status: DiagnosticCheckResultStatusEnum;
+      /** Customer-facing explanation of the check's outcome. */
+      detail: string;
+      /** Concrete remediation steps when the check failed; null when there's nothing actionable. */
+      remediation?: DiagnosticRemediation | null;
+    }
+
+    /**
+     * * `healthy` - healthy
+    * `warn` - warn
+    * `fail` - fail
+     */
+    export type DiagnosticReportSummaryStatusEnum = typeof DiagnosticReportSummaryStatusEnum[keyof typeof DiagnosticReportSummaryStatusEnum];
+
+
+    export const DiagnosticReportSummaryStatusEnum = {
+      Healthy: 'healthy',
+      Warn: 'warn',
+      Fail: 'fail',
+    } as const;
+
+    export interface DiagnosticReportSummary {
+      /** Overall outcome: healthy if the proxy is serving requests, warn for non-blocking issues, fail otherwise.
+
+    * `healthy` - healthy
+    * `warn` - warn
+    * `fail` - fail */
+      status: DiagnosticReportSummaryStatusEnum;
+      /**
+       * Check id of the most actionable failure, if any. Null when status is healthy.
+       * @nullable
+       */
+      primary_issue: string | null;
+      /**
+       * One-sentence next action the customer should take. Null when nothing's wrong.
+       * @nullable
+       */
+      next_action: string | null;
+    }
+
+    export interface DiagnosticReport {
+      /** When this diagnostic report was generated (UTC). */
+      ran_at: string;
+      /** Top-level outcome and recommended next action. */
+      summary: DiagnosticReportSummary;
+      /** Per-check results in execution order. */
+      checks: DiagnosticCheckResult[];
+    }
+
+    /**
      * * `Up` - Up
     * `Down` - Down
      */
@@ -17351,7 +17466,7 @@ export namespace Schemas {
     }
 
     export interface ExperimentVariant {
-      /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+      /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
       key: string;
       /**
        * Human-readable variant name.
@@ -17369,7 +17484,7 @@ export namespace Schemas {
 
     export interface ExperimentParameters {
       /**
-       * Experiment variants. If not specified, defaults to a 50/50 control/test split.
+       * Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.
        * @nullable
        */
       feature_flag_variants?: ExperimentVariant[] | null;
@@ -25291,6 +25406,11 @@ export namespace Schemas {
       readonly archived: boolean;
       /** Current immutable configuration version number. */
       readonly current_version: number;
+      /**
+       * UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.
+       * @nullable
+       */
+      readonly current_version_id: string | null;
       /** Current immutable scorer configuration. */
       readonly config: ScoreDefinitionConfig;
       /** User who created the scorer. */
@@ -25495,6 +25615,7 @@ export namespace Schemas {
     * `in_progress` - In Progress
     * `pending_input` - Pending Input
     * `ready` - Ready
+    * `resolved` - Resolved
     * `failed` - Failed
     * `deleted` - Deleted
     * `suppressed` - Suppressed
@@ -25508,6 +25629,7 @@ export namespace Schemas {
       InProgress: 'in_progress',
       PendingInput: 'pending_input',
       Ready: 'ready',
+      Resolved: 'resolved',
       Failed: 'failed',
       Deleted: 'deleted',
       Suppressed: 'suppressed',
@@ -26882,6 +27004,64 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TraceReview[];
+    }
+
+    /**
+     * Insight enriched with view-count and recent-viewer fields, used by the trending action.
+     */
+    export interface TrendingInsight {
+      readonly id: number;
+      readonly short_id: string;
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      name?: string | null;
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      derived_name?: string | null;
+      query?: unknown | null;
+      readonly dashboards: readonly number[];
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      description?: string | null;
+      /** @nullable */
+      readonly last_refresh: string | null;
+      readonly refreshing: boolean;
+      tags?: unknown[];
+      readonly updated_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly created_at: string | null;
+      last_modified_at?: string;
+      favorited?: boolean;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+      /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
+      readonly view_count: number;
+      /** Up to 3 of the most recent users who viewed this insight in the time window. */
+      readonly viewers: readonly UserBasic[];
+      /** User who last modified this insight, or null if never modified after creation. */
+      readonly last_modified_by: UserBasic;
+    }
+
+    export interface PaginatedTrendingInsightList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TrendingInsight[];
     }
 
     export interface UserGitHubAccount {
@@ -31158,12 +31338,19 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    /**
+     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
+     */
+    export type PatchedSessionSummariesConfigCustomTags = {[key: string]: string};
+
     export interface PatchedSessionSummariesConfig {
       /**
        * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
        * @maxLength 10000
        */
       product_context?: string;
+      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
+      custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -36764,6 +36951,11 @@ export namespace Schemas {
     export interface ScoreDefinitionNewVersion {
       /** Next immutable scorer configuration. */
       config: ScoreDefinitionConfig;
+      /**
+       * Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check.
+       * @minimum 1
+       */
+      base_version?: number;
     }
 
     /**
@@ -36969,12 +37161,19 @@ export namespace Schemas {
       focus_area?: string;
     }
 
+    /**
+     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
+     */
+    export type SessionSummariesConfigCustomTags = {[key: string]: string};
+
     export interface SessionSummariesConfig {
       /**
        * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
        * @maxLength 10000
        */
       product_context?: string;
+      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
+      custom_tags?: SessionSummariesConfigCustomTags;
     }
 
     /**
@@ -40717,6 +40916,14 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsActivityRetrieveParams = {
     format?: EnvironmentsInsightsActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type EnvironmentsInsightsActivityRetrieveFormat = typeof EnvironmentsInsightsActivityRetrieveFormat[keyof typeof EnvironmentsInsightsActivityRetrieveFormat];
@@ -40765,6 +40972,14 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsAllActivityRetrieveParams = {
     format?: EnvironmentsInsightsAllActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type EnvironmentsInsightsAllActivityRetrieveFormat = typeof EnvironmentsInsightsAllActivityRetrieveFormat[keyof typeof EnvironmentsInsightsAllActivityRetrieveFormat];
@@ -40824,7 +41039,19 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsInsightsTrendingRetrieveParams = {
+    /**
+     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
+     */
+    days?: number;
     format?: EnvironmentsInsightsTrendingRetrieveFormat;
+    /**
+     * Maximum number of insights to return. Defaults to 10. Capped at 100.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsInsightsTrendingRetrieveFormat = typeof EnvironmentsInsightsTrendingRetrieveFormat[keyof typeof EnvironmentsInsightsTrendingRetrieveFormat];
@@ -45412,6 +45639,14 @@ export namespace Schemas {
 
     export type InsightsActivityRetrieveParams = {
     format?: InsightsActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type InsightsActivityRetrieveFormat = typeof InsightsActivityRetrieveFormat[keyof typeof InsightsActivityRetrieveFormat];
@@ -45460,6 +45695,14 @@ export namespace Schemas {
 
     export type InsightsAllActivityRetrieveParams = {
     format?: InsightsAllActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type InsightsAllActivityRetrieveFormat = typeof InsightsAllActivityRetrieveFormat[keyof typeof InsightsAllActivityRetrieveFormat];
@@ -45519,7 +45762,19 @@ export namespace Schemas {
     } as const;
 
     export type InsightsTrendingRetrieveParams = {
+    /**
+     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
+     */
+    days?: number;
     format?: InsightsTrendingRetrieveFormat;
+    /**
+     * Maximum number of insights to return. Defaults to 10. Capped at 100.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type InsightsTrendingRetrieveFormat = typeof InsightsTrendingRetrieveFormat[keyof typeof InsightsTrendingRetrieveFormat];

@@ -36,6 +36,13 @@ DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 
+# Per-user Coder secret holding the SSH public key used to sign commits inside
+# workspaces. Injected as the GIT_SIGNING_KEY env var on every workspace start
+# (including coder task runs); the workspace template reads it to populate
+# user.signingkey. The matching private key never leaves 1Password.
+GIT_SIGNING_KEY_SECRET = "GIT_SIGNING_KEY"
+
+
 # Default values for all optional template parameters. Passing these explicitly
 # prevents the Coder CLI from prompting interactively for missing values.
 # Update this dict when new optional parameters are added to the template.
@@ -322,18 +329,32 @@ def ensure_coder_reachable() -> None:
     )
 
 
-def _config_ssh_args() -> list[str]:
-    """Build the base args for ``coder config-ssh``, pinning the managed binary path."""
+def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
+    """Build the base args for ``coder config-ssh``, pinning the managed binary path.
+
+    Appends SSH options that wire up commit signing via SSH agent forwarding:
+    ``ForwardAgent yes`` so the laptop's SSH agent reaches the remote, and (on
+    macOS) ``IdentityAgent <socket>`` pointed at whichever signing-key agent
+    the engineer picked in ``--configure-git-signing`` (Secretive or 1Password).
+    ``IdentityAgent`` is omitted when no socket has been chosen yet, leaving
+    SSH to fall back to the user's default ``$SSH_AUTH_SOCK``.
+    """
     args = ["coder", "config-ssh"]
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
+    args += ["--ssh-option", "ForwardAgent yes"]
+    if identity_agent_socket:
+        args += ["--ssh-option", f"IdentityAgent {identity_agent_socket}"]
     return args
 
 
-def _ssh_config_needs_update() -> bool:
+def _ssh_config_needs_update(*, identity_agent_socket: str | None = None) -> bool:
     """Check whether ``coder config-ssh`` would make changes."""
-    result = _run([*_config_ssh_args(), "--dry-run", "--yes"], capture_output=True)
+    result = _run(
+        [*_config_ssh_args(identity_agent_socket=identity_agent_socket), "--dry-run", "--yes"],
+        capture_output=True,
+    )
     if result.returncode != 0:
         return True
     combined = result.stdout + result.stderr
@@ -488,9 +509,11 @@ def ensure_runtime_ready() -> None:
     _warn_version_mismatch()
 
 
-def maybe_configure_ssh(*, configure_ssh: bool | None, verbose: bool = False) -> None:
+def maybe_configure_ssh(
+    *, configure_ssh: bool | None, identity_agent_socket: str | None = None, verbose: bool = False
+) -> None:
     """Install Coder SSH config, skipping only when explicitly opted out."""
-    if not _ssh_config_needs_update():
+    if not _ssh_config_needs_update(identity_agent_socket=identity_agent_socket):
         click.echo("Coder SSH config is up to date.")
         return
 
@@ -500,7 +523,10 @@ def maybe_configure_ssh(*, configure_ssh: bool | None, verbose: bool = False) ->
         return
 
     click.echo("Adding Coder workspace entries to ~/.ssh/config...")
-    result = _run([*_config_ssh_args(), "--yes"], capture_output=not verbose)
+    result = _run(
+        [*_config_ssh_args(identity_agent_socket=identity_agent_socket), "--yes"],
+        capture_output=not verbose,
+    )
     if result.returncode != 0:
         if not verbose:
             click.echo(result.stdout or "")
@@ -522,6 +548,7 @@ def print_setup_summary() -> None:
     click.echo()
     click.echo("To reconfigure later:")
     click.echo("  hogli devbox:setup --configure-git-identity")
+    click.echo("  hogli devbox:setup --configure-git-signing")
     click.echo("  hogli devbox:setup --configure-dotfiles")
     click.echo("  hogli devbox:setup --configure-claude")
 
@@ -757,6 +784,50 @@ def update_workspace_parameters(name: str, parameters: dict[str, str]) -> None:
     result = _run_with_rich_parameters(["coder", "update", name], parameters)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+
+
+def upsert_user_secret(name: str, value: str, *, env_var: str | None = None) -> None:
+    """Idempotently set a per-user Coder secret. Requires server >= 2.33.
+
+    Tries ``coder secret create`` first; falls back to ``coder secret update``
+    when the secret already exists. The secret value is piped through stdin so
+    it never appears in process args or shell history. ``env_var`` is the
+    workspace-side environment variable target; passing ``None`` leaves the
+    secret with whatever target it already has (only meaningful on update).
+    """
+    flags = ["--env", env_var] if env_var else []
+    payload = subprocess.run(
+        _resolve_coder(["coder", "secret", "create", name, *flags]),
+        input=value,
+        text=True,
+        capture_output=True,
+    )
+    if payload.returncode == 0:
+        return
+
+    payload = subprocess.run(
+        _resolve_coder(["coder", "secret", "update", name, *flags]),
+        input=value,
+        text=True,
+        capture_output=True,
+    )
+    if payload.returncode != 0:
+        click.echo(payload.stderr or payload.stdout, err=True)
+        raise SystemExit(payload.returncode)
+
+
+def user_secret_exists(name: str) -> bool:
+    """Return whether the current user has a secret with the given name set."""
+    result = _run(["coder", "secret", "list", "--output", "json"], capture_output=True)
+    if result.returncode != 0:
+        return False
+    try:
+        secrets = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(secrets, list):
+        return False
+    return any(isinstance(s, dict) and s.get("name") == name for s in secrets)
 
 
 def ssh_replace(name: str) -> None:

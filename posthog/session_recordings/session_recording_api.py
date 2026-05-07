@@ -1440,6 +1440,7 @@ class SessionRecordingViewSet(
         user: User,
         tracking_id: str,
         product_context: str | None = None,
+        custom_tags: dict[str, str] | None = None,
         force_restart: bool = False,
     ) -> AsyncGenerator[str, None]:
         """Stream video-based summarization progress events and final summary to the client.
@@ -1463,6 +1464,7 @@ class SessionRecordingViewSet(
                 team=self.team,
                 force_restart=force_restart,
                 product_context=product_context,
+                custom_tags=custom_tags,
             ):
                 if chunk.startswith("event: session-summary-stream"):
                     success = True
@@ -1495,10 +1497,11 @@ class SessionRecordingViewSet(
                     error_message=error_message,
                 )
 
-    def _load_team_product_context(self) -> str | None:
+    def _load_team_summary_config(self) -> tuple[str | None, dict[str, str] | None]:
         team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
-        product_context = (team_config.product_context or "").strip()
-        return product_context or None
+        product_context = (team_config.product_context or "").strip() or None
+        custom_tags = team_config.custom_tags or None
+        return product_context, custom_tags
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
@@ -1535,7 +1538,7 @@ class SessionRecordingViewSet(
         session_id = str(recording.session_id)
         tracking_id = generate_tracking_id()
         force_restart = bool(request.data.get("force_restart", False)) if isinstance(request.data, dict) else False
-        product_context = self._load_team_product_context()
+        product_context, custom_tags = self._load_team_summary_config()
 
         capture_session_summary_started(
             user=user,
@@ -1548,7 +1551,7 @@ class SessionRecordingViewSet(
         )
         response = StreamingHttpResponse(
             self._generate_video_based_summary(
-                session_id, user, tracking_id, product_context, force_restart=force_restart
+                session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart
             ),
             content_type=ServerSentEventRenderer.media_type,
         )
