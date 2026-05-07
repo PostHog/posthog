@@ -166,18 +166,18 @@ describe('LogsRateLimiterService', () => {
             const start = await rateLimiter.rateLimitMany([[teamId1, 100, Math.round(now / 1000)]])
             expect(start[0][1].tokensAfter).toBe(0)
 
-            // Simulate a 10s "lag" with no rate-limiter calls. With refill rate 10KB/s
-            // that's 100KB of credit, plus the bucket has been empty so currentTokens=0.
-            advanceTime(10_000)
+            // Simulate a 20s "lag" with no rate-limiter calls. With refill rate 10KB/s
+            // that's 200KB of credit.
+            advanceTime(20_000)
 
             // Single catch-up call costing the full accrued credit. Without uncapped
             // tokensBefore this would see tokensBefore=poolMax=100 and reject anything
-            // beyond that — which is exactly the bug this is checking does not regress.
-            const catchup = await rateLimiter.rateLimitMany([[teamId1, 100, Math.round(now / 1000)]])
+            // beyond that — we should be able to consumer 200KB of credit without being rate-limited.
+            const catchup = await rateLimiter.rateLimitMany([[teamId1, 199, Math.round(now / 1000)]])
 
-            expect(catchup[0][1].tokensBefore).toBe(100) // = 0 prev + 10s × 10KB/s refill
-            expect(catchup[0][1].tokensAfter).toBe(0)
-            expect(catchup[0][1].isRateLimited).toBe(true)
+            expect(catchup[0][1].tokensBefore).toBe(200) // = 0 prev + 20s × 10KB/s refill
+            expect(catchup[0][1].tokensAfter).toBe(1)
+            expect(catchup[0][1].isRateLimited).toBe(false)
         })
 
         it('should handle sequential requests for same team in single call', async () => {
