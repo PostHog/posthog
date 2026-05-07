@@ -211,6 +211,9 @@ jobs:
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
                   VR_PR: ${{ github.event.pull_request.number }}
+                  # PRs are gating ("review"); master pushes are tracking-only ("observe") since
+                  # there's no PR to approve and we don't want master runs to block or prompt for approval.
+                  VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
               run: |
                   RUN_ID=$(vr run create \
                     --type storybook \
@@ -218,6 +221,7 @@ jobs:
                     --branch "$VR_BRANCH" \
                     --commit "$VR_COMMIT" \
                     --pr "$VR_PR" \
+                    --purpose "$VR_PURPOSE" \
                     --token "$VR_TOKEN")
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 

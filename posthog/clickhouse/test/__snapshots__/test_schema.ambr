@@ -3381,7 +3381,7 @@
       `property_count` SimpleAggregateFunction(sum, UInt64),
       `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
       ,
-      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1
+      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3), preprocessor = lower(property_value)) GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values', '{replica}-{shard}')
   
   ORDER BY (team_id, property_type, property_key, property_value)
@@ -7561,7 +7561,7 @@
       `property_count` SimpleAggregateFunction(sum, UInt64),
       `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
       ,
-      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1
+      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3), preprocessor = lower(property_value)) GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values', '{replica}-{shard}')
   
   ORDER BY (team_id, property_type, property_key, property_value)
