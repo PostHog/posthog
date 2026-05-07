@@ -1,6 +1,32 @@
 import { Redis } from 'ioredis'
+import { Counter, Histogram } from 'prom-client'
 
+import { calculateSlot } from './cluster-slot'
 import type { RedisClient } from './redis-v2'
+
+// Prom metrics for the multi-key dispatch — track how well slot-grouping works
+// in production. Cluster mode (Valkey Serverless) requires multi-key scripts to
+// have all keys in the same slot, so we group inputs by slot before dispatch.
+//   buckets_total / groups_total = avg amortization ratio over time
+//     = "how many token-bucket ops we packed into one Lua-interpreter setup"
+//   slot_fanout histogram shows the distribution of distinct-slot counts per
+//   call — useful for spotting scenarios where keys are spread thinly.
+const tokenBucketMultiBucketTotal = new Counter({
+    name: 'redis_token_bucket_multi_bucket_total',
+    help: 'Total token-bucket operations dispatched via checkRateLimitV3Many',
+    labelNames: ['caller'],
+})
+const tokenBucketMultiGroupTotal = new Counter({
+    name: 'redis_token_bucket_multi_group_total',
+    help: 'Total Lua script dispatches across all checkRateLimitV3Many calls. bucket_total / group_total = avg buckets per Lua call.',
+    labelNames: ['caller'],
+})
+const tokenBucketMultiSlotFanout = new Histogram({
+    name: 'redis_token_bucket_multi_slot_fanout',
+    help: 'Distinct cluster slots touched per checkRateLimitV3Many invocation. 1 = best amortization; closer to bucket count = worst.',
+    labelNames: ['caller'],
+    buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256],
+})
 
 // V3 multi-key token-bucket script.
 //
@@ -107,23 +133,57 @@ export type RateLimitBucket = {
 }
 
 /**
- * Typed wrapper for the multi-key V3 token bucket script. Encodes the
- * (numKeys, ...keys, ...args) ioredis dynamic-keys calling convention so
- * call sites stay readable.
+ * Typed wrapper for the multi-key V3 token bucket script.
+ *
+ * Buckets are grouped by their Redis cluster slot before dispatch — keys in
+ * the same slot share a single Lua call (full multi-key amortization), while
+ * different slots get their own concurrent call. This satisfies Redis Cluster
+ * / Valkey Serverless's "all keys in one slot" rule for multi-key scripts
+ * without forcing every key onto one shard via hash tags.
+ *
+ * Result order matches input order regardless of slot grouping.
  */
 export async function checkRateLimitV3Many(
     client: RedisClient,
-    buckets: RateLimitBucket[]
+    buckets: RateLimitBucket[],
+    caller: string
 ): Promise<Array<[number, number]>> {
     if (buckets.length === 0) {
         return []
     }
-    const argv: Array<string | number> = [buckets.length]
-    for (const b of buckets) {
-        argv.push(b.key)
-    }
-    for (const b of buckets) {
-        argv.push(b.now, b.cost, b.poolMax, b.fillRate, b.expiry)
-    }
-    return await client.checkRateLimitV3Many(...argv)
+
+    // Group by cluster slot, preserving original index for result reassembly.
+    type Item = { bucket: RateLimitBucket; index: number }
+    const groups = new Map<number, Item[]>()
+    buckets.forEach((bucket, index) => {
+        const slot = calculateSlot(bucket.key)
+        const existing = groups.get(slot)
+        if (existing) {
+            existing.push({ bucket, index })
+        } else {
+            groups.set(slot, [{ bucket, index }])
+        }
+    })
+
+    tokenBucketMultiBucketTotal.inc({ caller }, buckets.length)
+    tokenBucketMultiGroupTotal.inc({ caller }, groups.size)
+    tokenBucketMultiSlotFanout.observe({ caller }, groups.size)
+
+    const results: Array<[number, number]> = new Array(buckets.length)
+    await Promise.all(
+        [...groups.values()].map(async (group) => {
+            const argv: Array<string | number> = [group.length]
+            for (const { bucket } of group) {
+                argv.push(bucket.key)
+            }
+            for (const { bucket } of group) {
+                argv.push(bucket.now, bucket.cost, bucket.poolMax, bucket.fillRate, bucket.expiry)
+            }
+            const tuples = await client.checkRateLimitV3Many(...argv)
+            group.forEach(({ index }, i) => {
+                results[index] = tuples[i]
+            })
+        })
+    )
+    return results
 }

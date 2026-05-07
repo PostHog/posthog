@@ -458,7 +458,7 @@ export class HogWatcherService {
                     return { key, now, cost, poolMax, fillRate, expiry }
                 })
                 return await this.redis.useClient({ name: 'updateRateLimitsMulti' }, (client) =>
-                    checkRateLimitV3Many(client, buckets)
+                    checkRateLimitV3Many(client, buckets, 'hog-watcher')
                 )
             }
             const pipelineRes = await this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {

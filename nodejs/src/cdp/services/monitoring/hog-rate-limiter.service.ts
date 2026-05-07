@@ -79,7 +79,7 @@ export class HogRateLimiterService {
         const tuples = await this.redis.useClient(
             { name: 'hog-rate-limiter-multi', failOpen: true },
             async (client) => {
-                return await checkRateLimitV3Many(client, buckets)
+                return await checkRateLimitV3Many(client, buckets, 'hog-rate-limiter')
             }
         )
         if (!tuples) {

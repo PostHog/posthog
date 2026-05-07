@@ -45,7 +45,7 @@ describe('redis token bucket v3 multi-key', () => {
 
     const runMulti = async (buckets: RateLimitBucket[]): Promise<Array<[number, number]>> => {
         const result = await redis.useClient({ name: 'v3-many-test' }, async (client) =>
-            checkRateLimitV3Many(client, buckets)
+            checkRateLimitV3Many(client, buckets, 'test')
         )
         if (!result) {
             throw new Error('useClient returned null')
