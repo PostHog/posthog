@@ -1,22 +1,30 @@
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useMemo } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { pluralize } from 'lib/utils'
 
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { ChartDisplayType } from '~/types'
-
-import { BUCKET_OPTIONS, ExceptionVolumeBucket, getBucketOption, rateLimitConfigLogic } from './rateLimitConfigLogic'
+import { IssueRateLimitSettings } from './IssueRateLimitSettings'
+import { BUCKET_OPTIONS, rateLimitConfigLogic } from './rateLimitConfigLogic'
+import { formatTotalDuration, RateLimitSimulationChart } from './RateLimitSimulationChart'
 
 export function RateLimitSettings(): JSX.Element {
+    const hasPerIssueRateLimit = useFeatureFlag('ERROR_TRACKING_RATE_LIMITING_PER_ISSUE')
+
+    return (
+        <div className="space-y-8">
+            <ProjectRateLimitSection />
+            {hasPerIssueRateLimit ? <IssueRateLimitSettings /> : null}
+        </div>
+    )
+}
+
+function ProjectRateLimitSection(): JSX.Element {
     const {
         configLoading,
         configFormChanged,
@@ -108,113 +116,6 @@ export function RateLimitSettings(): JSX.Element {
                     </div>
                 </div>
             </Form>
-        </div>
-    )
-}
-
-function formatTotalDuration(bucketMinutes: number): string {
-    const option = getBucketOption(bucketMinutes)
-    const totalMinutes = option.minutes * option.bucketCount
-    if (totalMinutes >= 10080) {
-        return pluralize(Math.round(totalMinutes / 10080), 'week')
-    }
-    if (totalMinutes >= 1440) {
-        return pluralize(Math.round(totalMinutes / 1440), 'day')
-    }
-    return pluralize(Math.round(totalMinutes / 60), 'hour')
-}
-
-function fillBuckets(volume: ExceptionVolumeBucket[], bucketMinutes: number): ExceptionVolumeBucket[] {
-    const option = getBucketOption(bucketMinutes)
-    const bucketMs = option.minutes * 60_000
-    const counts = new Map<number, number>()
-    volume.forEach((b) => {
-        const aligned = Math.floor(dayjs(b.bucket).valueOf() / bucketMs) * bucketMs
-        counts.set(aligned, b.count)
-    })
-    const endMs = Math.floor(Date.now() / bucketMs) * bucketMs
-    const buckets: ExceptionVolumeBucket[] = []
-    for (let i = option.bucketCount - 1; i >= 0; i--) {
-        const ms = endMs - i * bucketMs
-        buckets.push({ bucket: dayjs(ms).toISOString(), count: counts.get(ms) ?? 0 })
-    }
-    return buckets
-}
-
-function formatBucketLabel(iso: string, bucketMinutes: number): string {
-    const ts = dayjs(iso)
-    if (bucketMinutes >= 1440) {
-        return ts.format('MMM D')
-    }
-    return ts.format('MMM D, HH:mm')
-}
-
-function RateLimitSimulationChart({
-    volume,
-    rateLimit,
-    bucketMinutes,
-}: {
-    volume: ExceptionVolumeBucket[]
-    rateLimit: number | null
-    bucketMinutes: number
-}): JSX.Element {
-    const { xData, yData } = useMemo(() => {
-        const filled = fillBuckets(volume, bucketMinutes)
-        const labels = filled.map((b) => formatBucketLabel(b.bucket, bucketMinutes))
-        const counts = filled.map((b) => b.count)
-        return {
-            xData: {
-                column: {
-                    name: 'bucket',
-                    type: { name: 'STRING' as const, isNumerical: false },
-                    label: 'Bucket',
-                    dataIndex: 0,
-                },
-                data: labels,
-            },
-            yData: [
-                {
-                    column: {
-                        name: 'count',
-                        type: { name: 'INTEGER' as const, isNumerical: true },
-                        label: 'Exceptions',
-                        dataIndex: 0,
-                    },
-                    data: counts,
-                    settings: {
-                        display: {
-                            displayType: 'bar' as const,
-                        },
-                    },
-                },
-            ],
-        }
-    }, [volume, bucketMinutes])
-
-    const goalLines = useMemo(() => {
-        if (!rateLimit || rateLimit <= 0) {
-            return []
-        }
-        const option = getBucketOption(bucketMinutes)
-        return [
-            {
-                label: `Limit: ${rateLimit} per ${option.label}`,
-                value: rateLimit,
-                displayLabel: true,
-            },
-        ]
-    }, [rateLimit, bucketMinutes])
-
-    return (
-        <div className="h-80 border rounded">
-            <LineGraph
-                className="h-full p-4"
-                xData={xData}
-                yData={yData}
-                visualizationType={ChartDisplayType.ActionsBar}
-                chartSettings={{ showXAxisTicks: false, showXAxisBorder: false }}
-                goalLines={goalLines}
-            />
         </div>
     )
 }

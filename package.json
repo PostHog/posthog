@@ -145,6 +145,7 @@
         "// Known dependencies that we need preinstall scripts for, add new ones with caution": "",
         "onlyBuiltDependencies": [
             "@modelcontextprotocol/ext-apps",
+            "@mongodb-js/zstd",
             "@parcel/watcher",
             "chartjs-plugin-stacked100",
             "@swc/core",

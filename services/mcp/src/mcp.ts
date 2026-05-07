@@ -89,6 +89,8 @@ export class MCP extends McpAgent<Env> {
     private mcpClientName: string | undefined
     private mcpClientVersion: string | undefined
     private mcpProtocolVersion: string | undefined
+    private mcpMode: McpMode | undefined
+    private mcpVersion: number | undefined
 
     get requestProperties(): RequestProperties {
         return this.props as RequestProperties
@@ -325,6 +327,8 @@ export class MCP extends McpAgent<Env> {
                     ...(this.mcpProtocolVersion ? { mcp_protocol_version: this.mcpProtocolVersion } : {}),
                     ...(this.requestProperties.mcpConsumer ? { mcp_consumer: this.requestProperties.mcpConsumer } : {}),
                     ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
+                    ...(this.mcpMode ? { mcp_mode: this.mcpMode } : {}),
+                    ...(this.mcpVersion !== undefined ? { mcp_version: this.mcpVersion } : {}),
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,
@@ -541,24 +545,13 @@ export class MCP extends McpAgent<Env> {
             oauthClientName,
         })
 
-        // Restrict single-exec mode to coding agents only — Cursor and other clients that
-        // render `structuredContent` in their UI need the full per-tool roster, not the
-        // wrapped CLI. `resolveClientInfo` is awaited at the top of `init()` so this
-        // decision sees the real value on first-connect. PostHog's agent wrapper
-        // self-identifies via the `x-posthog-mcp-consumer` header and forces
-        // single-exec regardless of the wrapped client's reported name. Vibe-coding
-        // platforms (Lovable, Replit) are detected by OAuth client name since they
-        // typically connect through a generic MCP client wrapper.
-        // An explicit `mode` from the caller (header `x-posthog-mcp-mode` or query
-        // param `mode`) wins over the flag + client-profile heuristic.
-        const useSingleExec =
-            mode === 'cli' ||
-            (mode !== 'tools' &&
-                singleExecFlagOn &&
-                (clientProfile.isCodingAgent() ||
-                    clientProfile.isPostHogCodeConsumer() ||
-                    clientProfile.isVibeCodingClient()))
-        const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
+        const { useSingleExec, version } = this.resolveModeAndVersion({
+            mode,
+            singleExecFlagOn,
+            clientProfile,
+            flagVersion,
+            clientVersion,
+        })
 
         // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
@@ -681,7 +674,7 @@ export class MCP extends McpAgent<Env> {
                     (async () => {
                         const freshContext = await this.getAnalyticsContextSafe(await this.getContext())
                         await this.trackEvent(
-                            AnalyticsEvent.MCP_TOOL_CALLED,
+                            AnalyticsEvent.MCP_TOOL_CALL,
                             { tool_name: toolName, ...properties },
                             freshContext ? { context: freshContext } : undefined
                         )
@@ -722,10 +715,12 @@ export class MCP extends McpAgent<Env> {
             getClientUserAgent: async () => this.requestProperties.clientUserAgent,
             // Server-resolved version (may differ from the client-reported one because of
             // the `mcp-version-2` feature flag), so mcpcat events line up with ours.
-            getVersion: async () => version,
+            getMcpVersion: async () => version,
             getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
             getReadOnly: async () => readOnly,
             getTransport: async () => this.requestProperties.transport,
+            getMcpConsumer: async () => this.requestProperties.mcpConsumer,
+            getMcpMode: async () => this.mcpMode,
         })
 
         const initDurationMs = this.requestProperties.requestStartTime
@@ -741,8 +736,6 @@ export class MCP extends McpAgent<Env> {
                 AnalyticsEvent.MCP_INIT,
                 {
                     tool_count: allTools.length,
-                    mcp_version: version,
-                    mcp_mode: useSingleExec ? 'cli' : 'tools',
                     has_organization_id: !!organizationId,
                     has_project_id: !!projectId,
                     read_only: !!readOnly,
@@ -753,6 +746,45 @@ export class MCP extends McpAgent<Env> {
                 analyticsContext ? { context: analyticsContext } : undefined
             )
         )
+    }
+
+    /**
+     * Decide single-exec mode and the protocol version for this connection,
+     * stashing both on the instance so `trackEvent` and the mcpcat identity
+     * provider can emit `mcp_mode` / `mcp_version` on every downstream event
+     * without re-deriving them.
+     *
+     * Single-exec is restricted to coding agents — Cursor and other clients
+     * that render `structuredContent` in their UI need the full per-tool roster,
+     * not the wrapped CLI. PostHog's agent wrapper self-identifies via the
+     * `x-posthog-mcp-consumer` header and forces single-exec regardless of the
+     * wrapped client's reported name. Vibe-coding platforms (Lovable, Replit)
+     * are detected by OAuth client name since they typically connect through a
+     * generic MCP client wrapper. An explicit `mode` from the caller (header
+     * `x-posthog-mcp-mode` or query param `mode`) wins over the flag +
+     * client-profile heuristic.
+     */
+    private resolveModeAndVersion(args: {
+        mode: McpMode | undefined
+        singleExecFlagOn: boolean
+        clientProfile: MCPClientProfile
+        flagVersion: number | undefined
+        clientVersion: number | undefined
+    }): { useSingleExec: boolean; version: number } {
+        const { mode, singleExecFlagOn, clientProfile, flagVersion, clientVersion } = args
+        const useSingleExec =
+            mode === 'cli' ||
+            (mode !== 'tools' &&
+                singleExecFlagOn &&
+                (clientProfile.isCodingAgent() ||
+                    clientProfile.isPostHogCodeConsumer() ||
+                    clientProfile.isVibeCodingClient()))
+        const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
+
+        this.mcpMode = useSingleExec ? 'cli' : 'tools'
+        this.mcpVersion = version
+
+        return { useSingleExec, version }
     }
 
     private async resolveVersionFlag(): Promise<number | undefined> {
