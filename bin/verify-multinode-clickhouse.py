@@ -65,14 +65,28 @@ EXPECTED_CLUSTERS: dict[str, list[str]] = {
     "sessions": ["clickhouse-sessions"],
 }
 
-# Tables (in CLICKHOUSE_DATABASE) that must live on the named satellite node
-# but must NOT live on the data node. Update when adding new per-cluster
-# tables. Empty list means "skip this satellite check (no manifest yet)".
-SATELLITE_TABLE_MANIFEST: dict[str, list[str]] = {
-    "ai_events": ["ai_events", "sharded_ai_events"],
-    "aux": [],
-    "ops": [],
-    "sessions": [],
+
+@dataclass(frozen=True)
+class SatelliteTables:
+    # Tables that must exist on the satellite node.
+    on_satellite: list[str]
+    # Tables that must NOT exist on the data node. Distributed wrappers are
+    # routinely created on data too (so the data node can query the satellite
+    # shard cross-cluster) — only the underlying sharded data table belongs
+    # exclusively to the satellite.
+    forbidden_on_data: list[str]
+
+
+# Manifest of tables (in CLICKHOUSE_DATABASE) per satellite role. Update when
+# adding new per-cluster tables.
+SATELLITE_TABLE_MANIFEST: dict[str, SatelliteTables] = {
+    "ai_events": SatelliteTables(
+        on_satellite=["ai_events", "sharded_ai_events"],
+        forbidden_on_data=["sharded_ai_events"],
+    ),
+    "aux": SatelliteTables(on_satellite=[], forbidden_on_data=[]),
+    "ops": SatelliteTables(on_satellite=[], forbidden_on_data=[]),
+    "sessions": SatelliteTables(on_satellite=[], forbidden_on_data=[]),
 }
 
 DATABASE = "posthog"
@@ -144,19 +158,19 @@ def check_satellite_tables() -> None:
     print(f"  {data_node.name}: {len(data_tables)} tables in {DATABASE!r}")
 
     any_checked = False
-    for role, tables in SATELLITE_TABLE_MANIFEST.items():
-        if not tables:
+    for role, manifest in SATELLITE_TABLE_MANIFEST.items():
+        if not manifest.on_satellite and not manifest.forbidden_on_data:
             continue
         any_checked = True
         node = find_node(role)
         node_tables = fetch_local_tables(node)
         print(f"  {node.name}: {len(node_tables)} tables in {DATABASE!r}")
 
-        missing = [t for t in tables if t not in node_tables]
+        missing = [t for t in manifest.on_satellite if t not in node_tables]
         if missing:
             fail(f"{node.name}: missing expected tables {missing}")
 
-        leaked = [t for t in tables if t in data_tables]
+        leaked = [t for t in manifest.forbidden_on_data if t in data_tables]
         if leaked:
             fail(
                 f"{data_node.name} should not have satellite-only tables {leaked} "

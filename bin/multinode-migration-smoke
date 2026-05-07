@@ -8,9 +8,13 @@
 # verification script to assert each node ended up with the tables it should have.
 #
 # Env knobs:
-#   KEEP=1          Do not tear down the stack on success (useful for local debugging).
-#   SKIP_BOOT=1     Assume the stack is already running (useful when iterating on
-#                   migrations against an already-booted stack).
+#   KEEP=1            Do not tear down the stack on success (useful for local debugging).
+#   SKIP_BOOT=1       Assume the stack is already running (useful when iterating on
+#                     migrations against an already-booted stack).
+#   KEEP_POSTGRES=1   Preserve the postgres + redis containers across runs (skips the
+#                     pre-boot teardown for those services and the `manage.py migrate`
+#                     step). Speeds up iteration on ClickHouse migrations by avoiding
+#                     a full Django schema rebuild every run.
 #
 
 set -euo pipefail
@@ -110,8 +114,13 @@ wait_for_healthy() {
 
 if [ "${SKIP_BOOT:-0}" != "1" ]; then
     SMOKE_STAGE="boot"
-    echo "==> Tearing down any previous multinode stack (clears Zookeeper state)..."
-    dc down -v --remove-orphans >/dev/null 2>&1 || true
+    if [ "${KEEP_POSTGRES:-0}" = "1" ]; then
+        echo "==> KEEP_POSTGRES=1: tearing down ClickHouse + Kafka + Zookeeper only..."
+        dc rm -fsv "${CH_SERVICES[@]}" zookeeper kafka >/dev/null 2>&1 || true
+    else
+        echo "==> Tearing down any previous multinode stack (clears Zookeeper state)..."
+        dc down -v --remove-orphans >/dev/null 2>&1 || true
+    fi
 
     echo "==> Booting multinode ClickHouse stack..."
     dc up -d "${ALL_SERVICES[@]}"
@@ -141,11 +150,15 @@ export DATABASE_URL="${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/p
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 export SECRET_KEY="${SECRET_KEY:-multinode-smoke-not-a-real-secret}"
 
-SMOKE_STAGE="migrate_postgres"
-# migrate_clickhouse reads `posthog_instancesetting` from Postgres, so the
-# Django schema must exist before the ClickHouse step runs.
-echo "==> Running Django (Postgres) migrations..."
-python manage.py migrate --noinput
+if [ "${KEEP_POSTGRES:-0}" = "1" ]; then
+    echo "==> KEEP_POSTGRES=1: skipping Django (Postgres) migrations"
+else
+    SMOKE_STAGE="migrate_postgres"
+    # migrate_clickhouse reads `posthog_instancesetting` from Postgres, so the
+    # Django schema must exist before the ClickHouse step runs.
+    echo "==> Running Django (Postgres) migrations..."
+    python manage.py migrate --noinput
+fi
 
 SMOKE_STAGE="migrate_clickhouse"
 echo "==> Running ClickHouse migrations against the data node..."
