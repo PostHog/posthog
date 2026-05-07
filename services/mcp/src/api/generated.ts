@@ -22232,6 +22232,20 @@ export namespace Schemas {
       Never: 'never',
     } as const;
 
+    /**
+     * * `preserve` - preserve
+    * `two_column` - two_column
+    * `full_width` - full_width
+     */
+    export type LayoutEnum = typeof LayoutEnum[keyof typeof LayoutEnum];
+
+
+    export const LayoutEnum = {
+      Preserve: 'preserve',
+      TwoColumn: 'two_column',
+      FullWidth: 'full_width',
+    } as const;
+
     export interface LegalDocumentCreator {
       first_name: string;
       email: string;
@@ -36676,6 +36690,12 @@ export namespace Schemas {
        * @minItems 1
        */
       tile_order: number[];
+      /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
+
+    * `preserve` - preserve
+    * `two_column` - two_column
+    * `full_width` - full_width */
+      layout?: LayoutEnum;
     }
 
     export interface ScanEvidence {

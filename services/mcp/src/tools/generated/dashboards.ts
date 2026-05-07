@@ -246,6 +246,9 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
         if (params.tile_order !== undefined) {
             body['tile_order'] = params.tile_order
         }
+        if (params.layout !== undefined) {
+            body['layout'] = params.layout
+        }
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/reorder_tiles/`,
