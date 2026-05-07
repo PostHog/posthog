@@ -1258,7 +1258,7 @@ export type AssistantLifecycleStatus = 'new' | 'returning' | 'resurrecting' | 'd
 
 /**
  * Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows
- * are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.
+ * are `distinct_id`, `email`, `name`, and optionally matched session recordings.
  *
  * Use the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight
  * is a 4-row stack (new / returning / resurrecting / dormant) per day.
