@@ -8,6 +8,7 @@ use tracing::{error, instrument, warn, Span};
 
 use crate::{
     api::CaptureError,
+    event_restrictions::Pipeline,
     payload::{decompress_payload, Compression},
 };
 
@@ -166,6 +167,20 @@ pub enum DataType {
     HeatmapMain,
     ExceptionErrorTracking,
     SnapshotMain,
+}
+
+impl DataType {
+    /// Pipeline this event flows to, if any. Heatmaps, ingestion warnings,
+    /// and snapshots have their own dedicated topics and consumers; they
+    /// don't share Redis-backed restriction config with any other pipeline,
+    /// so they're not subject to `EventRestrictionService` lookups.
+    pub fn pipeline(self) -> Option<Pipeline> {
+        match self {
+            Self::AnalyticsMain | Self::AnalyticsHistorical => Some(Pipeline::Analytics),
+            Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
+            Self::ClientIngestionWarning | Self::HeatmapMain | Self::SnapshotMain => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

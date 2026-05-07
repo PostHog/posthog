@@ -18,9 +18,7 @@ use limiters::overflow::OverflowLimiter;
 use crate::{
     api::CaptureError,
     debug_or_info,
-    event_restrictions::{
-        EventContext as RestrictionEventContext, EventRestrictionService, Pipeline,
-    },
+    event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
@@ -179,30 +177,22 @@ pub async fn process_events<'a>(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
 
-    // Apply event restrictions, mapping `DataType` to the appropriate pipeline:
-    //   * `AnalyticsMain` / `AnalyticsHistorical` → `Pipeline::Analytics`
-    //   * `ExceptionErrorTracking`                → `Pipeline::ErrorTracking`
-    //   * `ClientIngestionWarning` / `HeatmapMain` / `SnapshotMain` → unrestricted
-    //
-    // The single restriction service holds entries for all pipelines its host
-    // capture deployment serves; the pipeline argument selects which slice of
-    // restrictions applies to each event. A DropEvent tagged only for
-    // `analytics` will never silently drop an exception event on the way to
-    // the error tracking topic, and vice versa.
+    // Apply event restrictions, looking each event up under its `DataType`'s
+    // pipeline. The single restriction service holds entries for all
+    // pipelines its host capture deployment serves; the pipeline argument
+    // selects which slice of restrictions applies to each event. A DropEvent
+    // tagged only for `analytics` will never silently drop an exception event
+    // on the way to the error tracking topic, and vice versa. Data types
+    // without a pipeline (heatmaps, ingestion warnings, snapshots) flow
+    // through unrestricted.
     if let Some(ref service) = restriction_service {
         let mut filtered_events = Vec::with_capacity(events.len());
         let now_ts = context.now.timestamp();
 
         for e in events {
-            let pipeline = match e.metadata.data_type {
-                DataType::AnalyticsMain | DataType::AnalyticsHistorical => Pipeline::Analytics,
-                DataType::ExceptionErrorTracking => Pipeline::ErrorTracking,
-                DataType::ClientIngestionWarning
-                | DataType::HeatmapMain
-                | DataType::SnapshotMain => {
-                    filtered_events.push(e);
-                    continue;
-                }
+            let Some(pipeline) = e.metadata.data_type.pipeline() else {
+                filtered_events.push(e);
+                continue;
             };
 
             let uuid_str = e.event.uuid.to_string();
