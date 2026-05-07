@@ -7,6 +7,7 @@ import { expect, Page } from '@playwright/test'
 
 import { SharingConfigurationType } from '../../frontend/src/types'
 import { PlaywrightSetup } from '../utils/playwright-setup'
+import { expectNoTeamScopedApiLeaks, openUnauthenticatedSharedPage } from '../utils/sharedViewExpectations'
 import { test } from '../utils/workspace-test-base'
 
 async function createSharedNotebook(
@@ -69,7 +70,7 @@ test.describe('Shared notebook (unauthenticated)', () => {
         )
 
         const unauthContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
-        const unauthPage = await unauthContext.newPage()
+        const { unauthPage, failedApiResponses } = await openUnauthenticatedSharedPage(unauthContext)
 
         try {
             await unauthPage.goto(`/shared/${sharingData.access_token}`)
@@ -77,6 +78,8 @@ test.describe('Shared notebook (unauthenticated)', () => {
             await expect(unauthPage.locator('body.ExporterBody')).toBeVisible()
             await expect(unauthPage.locator(`text=${notebookTitle}`).first()).toBeVisible({ timeout: 30000 })
             await expect(unauthPage.locator(`text=${paragraphText}`)).toBeVisible({ timeout: 30000 })
+
+            expectNoTeamScopedApiLeaks(failedApiResponses)
         } finally {
             await unauthContext.close()
         }
