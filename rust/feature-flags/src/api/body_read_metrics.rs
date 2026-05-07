@@ -63,11 +63,16 @@ pub async fn record_body_read(req: Request, next: Next) -> Response {
     let bytes = match axum::body::to_bytes(body, MAX_FLAGS_BODY_BYTES).await {
         Ok(bytes) => bytes,
         Err(err) => {
-            // `to_bytes` wraps the underlying http_body_util error; walking
-            // `Error::source` is how axum's own `Bytes::from_request` picks
-            // 413 vs 400.
-            let too_large = std::error::Error::source(&err)
-                .is_some_and(|s| s.is::<http_body_util::LengthLimitError>());
+            // `to_bytes` wraps the underlying http_body_util error. Walk
+            // the full `Error::source` chain rather than just the first
+            // level: axum currently wraps `LengthLimitError` one layer
+            // deep, but that depth is internal to axum/http-body-util,
+            // not a contract. A future bump that adds another wrapper
+            // layer would silently misclassify 413s as 400s and stop
+            // firing `flags_body_read_too_large_total`.
+            let too_large =
+                std::iter::successors(std::error::Error::source(&err), |s| s.source())
+                    .any(|s| s.is::<http_body_util::LengthLimitError>());
             if too_large {
                 inc(FLAG_BODY_READ_TOO_LARGE_COUNTER, &[], 1);
                 tracing::warn!(

@@ -56,7 +56,8 @@ pub enum Phase {
     /// Flag evaluation: dependency graph build, per-flag matching,
     /// hash-key override resolution, group/cohort fetches.
     Evaluate = 4,
-    /// Synchronous billing increment plus shadow-keyspace tee.
+    /// On-path billing increment (Redis HINCRBY) plus shadow-keyspace tee.
+    /// Awaited, not fire-and-forget; counts toward request latency.
     RecordBilling = 5,
     /// Building the response payload from the cached config blob.
     ConfigResponse = 6,

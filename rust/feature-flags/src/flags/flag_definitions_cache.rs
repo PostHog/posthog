@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_hypercache::CacheSource;
-use common_metrics::{gauge, histogram, inc};
+use common_metrics::{gauge, inc};
 use common_types::TeamId;
 use lifecycle::Handle;
 use moka::future::Cache;
@@ -17,8 +17,8 @@ use crate::metrics::consts::{
 };
 
 /// Outcome of a single `get_or_load` call. Used as the `outcome` label on
-/// `flags_definitions_inmem_load_ms`. Closed and small so cardinality
-/// stays bounded.
+/// `flags_definitions_inmem_load_ms`. Six variants total; cardinality is
+/// `6 × buckets` per pod.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LoadOutcome {
     /// In-memory cache returned a value without invoking the loader.
@@ -26,8 +26,12 @@ enum LoadOutcome {
     /// Loader ran successfully via HyperCache → Redis/S3 and the result
     /// was cached under the etag.
     MissLoadOk,
-    /// Loader returned `Err` — HyperCache infrastructure or
-    /// `compile_from_wrapper` data-parsing failure.
+    /// `get_or_load_classified` returned `Err`. Covers both loader
+    /// infrastructure failures (HyperCache stall, Redis/S3 outage) and
+    /// `compile_from_wrapper` data-parsing failures on otherwise healthy
+    /// loader output. The two are indistinguishable at this label, so an
+    /// `outcome="miss_load_err"` spike with healthy upstreams points at
+    /// data-shape regressions, not infra.
     MissLoadErr,
     /// `etag` was `Some` but the loader returned a non-empty wrapper for
     /// which no etag is in Redis — version-key drift.
@@ -133,11 +137,15 @@ impl FlagDefinitionsCache {
         // Sub-ms-precision recording paired with the sub-ms-floor bucket
         // override registered in `metrics::buckets`. Hits would otherwise
         // collapse into the lowest integer-ms bucket and hide tail behavior.
-        histogram(
+        // Direct `metrics::histogram!` (not `common_metrics::histogram`) so
+        // the `&'static str` outcome label avoids per-call `String`
+        // allocations on the hot read path; this metric has no `team_id`
+        // label, so the allowlist filter does not apply.
+        metrics::histogram!(
             FLAG_DEFINITIONS_INMEM_LOAD_MS,
-            &[("outcome".to_string(), outcome.label().to_string())],
-            start.elapsed().as_secs_f64() * 1000.0,
-        );
+            "outcome" => outcome.label(),
+        )
+        .record(start.elapsed().as_secs_f64() * 1000.0);
         result.map(|(prepared, src, _)| (prepared, src))
     }
 
@@ -423,9 +431,28 @@ mod tests {
         );
     }
 
+    /// Snapshots the `outcome` label of the most recent
+    /// `flags_definitions_inmem_load_ms` sample. Returns `None` when no
+    /// sample was recorded. Shared by the per-outcome tests below.
+    fn last_load_outcome_label(
+        snapshotter: &metrics_util::debugging::Snapshotter,
+    ) -> Option<String> {
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .rfind(|(ckey, _, _, _)| ckey.key().name() == FLAG_DEFINITIONS_INMEM_LOAD_MS)
+            .and_then(|(ckey, _, _, _)| {
+                ckey.key()
+                    .labels()
+                    .find(|l| l.key() == "outcome")
+                    .map(|l| l.value().to_string())
+            })
+    }
+
     #[tokio::test]
     async fn test_pg_fallback_emits_fallback_outcome_label() {
-        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+        use metrics_util::debugging::DebuggingRecorder;
 
         // `set_default_local_recorder` returns a thread-local guard;
         // safe across `.await` because `#[tokio::test]` defaults to a
@@ -445,18 +472,69 @@ mod tests {
             .unwrap();
         assert!(matches!(src, CacheSource::Fallback));
 
-        let snapshot = snapshotter.snapshot().into_vec();
-        let (ckey, _, _, value) = snapshot
-            .iter()
-            .find(|(ckey, _, _, _)| ckey.key().name() == FLAG_DEFINITIONS_INMEM_LOAD_MS)
-            .expect("flags_definitions_inmem_load_ms not emitted");
-        let outcome = ckey
-            .key()
-            .labels()
-            .find(|l| l.key() == "outcome")
-            .map(|l| l.value());
-        assert_eq!(outcome, Some("fallback"));
-        assert!(matches!(value, DebugValue::Histogram(_)));
+        assert_eq!(
+            last_load_outcome_label(&snapshotter).as_deref(),
+            Some("fallback")
+        );
+    }
+
+    /// Pins the dashboard contract for the `miss_load_ok` label: a
+    /// cache miss with a healthy Redis-source loader must classify as
+    /// `miss_load_ok`, not `fallback` or `miss_load_err`. Without this
+    /// assertion, a regression that swapped the `Fallback` arm in
+    /// `get_or_load_classified` would not fail any other test.
+    #[tokio::test]
+    async fn test_etag_present_redis_loader_emits_miss_load_ok_label() {
+        use metrics_util::debugging::DebuggingRecorder;
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let cache = FlagDefinitionsCache::new(None, None);
+        let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
+        cache
+            .get_or_load(1, Some("fresh-etag".into()), loader_for(w))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            last_load_outcome_label(&snapshotter).as_deref(),
+            Some("miss_load_ok")
+        );
+    }
+
+    /// Pins the dashboard contract for `miss_load_err`: an `Err` from
+    /// the loader (here `DatabaseUnavailable`) must classify as
+    /// `miss_load_err`. The same label also covers
+    /// `compile_from_wrapper` parse failures — see the `LoadOutcome`
+    /// doc — so an alert on this label cannot distinguish the two
+    /// without correlating against upstream health.
+    #[tokio::test]
+    async fn test_loader_error_emits_miss_load_err_label() {
+        use metrics_util::debugging::DebuggingRecorder;
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let cache = FlagDefinitionsCache::new(None, None);
+        let loader = || -> LoaderFuture {
+            Box::pin(async {
+                Err::<(Option<HypercacheFlagsWrapper>, CacheSource), _>(
+                    FlagError::DatabaseUnavailable,
+                )
+            })
+        };
+        cache
+            .get_or_load(1, Some("e".into()), loader)
+            .await
+            .expect_err("loader error must surface");
+
+        assert_eq!(
+            last_load_outcome_label(&snapshotter).as_deref(),
+            Some("miss_load_err")
+        );
     }
 
     /// When the etag GET succeeds but the loader returns `Fallback` (e.g.

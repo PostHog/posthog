@@ -259,13 +259,7 @@ async fn process_request_inner(
                     .await?
                 };
 
-                // Only record billing if flags are not disabled. The
-                // `if !is_flags_disabled` guard is redundant inside this
-                // arm (the outer `if` already handled the disabled path)
-                // but kept verbatim to preserve the existing semantic
-                // contract — `record_billing` is also called from
-                // narrower call sites in tests.
-                if !request.is_flags_disabled() {
+                {
                     let _phase = PhaseGuard::enter(Phase::RecordBilling);
                     billing::record_usage(
                         &context,

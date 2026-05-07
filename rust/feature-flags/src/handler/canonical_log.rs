@@ -552,10 +552,13 @@ impl FlagsCanonicalLogLine {
             .unwrap_or_else(|| "unknown".to_string());
 
         for (phase, elapsed) in self.phases.iter() {
-            // Allocate the labels once per emission. The team-id allowlist
-            // filter applied inside `common_metrics::histogram` will
-            // collapse non-allowlisted values, so cardinality stays
-            // bounded by `phase_count × allowlist_size`.
+            // The phase label varies per iteration; team_id is constant
+            // for the request. We have to go through `common_metrics::
+            // histogram` (rather than `metrics::histogram!` directly) to
+            // pick up the team-id allowlist filter — without it cardinality
+            // is `phase_count × every_team`, not `phase_count ×
+            // allowlist_size`. Allocations are bounded: ~four short
+            // `String`s per phase, ~28 per request total.
             let labels = [
                 ("phase".to_string(), phase.name().to_string()),
                 ("team_id".to_string(), team_id_label_value.clone()),
