@@ -990,6 +990,7 @@ class TestProperty(BaseTest):
         # Used to raise QueryError("Field not found: pdi") under PoE modes that rebind
         # events.person to the `poe` virtual table.
         assert "distinct_id" in sql
+        assert "pdi" not in sql
 
     def test_entity_to_expr_actions_type_with_id(self):
         action_mock = MagicMock()
