@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS groups_mv
+
+DROP TABLE IF EXISTS kafka_groups

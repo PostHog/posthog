@@ -991,3 +991,7 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
+    dump:ch:migration:sql:
+        bin_script: dump-ch-migration-sql
+        description: 'TODO: add description for dump-ch-migration-sql'
+        hidden: true

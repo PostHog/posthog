@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS posthog_document_embeddings_mv

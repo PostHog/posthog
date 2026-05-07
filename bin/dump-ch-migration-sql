@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Write rendered SQL for every ClickHouse migration to
+# posthog/clickhouse/migrations/sql/<migration>/<env>/<nodetype>.sql
+#
+# Each call to dump_ch_migration_sql covers one CLOUD_DEPLOYMENT value.
+# Because migrations read CLOUD_DEPLOYMENT at import time, a separate
+# process per environment is required to capture cloud-gated SQL correctly.
+#
+# Usage:
+#   bin/dump-ch-migration-sql                   # all migrations, all envs
+#   bin/dump-ch-migration-sql 0247_foo 0248_bar # selected migrations only
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+run_env() {
+    local deployment="$1"
+    local label="$2"
+    echo "=== CLOUD_DEPLOYMENT=${deployment:-<unset>}  env=${label} ==="
+    CLOUD_DEPLOYMENT="${deployment}" python manage.py dump_ch_migration_sql --env "${label}" "$@"
+}
+
+# Pass any extra arguments (migration names) through to the command.
+# We need to skip the first two positional args inside the function, but
+# "$@" here refers to the script arguments.
+for pair in ":hobby" "US:us" "EU:eu" "DEV:dev"; do
+    deployment="${pair%%:*}"
+    label="${pair##*:}"
+    echo "=== CLOUD_DEPLOYMENT=${deployment:-<unset>}  env=${label} ==="
+    CLOUD_DEPLOYMENT="${deployment}" python manage.py dump_ch_migration_sql --env "${label}" "$@"
+done
+
+echo ""
+echo "Done. Review changes with: git diff posthog/clickhouse/migrations/sql/"

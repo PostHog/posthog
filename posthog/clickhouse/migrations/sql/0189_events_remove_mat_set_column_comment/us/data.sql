@@ -1,0 +1,1 @@
+ALTER TABLE events COMMENT COLUMN IF EXISTS `mat_$set` ''

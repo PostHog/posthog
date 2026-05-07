@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS error_tracking_fingerprint_issue_state_mv
+
+DROP TABLE IF EXISTS kafka_error_tracking_fingerprint_issue_state

@@ -1039,6 +1039,33 @@ jobs:
                       echo "::endgroup::"
                   done
 
+            - name: Update CH migration SQL log
+              # Keep posthog/clickhouse/migrations/sql/ in sync with migration operations.
+              # The log captures exactly what SQL each migration would run per environment
+              # and node type, making changes reviewable as plain diffs.
+              if: github.event_name == 'pull_request'
+              run: |
+                  CHANGED=$(git diff --name-only --diff-filter=AM origin/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  if [ -z "$CHANGED" ]; then
+                      echo "No ClickHouse migrations changed."
+                      exit 0
+                  fi
+                  bin/dump-ch-migration-sql ${CHANGED}
+                  if git diff --exit-code posthog/clickhouse/migrations/sql/; then
+                      echo "CH migration SQL log is up to date."
+                      exit 0
+                  fi
+                  echo ""
+                  echo "::error::CH migration SQL log is out of date!"
+                  echo ""
+                  echo "The SQL files under posthog/clickhouse/migrations/sql/ capture exactly what"
+                  echo "each migration will execute per environment. They must be updated whenever"
+                  echo "a migration is added or modified."
+                  echo ""
+                  echo "To fix, run locally:  bin/dump-ch-migration-sql"
+                  echo "Then commit the updated files."
+                  exit 1
+
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 

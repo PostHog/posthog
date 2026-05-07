@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS raw_sessions_v3_recordings_mv

@@ -1,0 +1,1 @@
+ALTER TABLE sharded_events MODIFY COLUMN IF EXISTS `mat_$set` REMOVE DEFAULT

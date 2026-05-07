@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS writable_behavioral_cohorts_matches
