@@ -78,4 +78,5 @@ export type SessionGroupSummaryType = SessionGroupSummaryListItemType & {
 
 export interface SessionSummariesConfig {
     product_context: string
+    custom_tags: Record<string, string>
 }
