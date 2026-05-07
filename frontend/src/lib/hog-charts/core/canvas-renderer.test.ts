@@ -496,6 +496,100 @@ describe('hog-charts canvas-renderer', () => {
             expect(lastMoveTo[0]).toBe(dimensions.plotLeft)
             expect(lastLineTo[0]).toBe(dimensions.plotLeft + dimensions.plotWidth)
         })
+
+        describe('categoryTicks', () => {
+            function countAxisAlignedStrokes(
+                ctx: jest.Mocked<CanvasRenderingContext2D>,
+                axis: 'vertical' | 'horizontal'
+            ): number {
+                const moves = ctx.moveTo.mock.calls as [number, number][]
+                const lines = ctx.lineTo.mock.calls as [number, number][]
+                let n = 0
+                for (let i = 0; i < moves.length; i++) {
+                    const [mx, my] = moves[i]
+                    const [lx, ly] = lines[i] ?? [NaN, NaN]
+                    if (axis === 'vertical' && mx === lx && my !== ly) {
+                        n++
+                    } else if (axis === 'horizontal' && my === ly && mx !== lx) {
+                        n++
+                    }
+                }
+                return n
+            }
+
+            it.each([
+                {
+                    desc: 'vertical mode draws one extra vertical stroke per finite categoryTick',
+                    orientation: 'vertical' as const,
+                    expectedAxis: 'vertical' as const,
+                    valueAxis: 'horizontal' as const,
+                },
+                {
+                    desc: 'horizontal mode draws one extra horizontal stroke per finite categoryTick',
+                    orientation: 'horizontal' as const,
+                    expectedAxis: 'horizontal' as const,
+                    valueAxis: 'vertical' as const,
+                },
+            ])('$desc', ({ orientation, expectedAxis, valueAxis }) => {
+                const baseline = mockCanvasContext()
+                const baselineCtx = makeDrawContext(baseline, ['a', 'b'])
+                drawGrid(baselineCtx, { orientation })
+                const baselineCrossAxis = countAxisAlignedStrokes(baseline, expectedAxis)
+
+                const ctx = mockCanvasContext()
+                const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+                const ticks = [100, 200, 300]
+                drawGrid(drawCtx, { orientation, categoryTicks: ticks })
+
+                expect(countAxisAlignedStrokes(ctx, expectedAxis)).toBe(baselineCrossAxis + ticks.length)
+                expect(countAxisAlignedStrokes(ctx, valueAxis)).toBe(countAxisAlignedStrokes(baseline, valueAxis))
+            })
+
+            it.each([{ orientation: 'vertical' as const }, { orientation: 'horizontal' as const }])(
+                'skips non-finite categoryTicks ($orientation)',
+                ({ orientation }) => {
+                    const ctx = mockCanvasContext()
+                    const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+                    const finiteTicks = [50, 150]
+                    drawGrid(drawCtx, {
+                        orientation,
+                        categoryTicks: [Number.NaN, ...finiteTicks, Number.POSITIVE_INFINITY],
+                    })
+                    const expectedAxis = orientation === 'vertical' ? 'vertical' : 'horizontal'
+
+                    const baseline = mockCanvasContext()
+                    const baselineCtx = makeDrawContext(baseline, ['a', 'b'])
+                    drawGrid(baselineCtx, { orientation })
+
+                    expect(countAxisAlignedStrokes(ctx, expectedAxis)).toBe(
+                        countAxisAlignedStrokes(baseline, expectedAxis) + finiteTicks.length
+                    )
+                }
+            )
+
+            it('vertical categoryTicks draw lines spanning the full plot height at the requested x', () => {
+                const ctx = mockCanvasContext()
+                const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+                drawGrid(drawCtx, { orientation: 'vertical', categoryTicks: [123] })
+                // Coordinate is snapped to integer + 0.5 (crisp 1px stroke), so 123 → 123.5.
+                const moves = ctx.moveTo.mock.calls as [number, number][]
+                const lines = ctx.lineTo.mock.calls as [number, number][]
+                const idx = moves.findIndex(([mx, my]) => mx === 123.5 && my === dimensions.plotTop)
+                expect(idx).toBeGreaterThanOrEqual(0)
+                expect(lines[idx]).toEqual([123.5, dimensions.plotTop + dimensions.plotHeight])
+            })
+
+            it('horizontal categoryTicks draw lines spanning the full plot width at the requested y', () => {
+                const ctx = mockCanvasContext()
+                const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+                drawGrid(drawCtx, { orientation: 'horizontal', categoryTicks: [200] })
+                const moves = ctx.moveTo.mock.calls as [number, number][]
+                const lines = ctx.lineTo.mock.calls as [number, number][]
+                const idx = moves.findIndex(([mx, my]) => my === 200.5 && mx === dimensions.plotLeft)
+                expect(idx).toBeGreaterThanOrEqual(0)
+                expect(lines[idx]).toEqual([dimensions.plotLeft + dimensions.plotWidth, 200.5])
+            })
+        })
     })
 
     describe('composeDrawHoverWithCrosshair', () => {
@@ -516,6 +610,7 @@ describe('hog-charts canvas-renderer', () => {
                 series: [],
                 labels: ['Mon', 'Tue', 'Wed'],
                 hoverIndex,
+                hoverPosition: null,
                 theme: {} as ChartTheme,
             }
         }

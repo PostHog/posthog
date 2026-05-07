@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     ColumnConfigurationApi,
@@ -36,6 +37,7 @@ import type {
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PaginatedInsightListApi,
+    PaginatedTrendingInsightListApi,
     PatchedColumnConfigurationApi,
     PatchedElementApi,
     PatchedInsightApi,
@@ -521,12 +523,7 @@ export const insightsDestroy = async (
 }
 
 /**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ * Audit trail for a single insight — every change made to it, by whom, and when. Use this when you want the change history of a specific insight; use the project-wide activity endpoint for a broader view.
  */
 export const getInsightsActivityRetrieveUrl = (
     projectId: string,
@@ -553,8 +550,8 @@ export const insightsActivityRetrieve = async (
     id: number,
     params?: InsightsActivityRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsActivityRetrieveUrl(projectId, id, params), {
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getInsightsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -684,12 +681,7 @@ export const insightsSuggestionsCreate = async (
 }
 
 /**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ * Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have been working on recently.
  */
 export const getInsightsAllActivityRetrieveUrl = (projectId: string, params?: InsightsAllActivityRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
@@ -711,8 +703,8 @@ export const insightsAllActivityRetrieve = async (
     projectId: string,
     params?: InsightsAllActivityRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsAllActivityRetrieveUrl(projectId, params), {
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getInsightsAllActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -864,8 +856,7 @@ export const insightsMyLastViewedRetrieve = async (
 }
 
 /**
- * Returns trending insights based on view count in the last N days (default 7).
-Defaults to returning top 10 insights.
+ * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
  */
 export const getInsightsTrendingRetrieveUrl = (projectId: string, params?: InsightsTrendingRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
@@ -887,8 +878,8 @@ export const insightsTrendingRetrieve = async (
     projectId: string,
     params?: InsightsTrendingRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getInsightsTrendingRetrieveUrl(projectId, params), {
+): Promise<PaginatedTrendingInsightListApi> => {
+    return apiMutator<PaginatedTrendingInsightListApi>(getInsightsTrendingRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
