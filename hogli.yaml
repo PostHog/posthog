@@ -601,19 +601,8 @@ db:
         steps:
             - db:download-schema
             - db:dump
-            - name: restore-schema
-              cmd: "set -e\nset -o pipefail\necho \"Restoring schema to database...\"\ngunzip\
-                  \ -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql\
-                  \ -q -U posthog posthog\necho \"\u2705 Schema restored\"\n"
+            - db:restore-dev-db
             - db:migrate
-            - name: ensure-migration-defaults
-              cmd: 'set -e
-
-                  echo "Ensuring default migration data..."
-
-                  python manage.py ensure_migration_defaults
-
-                  '
         description: Fetch pre-migrated schema from CI, restore it, and run any pending
             migrations (creates backup first)
         prompt: true
