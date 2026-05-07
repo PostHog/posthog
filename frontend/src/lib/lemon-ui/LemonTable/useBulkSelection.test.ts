@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 
-import { BulkSelectionHandle, BulkSelectionRowGate, useBulkSelection } from './useBulkSelection'
+import { BulkSelectionRowGate, useBulkSelection } from './useBulkSelection'
 
 interface Row {
     id: number
@@ -89,20 +89,27 @@ describe('useBulkSelection', () => {
         expect(result.current.context.selectedRecords.map((r) => r.id)).toEqual([999])
     })
 
-    it('exposes an imperative handle when handleRef is provided', () => {
-        const handleRef: { current: BulkSelectionHandle | null } = { current: null }
+    it.each([
+        { scenario: 'no initial selection', initial: undefined, expected: [] },
+        { scenario: 'empty array initial selection', initial: [], expected: [] },
+        { scenario: 'a populated initial selection', initial: [1, 3], expected: [1, 3] },
+        { scenario: 'a deduplicated initial selection', initial: [1, 1, 2, 1], expected: [1, 2] },
+    ])('honours initialSelectedKeys at mount: $scenario', ({ initial, expected }) => {
         const { result } = renderHook(() =>
-            useBulkSelection<Row>({
-                pageRecords: PAGE,
-                getKey,
-                handleRef,
-            })
+            useBulkSelection<Row>({ pageRecords: PAGE, getKey, initialSelectedKeys: initial })
         )
-        expect(handleRef.current).not.toBeNull()
-        act(() => handleRef.current!.setSelectedKeys([2, 3]))
-        expect([...result.current.selectedKeys].sort()).toEqual([2, 3])
-        act(() => handleRef.current!.clearSelection())
-        expect(result.current.selectedKeys).toEqual([])
+        expect([...result.current.selectedKeys].sort()).toEqual(expected.sort())
+    })
+
+    it('ignores changes to initialSelectedKeys after mount (it is uncontrolled)', () => {
+        const { result, rerender } = renderHook(
+            ({ initial }: { initial: number[] }) =>
+                useBulkSelection<Row>({ pageRecords: PAGE, getKey, initialSelectedKeys: initial }),
+            { initialProps: { initial: [1] } }
+        )
+        expect(result.current.selectedKeys).toEqual([1])
+        rerender({ initial: [2, 3] })
+        expect(result.current.selectedKeys).toEqual([1])
     })
 
     describe('shift-click range selection', () => {

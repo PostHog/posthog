@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -17,14 +18,14 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { BulkSelectionHandle, LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { pluralize } from 'lib/utils'
+import { pluralize, toParams } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -332,35 +333,13 @@ export function OverviewTab({
     const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
     const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
-    const { bulkDeleteResponseLoading, matchingFlagIds, matchingFlagIdsLoading, bulkDeleteResponse } =
-        useValues(flagSelectionLogic)
-    const { loadMatchingFlagIds, bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const { currentProjectId } = useValues(projectLogic)
+    const { paramsFromFilters } = useValues(featureFlagsLogic({}))
+    const { bulkDeleteResponseLoading } = useValues(flagSelectionLogic)
+    const { bulkDeleteFlags } = useActions(flagSelectionLogic)
 
-    const selectionHandleRef = useRef<BulkSelectionHandle | null>(null)
-    const lastAppliedMatchingFlagIdsRef = useRef<typeof matchingFlagIds>(null)
-    const lastSeenBulkDeleteResponseRef = useRef<typeof bulkDeleteResponse>(null)
-
-    useEffect(() => {
-        if (
-            matchingFlagIds &&
-            matchingFlagIds !== lastAppliedMatchingFlagIdsRef.current &&
-            selectionHandleRef.current
-        ) {
-            selectionHandleRef.current.setSelectedKeys(matchingFlagIds.ids)
-            lastAppliedMatchingFlagIdsRef.current = matchingFlagIds
-        }
-    }, [matchingFlagIds])
-
-    useEffect(() => {
-        if (
-            bulkDeleteResponse &&
-            bulkDeleteResponse !== lastSeenBulkDeleteResponseRef.current &&
-            selectionHandleRef.current
-        ) {
-            selectionHandleRef.current.clearSelection()
-            lastSeenBulkDeleteResponseRef.current = bulkDeleteResponse
-        }
-    }, [bulkDeleteResponse])
+    const [matchingFlagIds, setMatchingFlagIds] = useState<readonly number[] | null>(null)
+    const [matchingFlagIdsLoading, setMatchingFlagIdsLoading] = useState(false)
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -562,7 +541,7 @@ export function OverviewTab({
                     })
                 }
                 bulkSelection={{
-                    getKey: (flag: FeatureFlagType) => flag.id ?? -1,
+                    getKey: (flag: FeatureFlagType): number => flag.id ?? -1,
                     isRowSelectable: (flag: FeatureFlagType) =>
                         flag.id === null
                             ? false
@@ -572,11 +551,10 @@ export function OverviewTab({
                     rowAriaLabel: (flag: FeatureFlagType) => `Select feature flag ${flag.key}`,
                     headerAriaLabel: 'Select all feature flags on this page',
                     noun: ['flag', 'flags'],
-                    handleRef: selectionHandleRef,
                     renderActions: (ctx) => {
                         const totalMatchingCount = effectiveCount
                         const isAllMatchingSelected =
-                            matchingFlagIds !== null && ctx.selectedCount === matchingFlagIds.ids.length
+                            matchingFlagIds !== null && ctx.selectedCount === matchingFlagIds.length
                         const showSelectAllMatchingBanner =
                             !isAllMatchingSelected &&
                             ctx.selectedCount >= FLAGS_PER_PAGE &&
@@ -592,16 +570,31 @@ export function OverviewTab({
                                     <LemonButton
                                         type="secondary"
                                         size="small"
-                                        onClick={loadMatchingFlagIds}
                                         loading={matchingFlagIdsLoading}
+                                        onClick={async () => {
+                                            setMatchingFlagIdsLoading(true)
+                                            try {
+                                                const { limit, offset, ...filters } = paramsFromFilters
+                                                const response = (await api.get(
+                                                    `api/projects/${currentProjectId}/feature_flags/matching_ids/?${toParams(filters)}`
+                                                )) as { ids: number[]; total: number }
+                                                setMatchingFlagIds(response.ids)
+                                                ctx.setSelectedKeys(response.ids)
+                                            } finally {
+                                                setMatchingFlagIdsLoading(false)
+                                            }
+                                        }}
                                     >
                                         Select all {totalMatchingCount} matching flags
                                     </LemonButton>
                                 )}
                                 <BulkUpdateTagsButton
                                     resource="feature_flags"
-                                    selectedIds={ctx.selectedKeys as ReadonlyArray<number>}
-                                    onSuccess={ctx.clearSelection}
+                                    selectedIds={ctx.selectedKeys}
+                                    onSuccess={() => {
+                                        ctx.clearSelection()
+                                        setMatchingFlagIds(null)
+                                    }}
                                 />
                                 <LemonButton
                                     type="primary"
@@ -617,11 +610,14 @@ export function OverviewTab({
                                             primaryButton: {
                                                 children: 'Delete',
                                                 status: 'danger',
-                                                onClick: () =>
+                                                onClick: () => {
                                                     bulkDeleteFlags({
-                                                        ids: ctx.selectedKeys as number[],
+                                                        ids: [...ctx.selectedKeys],
                                                         allMatching: isAllMatchingSelected,
-                                                    }),
+                                                    })
+                                                    ctx.clearSelection()
+                                                    setMatchingFlagIds(null)
+                                                },
                                                 size: 'small',
                                             },
                                             secondaryButton: {

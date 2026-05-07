@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useEffect, useRef } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 
@@ -12,7 +11,6 @@ import { LemonDivider } from '../LemonDivider'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
 import { LemonTableColumns } from './types'
-import { BulkSelectionHandle } from './useBulkSelection'
 
 type Story = StoryObj<LemonTableProps<any>>
 const meta: Meta<LemonTableProps<any>> = {
@@ -525,20 +523,14 @@ const BULK_SELECTION_COLUMNS: LemonTableColumns<MockPerson> = [
 const BULK_SELECTION_PEOPLE = MANY_PEOPLE.slice(0, 5)
 
 function BulkSelectionTable({ initialSelected }: { initialSelected: string[] }): JSX.Element {
-    const handleRef = useRef<BulkSelectionHandle | null>(null)
-    useEffect(() => {
-        if (initialSelected.length > 0) {
-            handleRef.current?.setSelectedKeys(initialSelected)
-        }
-    }, [initialSelected])
-
     return (
         <LemonTable
             columns={BULK_SELECTION_COLUMNS}
             dataSource={BULK_SELECTION_PEOPLE}
             rowKey="name"
             bulkSelection={{
-                handleRef,
+                getKey: (person: MockPerson): string => person.name,
+                initialSelectedKeys: initialSelected,
                 noun: ['person', 'people'],
                 rowAriaLabel: (person: MockPerson) => `Select ${person.name}`,
                 headerAriaLabel: 'Select all people on this page',

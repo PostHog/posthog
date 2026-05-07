@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { featureFlagsLogic } from './featureFlagsLogic'
@@ -47,18 +46,6 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
     }),
 
     loaders(({ values }) => ({
-        matchingFlagIds: [
-            null as { ids: number[]; total: number } | null,
-            {
-                loadMatchingFlagIds: async () => {
-                    const { limit, offset, ...filters } = values.paramsFromFilters
-                    const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/matching_ids/?${toParams(filters)}`
-                    )
-                    return response as { ids: number[]; total: number }
-                },
-            },
-        ],
         bulkDeleteResponse: [
             null as BulkDeleteResult | null,
             {

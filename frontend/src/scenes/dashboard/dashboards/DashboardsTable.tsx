@@ -268,6 +268,7 @@ export function DashboardsTable({
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
                 bulkSelection={{
+                    getKey: (dashboard: DashboardType): number => dashboard.id,
                     isRowSelectable: (dashboard: DashboardType) =>
                         accessLevelSatisfied(
                             AccessControlResourceType.Dashboard,
@@ -281,7 +282,7 @@ export function DashboardsTable({
                     renderActions: (ctx) => (
                         <BulkUpdateTagsButton
                             resource="dashboards"
-                            selectedIds={ctx.selectedKeys as ReadonlyArray<number>}
+                            selectedIds={ctx.selectedKeys}
                             onSuccess={() => {
                                 ctx.clearSelection()
                                 dashboardsModel.actions.loadDashboards()

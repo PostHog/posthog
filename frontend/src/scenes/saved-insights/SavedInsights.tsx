@@ -1052,6 +1052,7 @@ export function SavedInsights(): JSX.Element {
                             ) : undefined
                         }
                         bulkSelection={{
+                            getKey: (insight: QueryBasedInsightModel): number => insight.id,
                             isRowSelectable: (insight: QueryBasedInsightModel) =>
                                 accessLevelSatisfied(
                                     AccessControlResourceType.Insight,
@@ -1066,7 +1067,7 @@ export function SavedInsights(): JSX.Element {
                             renderActions: (ctx) => (
                                 <BulkUpdateTagsButton
                                     resource="insights"
-                                    selectedIds={ctx.selectedKeys as ReadonlyArray<number>}
+                                    selectedIds={ctx.selectedKeys}
                                     onSuccess={() => {
                                         ctx.clearSelection()
                                         loadInsights()

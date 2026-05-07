@@ -1,18 +1,18 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { BulkSelectionConfig, BulkSelectionContext } from './useBulkSelection'
+import { BulkSelectionConfig, BulkSelectionContext, BulkSelectionKey } from './useBulkSelection'
 
-export interface BulkSelectionBarProps<T extends Record<string, any>> {
-    context: BulkSelectionContext<T>
-    config: BulkSelectionConfig<T>
+export interface BulkSelectionBarProps<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
+    context: BulkSelectionContext<T, K>
+    config: BulkSelectionConfig<T, K>
     noun: [string, string]
 }
 
-export function BulkSelectionBar<T extends Record<string, any>>({
+export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey>({
     context,
     config,
     noun,
-}: BulkSelectionBarProps<T>): JSX.Element | null {
+}: BulkSelectionBarProps<T, K>): JSX.Element | null {
     if (context.selectedCount === 0) {
         return null
     }

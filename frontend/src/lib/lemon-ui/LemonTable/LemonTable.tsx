@@ -23,13 +23,13 @@ import { LemonTableLoader } from './LemonTableLoader'
 import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { TableRow } from './TableRow'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
-import { BulkSelectionConfig, useBulkSelection } from './useBulkSelection'
+import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBulkSelection'
 
 /** Sentinel passed to `useBulkSelection` when `bulkSelection` is undefined — the hook still runs
  *  unconditionally so hook order is stable, but its result is never read. */
 const UNUSED_ROW_KEY = (): string | number => 0
 
-export interface LemonTableProps<T extends Record<string, any>> {
+export interface LemonTableProps<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
     id?: string
     columns: LemonTableColumns<T>
@@ -105,10 +105,10 @@ export interface LemonTableProps<T extends Record<string, any>> {
     hideSortingIndicatorWhenInactive?: boolean
     /** Enable bulk-selection — adds a leading checkbox column and renders the consumer-provided
      *  action bar above the table whenever any rows are selected. */
-    bulkSelection?: BulkSelectionConfig<T>
+    bulkSelection?: BulkSelectionConfig<T, K>
 }
 
-export function LemonTable<T extends Record<string, any>>({
+export function LemonTable<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey>({
     id,
     columns: rawColumns,
     dataSource = [],
@@ -147,7 +147,7 @@ export function LemonTable<T extends Record<string, any>>({
     rowActions,
     hideSortingIndicatorWhenInactive = false,
     bulkSelection,
-}: LemonTableProps<T>): JSX.Element {
+}: LemonTableProps<T, K>): JSX.Element {
     if (bulkSelection && !bulkSelection.getKey && rowKey === undefined) {
         throw new Error(
             'LemonTable `bulkSelection` requires either `bulkSelection.getKey` or a `rowKey` (string or function) to identify rows'
@@ -235,28 +235,28 @@ export function LemonTable<T extends Record<string, any>>({
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
-    const resolveRowKey = useMemo<(record: T) => string | number>(() => {
+    const resolveRowKey = useMemo<(record: T) => K>(() => {
         if (bulkSelection?.getKey) {
             return bulkSelection.getKey
         }
         if (typeof rowKey === 'function') {
-            return (record: T): string | number => rowKey(record, 0)
+            return (record: T): K => rowKey(record, 0) as K
         }
         if (typeof rowKey === 'string') {
             const key = rowKey
-            return (record: T): string | number => record[key]
+            return (record: T): K => record[key] as K
         }
         // The constructor throws above if `bulkSelection` is set without a key source, so this
         // sentinel is only reached when `bulkSelection` is undefined and the hook's results aren't
         // consumed anyway.
-        return UNUSED_ROW_KEY
+        return UNUSED_ROW_KEY as unknown as (record: T) => K
     }, [bulkSelection, rowKey])
 
-    const bulk = useBulkSelection<T>({
+    const bulk = useBulkSelection<T, K>({
         pageRecords: paginationState.dataSourcePage,
         getKey: resolveRowKey,
         isRowSelectable: bulkSelection?.isRowSelectable,
-        handleRef: bulkSelection?.handleRef,
+        initialSelectedKeys: bulkSelection?.initialSelectedKeys,
     })
 
     const effectiveNoun = bulkSelection?.noun ?? nouns

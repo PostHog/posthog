@@ -5,7 +5,6 @@ export type { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTa
 export type {
     BulkSelectionConfig,
     BulkSelectionContext,
-    BulkSelectionHandle,
     BulkSelectionKey,
     BulkSelectionRowGate,
 } from './useBulkSelection'
