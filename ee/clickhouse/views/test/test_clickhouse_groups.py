@@ -2622,3 +2622,187 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert len(response_data["results"]) == 1
         assert response_data["results"][0]["group_key"] == "org:fallback"
         assert response_data["results"][0]["group_properties"] == {"name": "Fallback Org"}
+
+
+class TestGroupsListPersonhogORMParity(ClickhouseTestMixin, APIBaseTest):
+    """Verify the personhog path and ORM fallback path produce identical API responses.
+
+    Each test creates data in the DB, then compares the serialized `results` array
+    from both paths to ensure field names, types, ordering, and values match exactly.
+    """
+
+    def _build_proto_from_group(self, group):
+        from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import Group as ProtoGroup
+
+        return ProtoGroup(
+            id=group.id,
+            team_id=group.team_id,
+            group_type_index=group.group_type_index,
+            group_key=group.group_key,
+            group_properties=json.dumps(group.group_properties).encode(),
+            created_at=int(group.created_at.timestamp() * 1000),
+            version=group.version if group.version is not None else 0,
+        )
+
+    def _get_orm_response(self, url: str) -> dict:
+        with patch("posthog.personhog_client.client.get_personhog_client", return_value=None):
+            return self.client.get(url).json()
+
+    def _get_personhog_response(self, url: str, groups: list, has_more: bool = False) -> dict:
+        from posthog.personhog_client.proto import ListGroupsResponse
+
+        proto_groups = [self._build_proto_from_group(g) for g in groups]
+        mock_response = ListGroupsResponse(groups=proto_groups, has_more=has_more)
+        mock_client = MagicMock()
+        mock_client.list_groups.return_value = mock_response
+        with patch("posthog.personhog_client.client.get_personhog_client", return_value=mock_client):
+            return self.client.get(url).json()
+
+    @freeze_time("2021-05-02")
+    def test_single_group_field_parity(self):
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:parity",
+            properties={"name": "Parity Test", "count": 42},
+        )
+
+        url = f"/api/projects/{self.team.id}/groups?group_type_index=0"
+        orm_response = self._get_orm_response(url)
+        phog_response = self._get_personhog_response(url, [group])
+
+        assert orm_response.keys() == phog_response.keys(), "Top-level response keys must match"
+        assert len(orm_response["results"]) == len(phog_response["results"]) == 1
+
+        orm_item = orm_response["results"][0]
+        phog_item = phog_response["results"][0]
+
+        assert set(orm_item.keys()) == set(phog_item.keys()), (
+            f"Result field names must match: ORM={set(orm_item.keys())}, personhog={set(phog_item.keys())}"
+        )
+        for key in orm_item:
+            assert orm_item[key] == phog_item[key], (
+                f"Field '{key}' differs: ORM={orm_item[key]!r}, personhog={phog_item[key]!r}"
+            )
+
+    @freeze_time("2021-05-03")
+    def test_multiple_groups_ordering_parity(self):
+        with freeze_time("2021-05-01"):
+            g1 = create_group(
+                team_id=self.team.pk, group_type_index=0, group_key="org:oldest", properties={"name": "Oldest"}
+            )
+        with freeze_time("2021-05-02"):
+            g2 = create_group(
+                team_id=self.team.pk, group_type_index=0, group_key="org:middle", properties={"name": "Middle"}
+            )
+        with freeze_time("2021-05-03"):
+            g3 = create_group(
+                team_id=self.team.pk, group_type_index=0, group_key="org:newest", properties={"name": "Newest"}
+            )
+
+        url = f"/api/projects/{self.team.id}/groups?group_type_index=0"
+        orm_response = self._get_orm_response(url)
+        phog_response = self._get_personhog_response(url, [g3, g2, g1])
+
+        orm_keys = [r["group_key"] for r in orm_response["results"]]
+        phog_keys = [r["group_key"] for r in phog_response["results"]]
+        assert orm_keys == phog_keys, f"Ordering must match: ORM={orm_keys}, personhog={phog_keys}"
+
+        for orm_item, phog_item in zip(orm_response["results"], phog_response["results"]):
+            for key in orm_item:
+                assert orm_item[key] == phog_item[key], (
+                    f"Field '{key}' differs for group_key={orm_item['group_key']}: "
+                    f"ORM={orm_item[key]!r}, personhog={phog_item[key]!r}"
+                )
+
+    @freeze_time("2021-05-02")
+    def test_empty_properties_parity(self):
+        group = create_group(team_id=self.team.pk, group_type_index=0, group_key="org:empty", properties={})
+
+        url = f"/api/projects/{self.team.id}/groups?group_type_index=0"
+        orm_response = self._get_orm_response(url)
+        phog_response = self._get_personhog_response(url, [group])
+
+        assert orm_response["results"][0]["group_properties"] == phog_response["results"][0]["group_properties"] == {}
+
+    @freeze_time("2021-05-02")
+    def test_created_at_serialization_parity(self):
+        group = create_group(team_id=self.team.pk, group_type_index=0, group_key="org:ts", properties={})
+
+        url = f"/api/projects/{self.team.id}/groups?group_type_index=0"
+        orm_response = self._get_orm_response(url)
+        phog_response = self._get_personhog_response(url, [group])
+
+        orm_ts = orm_response["results"][0]["created_at"]
+        phog_ts = phog_response["results"][0]["created_at"]
+        assert orm_ts == phog_ts, f"created_at serialization must match: ORM={orm_ts!r}, personhog={phog_ts!r}"
+
+    @freeze_time("2021-05-02")
+    def test_search_results_parity(self):
+        g1 = create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="org:match", properties={"name": "Matching Org"}
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:other", properties={"name": "Other Org"})
+
+        url = f"/api/projects/{self.team.id}/groups?group_type_index=0&search=Matching"
+        orm_response = self._get_orm_response(url)
+        phog_response = self._get_personhog_response(url, [g1])
+
+        assert len(orm_response["results"]) == len(phog_response["results"]) == 1
+        assert orm_response["results"][0]["group_key"] == phog_response["results"][0]["group_key"] == "org:match"
+
+    @freeze_time("2021-05-02")
+    def test_pagination_next_url_parity(self):
+        groups = []
+        for i in range(3):
+            with freeze_time(f"2021-05-0{i + 1}"):
+                groups.append(
+                    create_group(
+                        team_id=self.team.pk,
+                        group_type_index=0,
+                        group_key=f"org:{i}",
+                        properties={},
+                    )
+                )
+
+        url = f"/api/projects/{self.team.id}/groups?group_type_index=0"
+
+        orm_response = self._get_orm_response(url)
+        assert orm_response["next"] is None, "ORM: all groups fit in one page"
+
+        phog_response = self._get_personhog_response(url, list(reversed(groups)), has_more=True)
+        assert phog_response["next"] is not None, "personhog: has_more=True should produce next URL"
+        assert "cursor=" in phog_response["next"]
+        assert "group_type_index=0" in phog_response["next"]
+
+    @freeze_time("2021-05-02")
+    def test_response_envelope_keys_match(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+
+        url = f"/api/projects/{self.team.id}/groups?group_type_index=0"
+        orm_response = self._get_orm_response(url)
+
+        expected_keys = {"next", "previous", "results"}
+        assert set(orm_response.keys()) == expected_keys, f"Response keys must be exactly {expected_keys}"
+
+        result_keys = {"group_type_index", "group_key", "group_properties", "created_at"}
+        assert set(orm_response["results"][0].keys()) == result_keys, f"Result item keys must be exactly {result_keys}"
+
+    @freeze_time("2021-05-02")
+    def test_result_field_types(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:types",
+            properties={"key": "val"},
+        )
+
+        url = f"/api/projects/{self.team.id}/groups?group_type_index=0"
+        orm_response = self._get_orm_response(url)
+        result = orm_response["results"][0]
+
+        assert isinstance(result["group_type_index"], int)
+        assert isinstance(result["group_key"], str)
+        assert isinstance(result["group_properties"], dict)
+        assert isinstance(result["created_at"], str)
+        assert result["created_at"].endswith("Z"), "created_at must be UTC ISO format ending with Z"
