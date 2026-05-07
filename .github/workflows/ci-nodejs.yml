@@ -270,7 +270,7 @@ jobs:
               if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.base_ref }}
-              run: git fetch origin "$BASE_REF" --depth=1
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
             - name: Check for migrations in this PR
               id: check_migrations
