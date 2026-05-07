@@ -89,8 +89,11 @@ export function buildFunnelStepReplacementMap(
     }
 
     const firstAllowedIndex = sourceStepId ? extractStepIndex(sourceStepId) : 0
-    const lastAllowedIndex = targetStepId ? extractStepIndex(targetStepId) : funnelSteps.length - 1
-    const allowedSteps = funnelSteps.slice(firstAllowedIndex, lastAllowedIndex + 1)
+    const lastAllowedIndex = targetStepId ? extractStepIndex(targetStepId) : Infinity
+    const allowedSteps = funnelSteps.filter((step) => {
+        const index = extractStepIndex(step.id)
+        return index >= firstAllowedIndex && index <= lastAllowedIndex
+    })
 
     const earliestMatchWins = sourceStepId !== null
     const stepsInResolutionOrder = earliestMatchWins ? allowedSteps : allowedSteps.slice().reverse()
