@@ -619,27 +619,39 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert content["reason"] is None
         assert content["note"] == "free-form note"
 
-    def test_suppress_with_invalid_dismissal_reason_400(self):
+    def test_suppress_accepts_arbitrary_dismissal_reason(self):
+        # The caller (PostHog Code) owns the set of valid reason codes; the API persists whatever it gets.
         report = self._create_report()
         response = self.client.post(
             self._state_url(str(report.id)),
-            data=json.dumps({"state": "suppressed", "dismissal_reason": "definitely_not_a_real_reason"}),
+            data=json.dumps({"state": "suppressed", "dismissal_reason": "some_brand_new_code"}),
             content_type="application/json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        report.refresh_from_db()
-        assert report.status == SignalReport.Status.READY
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        content = json.loads(artefact.content)
+        assert content["reason"] == "some_brand_new_code"
 
-    def test_dismissal_reason_rejected_when_not_suppressing(self):
-        # Suppressed reports are filtered out of the default queryset (404 before validation),
-        # so use a READY report and target state=potential to exercise the validation path.
+    def test_snooze_with_dismissal_reason_and_note_creates_artefact(self):
         report = self._create_report(report_status=SignalReport.Status.READY)
         response = self.client.post(
             self._state_url(str(report.id)),
-            data=json.dumps({"state": "potential", "dismissal_reason": "other"}),
+            data=json.dumps(
+                {
+                    "state": "potential",
+                    "dismissal_reason": "wontfix_irrelevant",
+                    "dismissal_note": "snoozing for now",
+                }
+            ),
             content_type="application/json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL
+        artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        content = json.loads(artefact.content)
+        assert content["reason"] == "wontfix_irrelevant"
+        assert content["note"] == "snoozing for now"
 
     def test_suppress_with_oversized_dismissal_note_400(self):
         report = self._create_report()

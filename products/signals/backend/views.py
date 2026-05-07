@@ -799,15 +799,8 @@ class SignalReportViewSet(
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
 
-    # Reasons accepted by the dismissal artefact; the UI maps each to a human-readable label.
-    DISMISSAL_REASONS = {
-        "already_fixed",
-        "analysis_wrong",
-        "wontfix_intentional",
-        "wontfix_irrelevant",
-        "wrong_reviewer",
-        "other",
-    }
+    # The set of allowed reason codes is owned by PostHog Code (the calling UI),
+    # not validated here -- we just persist whatever the client sends.
     DISMISSAL_NOTE_MAX_LENGTH = 4000
 
     @extend_schema(exclude=True)
@@ -818,8 +811,8 @@ class SignalReportViewSet(
 
         Body: {
             "state": "suppressed" | "potential",
-            # Optional dismissal feedback (only honored when state == "suppressed"):
-            "dismissal_reason": "already_fixed" | "analysis_wrong" | ...,
+            # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+            "dismissal_reason": "<any string code, owned by the caller>",
             "dismissal_note": "free-form text",
             ...other kwargs passed to transition_to
         }
@@ -840,17 +833,11 @@ class SignalReportViewSet(
             k: v for k, v in request.data.items() if k not in ("state", "dismissal_reason", "dismissal_note")
         }
 
-        if dismissal_reason is not None:
-            if target != "suppressed":
-                return Response(
-                    {"error": "dismissal_reason is only valid when state is 'suppressed'."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if dismissal_reason not in self.DISMISSAL_REASONS:
-                return Response(
-                    {"error": f"dismissal_reason must be one of {sorted(self.DISMISSAL_REASONS)}."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        if dismissal_reason is not None and not isinstance(dismissal_reason, str):
+            return Response(
+                {"error": "dismissal_reason must be a string."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if dismissal_note is not None:
             if not isinstance(dismissal_note, str):
@@ -883,7 +870,8 @@ class SignalReportViewSet(
 
         # Persist the dismissal feedback as its own artefact so it survives status changes
         # and so multiple dismissals (with different rationales) can stack over time.
-        if target == "suppressed" and (dismissal_reason is not None or dismissal_note):
+        # Captured for both suppress and snooze (transition to potential) flows.
+        if target in ("suppressed", "potential") and (dismissal_reason is not None or dismissal_note):
             user = request.user
             artefact_content = {
                 "reason": dismissal_reason,
