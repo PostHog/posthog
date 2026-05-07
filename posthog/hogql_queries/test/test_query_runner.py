@@ -353,6 +353,89 @@ class TestQueryRunner(BaseTest):
             f"(observed {len(set(keys))} distinct keys for flag values True/False/None: {keys})"
         )
 
+    def test_cache_key_is_stable_when_persons_on_events_mode_is_preset_on_query(self):
+        # Locks in the empirically observed discriminator: insights whose `query.modifiers`
+        # already preset `personsOnEventsMode` are immune to flag-eval variance, because the
+        # `if modifiers.personsOnEventsMode is None` branch in `set_default_modifier_values`
+        # short-circuits. This is what production data shows for the 6/35 immune insights on
+        # the affected dashboard.
+        from django.test import override_settings
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(pk=42, organization=self.organization)
+
+        keys: list[str] = []
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=None, PERSON_ON_EVENTS_V2_OVERRIDE=None):
+            with mock.patch("posthog.models.team.team.is_cloud", return_value=True):
+                for flag_value in (True, False, None):
+                    with mock.patch("posthoganalytics.feature_enabled", return_value=flag_value):
+                        runner = TestQueryRunner(
+                            query={"some_attr": "bla"},
+                            team=team,
+                            modifiers=HogQLQueryModifiers(
+                                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+                            ),
+                        )
+                        keys.append(runner.get_cache_key())
+
+        assert len(set(keys)) == 1, (
+            f"with `personsOnEventsMode` preset, cache_key must be stable across flag values "
+            f"(observed {len(set(keys))} distinct keys: {keys})"
+        )
+
+    def test_cache_key_diverges_specifically_on_persons_on_events_mode_value(self):
+        # Pins down WHICH modifier produces the divergence by varying `personsOnEventsMode`
+        # explicitly and asserting each value yields a distinct cache_key. Together with the
+        # production query that maps the two observed cache_keys to two `personsOnEventsMode`
+        # values, this proves `personsOnEventsMode` is the responsible field, not e.g. another
+        # field that incidentally varies during flag eval.
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(pk=42, organization=self.organization)
+
+        cache_keys_by_mode: dict[PersonsOnEventsMode, str] = {}
+        for mode in PersonsOnEventsMode:
+            runner = TestQueryRunner(
+                query={"some_attr": "bla"},
+                team=team,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+            )
+            cache_keys_by_mode[mode] = runner.get_cache_key()
+
+        # Each distinct mode must produce a distinct cache_key — i.e. mode value materially affects the key.
+        assert len(set(cache_keys_by_mode.values())) == len(cache_keys_by_mode), (
+            f"each `personsOnEventsMode` value must produce a distinct cache_key, got: {cache_keys_by_mode}"
+        )
+
+    def test_cache_payload_modifiers_only_diverge_on_persons_on_events_mode_under_flag_variance(self):
+        # Confirms that across flag-eval outcomes (True/False/None) the cache_payload's
+        # `hogql_modifiers` field differs ONLY in `personsOnEventsMode` — no other modifier
+        # is silently flag-driven via `set_default_modifier_values`. If a future change adds
+        # another flag-driven default to that function, this test will surface it as an
+        # additional differing key.
+        from django.test import override_settings
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(pk=42, organization=self.organization)
+
+        modifier_dumps_by_flag: dict[Any, dict] = {}
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=None, PERSON_ON_EVENTS_V2_OVERRIDE=None):
+            with mock.patch("posthog.models.team.team.is_cloud", return_value=True):
+                for flag_value in (True, False, None):
+                    with mock.patch("posthoganalytics.feature_enabled", return_value=flag_value):
+                        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+                        modifier_dumps_by_flag[flag_value] = runner.get_cache_payload()["hogql_modifiers"]
+
+        # Compute the set of fields that differ between any two dumps.
+        all_keys = set().union(*(d.keys() for d in modifier_dumps_by_flag.values()))
+        diverging_keys = {key for key in all_keys if len({d.get(key) for d in modifier_dumps_by_flag.values()}) > 1}
+
+        # After the fix, no fields diverge. Before the fix, only `personsOnEventsMode` did.
+        # This assertion locks in that *no other* field is allowed to be flag-driven.
+        assert diverging_keys.issubset({"personsOnEventsMode"}), (
+            f"flag-eval should only influence `personsOnEventsMode` (or nothing post-fix); "
+            f"observed divergence in: {diverging_keys}"
+        )
+
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()
