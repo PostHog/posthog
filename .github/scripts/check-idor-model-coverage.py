@@ -124,6 +124,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "InsightCachingState",
         "InstanceSetting",
         "Schedule",
+        # --- Auto-scoped via ProductTeamModel (TeamScopedManager handles filtering) ---
+        "SplineReticulator",  # CI scaffold (hogli product:bootstrap)
         # --- Accessed via parent FK (no direct team-scoped lookup needed) ---
         "AlertSubscription",
         "Approval",

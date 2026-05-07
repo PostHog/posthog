@@ -148,7 +148,7 @@ def _write_product_yaml(product_dir: Path, display_name: str, owners: list[str],
     click.echo(f"\n  Created product.yaml (name={display_name!r}, owners={owners})")
 
 
-def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
+def bootstrap_product(name: str, dry_run: bool, force: bool, *, non_interactive: bool = False) -> None:
     if not _VALID_PRODUCT_NAME_RE.match(name):
         raise click.ClickException(
             f"Invalid product name '{name}' — must be lowercase, start with a letter, and contain only [a-z0-9_]."
@@ -209,6 +209,8 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
     # product.yaml — canonical metadata
     if dry_run:
         _write_product_yaml(product_dir, _default_display_name(name), ["team-CHANGEME"], dry_run=True)
+    elif non_interactive:
+        _write_product_yaml(product_dir, _default_display_name(name), ["team-devex"], dry_run=False)
     else:
         display_name = click.prompt("  Display name", default=_default_display_name(name), show_default=True)
         owner = click.prompt(
@@ -227,6 +229,8 @@ def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
 
     if dry_run:
         _add_to_db_routing(name, name, dry_run=True)
+    elif non_interactive:
+        _add_to_db_routing(name, name, dry_run=False)
     else:
         click.echo(
             "\n  Products get their own database by default — this isolates locks, "

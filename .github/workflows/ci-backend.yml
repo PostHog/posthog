@@ -539,6 +539,9 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Bootstrap scaffold product
+              run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
+
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
 

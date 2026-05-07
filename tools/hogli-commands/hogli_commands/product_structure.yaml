@@ -105,17 +105,36 @@ backend_files:
         required: true
         can_be_folder: true
         template: |
-            """Django models for {product}."""
+            """
+            Django models for {product}.
+
+            Keep models thin — business logic belongs in logic/.
+            Use types from facade/enums.py where applicable.
+            Avoid ForeignKeys to models outside this app; if needed,
+            disallow reverse relations with related_name='+'.
+            """
+
+            import uuid
+
             from django.db import models
 
-            from posthog.models.utils import UUIDModel
+            from posthog.models.scoping.product_mixin import ProductTeamModel
 
-            # Define your models here
-            # Important: 
-            # - Keep models thin, no business logic, use logic.py instead
-            # - Use types from facade/contracts.py or facade/enums.py where applicable
-            # - Do not use ForeignKeys to models outside this app unless allowed, as you will make implicit dependencies.
-            # - If you make a ForeignKey to a common model, disallow reverse relations with related_name='+'
+            from .facade.enums import SplineStatus
+
+
+            class SplineReticulator(ProductTeamModel):
+                id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+                name = models.CharField(max_length=255)
+                status = models.CharField(
+                    max_length=32,
+                    choices=[(s.value, s.value) for s in SplineStatus],
+                    default=SplineStatus.PENDING,
+                )
+                created_at = models.DateTimeField(auto_now_add=True)
+
+                def __str__(self) -> str:
+                    return self.name
 
     logic/:
         # Scaffolded as a package because business logic tends to grow fast and
@@ -126,15 +145,20 @@ backend_files:
         __init__.py:
             required: false
             template: |
-                """
-                Business logic for {product}.
+                """Business logic for {product}."""
 
-                Validation, calculations, business rules, ORM queries.
-                Called by facade/api.py.
+                from __future__ import annotations
 
-                Split into submodules (e.g. logic/queries.py, logic/rules.py)
-                as this grows.
-                """
+                from ..facade.enums import SplineStatus
+                from ..models import SplineReticulator
+
+
+                def create_spline_reticulator(*, name: str) -> SplineReticulator:
+                    return SplineReticulator.objects.create(name=name, status=SplineStatus.PENDING)
+
+
+                def list_spline_reticulators() -> list[SplineReticulator]:
+                    return list(SplineReticulator.objects.all())
 
     tasks/:
         __init__.py:
@@ -170,28 +194,35 @@ backend_files:
                 """
                 Facade for {product}.
 
-                This is the ONLY module other products are allowed to import.
-
-                Responsibilities:
-                - Accept frozen dataclasses as input parameters
-                - Call business logic (logic.py)
-                - Convert Django models to frozen dataclasses before returning
-                - Enforce transactions where needed
-                - Remain thin and stable
-
-                Do NOT:
-                - Implement business logic here (use logic.py)
-                - Import DRF, serializers, or HTTP concerns
-                - Return ORM instances or QuerySets
+                The ONLY module other products are allowed to import.
+                Accept frozen dataclasses, call logic/, return frozen
+                dataclasses. Never return ORM instances or import DRF.
                 """
 
-                from . import contracts
+                from __future__ import annotations
 
-                # --- Converters (model -> frozen dataclass) ---
-                #
-                # These look repetitive when fields align 1:1. The value is having ONE place
-                # where "internal" becomes "external contract". When models and contracts drift,
-                # the mapper absorbs the change instead of it leaking everywhere.
+                from .. import logic
+                from ..models import SplineReticulator
+                from . import contracts
+                from .enums import SplineStatus
+
+
+                def _to_dto(obj: SplineReticulator) -> contracts.SplineReticulatorDTO:
+                    return contracts.SplineReticulatorDTO(
+                        id=obj.id,
+                        name=obj.name,
+                        status=SplineStatus(obj.status),
+                        created_at=obj.created_at,
+                    )
+
+
+                def create(input: contracts.CreateSplineReticulatorInput) -> contracts.SplineReticulatorDTO:
+                    obj = logic.create_spline_reticulator(name=input.name)
+                    return _to_dto(obj)
+
+
+                def list_all() -> list[contracts.SplineReticulatorDTO]:
+                    return [_to_dto(obj) for obj in logic.list_spline_reticulators()]
 
         contracts.py:
             required: true
@@ -199,35 +230,46 @@ backend_files:
                 """
                 Contract types for {product}.
 
-                Stable, framework-free frozen dataclasses that define what this
-                product exposes to the rest of the codebase.
-
-                Characteristics:
-                - No Django imports
-                - Immutable (frozen=True)
-                - Used by facade as inputs/outputs
-
-                Do NOT depend on Django models, DRF serializers, or request objects.
+                Frozen dataclasses that define what this product exposes.
+                No Django imports. Used by facade as inputs/outputs.
                 """
+
                 from dataclasses import dataclass
+                from datetime import datetime
+                from uuid import UUID
+
+                from .enums import SplineStatus
+
+
+                @dataclass(frozen=True)
+                class SplineReticulatorDTO:
+                    id: UUID
+                    name: str
+                    status: SplineStatus
+                    created_at: datetime
+
+
+                @dataclass(frozen=True)
+                class CreateSplineReticulatorInput:
+                    name: str
 
         enums.py:
             required: false
             template: |
                 """
-                Exported enums and constants for {product}.
+                Exported enums for {product}.
 
-                Small products can keep enums in contracts.py instead. Split
-                into this file when contracts.py gets crowded.
-
-                Rule: if an enum appears in a contract dataclass field, it
-                belongs here (or in contracts.py). Shared types that other
-                products need to interpret contract objects also belong here.
-
-                Internal-only constants (DB magic values, feature flags, etc.)
-                should stay in the implementation (logic.py, models.py).
+                If an enum appears in a contract dataclass field, it belongs here.
+                Internal-only constants (DB magic values, feature flags) stay in
+                the implementation (logic.py, models.py).
                 """
+
                 from enum import StrEnum
+
+
+                class SplineStatus(StrEnum):
+                    PENDING = "pending"
+                    RETICULATED = "reticulated"
 
     presentation/:
         __init__.py:
@@ -237,15 +279,21 @@ backend_files:
         serializers.py:
             required: true
             template: |
-                """
-                DRF serializers for {product}.
+                """DRF serializers for {product}."""
 
-                Converts frozen dataclasses to/from JSON. Can be auto-generated from
-                dataclasses using DataclassSerializer.
-                """
+                from rest_framework import serializers
                 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-                # from ..facade.contracts import ...
+                from ..facade.contracts import SplineReticulatorDTO
+
+
+                class SplineReticulatorSerializer(DataclassSerializer):
+                    class Meta:
+                        dataclass = SplineReticulatorDTO
+
+
+                class CreateSplineReticulatorSerializer(serializers.Serializer):
+                    name = serializers.CharField(max_length=255, help_text="Name of the spline to reticulate.")
 
         views.py:
             required: true
@@ -253,29 +301,47 @@ backend_files:
                 """
                 DRF views for {product}.
 
-                Responsibilities:
-                - Validate incoming JSON (via serializers)
-                - Convert JSON to frozen dataclasses
-                - Call facade methods (facade/api.py)
-                - Convert frozen dataclasses to JSON responses
-
-                No business logic here - that belongs in logic.py via the facade.
+                Validate JSON via serializers, call facade methods,
+                return serialized responses. No business logic here.
                 """
-                from rest_framework import viewsets
+
+                from drf_spectacular.utils import extend_schema
+                from rest_framework import status, viewsets
+                from rest_framework.request import Request
+                from rest_framework.response import Response
 
                 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-                # from ..facade import api
+                from ..facade import api, contracts
+                from .serializers import CreateSplineReticulatorSerializer, SplineReticulatorSerializer
+
+
+                class SplineReticulatorViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+                    scope_object = "INTERNAL"
+
+                    @extend_schema(responses={{200: SplineReticulatorSerializer(many=True)}})
+                    def list(self, request: Request, **kwargs) -> Response:
+                        items = api.list_all()
+                        return Response(SplineReticulatorSerializer(items, many=True).data)
+
+                    @extend_schema(request=CreateSplineReticulatorSerializer, responses={{201: SplineReticulatorSerializer}})
+                    def create(self, request: Request, **kwargs) -> Response:
+                        serializer = CreateSplineReticulatorSerializer(data=request.data)
+                        serializer.is_valid(raise_exception=True)
+                        dto = api.create(contracts.CreateSplineReticulatorInput(**serializer.validated_data))
+                        return Response(SplineReticulatorSerializer(dto).data, status=status.HTTP_201_CREATED)
 
         urls.py:
             required: true
             template: |
                 """URL routes for {product}."""
+
                 from rest_framework.routers import DefaultRouter
 
-                # from .views import ...
+                from .views import SplineReticulatorViewSet
 
                 router = DefaultRouter()
+                router.register(r"spline_reticulators", SplineReticulatorViewSet, basename="spline_reticulators")
                 urlpatterns = router.urls
 
     tests/:
@@ -293,7 +359,28 @@ backend_files:
 
         test_api.py:
             required: false
-            template: ''
+            template: |
+                from uuid import UUID
+
+                import pytest
+
+                from products.{product}.backend.facade import api
+                from products.{product}.backend.facade.contracts import CreateSplineReticulatorInput
+                from products.{product}.backend.facade.enums import SplineStatus
+
+
+                @pytest.mark.django_db
+                class TestSplineReticulatorAPI:
+                    def test_create_and_list(self, team):
+                        dto = api.create(CreateSplineReticulatorInput(name="test-spline"))
+
+                        assert isinstance(dto.id, UUID)
+                        assert dto.name == "test-spline"
+                        assert dto.status == SplineStatus.PENDING
+
+                        all_items = api.list_all()
+                        assert len(all_items) == 1
+                        assert all_items[0].id == dto.id
 
         test_presentation.py:
             required: false

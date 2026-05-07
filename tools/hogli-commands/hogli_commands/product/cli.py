@@ -13,8 +13,9 @@ from .scaffold import bootstrap_product
 @click.argument("name")
 @click.option("--dry-run", is_flag=True, help="Show what would be created without creating")
 @click.option("--force", is_flag=True, help="Overwrite existing files")
-def cmd_bootstrap(name: str, dry_run: bool, force: bool) -> None:
-    bootstrap_product(name, dry_run, force)
+@click.option("--non-interactive", is_flag=True, help="Skip prompts, use defaults (for CI)")
+def cmd_bootstrap(name: str, dry_run: bool, force: bool, non_interactive: bool) -> None:
+    bootstrap_product(name, dry_run, force, non_interactive=non_interactive)
 
 
 @click.command(name="product:lint", help="Check product structure for misplaced files")
