@@ -410,11 +410,13 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             actions.loadAdvancedActivityLogs({})
         },
         setView: () => {
-            // Switching view changes both the endpoint and the meaning of project filters,
-            // so refresh both the static filter options and the log results.
+            // Switching view changes the endpoint and the meaning of project filters.
+            // Reset team_ids and rebuild the static filter options. The setFilters
+            // dispatch above runs through its own debounced listener which drives the
+            // log fetch — calling loadAdvancedActivityLogs here too races with deep-link
+            // navigation that follows up with another setFilters carrying real team_ids.
             actions.setFilters({ team_ids: [], page: 1 })
             actions.loadAvailableFilters()
-            actions.loadAdvancedActivityLogs({})
         },
 
         setActiveTab: ({ tab }) => {
