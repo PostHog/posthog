@@ -9,6 +9,8 @@ import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 import { FeatureFlagFilters } from '~/types'
 
+import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
+
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
@@ -278,6 +280,157 @@ describe('featureFlagLogic', () => {
                         }),
                     }),
                     variants: [],
+                })
+        })
+    })
+
+    describe('applyTemplate', () => {
+        const EXPECTED_VARIANTS = partial({
+            variants: [partial({ key: 'control' }), partial({ key: 'test' })],
+        })
+
+        const TEMPLATE_EXPECTATIONS: Array<{
+            id: TemplateKey
+            expectedMultivariate: unknown
+        }> = [
+            { id: 'simple', expectedMultivariate: null },
+            { id: 'targeted', expectedMultivariate: null },
+            { id: 'multivariate', expectedMultivariate: EXPECTED_VARIANTS },
+            { id: 'targeted-multivariate', expectedMultivariate: EXPECTED_VARIANTS },
+        ]
+
+        it.each(TEMPLATE_EXPECTATIONS)(
+            'clears encrypted-payload state when switching a remote configuration flag to $id',
+            async ({ id, expectedMultivariate }) => {
+                const MOCK_REMOTE_CONFIG_FLAG: FeatureFlagType = {
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                    filters: {
+                        ...logic.values.featureFlag.filters,
+                        payloads: { true: 'encrypted-ciphertext' },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFeatureFlag(MOCK_REMOTE_CONFIG_FLAG)
+                }).toDispatchActions(['setFeatureFlag'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.applyTemplate(id)
+                })
+                    .toDispatchActions(['applyTemplate', 'setFeatureFlag', 'resetEncryptedPayload'])
+                    .toMatchValues({
+                        featureFlag: partial({
+                            is_remote_configuration: false,
+                            has_encrypted_payloads: false,
+                            filters: partial({
+                                multivariate: expectedMultivariate,
+                                payloads: { true: '' },
+                            }),
+                        }),
+                    })
+
+                // The encrypted ciphertext must not survive under any payload key.
+                expect(Object.values(logic.values.featureFlag.filters.payloads ?? {})).not.toContain(
+                    'encrypted-ciphertext'
+                )
+            }
+        )
+
+        it('preserves variant payloads when applying a template to a non-encrypted flag', async () => {
+            const MOCK_NON_ENCRYPTED_FLAG: FeatureFlagType = {
+                ...logic.values.featureFlag,
+                is_remote_configuration: false,
+                has_encrypted_payloads: false,
+                filters: {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { control: '{"x":1}', test: '{"y":2}' },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(MOCK_NON_ENCRYPTED_FLAG)
+            }).toDispatchActions(['setFeatureFlag'])
+
+            await expectLogic(logic, () => {
+                logic.actions.applyTemplate('multivariate')
+            })
+                .toDispatchActions(['applyTemplate', 'setFeatureFlag'])
+                .toMatchValues({
+                    featureFlag: partial({
+                        is_remote_configuration: false,
+                        has_encrypted_payloads: false,
+                        filters: partial({
+                            payloads: { control: '{"x":1}', test: '{"y":2}' },
+                        }),
+                    }),
+                })
+        })
+    })
+
+    describe('setRemoteConfigEnabled', () => {
+        it('clears encrypted-payload state when toggling remote config off', async () => {
+            const MOCK_REMOTE_CONFIG_FLAG: FeatureFlagType = {
+                ...logic.values.featureFlag,
+                is_remote_configuration: true,
+                has_encrypted_payloads: true,
+                filters: {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { true: 'encrypted-ciphertext' },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(MOCK_REMOTE_CONFIG_FLAG)
+            }).toDispatchActions(['setFeatureFlag'])
+
+            await expectLogic(logic, () => {
+                logic.actions.setRemoteConfigEnabled(false)
+            })
+                .toDispatchActions(['setRemoteConfigEnabled', 'resetEncryptedPayload'])
+                .toMatchValues({
+                    featureFlag: partial({
+                        is_remote_configuration: false,
+                        has_encrypted_payloads: false,
+                        filters: partial({
+                            payloads: { true: '' },
+                        }),
+                    }),
+                })
+
+            // The encrypted ciphertext must not survive under any payload key.
+            expect(Object.values(logic.values.featureFlag.filters.payloads ?? {})).not.toContain('encrypted-ciphertext')
+        })
+
+        it('does not reset encrypted payload state when toggling off a non-encrypted flag', async () => {
+            const MOCK_REMOTE_CONFIG_PLAIN_FLAG: FeatureFlagType = {
+                ...logic.values.featureFlag,
+                is_remote_configuration: true,
+                has_encrypted_payloads: false,
+                filters: {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { true: 'plain-payload' },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(MOCK_REMOTE_CONFIG_PLAIN_FLAG)
+            }).toDispatchActions(['setFeatureFlag'])
+
+            await expectLogic(logic, () => {
+                logic.actions.setRemoteConfigEnabled(false)
+            })
+                .toDispatchActions(['setRemoteConfigEnabled'])
+                .toNotHaveDispatchedActions(['resetEncryptedPayload'])
+                .toMatchValues({
+                    featureFlag: partial({
+                        is_remote_configuration: false,
+                        has_encrypted_payloads: false,
+                        filters: partial({
+                            payloads: { true: 'plain-payload' },
+                        }),
+                    }),
                 })
         })
     })
