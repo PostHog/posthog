@@ -16,7 +16,6 @@ from opentelemetry import trace
 from requests import HTTPError
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.pagination import CursorPagination
 
 from posthog.schema import ProductKey
 
@@ -199,11 +198,6 @@ class GroupsTypesViewSet(
         return response.Response(self.get_serializer(group_type_mapping).data)
 
 
-class GroupCursorPagination(CursorPagination):
-    ordering = "-created_at"
-    page_size = 100
-
-
 class GroupSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Group
@@ -234,7 +228,7 @@ class CreateGroupSerializer(serializers.ModelSerializer):
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
     queryset = Group.objects.all()  # nosemgrep: no-direct-persons-db-orm
-    pagination_class = GroupCursorPagination
+    pagination_class = None
     serializer_classes = {
         "find": FindGroupSerializer,
         "default": GroupSerializer,
@@ -346,7 +340,11 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     )
     def list(self, request, *args, **kwargs):
         """
-        List all groups of a specific group type. You must pass ?group_type_index= in the URL. To get a list of valid group types, call /api/:project_id/groups_types/
+        List all groups of a specific group type. You must pass ?group_type_index= in the URL.
+        To get a list of valid group types, call /api/:project_id/groups_types/.
+
+        Uses forward-only keyset pagination via the `cursor` parameter.
+        The `previous` field in the response envelope is always null.
         """
         group_type_index_str = self.request.GET.get("group_type_index")
         if not group_type_index_str:

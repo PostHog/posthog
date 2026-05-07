@@ -396,19 +396,28 @@ def list_groups(
             )
 
     PERSONHOG_ROUTING_TOTAL.labels(operation="list_groups", source="django_orm", client_name=get_client_name()).inc()
-    qs = Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-        team_id=team_id, group_type_index=group_type_index
-    )
-    if group_key_contains:
-        qs = qs.filter(group_key__icontains=group_key_contains)
-    if search:
-        qs = qs.filter(Q(group_properties__icontains=search) | Q(group_key__iexact=search))
-    qs = qs.order_by("-created_at", "-id")
-    if cursor_created_at_us > 0:
-        cursor_dt = datetime.datetime.fromtimestamp(cursor_created_at_us / 1_000_000, tz=datetime.UTC)
-        qs = qs.filter(Q(created_at__lt=cursor_dt) | Q(created_at=cursor_dt, id__lt=cursor_id))
-    groups = list(qs[: limit + 1])
-    has_more = len(groups) > limit
-    if has_more:
-        groups = groups[:limit]
-    return ListGroupsResult(groups=groups, has_more=has_more)
+    try:
+        qs = Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            team_id=team_id, group_type_index=group_type_index
+        )
+        if group_key_contains:
+            qs = qs.filter(group_key__icontains=group_key_contains)
+        if search:
+            qs = qs.filter(Q(group_properties__icontains=search) | Q(group_key__iexact=search))
+        qs = qs.order_by("-created_at", "-id")
+        if cursor_created_at_us > 0:
+            cursor_dt = datetime.datetime.fromtimestamp(cursor_created_at_us / 1_000_000, tz=datetime.UTC)
+            qs = qs.filter(Q(created_at__lt=cursor_dt) | Q(created_at=cursor_dt, id__lt=cursor_id))
+        groups = list(qs[: limit + 1])
+        has_more = len(groups) > limit
+        if has_more:
+            groups = groups[:limit]
+        return ListGroupsResult(groups=groups, has_more=has_more)
+    except DatabaseError:
+        logger.warning(
+            "persons_db_list_groups_failure",
+            team_id=team_id,
+            group_type_index=group_type_index,
+            exc_info=True,
+        )
+        return ListGroupsResult(groups=[], has_more=False)
