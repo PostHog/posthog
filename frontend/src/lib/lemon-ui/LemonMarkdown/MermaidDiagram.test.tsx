@@ -69,4 +69,26 @@ describe('MermaidDiagram', () => {
         })
         expect(initializeMock.mock.calls.length).toBe(initCallsAfterFirst)
     })
+
+    it('initializes mermaid at most once when multiple instances mount on the same theme', async () => {
+        renderMock.mockResolvedValue({ svg: '<svg/>' })
+        // Mount three siblings together. With module-scoped dedupe, mermaid.initialize fires at
+        // most once for the whole batch — the per-instance ref version would have called it 3x.
+        // Note: prior tests in this file may have already set the module-level theme tracker,
+        // in which case this batch logs zero init calls. Either way, the assertion is the same:
+        // strictly fewer than the number of instances.
+        render(
+            <>
+                <MermaidDiagram code="flowchart LR; A-->B" />
+                <MermaidDiagram code="flowchart LR; C-->D" />
+                <MermaidDiagram code="flowchart LR; E-->F" />
+            </>
+        )
+        await waitFor(() => {
+            if (renderMock.mock.calls.length < 3) {
+                throw new Error(`expected 3 render calls, got ${renderMock.mock.calls.length}`)
+            }
+        })
+        expect(initializeMock.mock.calls.length).toBeLessThanOrEqual(1)
+    })
 })

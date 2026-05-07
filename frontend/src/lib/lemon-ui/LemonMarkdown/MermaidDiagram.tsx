@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -20,6 +20,9 @@ function loadMermaid(): Promise<MermaidApi> {
     return mermaidPromise
 }
 
+// Module-scoped so mermaid.initialize runs at most once per theme change across the whole page,
+// not once per <MermaidDiagram> instance.
+let initializedTheme: boolean | null = null
 let diagramCounter = 0
 
 export interface MermaidDiagramProps {
@@ -39,7 +42,6 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
     const [svg, setSvg] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
-    const initializedTheme = useRef<boolean | null>(null)
 
     useEffect(() => {
         let cancelled = false
@@ -51,14 +53,14 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
                 if (cancelled) {
                     return null
                 }
-                if (initializedTheme.current !== isDarkModeOn) {
+                if (initializedTheme !== isDarkModeOn) {
                     mermaid.initialize({
                         startOnLoad: false,
                         theme: isDarkModeOn ? 'dark' : 'default',
                         securityLevel: 'strict',
                         fontFamily: 'inherit',
                     })
-                    initializedTheme.current = isDarkModeOn
+                    initializedTheme = isDarkModeOn
                 }
                 return mermaid.render(diagramId, code)
             })
