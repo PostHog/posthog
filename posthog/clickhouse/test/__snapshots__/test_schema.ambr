@@ -3987,7 +3987,12 @@
       emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   
       -- Replay
-      has_replay_events SimpleAggregateFunction(max, Boolean)
+      has_replay_events SimpleAggregateFunction(max, Boolean),
+  
+      -- Interestingness score in [0, 1] populated by an external scoring job (used for session summarization).
+      -- Nullable so "not yet scored" is distinguishable from "scored as 0"; the scorer filters on IS NULL and writes once per session.
+      -- max merges NULL-vs-value as the value, so the events MV's NULL never clobbers a written score.
+      interestingness_score SimpleAggregateFunction(max, Nullable(Float32))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
   
   '''
@@ -5551,7 +5556,12 @@
       emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   
       -- Replay
-      has_replay_events SimpleAggregateFunction(max, Boolean)
+      has_replay_events SimpleAggregateFunction(max, Boolean),
+  
+      -- Interestingness score in [0, 1] populated by an external scoring job (used for session summarization).
+      -- Nullable so "not yet scored" is distinguishable from "scored as 0"; the scorer filters on IS NULL and writes once per session.
+      -- max merges NULL-vs-value as the value, so the events MV's NULL never clobbers a written score.
+      interestingness_score SimpleAggregateFunction(max, Nullable(Float32))
   ,
   
       -- Indexes
@@ -6702,7 +6712,12 @@
       emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   
       -- Replay
-      has_replay_events SimpleAggregateFunction(max, Boolean)
+      has_replay_events SimpleAggregateFunction(max, Boolean),
+  
+      -- Interestingness score in [0, 1] populated by an external scoring job (used for session summarization).
+      -- Nullable so "not yet scored" is distinguishable from "scored as 0"; the scorer filters on IS NULL and writes once per session.
+      -- max merges NULL-vs-value as the value, so the events MV's NULL never clobbers a written score.
+      interestingness_score SimpleAggregateFunction(max, Nullable(Float32))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
   
   '''
@@ -8620,7 +8635,12 @@
       emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   
       -- Replay
-      has_replay_events SimpleAggregateFunction(max, Boolean)
+      has_replay_events SimpleAggregateFunction(max, Boolean),
+  
+      -- Interestingness score in [0, 1] populated by an external scoring job (used for session summarization).
+      -- Nullable so "not yet scored" is distinguishable from "scored as 0"; the scorer filters on IS NULL and writes once per session.
+      -- max merges NULL-vs-value as the value, so the events MV's NULL never clobbers a written score.
+      interestingness_score SimpleAggregateFunction(max, Nullable(Float32))
   ,
   
       -- Indexes

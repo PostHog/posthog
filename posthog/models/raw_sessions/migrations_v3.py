@@ -79,3 +79,9 @@ ADD_URLS = """
 ALTER TABLE {table_name}
 ADD COLUMN IF NOT EXISTS urls SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)) AFTER max_inserted_at
 """
+
+
+ADD_INTERESTINGNESS_SCORE = """
+ALTER TABLE {table_name}
+ADD COLUMN IF NOT EXISTS interestingness_score SimpleAggregateFunction(max, Nullable(Float32)) AFTER has_replay_events
+"""

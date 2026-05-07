@@ -175,7 +175,12 @@ CREATE TABLE IF NOT EXISTS {table_name}
     emails SimpleAggregateFunction(groupUniqArrayArray({max_emails}), Array(String)),
 
     -- Replay
-    has_replay_events SimpleAggregateFunction(max, Boolean)
+    has_replay_events SimpleAggregateFunction(max, Boolean),
+
+    -- Interestingness score in [0, 1] populated by an external scoring job (used for session summarization).
+    -- Nullable so "not yet scored" is distinguishable from "scored as 0"; the scorer filters on IS NULL and writes once per session.
+    -- max merges NULL-vs-value as the value, so the events MV's NULL never clobbers a written score.
+    interestingness_score SimpleAggregateFunction(max, Nullable(Float32))
 ) ENGINE = {engine}
 """
 
