@@ -884,9 +884,6 @@ importers:
       '@xyflow/react':
         specifier: ^12.6.0
         version: 12.6.0(@types/react@18.3.27)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      bintrees:
-        specifier: ^1.0.2
-        version: 1.0.2
       bloommx:
         specifier: ^1.0.3
         version: 1.0.3
@@ -1206,9 +1203,6 @@ importers:
       '@testing-library/user-event':
         specifier: ^14.6.1
         version: 14.6.1(@testing-library/dom@9.3.4)
-      '@types/bintrees':
-        specifier: ^1.0.6
-        version: 1.0.6
       '@types/chartjs-plugin-crosshair':
         specifier: ^1.1.1
         version: 1.1.4
@@ -11841,9 +11835,6 @@ packages:
 
   '@types/babel__traverse@7.28.0':
     resolution: {integrity: sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q==}
-
-  '@types/bintrees@1.0.6':
-    resolution: {integrity: sha512-pZWT4Bz+tWwxlDspSjdoIza4PE5lbGI4Xvs3FZV/2v5m5SDA8LwNpU8AXxlndmARO7OaQ1Vf3zFenOsNMzaRkQ==}
 
   '@types/bluebird@3.5.38':
     resolution: {integrity: sha512-yR/Kxc0dd4FfwtEoLZMoqJbM/VE/W7hXn/MIjb+axcwag0iFmSPK7OBUZq1YWLynJUoWQkfUrI7T0HDqGApNSg==}
@@ -35791,8 +35782,6 @@ snapshots:
   '@types/babel__traverse@7.28.0':
     dependencies:
       '@babel/types': 7.29.0
-
-  '@types/bintrees@1.0.6': {}
 
   '@types/bluebird@3.5.38': {}
 
