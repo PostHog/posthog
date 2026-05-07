@@ -42,6 +42,16 @@ class TestResolveScopes(SimpleTestCase):
         for scope in INTERNAL_SCOPES:
             assert scope not in result
 
+    def test_deduplicates_overlapping_scopes(self) -> None:
+        custom = ["feature_flag:read", "feature_flag:read", "task:write", "insight:read"]
+        result = resolve_scopes(custom)
+        assert len(result) == len(set(result)), f"expected no duplicates, got {result}"
+        # task:write is in INTERNAL_SCOPES; appears once despite being in both inputs
+        assert result.count("task:write") == 1
+        assert result.count("feature_flag:read") == 1
+        # First-seen order is preserved
+        assert result.index("feature_flag:read") < result.index("task:write")
+
     def test_internal_scope_objects_disjoint_from_mcp_scope_lists(self) -> None:
         from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS
 

@@ -163,7 +163,7 @@ export interface PatchedExperimentSavedMetricApi {
 }
 
 export interface ExperimentVariantApi {
-    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
     /**
      * Human-readable variant name.
@@ -181,7 +181,7 @@ export interface ExperimentVariantApi {
 
 export interface ExperimentParametersApi {
     /**
-     * Experiment variants. If not specified, defaults to a 50/50 control/test split.
+     * Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.
      * @nullable
      */
     feature_flag_variants?: ExperimentVariantApi[] | null
@@ -501,6 +501,7 @@ export interface ExperimentApi {
     metrics_secondary?: _ExperimentApiMetricsListApi | null
     stats_config?: unknown | null
     scheduling_config?: unknown | null
+    /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it). */
     allow_unknown_events?: boolean
     _create_in_folder?: string
     /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
@@ -602,6 +603,7 @@ export interface PatchedExperimentApi {
     metrics_secondary?: _ExperimentApiMetricsListApi | null
     stats_config?: unknown | null
     scheduling_config?: unknown | null
+    /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it). */
     allow_unknown_events?: boolean
     _create_in_folder?: string
     /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.

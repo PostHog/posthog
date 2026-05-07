@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDatabase } from '@posthog/icons'
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -100,7 +100,27 @@ export function QueryPerformance(): JSX.Element {
                 return (
                     <LemonSwitch
                         checked={team.experiment_precomputation_enabled}
-                        onChange={(enabled) => setPrecomputation(team.team_id, enabled)}
+                        onChange={(enabled) => {
+                            if (!enabled) {
+                                LemonDialog.open({
+                                    title: 'Disable precomputation?',
+                                    maxWidth: '30rem',
+                                    description: `Are you sure you want to disable precomputation for ${
+                                        team.team_name || `team ${team.team_id}`
+                                    }? Experiment queries will fall back to on-demand execution and may become significantly slower.`,
+                                    primaryButton: {
+                                        status: 'danger',
+                                        children: 'Disable precomputation',
+                                        onClick: () => setPrecomputation(team.team_id, false),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                                return
+                            }
+                            setPrecomputation(team.team_id, true)
+                        }}
                     />
                 )
             },

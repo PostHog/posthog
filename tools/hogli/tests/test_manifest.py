@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from unittest.mock import patch
 
 from hogli.manifest import Manifest
@@ -195,3 +198,65 @@ class TestManifestCommandEnumeration:
 
         assert manifest.get_command_config("dev:setup") is None
         assert manifest.get_command_config("dev:reset") == {"cmd": "echo reset"}
+
+
+class TestCommandsDir:
+    """Test local command package resolution."""
+
+    def test_commands_dir_is_explicit(self, tmp_path: Path) -> None:
+        (tmp_path / "hogli").mkdir()
+
+        with (
+            patch.object(Manifest, "_load", return_value={"config": {}}),
+            patch("hogli.manifest.REPO_ROOT", tmp_path),
+            patch("hogli.manifest.MANIFEST_FILE", tmp_path / "hogli.yaml"),
+        ):
+            manifest = Manifest()
+            assert manifest.commands_dir is None
+
+    def test_commands_dir_resolves_configured_path(self, tmp_path: Path) -> None:
+        commands_dir = tmp_path / "tools" / "hogli-commands" / "hogli_commands"
+        commands_dir.mkdir(parents=True)
+
+        with (
+            patch.object(
+                Manifest,
+                "_load",
+                return_value={"config": {"commands_dir": "tools/hogli-commands/hogli_commands"}},
+            ),
+            patch("hogli.manifest.REPO_ROOT", tmp_path),
+            patch("hogli.manifest.MANIFEST_FILE", tmp_path / "hogli.yaml"),
+        ):
+            manifest = Manifest()
+            assert manifest.commands_dir == commands_dir.resolve()
+
+    def test_commands_dir_rejects_missing_configured_path(self, tmp_path: Path) -> None:
+        with (
+            patch.object(
+                Manifest,
+                "_load",
+                return_value={"config": {"commands_dir": "tools/missing_commands"}},
+            ),
+            patch("hogli.manifest.REPO_ROOT", tmp_path),
+            patch("hogli.manifest.MANIFEST_FILE", tmp_path / "hogli.yaml"),
+        ):
+            manifest = Manifest()
+            with pytest.raises(ValueError, match="does not exist"):
+                _ = manifest.commands_dir
+
+    def test_commands_dir_rejects_absolute_path(self, tmp_path: Path) -> None:
+        commands_dir = tmp_path / "tools" / "hogli-commands" / "hogli_commands"
+        commands_dir.mkdir(parents=True)
+
+        with (
+            patch.object(
+                Manifest,
+                "_load",
+                return_value={"config": {"commands_dir": str(commands_dir)}},
+            ),
+            patch("hogli.manifest.REPO_ROOT", tmp_path),
+            patch("hogli.manifest.MANIFEST_FILE", tmp_path / "hogli.yaml"),
+        ):
+            manifest = Manifest()
+            with pytest.raises(ValueError, match="must be relative"):
+                _ = manifest.commands_dir

@@ -28,6 +28,7 @@ function DropdownMenuContent({
     sideOffset = 4,
     className,
     anchor,
+    children,
     ...props
 }: MenuPrimitive.Popup.Props &
     Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'>): React.ReactElement {
@@ -50,7 +51,11 @@ function DropdownMenuContent({
                         className
                     )}
                     {...props}
-                />
+                >
+                    <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">
+                        {children}
+                    </div>
+                </MenuPrimitive.Popup>
             </MenuPrimitive.Positioner>
         </MenuPrimitive.Portal>
     )
@@ -233,6 +238,129 @@ function DropdownMenuSeparator({ className, ...props }: MenuPrimitive.Separator.
     return <MenuPrimitive.Separator data-slot="dropdown-menu-separator" className={cn('quill-menu__separator', className)} {...props} />
 }
 
+/**
+ * Tri-state for a select-all action over a list of selectable values.
+ *  - `none`: nothing selected
+ *  - `some`: at least one but not all selected (indeterminate)
+ *  - `all`:  every value selected
+ */
+type SelectAllState = 'none' | 'some' | 'all'
+
+type UseSelectAllResult = {
+    state: SelectAllState
+    isAllSelected: boolean
+    toggle: () => void
+}
+
+/**
+ * Headless hook for a "select all / deselect all" action paired with a list
+ * of `DropdownMenuCheckboxItem`s. Consumer owns rendering and stays in
+ * control of the selection state.
+ *
+ * Comparison is reference equality unless `getKey` is supplied — pass a key
+ * extractor when `values` are objects whose identity isn't stable across
+ * renders (e.g. fetched from an API).
+ *
+ * @example
+ * const ALL = ['a', 'b', 'c']
+ * const [selected, setSelected] = useState<string[]>([])
+ * const { isAllSelected, toggle } = useDropdownMenuSelectAll(ALL, selected, setSelected)
+ *
+ * <DropdownMenuItem closeOnClick={false} onClick={toggle}>
+ *     {isAllSelected ? 'Deselect all' : 'Select all'}
+ * </DropdownMenuItem>
+ */
+function useDropdownMenuSelectAll<T>(
+    values: readonly T[],
+    selected: readonly T[],
+    onChange: (next: T[]) => void,
+    getKey?: (value: T) => string | number
+): UseSelectAllResult {
+    const selectedKeys = React.useMemo(() => {
+        const keys = new Set<unknown>()
+        for (const v of selected) {
+            keys.add(getKey ? getKey(v) : v)
+        }
+        return keys
+    }, [selected, getKey])
+
+    const matched = values.reduce((count, v) => {
+        const key = getKey ? getKey(v) : v
+        return count + (selectedKeys.has(key) ? 1 : 0)
+    }, 0)
+
+    const state: SelectAllState =
+        matched === 0 ? 'none' : matched >= values.length ? 'all' : 'some'
+    const isAllSelected = state === 'all'
+
+    const toggle = React.useCallback(() => {
+        onChange(isAllSelected ? [] : values.slice())
+    }, [isAllSelected, onChange, values])
+
+    return { state, isAllSelected, toggle }
+}
+
+/**
+ * Convenience component that renders a `DropdownMenuItem` whose label flips
+ * between `selectLabel` ("Select all") and `deselectLabel` ("Deselect all")
+ * based on the current selection state. The menu stays open after toggle so
+ * users can keep adjusting items.
+ *
+ * For full control, use `useDropdownMenuSelectAll` directly and render your
+ * own item — or pass a render-prop child:
+ *
+ * @example
+ * <DropdownMenuSelectAll values={ALL} selected={selected} onChange={setSelected} />
+ *
+ * <DropdownMenuSelectAll values={ALL} selected={selected} onChange={setSelected}>
+ *     {({ state, toggle }) => (
+ *         <DropdownMenuItem closeOnClick={false} onClick={toggle}>
+ *             {state === 'all' ? 'Clear' : 'Pick everything'}
+ *             {state === 'some' && ' (partial)'}
+ *         </DropdownMenuItem>
+ *     )}
+ * </DropdownMenuSelectAll>
+ */
+function DropdownMenuSelectAll<T>({
+    values,
+    selected,
+    onChange,
+    getKey,
+    selectLabel = 'Select all',
+    deselectLabel = 'Deselect all',
+    children,
+    ...itemProps
+}: {
+    values: readonly T[]
+    selected: readonly T[]
+    onChange: (next: T[]) => void
+    getKey?: (value: T) => string | number
+    selectLabel?: React.ReactNode
+    deselectLabel?: React.ReactNode
+    children?: (result: UseSelectAllResult) => React.ReactNode
+} & Omit<
+    React.ComponentProps<typeof DropdownMenuItem>,
+    'children' | 'onClick' | 'onChange' | 'closeOnClick' | 'data-state'
+>): React.ReactElement {
+    const result = useDropdownMenuSelectAll(values, selected, onChange, getKey)
+
+    if (children) {
+        return <>{children(result)}</>
+    }
+
+    return (
+        <DropdownMenuItem
+            {...itemProps}
+            data-slot="dropdown-menu-select-all"
+            data-state={result.state}
+            closeOnClick={false}
+            onClick={result.toggle}
+        >
+            {result.isAllSelected ? deselectLabel : selectLabel}
+        </DropdownMenuItem>
+    )
+}
+
 function DropdownMenuShortcut({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
     return <span data-slot="dropdown-menu-shortcut" className={cn('quill-menu__shortcut', className)} {...props} />
 }
@@ -248,9 +376,12 @@ export {
     DropdownMenuCheckboxItem,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
+    DropdownMenuSelectAll,
     DropdownMenuSeparator,
     DropdownMenuShortcut,
     DropdownMenuSub,
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
+    useDropdownMenuSelectAll,
 }
+export type { SelectAllState, UseSelectAllResult }

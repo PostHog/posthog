@@ -12,7 +12,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -364,9 +364,12 @@ function SkillViewDetails(): JSX.Element {
                             onToggleExpanded={toggleOutlineExpanded}
                         />
                         <div ref={markdownContainerRef}>
-                            <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
+                            <LemonMarkdownWithMermaid
+                                className="mt-1 rounded border bg-bg-light p-3"
+                                generateHeadingIds
+                            >
                                 {skill.body}
-                            </LemonMarkdown>
+                            </LemonMarkdownWithMermaid>
                         </div>
                     </>
                 )}
@@ -581,9 +584,9 @@ function SkillFileViewer({
                             <LemonSkeleton active className="h-3 w-1/2" />
                         </div>
                     ) : content === null ? null : isMarkdown ? (
-                        <LemonMarkdown className="text-sm" generateHeadingIds>
+                        <LemonMarkdownWithMermaid className="text-sm" generateHeadingIds>
                             {content}
-                        </LemonMarkdown>
+                        </LemonMarkdownWithMermaid>
                     ) : codeLanguage !== null ? (
                         <CodeSnippet language={codeLanguage} compact thing={file.path} maxLinesWithoutExpansion={20}>
                             {content}

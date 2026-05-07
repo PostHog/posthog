@@ -111,6 +111,51 @@ Examples of using a breakdown:
 - page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.
 - conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.
 
+## Combining multiple events into a single step (`GroupNode`)
+
+**Use a `GroupNode`** when the user wants a single funnel step to match any of several events — e.g. "Pageview OR Pageleave counts as one step", or "the user signed up via any of these channels". Different filters per event are fine — put them on the inner nodes. Use separate steps instead when the user wants the events to occur in sequence. Only `OR` is supported.
+
+Funnel math (`first_time_for_user` etc.), `optionalInFunnel`, and step-wide property filters are not supported on a grouped step — filters must live on the inner nodes, and any math / optional handling must use a regular non-grouped step.
+
+**Where things live:**
+
+- On the group: only `name` (display label).
+- On each inner node: `event` (or action `id`), `properties`, `name` — all respected normally; per-node `properties` apply only to that node.
+
+### Example — funnel with a grouped step
+
+A 3-step funnel where the middle step matches either `$pageview` on Safari or `$pageleave` on Chrome:
+
+```json
+{
+  "kind": "FunnelsQuery",
+  "series": [
+    { "kind": "EventsNode", "event": "sign up" },
+    {
+      "kind": "GroupNode",
+      "operator": "OR",
+      "name": "Pageview on Safari, Pageleave on Chrome",
+      "nodes": [
+        {
+          "kind": "EventsNode",
+          "event": "$pageview",
+          "name": "Pageview",
+          "properties": [{ "key": "$browser", "operator": "exact", "type": "event", "value": ["Safari"] }]
+        },
+        {
+          "kind": "EventsNode",
+          "event": "$pageleave",
+          "name": "Pageleave",
+          "properties": [{ "key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"] }]
+        }
+      ]
+    },
+    { "kind": "EventsNode", "event": "purchase" }
+  ],
+  "dateRange": { "date_from": "-30d" }
+}
+```
+
 # Examples
 
 ## Conversion from first event ingested to insight saved for organizations over 6 months

@@ -265,6 +265,28 @@ class S3BatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class FileDownloadBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for a file download batch export workflow.
+
+    Attributes:
+        data_interval_start: Lower bound for the batch export.
+        data_interval_end: Upper bound for the batch export.
+        file_format: File format to use when exporting files. Same as S3.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded. Same
+            as S3.
+        compression: Compression algorithm, if any. Same as S3.
+        expires_in: Number of seconds to expire the download URLs.
+    """
+
+    data_interval_start: str | None = None
+    batch_export_run_id: UUID | None = None
+    file_format: str = "Parquet"
+    max_file_size_mb: int | None = None
+    compression: str | None = None
+    expires_in_seconds: int = 3600
+
+
+@dataclass(kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow."""
 
@@ -441,15 +463,16 @@ class NoOpInputs(BaseBatchExportInputs):
 
 
 DESTINATION_WORKFLOWS = {
-    "S3": ("s3-export", S3BatchExportInputs),
-    "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
-    "Postgres": ("postgres-export", PostgresBatchExportInputs),
-    "Redshift": ("redshift-export", RedshiftBatchExportInputs),
+    "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
-    "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
+    "FileDownload": ("file-download-export", FileDownloadBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
+    "Postgres": ("postgres-export", PostgresBatchExportInputs),
+    "Redshift": ("redshift-export", RedshiftBatchExportInputs),
+    "S3": ("s3-export", S3BatchExportInputs),
+    "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }
 

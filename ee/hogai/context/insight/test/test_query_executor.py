@@ -20,6 +20,7 @@ from posthog.schema import (
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
     ChartDisplayType,
+    DataVisualizationNode,
     DateRange,
     EventsNode,
     FunnelsQuery,
@@ -131,6 +132,18 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         mock_process_query.return_value = {"results": [{"count": 100}, {"count": 200}], "columns": ["count"]}
 
         query = AssistantHogQLQuery(query="SELECT count() FROM events")
+        result, used_fallback = await self.query_runner.arun_and_format_query(query)
+
+        self.assertIsInstance(result, str)
+        self.assertFalse(used_fallback)
+        self.assertIn("count\n100\n200", result)
+        mock_process_query.assert_called_once()
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_data_visualization_sql(self, mock_process_query):
+        mock_process_query.return_value = {"results": [{"count": 100}, {"count": 200}], "columns": ["count"]}
+
+        query = DataVisualizationNode(source=HogQLQuery(query="SELECT count() FROM events"))
         result, used_fallback = await self.query_runner.arun_and_format_query(query)
 
         self.assertIsInstance(result, str)

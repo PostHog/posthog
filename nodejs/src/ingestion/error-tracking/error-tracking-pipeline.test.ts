@@ -292,6 +292,12 @@ describe('ErrorTrackingPipeline', () => {
                 dlq: new SingleIngestionOutput('dlq', 'error_tracking_dlq', mockKafkaProducer, 'test'),
                 overflow: new SingleIngestionOutput('overflow', 'error_tracking_overflow', mockKafkaProducer, 'test'),
                 tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', mockKafkaProducer, 'test'),
+                app_metrics: new SingleIngestionOutput(
+                    'app_metrics',
+                    'clickhouse_app_metrics2_test',
+                    mockKafkaProducer,
+                    'test'
+                ),
             }),
             groupId: 'error-tracking-test',
             promiseScheduler,
@@ -931,7 +937,7 @@ describe('ErrorTrackingPipeline', () => {
 
             topHog = new TopHog({
                 outputs: tophogOutputs,
-                pipeline: 'error_tracking',
+                pipeline: 'errortracking',
                 lane: 'main',
             })
         })
@@ -1038,7 +1044,7 @@ describe('ErrorTrackingPipeline', () => {
             const messages = getTopHogMessages()
             expect(messages.length).toBeGreaterThan(0)
             for (const msg of messages) {
-                expect(msg.pipeline).toBe('error_tracking')
+                expect(msg.pipeline).toBe('errortracking')
                 expect(msg.lane).toBe('main')
             }
         })

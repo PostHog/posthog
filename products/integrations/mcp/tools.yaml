@@ -33,8 +33,25 @@ tools:
             idempotent: true
         title: Get integration
         description: >
-            Get a specific integration by ID. Returns the full integration details including kind, display name,
-            non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.
+            Get a specific integration by ID. Returns full integration details including kind, display name, error
+            status, and creation metadata. Does not expose sensitive credentials or raw configuration.
+        response:
+            include:
+                - id
+                - kind
+                - display_name
+                - errors
+                - created_at
+                - created_by
+    integrations-anthropic-managed-agent-envs-retrieve:
+        operation: integrations_anthropic_managed_agent_envs_retrieve
+        enabled: false
+    integrations-anthropic-managed-agent-vaults-retrieve:
+        operation: integrations_anthropic_managed_agent_vaults_retrieve
+        enabled: false
+    integrations-anthropic-managed-agents-retrieve:
+        operation: integrations_anthropic_managed_agents_retrieve
+        enabled: false
     integrations-authorize-retrieve:
         operation: integrations_authorize_retrieve
         enabled: false
@@ -130,8 +147,15 @@ tools:
         description: >
             List all third-party integrations configured in the current project. Returns each integration's type (kind),
             display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack,
-            github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key or OAuth,
-            only GitHub and Slack integrations are returned (other kinds remain session-only).
+            github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are
+            never serialized.
+        response:
+            include:
+                - id
+                - kind
+                - display_name
+                - created_at
+                - created_by
     integrations-twilio-phone-numbers-retrieve:
         operation: integrations_twilio_phone_numbers_retrieve
         enabled: false

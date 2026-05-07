@@ -6,8 +6,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.models.integration_repository_cache import GitHubRepositoryFullCache, IntegrationRepositoryCacheEntry
+from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
+from posthog.models.team.team import Team
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
@@ -40,36 +43,60 @@ class RepoSelectionResult(BaseModel):
     )
 
 
-def _list_candidate_repos(team_id: int) -> list[str]:
-    """Fetch all repositories accessible via the team's GitHub integrations."""
-    integrations = Integration.objects.filter(team_id=team_id, kind="github")
+def resolve_team_github_integration(team_id: int, team: Team | None = None) -> GitHubIntegrationBase | None:
+    """Resolve the GitHub source the agent should use for this team."""
+    integration = (
+        Integration.objects.filter(team_id=team_id, kind="github")
+        # Skip integrations whose installation has been synced and confirmed empty (0 repos)
+        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        # Prioritize orgs vs users (alphabetically), then oldest first
+        .order_by("config__account__type", "created_at", "id")
+        .first()
+    )
+    # Prefer the first GitHub integration from the team
+    if integration is not None:
+        return GitHubIntegration(integration)
+    if team is None:
+        team = Team.objects.get(id=team_id)
+    user_integration = (
+        UserIntegration.objects.filter(
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            user__in=team.all_users_with_access(),
+        )
+        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        .order_by("config__account__type", "created_at", "id")
+        .first()
+    )
+    # If no team integration - pick the integration of the first user
+    if user_integration is not None:
+        return UserGitHubIntegration(user_integration)
+    return None
+
+
+def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int) -> list[str]:
+    """Fetch all repositories accessible via the resolved GitHub source."""
     repos: set[str] = set()
-    for integration in integrations:
-        github = GitHubIntegration(integration)
-        repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
-        for repo in repo_entries:
-            full_name = repo.get("full_name")
-            if full_name:
-                repos.add(full_name.lower())
-                if len(repos) >= _MAX_GITHUB_REPOS:
-                    logger.warning("repo_list_capped team_id=%s cap=%s", team_id, _MAX_GITHUB_REPOS)
-                    return sorted(repos)
+    for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS):
+        full_name = repo.get("full_name")
+        if not full_name:
+            continue
+        repos.add(full_name.lower())
+        if len(repos) >= _MAX_GITHUB_REPOS:
+            logger.warning(
+                "repo_list_capped cap=%s team_id=%s integration_id=%s",
+                _MAX_GITHUB_REPOS,
+                team_id,
+                github.integration.id,
+            )
+            return sorted(repos)
     return sorted(repos)
 
 
-def _get_team_github_integration(team_id: int) -> Integration | None:
-    """Return the team's GitHub integration. Single-integration-per-team assumption."""
-    return Integration.objects.filter(team_id=team_id, kind="github").first()
-
-
-def _list_eligible_full_names(integration_id: int) -> set[str]:
+def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
     """Repos the agent can reason about: present in the heavy cache and not archived.
     Anything else is dropped from the candidate list (no SQL evidence, or unfixable code)."""
-    return set(
-        IntegrationRepositoryCacheEntry.objects.filter(integration_id=integration_id, archived=False).values_list(
-            "full_name", flat=True
-        )
-    )
+    qs = github.integration.repository_cache_entries.filter(team_id=team_id, archived=False)
+    return set(qs.values_list("full_name", flat=True))
 
 
 def _build_repo_selection_prompt(signals: list[SignalData], candidate_repos: list[str]) -> str:
@@ -244,7 +271,13 @@ async def select_repository_for_report(
     output_fn: OutputFn = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals."""
-    candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(team_id)
+    github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
+    if github is None:
+        return RepoSelectionResult(
+            repository=None,
+            reason="No GitHub repositories connected to this team.",
+        )
+    candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)
     if len(candidate_repos) == 0:
         return RepoSelectionResult(
             repository=None,
@@ -258,29 +291,27 @@ async def select_repository_for_report(
 
     # Hydrate the heavy cache before running the agent. Single-flighted per integration —
     # concurrent reports for the same team wait on the leader and then read the warm cache.
-    integration = await database_sync_to_async(_get_team_github_integration, thread_sensitive=False)(team_id)
-    if integration is not None:
-        if output_fn:
-            output_fn("Refreshing repository cache...")
-        repo_cache = GitHubRepositoryFullCache(GitHubIntegration(integration))
-        await repo_cache.sync_full_cache()
-        # Drop archived repos (agent can't fix code there) and repos missing from the heavy cache
-        # (the prompt treats SQL as primary evidence — a missing row reads as false-negative).
-        eligible = await database_sync_to_async(_list_eligible_full_names, thread_sensitive=False)(integration.id)
-        dropped = [r for r in candidate_repos if r not in eligible]
-        if dropped:
-            logger.info("repo_selection.dropped_candidates", extra={"dropped": dropped, "team_id": team_id})
-            candidate_repos = [r for r in candidate_repos if r in eligible]
-            if len(candidate_repos) == 0:
-                return RepoSelectionResult(
-                    repository=None,
-                    reason="No connected GitHub repositories are eligible (archived or missing cache data).",
-                )
-            if len(candidate_repos) == 1:
-                return RepoSelectionResult(
-                    repository=candidate_repos[0],
-                    reason=f"Single eligible repository: {candidate_repos[0]}",
-                )
+    if output_fn:
+        output_fn("Refreshing repository cache...")
+    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id)
+    await repo_cache.sync_full_cache()
+    # Drop archived repos (agent can't fix code there) and repos missing from the heavy cache
+    # (the prompt treats SQL as primary evidence — a missing row reads as false-negative).
+    eligible = await database_sync_to_async(_list_eligible_full_names, thread_sensitive=False)(github, team_id)
+    dropped = [r for r in candidate_repos if r not in eligible]
+    if dropped:
+        logger.info("repo_selection.dropped_candidates", extra={"dropped": dropped, "team_id": team_id})
+        candidate_repos = [r for r in candidate_repos if r in eligible]
+        if len(candidate_repos) == 0:
+            return RepoSelectionResult(
+                repository=None,
+                reason="No connected GitHub repositories are eligible (archived or missing cache data).",
+            )
+        if len(candidate_repos) == 1:
+            return RepoSelectionResult(
+                repository=candidate_repos[0],
+                reason=f"Single eligible repository: {candidate_repos[0]}",
+            )
 
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")

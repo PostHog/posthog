@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
-import type { AnomalyMarker, Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
+import { TimeSeriesLineChart } from 'lib/hog-charts'
+import type { Series, TimeInterval, YAxisConfig } from 'lib/hog-charts'
 import { ciRanges } from 'lib/statistics'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
@@ -166,29 +166,6 @@ export const YAxisFormats: Story = {
     ),
 }
 
-export const Anomalies: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        const series: Series[] = [{ key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] }]
-        // Severity drives color — low (amber), medium (orange), high (red).
-        const anomalies: AnomalyMarker[] = [
-            { dataIndex: 1, value: 35, color: '#f59e0b', yAxisId: DEFAULT_Y_AXIS_ID },
-            { dataIndex: 3, value: 60, color: '#f97316', yAxisId: DEFAULT_Y_AXIS_ID },
-            { dataIndex: 5, value: 70, color: '#ef4444', yAxisId: DEFAULT_Y_AXIS_ID },
-        ]
-        return (
-            <Stage>
-                <TimeSeriesLineChart
-                    series={series}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{ yAxis: { showGrid: true }, anomalies }}
-                />
-            </Stage>
-        )
-    },
-}
-
 const DERIVED_SERIES: Series[] = [
     { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] },
     { key: 'signups', label: 'Sign-ups', data: [4, 8, 6, 14, 11, 19, 13] },
@@ -228,6 +205,56 @@ export const MovingAverage: Story = {
                     config={{
                         yAxis: { showGrid: true },
                         movingAverage: [{ seriesKey: 'visits', window: 3 }],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const TrendLines: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={DERIVED_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        trendLines: [
+                            { seriesKey: 'visits', kind: 'linear' },
+                            { seriesKey: 'signups', kind: 'linear' },
+                        ],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const ComparisonOf: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52], color: theme.colors[0] },
+            {
+                key: 'visits-prev',
+                label: 'Visits (previous)',
+                data: [15, 25, 32, 40, 38, 50, 44],
+                color: theme.colors[0],
+            },
+        ]
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: { showGrid: true },
+                        comparisonOf: { 'visits-prev': 'visits' },
                     }}
                 />
             </Stage>
