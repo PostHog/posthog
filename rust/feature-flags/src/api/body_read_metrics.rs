@@ -70,9 +70,8 @@ pub async fn record_body_read(req: Request, next: Next) -> Response {
             // not a contract. A future bump that adds another wrapper
             // layer would silently misclassify 413s as 400s and stop
             // firing `flags_body_read_too_large_total`.
-            let too_large =
-                std::iter::successors(std::error::Error::source(&err), |s| s.source())
-                    .any(|s| s.is::<http_body_util::LengthLimitError>());
+            let too_large = std::iter::successors(std::error::Error::source(&err), |s| s.source())
+                .any(|s| s.is::<http_body_util::LengthLimitError>());
             if too_large {
                 inc(FLAG_BODY_READ_TOO_LARGE_COUNTER, &[], 1);
                 tracing::warn!(

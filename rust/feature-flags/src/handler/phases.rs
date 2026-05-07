@@ -272,4 +272,47 @@ mod tests {
         // already no-ops in that case; this test pins the contract.
         let _g = PhaseGuard::enter(Phase::ConfigResponse);
     }
+
+    /// `flags_inflight_by_phase` must be balanced: +1 while the guard is
+    /// alive, 0 after drop. A regression that moves the increment into
+    /// Drop, skips it on an error path, or replaces drop ordering would
+    /// leak the gauge permanently with no other test failing.
+    #[test]
+    fn phase_guard_gauge_is_balanced() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        fn auth_gauge_value(
+            snapshotter: &metrics_util::debugging::Snapshotter,
+        ) -> Option<DebugValue> {
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .find(|(ckey, _, _, _)| {
+                    ckey.key().name() == FLAG_INFLIGHT_BY_PHASE
+                        && ckey
+                            .key()
+                            .labels()
+                            .any(|l| l.key() == "phase" && l.value() == "auth")
+                })
+                .map(|(_, _, _, v)| v)
+        }
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        metrics::with_local_recorder(&recorder, || {
+            let guard = PhaseGuard::enter(Phase::Auth);
+            let mid = auth_gauge_value(&snapshotter);
+            assert!(
+                matches!(&mid, Some(DebugValue::Gauge(f)) if f.into_inner() == 1.0),
+                "gauge must be 1 while PhaseGuard is alive, got {mid:?}",
+            );
+            drop(guard);
+            let after = auth_gauge_value(&snapshotter);
+            assert!(
+                matches!(&after, Some(DebugValue::Gauge(f)) if f.into_inner() == 0.0),
+                "gauge must be 0 after PhaseGuard is dropped, got {after:?}",
+            );
+        });
+    }
 }
