@@ -4633,23 +4633,6 @@
             "readOnlyHint": false
         }
     },
-    "subscribe-to-session-summary-digest": {
-        "description": "Subscribe a Slack channel to a daily or weekly AI-summarized digest of session summaries. The digest pulls `$session_summary_ready` events from the last 24 hours and renders them with the user-supplied `prompt_guide`.\n\nCRITICAL: `prompt_guide` is required and customer-specific. It tells the AI what's \"notable\" for THIS team's product. Before invoking this tool, ASK the user what they care about — a generic prompt_guide produces a generic digest. The customer's framing of \"what matters\" is the entire differentiator. Examples to suggest:\n- \"Highlight failed checkouts and any session where a paying customer hit friction on pricing.\"\n- \"Flag enterprise users who abandoned onboarding mid-flow.\"\n- \"Surface UI bugs not caught by error tracking — visual glitches, layout breaks, content failing to render.\"\n\nRequired prerequisites: the team must have (1) a connected Slack integration (see Slack integrations), and (2) AI data processing approval at the organization level. The tool will return 400 / 403 if either is missing — surface those errors verbatim to the user so they can resolve.\n\nIdempotency: the underlying digest insight is created once per team and reused across digest subscriptions — calling this tool multiple times produces multiple subscriptions (e.g. one per Slack channel) backed by the same insight.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "Subscribe to session summary digest",
-        "title": "Subscribe to session summary digest",
-        "required_scopes": ["subscription:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "requires_ai_consent": true,
-        "feature_flag": "replay-video-based-summarization"
-    },
     "subscriptions-create": {
         "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
         "category": "Core",
