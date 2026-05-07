@@ -223,10 +223,10 @@ export function formatTokens(tokens: number): string {
 
 export function formatAiErrorForDisplay(value: unknown): string {
     if (typeof value === 'string') {
-        return value
+        return value || 'Unknown error'
     }
     if (value == null) {
-        return ''
+        return 'Unknown error'
     }
     try {
         return JSON.stringify(value)

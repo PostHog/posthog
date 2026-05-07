@@ -368,10 +368,9 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         ? row.events.find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
         : false
     if (errorEventFound) {
-        const errorText = formatAiErrorForDisplay(errorEventFound.properties?.$ai_error)
         return (
             <LemonTag type="danger" className="font-mono max-w-50 truncate">
-                {errorText || 'Unknown error'}
+                {formatAiErrorForDisplay(errorEventFound.properties?.$ai_error)}
             </LemonTag>
         )
     }

@@ -1982,9 +1982,9 @@ describe('LLM Analytics utils', () => {
     describe('formatAiErrorForDisplay', () => {
         it.each<[string, unknown, string]>([
             ['string passes through', 'rate limit exceeded', 'rate limit exceeded'],
-            ['empty string passes through', '', ''],
-            ['null returns empty string', null, ''],
-            ['undefined returns empty string', undefined, ''],
+            ['empty string falls back to Unknown error', '', 'Unknown error'],
+            ['null falls back to Unknown error', null, 'Unknown error'],
+            ['undefined falls back to Unknown error', undefined, 'Unknown error'],
             [
                 'plain object is JSON-stringified',
                 { message: 'boom', name: 'Error' },
