@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import click
-from hogli.cli import cli
 
 from .lint import lint_all_products, lint_product
 from .maturity import generate_codegen_report, generate_detail, generate_report, score_all_products, score_product
 from .scaffold import bootstrap_product
 
 
-@cli.command(name="product:bootstrap", help="Scaffold a new product with canonical structure")
+@click.command(name="product:bootstrap", help="Scaffold a new product with canonical structure")
 @click.argument("name")
 @click.option("--dry-run", is_flag=True, help="Show what would be created without creating")
 @click.option("--force", is_flag=True, help="Overwrite existing files")
@@ -18,7 +17,7 @@ def cmd_bootstrap(name: str, dry_run: bool, force: bool) -> None:
     bootstrap_product(name, dry_run, force)
 
 
-@cli.command(name="product:lint", help="Check product structure for misplaced files")
+@click.command(name="product:lint", help="Check product structure for misplaced files")
 @click.argument("name", required=False)
 @click.option("--all", "lint_all", is_flag=True, help="Lint all products")
 def cmd_lint(name: str | None, lint_all: bool) -> None:
@@ -43,7 +42,7 @@ def cmd_lint(name: str | None, lint_all: bool) -> None:
     raise SystemExit(1)
 
 
-@cli.command(name="product:maturity", help="Score product maturity across isolation dimensions")
+@click.command(name="product:maturity", help="Score product maturity across isolation dimensions")
 @click.argument("name", required=False)
 @click.option("--all", "score_all", is_flag=True, help="Score all products and generate ranked report")
 @click.option("--codegen", "codegen_detail", is_flag=True, help="Show detailed codegen call-site analysis")

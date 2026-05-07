@@ -2997,6 +2997,94 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_1_id, insight_2_id]
 
+    def test_trending_insights_orders_by_view_count_then_recency(self) -> None:
+        # Bypass the API for the unviewed insight — `dashboard_api.create_insight` auto-creates
+        # an InsightViewed row, which would defeat the "no views = excluded" assertion below.
+        unviewed = Insight.objects.create(team=self.team, short_id="trnd0001", filters={"events": [{"id": "$pv"}]})
+        one_view_id, _ = self.dashboard_api.create_insight({"short_id": "trnd0002"})
+        two_views_id, _ = self.dashboard_api.create_insight({"short_id": "trnd0003"})
+
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        viewed_at = timezone.now()
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=self.user, insight_id=one_view_id, defaults={"last_viewed_at": viewed_at}
+        )
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=self.user, insight_id=two_views_id, defaults={"last_viewed_at": viewed_at}
+        )
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=other_user, insight_id=two_views_id, defaults={"last_viewed_at": viewed_at}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trending")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        results = body["results"]
+        assert body["count"] == len(results)
+
+        ids = [r["id"] for r in results]
+        assert two_views_id in ids and one_view_id in ids
+        assert unviewed.pk not in ids
+        assert ids.index(two_views_id) < ids.index(one_view_id)
+
+        two_views_row = next(r for r in results if r["id"] == two_views_id)
+        assert two_views_row["view_count"] == 2
+        assert len(two_views_row["viewers"]) == 2
+
+    def test_trending_insights_respects_days_window(self) -> None:
+        recent_id, _ = self.dashboard_api.create_insight({"short_id": "trndR001"})
+        old_id, _ = self.dashboard_api.create_insight({"short_id": "trndO001"})
+
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=self.user, insight_id=recent_id, defaults={"last_viewed_at": timezone.now()}
+        )
+        InsightViewed.objects.update_or_create(
+            team=self.team,
+            user=self.user,
+            insight_id=old_id,
+            defaults={"last_viewed_at": timezone.now() - timedelta(days=14)},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?days=7")
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids == [recent_id]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?days=30")
+        ids = [r["id"] for r in response.json()["results"]]
+        assert set(ids) == {recent_id, old_id}
+
+    def test_trending_insights_excludes_deleted(self) -> None:
+        kept_id, _ = self.dashboard_api.create_insight({"short_id": "trndK001"})
+        deleted_id, _ = self.dashboard_api.create_insight({"short_id": "trndD001"})
+
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=self.user, insight_id=kept_id, defaults={"last_viewed_at": timezone.now()}
+        )
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=self.user, insight_id=deleted_id, defaults={"last_viewed_at": timezone.now()}
+        )
+        self.dashboard_api.soft_delete(deleted_id, "insights")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trending")
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids == [kept_id]
+
+    def test_trending_insights_respects_limit(self) -> None:
+        for short_id in ("trndL001", "trndL002", "trndL003"):
+            insight_id, _ = self.dashboard_api.create_insight({"short_id": short_id})
+            InsightViewed.objects.update_or_create(
+                team=self.team, user=self.user, insight_id=insight_id, defaults={"last_viewed_at": timezone.now()}
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?limit=2")
+        body = response.json()
+        assert len(body["results"]) == 2
+        assert body["count"] == 2
+
+    def test_trending_insights_rejects_invalid_params(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/trending?days=abc")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_get_recent_insights_with_feature_flag(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],

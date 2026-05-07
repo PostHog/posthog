@@ -76,17 +76,21 @@ kept for back-compat.
 For custom tooltip content, pass a component to the `tooltip` prop. It receives
 `TooltipContext` as props. Omit to use the built-in `DefaultTooltip`.
 
-### Series visibility flags
+### Series role and visibility
 
-All flags live under `series.visibility` and default to `false`.
+- `series.overlay` (default `false`): marks an auxiliary series derived from
+  primary data — trend lines and moving averages. Excluded from stack
+  computation and from the y-axis baseline calculation, so a trendline
+  projection won't drag the axis below 0 when the underlying data is
+  non-negative. (CI bands are not overlays — they represent real data
+  uncertainty whose range should still influence the axis.)
 
-- `excluded`: fully excludes the series — no rendering, no scale contribution,
-  no tooltip row, no hit-testing.
-- `fromTooltip`: the series still renders and participates in scales and
-  hit-testing, but is omitted from `TooltipContext.seriesData` so it doesn't
-  appear as a tooltip row. Useful for background/reference series that
-  shouldn't clutter the tooltip.
-- `fromValueLabels`: the `ValueLabels` overlay skips this series.
-- `fromStack`: the series is excluded from d3 stack computation. Use for
-  auxiliary overlays (trend lines, moving averages) that should not affect
-  cumulative area heights.
+The `series.visibility` object controls where a series appears:
+
+- `excluded` (default `false`): fully excludes the series — no rendering, no
+  scale contribution, no tooltip row, no hit-testing.
+- `tooltip` (default `true`): when `false`, the series still renders and
+  participates in scales and hit-testing, but is omitted from
+  `TooltipContext.seriesData` so it doesn't appear as a tooltip row.
+- `valueLabel` (default `true`): when `false`, the `ValueLabels` overlay
+  skips this series.

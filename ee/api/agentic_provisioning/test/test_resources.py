@@ -121,7 +121,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count + 1
 
-    def test_create_resource_pat_label_contains_provisioning_prefix(self):
+    def test_create_resource_pat_label_defaults_to_team_name(self):
         token = self._get_bearer_token()
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -130,7 +130,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
-        assert pat.label.startswith("Stripe Projects")
+        assert pat.label == self.team.name[:40]
 
     def test_create_resource_pat_is_scoped_to_authorized_team(self):
         token = self._get_bearer_token()
@@ -152,7 +152,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        first_pat = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects").first()
+        first_pat = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40]).first()
         assert first_pat is not None
 
         self._post_signed_with_bearer(
@@ -160,18 +160,18 @@ class TestProvisioningResources(ProvisioningTestBase):
             data={"service_id": "analytics"},
             token=token,
         )
-        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
+        provisioning_pats = PersonalAPIKey.objects.filter(user=self.user, label=self.team.name[:40])
         assert provisioning_pats.count() == 2
         assert PersonalAPIKey.objects.filter(id=first_pat.id).exists()
 
     @parameterized.expand(
         [
             ("partner_label", "Acme Co", "Acme Co - "),
-            ("empty_falls_back", "", "Stripe Projects"),
-            ("whitespace_falls_back", "   ", "Stripe Projects"),
+            ("empty_uses_team_name", "", "{team_name}"),
+            ("whitespace_uses_team_name", "   ", "{team_name}"),
         ]
     )
-    def test_create_resource_label_prefix_accepted(self, _name, label_prefix, expected_label_start):
+    def test_create_resource_label_prefix_accepted(self, _name, label_prefix, expected_label_start_template):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
@@ -181,6 +181,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert res.status_code == 200
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
+        expected_label_start = expected_label_start_template.format(team_name=self.team.name)
         assert pat.label.startswith(expected_label_start)
 
     @parameterized.expand(
@@ -527,17 +528,17 @@ class TestProvisioningResources(ProvisioningTestBase):
 class TestCreateProvisionedPat(ProvisioningTestBase):
     @parameterized.expand(
         [
-            ("default_when_none", None, "Stripe Projects"),
-            ("custom_overrides_default", "My Partner", "My Partner"),
-            ("empty_falls_back", "", "Stripe Projects"),
+            ("default_when_none", None, "{team_name}"),
+            ("custom_adds_prefix", "My Partner", "My Partner - {team_name}"),
+            ("empty_uses_team_name", "", "{team_name}"),
         ]
     )
-    def test_label_prefix_resolution(self, _name, label_prefix, expected_prefix):
+    def test_label_prefix_resolution(self, _name, label_prefix, expected_label_template):
         api_key = _create_provisioned_pat(self.user, self.team, label_prefix=label_prefix)
         assert api_key is not None
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
-        assert pat.label == f"{expected_prefix} - {self.team.name}"[:40]
+        assert pat.label == expected_label_template.format(team_name=self.team.name)[:40]
 
     def test_label_is_truncated_to_40_chars(self):
         self.team.name = "A" * 60

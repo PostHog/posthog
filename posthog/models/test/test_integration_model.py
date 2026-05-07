@@ -810,6 +810,80 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_oauth_persists_is_sandbox_false_for_live_install(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "FAKE_ACCESS",
+            "refresh_token": "FAKE_REFRESH",
+            "stripe_user_id": "acct_live_1",
+            "account_name": "Live Account",
+            "expires_in": 3600,
+        }
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+        ):
+            integration = OauthIntegration.integration_from_oauth_response(
+                "stripe",
+                self.team.id,
+                self.user,
+                {"code": "ac_live_code"},
+            )
+
+        assert integration.config.get("is_sandbox") is False
+
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_oauth_persists_is_sandbox_true_after_sandbox_fallback(self, mock_post):
+        first_response = MagicMock(
+            status_code=400,
+            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
+        )
+        first_response.json.return_value = {"error": "invalid_grant"}
+        second_response = MagicMock(status_code=200)
+        second_response.json.return_value = {
+            "access_token": "FAKE_SANDBOX_ACCESS",
+            "refresh_token": "FAKE_SANDBOX_REFRESH",
+            "stripe_user_id": "acct_sandbox_1",
+            "account_name": "Sandbox Account",
+            "expires_in": 3600,
+        }
+        mock_post.side_effect = [first_response, second_response]
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
+        ):
+            integration = OauthIntegration.integration_from_oauth_response(
+                "stripe",
+                self.team.id,
+                self.user,
+                {"code": "ac_sandbox_code"},
+            )
+
+        assert integration.config.get("is_sandbox") is True
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_refresh_access_token_uses_sandbox_secret_when_flag_set(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED", "expires_in": 1000}
+
+        integration = self.create_integration(kind="stripe", config={"expires_in": 1000, "is_sandbox": True})
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        assert mock_post.call_args.kwargs["auth"].username == "sk_test_sandbox_secret"
+
 
 class TestGoogleCloudIntegrationModel(BaseTest):
     mock_keyfile = {
