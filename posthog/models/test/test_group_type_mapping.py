@@ -7,11 +7,14 @@ from parameterized import parameterized
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    GroupTypeMapping,
     clear_dashboard_from_group_type_mapping,
     delete_group_type_mapping,
+    get_group_type_mapping_instance,
     get_group_types_for_project,
     get_group_types_for_projects,
     get_group_types_for_team,
+    group_type_dict_to_instance,
     update_group_type_mapping_fields,
 )
 from posthog.utils import safe_cache_delete
@@ -851,3 +854,260 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
 
         mock_objects.using.assert_called_once()
         mock_errors_counter.labels.assert_called_once()
+
+
+class TestGetGroupTypeMappingInstance(SimpleTestCase):
+    def setUp(self):
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_success_returns_model_instance(self, mock_get_client, mock_routing_counter, mock_objects):
+        from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2
+
+        mock_client = MagicMock()
+        mock_client.get_group_type_mappings_by_project_id.return_value = group_pb2.GroupTypeMappingsResponse(
+            mappings=[
+                group_pb2.GroupTypeMapping(
+                    id=42,
+                    team_id=10,
+                    project_id=1,
+                    group_type="organization",
+                    group_type_index=0,
+                    name_singular="Org",
+                    name_plural="Orgs",
+                ),
+                group_pb2.GroupTypeMapping(
+                    id=43,
+                    team_id=10,
+                    project_id=1,
+                    group_type="company",
+                    group_type_index=1,
+                ),
+            ]
+        )
+        mock_get_client.return_value = mock_client
+
+        result = get_group_type_mapping_instance(project_id=1, group_type_index=0)
+
+        assert isinstance(result, GroupTypeMapping)
+        assert result.id == 42
+        assert result.team_id == 10
+        assert result.project_id == 1
+        assert result.group_type == "organization"
+        assert result.group_type_index == 0
+        assert result.name_singular == "Org"
+        assert result.name_plural == "Orgs"
+        assert result._state.adding is False
+        mock_objects.get.assert_not_called()
+        mock_routing_counter.labels.assert_called_with(
+            operation="get_group_type_mapping_instance", source="personhog", client_name="posthog-django"
+        )
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_not_found_raises_does_not_exist(self, mock_get_client, mock_routing_counter, mock_objects):
+        from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2
+
+        mock_client = MagicMock()
+        mock_client.get_group_type_mappings_by_project_id.return_value = group_pb2.GroupTypeMappingsResponse(
+            mappings=[
+                group_pb2.GroupTypeMapping(
+                    id=42, team_id=10, project_id=1, group_type="organization", group_type_index=0
+                ),
+            ]
+        )
+        mock_get_client.return_value = mock_client
+
+        with self.assertRaises(GroupTypeMapping.DoesNotExist):
+            get_group_type_mapping_instance(project_id=1, group_type_index=99)
+
+        mock_objects.get.assert_not_called()
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_failure_falls_back_to_orm(
+        self, mock_get_client, mock_errors_counter, mock_routing_counter, mock_objects
+    ):
+        mock_client = MagicMock()
+        mock_client.get_group_type_mappings_by_project_id.side_effect = RuntimeError("grpc timeout")
+        mock_get_client.return_value = mock_client
+
+        orm_instance = MagicMock(spec=GroupTypeMapping)
+        mock_objects.get.return_value = orm_instance
+
+        result = get_group_type_mapping_instance(project_id=1, group_type_index=0)
+
+        assert result is orm_instance
+        mock_objects.get.assert_called_once_with(project_id=1, group_type_index=0)
+        mock_errors_counter.labels.assert_called_once_with(
+            operation="get_group_type_mapping_instance",
+            source="personhog",
+            error_type="grpc_error",
+            client_name="posthog-django",
+        )
+        mock_routing_counter.labels.assert_called_with(
+            operation="get_group_type_mapping_instance", source="django_orm", client_name="posthog-django"
+        )
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_objects):
+        mock_get_client.return_value = None
+
+        orm_instance = MagicMock(spec=GroupTypeMapping)
+        mock_objects.get.return_value = orm_instance
+
+        result = get_group_type_mapping_instance(project_id=1, group_type_index=0)
+
+        assert result is orm_instance
+        mock_objects.get.assert_called_once_with(project_id=1, group_type_index=0)
+        mock_routing_counter.labels.assert_called_with(
+            operation="get_group_type_mapping_instance", source="django_orm", client_name="posthog-django"
+        )
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_failure_orm_not_found_raises_does_not_exist(
+        self, mock_get_client, mock_errors_counter, mock_routing_counter, mock_objects
+    ):
+        mock_client = MagicMock()
+        mock_client.get_group_type_mappings_by_project_id.side_effect = RuntimeError("grpc timeout")
+        mock_get_client.return_value = mock_client
+
+        mock_objects.get.side_effect = GroupTypeMapping.DoesNotExist()
+
+        with self.assertRaises(GroupTypeMapping.DoesNotExist):
+            get_group_type_mapping_instance(project_id=1, group_type_index=99)
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
+    def test_personhog_empty_project_raises_does_not_exist(self, mock_get_client, mock_routing_counter, mock_objects):
+        from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2
+
+        mock_client = MagicMock()
+        mock_client.get_group_type_mappings_by_project_id.return_value = group_pb2.GroupTypeMappingsResponse(
+            mappings=[]
+        )
+        mock_get_client.return_value = mock_client
+
+        with self.assertRaises(GroupTypeMapping.DoesNotExist):
+            get_group_type_mapping_instance(project_id=1, group_type_index=0)
+
+        mock_objects.get.assert_not_called()
+
+
+class TestGroupTypeDictToInstance(SimpleTestCase):
+    def test_converts_dict_to_model_instance(self):
+        data = {
+            "group_type": "organization",
+            "group_type_index": 0,
+            "name_singular": "Org",
+            "name_plural": "Orgs",
+            "detail_dashboard_id": 42,
+            "default_columns": ["name", "email"],
+            "created_at": None,
+        }
+
+        result = group_type_dict_to_instance(data, project_id=1)
+
+        assert isinstance(result, GroupTypeMapping)
+        assert result.project_id == 1
+        assert result.group_type == "organization"
+        assert result.group_type_index == 0
+        assert result.name_singular == "Org"
+        assert result.name_plural == "Orgs"
+        assert result.detail_dashboard_id == 42
+        assert result.default_columns == ["name", "email"]
+        assert result._state.adding is False
+
+    def test_handles_none_values(self):
+        data = {
+            "group_type": "company",
+            "group_type_index": 1,
+            "name_singular": None,
+            "name_plural": None,
+            "detail_dashboard_id": None,
+            "default_columns": None,
+            "created_at": None,
+        }
+
+        result = group_type_dict_to_instance(data, project_id=5)
+
+        assert result.group_type == "company"
+        assert result.group_type_index == 1
+        assert result.name_singular is None
+        assert result.name_plural is None
+        assert result.detail_dashboard_id is None
+        assert result.default_columns is None
+        assert result._state.adding is False
+
+
+class TestProtoGroupTypeMappingToModel(SimpleTestCase):
+    def test_converts_proto_to_model_instance(self):
+        import json
+
+        from posthog.personhog_client.converters import proto_group_type_mapping_to_model
+        from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2
+
+        proto = group_pb2.GroupTypeMapping(
+            id=42,
+            team_id=10,
+            project_id=1,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Org",
+            name_plural="Orgs",
+            default_columns=json.dumps(["name"]).encode(),
+            detail_dashboard_id=5,
+            created_at=1620000000000,
+        )
+
+        result = proto_group_type_mapping_to_model(proto)
+
+        assert isinstance(result, GroupTypeMapping)
+        assert result.id == 42
+        assert result.team_id == 10
+        assert result.project_id == 1
+        assert result.group_type == "organization"
+        assert result.group_type_index == 0
+        assert result.name_singular == "Org"
+        assert result.name_plural == "Orgs"
+        assert result.default_columns == ["name"]
+        assert result.detail_dashboard_id == 5
+        assert result.created_at is not None
+        assert result._state.adding is False
+
+    def test_handles_empty_proto_fields(self):
+        from posthog.personhog_client.converters import proto_group_type_mapping_to_model
+        from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2
+
+        proto = group_pb2.GroupTypeMapping(
+            id=1,
+            team_id=10,
+            project_id=1,
+            group_type="",
+            group_type_index=0,
+        )
+
+        result = proto_group_type_mapping_to_model(proto)
+
+        assert result.group_type is None
+        assert result.name_singular is None
+        assert result.name_plural is None
+        assert result.detail_dashboard_id is None
+        assert result.default_columns is None
+        assert result.created_at is None
+        assert result._state.adding is False

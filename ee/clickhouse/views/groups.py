@@ -38,6 +38,9 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
     GroupTypeMapping,
     delete_group_type_mapping,
+    get_group_type_mapping_instance,
+    get_group_types_for_project,
+    group_type_dict_to_instance,
     invalidate_group_types_cache,
     update_group_type_mapping_fields,
 )
@@ -113,10 +116,16 @@ class GroupsTypesViewSet(
     def safely_get_queryset(self, queryset):
         return queryset.filter(project_id=self.team.project_id)
 
+    def list(self, request, *args, **kwargs):
+        group_types = get_group_types_for_project(self.team.project_id)
+        instances = [group_type_dict_to_instance(gt, self.team.project_id) for gt in group_types]
+        serializer = self.get_serializer(instances, many=True)
+        return response.Response(serializer.data)
+
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
-            instance = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
+            instance = get_group_type_mapping_instance(
                 project_id=self.team.project_id, group_type_index=row["group_type_index"]
             )
             # Pre-populate the team FK cache so serializer access control checks
@@ -137,7 +146,7 @@ class GroupsTypesViewSet(
     @action(methods=["PUT"], detail=False)
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
+            group_type_mapping = get_group_type_mapping_instance(
                 project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
@@ -166,7 +175,7 @@ class GroupsTypesViewSet(
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
+            group_type_mapping = get_group_type_mapping_instance(
                 project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:

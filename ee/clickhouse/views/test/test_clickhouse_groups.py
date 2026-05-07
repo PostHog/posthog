@@ -1623,8 +1623,11 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(cache.get(cache_key))
-        self.assertIsNone(cache.get(stale_cache_key))
+        # Stale sentinel data must be gone — the list() call at the end of
+        # update_metadata re-populates the cache with fresh data via
+        # get_group_types_for_project().
+        self.assertNotEqual(cache.get(cache_key), [{"stale": True}])
+        self.assertNotEqual(cache.get(stale_cache_key), [{"stale": True}])
 
     def test_destroy_invalidates_cache(self):
         GroupTypeMapping.objects.create(

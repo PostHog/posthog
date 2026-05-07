@@ -302,6 +302,73 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
     return result
 
 
+def get_group_type_mapping_instance(project_id: int, group_type_index: int) -> GroupTypeMapping:
+    """Fetch a single GroupTypeMapping model instance by project_id and group_type_index.
+
+    Routes through personhog first, falls back to ORM.
+    Raises GroupTypeMapping.DoesNotExist if not found.
+    """
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_group_type_mapping_to_model
+    from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.get_group_type_mappings_by_project_id(
+                GetGroupTypeMappingsByProjectIdRequest(project_id=project_id)
+            )
+            for m in resp.mappings:
+                if m.group_type_index == group_type_index:
+                    PERSONHOG_ROUTING_TOTAL.labels(
+                        operation="get_group_type_mapping_instance",
+                        source="personhog",
+                        client_name=get_client_name(),
+                    ).inc()
+                    return proto_group_type_mapping_to_model(m)
+            raise GroupTypeMapping.DoesNotExist()
+        except GroupTypeMapping.DoesNotExist:
+            raise
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_group_type_mapping_instance",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_get_group_type_mapping_instance_failure",
+                project_id=project_id,
+                group_type_index=group_type_index,
+                exc_info=True,
+            )
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_group_type_mapping_instance",
+        source="django_orm",
+        client_name=get_client_name(),
+    ).inc()
+    return GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
+        project_id=project_id, group_type_index=group_type_index
+    )
+
+
+def group_type_dict_to_instance(data: dict[str, Any], project_id: int) -> GroupTypeMapping:
+    """Convert a dict from get_group_types_for_project() to a GroupTypeMapping model instance."""
+    obj = GroupTypeMapping(
+        project_id=project_id,
+        group_type=data["group_type"],
+        group_type_index=data["group_type_index"],
+        name_singular=data.get("name_singular"),
+        name_plural=data.get("name_plural"),
+        detail_dashboard_id=data.get("detail_dashboard_id"),
+        default_columns=data.get("default_columns"),
+        created_at=data.get("created_at"),
+    )
+    obj._state.adding = False
+    return obj
+
+
 def update_group_type_mapping_fields(
     instance: GroupTypeMapping,
     *,

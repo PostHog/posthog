@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from posthog.models.group.group import Group
+    from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.person import Person
     from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2, person_pb2
 
@@ -50,6 +51,38 @@ def proto_group_type_mapping_to_result(mapping: group_pb2.GroupTypeMapping) -> G
         group_type=mapping.group_type,
         group_type_index=mapping.group_type_index,
     )
+
+
+def proto_group_type_mapping_to_model(mapping: group_pb2.GroupTypeMapping) -> GroupTypeMapping:
+    """Convert a proto GroupTypeMapping to a Django GroupTypeMapping model instance (unsaved).
+
+    The instance is NOT saved to the database. It carries data in memory
+    so that existing serializers and viewset code work without modification.
+    """
+    from posthog.models.group_type_mapping import GroupTypeMapping as GroupTypeMappingModel
+
+    default_columns: list[str] | None = None
+    if mapping.default_columns:
+        default_columns = json.loads(mapping.default_columns)
+
+    created_at: datetime | None = None
+    if mapping.created_at:
+        created_at = datetime.fromtimestamp(mapping.created_at / 1000, tz=UTC)
+
+    obj = GroupTypeMappingModel(
+        id=mapping.id,
+        team_id=mapping.team_id,
+        project_id=mapping.project_id,
+        group_type=mapping.group_type or None,
+        group_type_index=mapping.group_type_index,
+        name_singular=mapping.name_singular or None,
+        name_plural=mapping.name_plural or None,
+        detail_dashboard_id=mapping.detail_dashboard_id or None,
+        default_columns=default_columns,
+        created_at=created_at,
+    )
+    obj._state.adding = False
+    return obj
 
 
 def proto_person_to_model(
