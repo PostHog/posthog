@@ -118,6 +118,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         loadMoreNotifications: true,
         loadGroupChildren: (group: NotificationGroup) => ({ group }),
         markGroupChildrenLoaded: (groupKey: string) => ({ groupKey }),
+        setGroupLoading: (groupKey: string, loading: boolean) => ({ groupKey, loading }),
         toggleGroupExpanded: (groupKey: string) => ({ groupKey }),
         toggleGroupRead: (group: NotificationGroup) => ({ group }),
         setGroupChildrenRead: (groupKey: string, read: boolean) => ({ groupKey, read }),
@@ -221,6 +222,20 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 },
             },
         ],
+        loadingGroupKeys: [
+            new Set<string>() as Set<string>,
+            {
+                setGroupLoading: (state, { groupKey: key, loading }) => {
+                    const next = new Set(state)
+                    if (loading) {
+                        next.add(key)
+                    } else {
+                        next.delete(key)
+                    }
+                    return next
+                },
+            },
+        ],
     }),
     lazyLoaders(({ actions, values, cache }) => ({
         importantChanges: [
@@ -286,205 +301,12 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
     })),
-    listeners(({ actions, values, cache }) => ({
-        togglePolling: ({ pageIsVisible }) => {
-            if (values.realTimeNotificationsEnabled) {
-                return
-            }
-            if (pageIsVisible) {
-                actions.loadImportantChanges()
-            } else {
-                cache.disposables.dispose('pollTimeout')
-            }
-        },
-        startSSE: () => {
-            // Drop any pending focus-reconnect from a previous give-up; we're reconnecting now.
-            cache.disposables.dispose('sseFocusReconnect')
-
-            // TEMPORARY: lifecycle tracking for /notifications SSE connection.
-            // Remove together with livestream_401_debug once root cause is known.
-            posthog.capture('livestream_sse_startsse_called', {
-                flag_enabled: values.realTimeNotificationsEnabled,
-                has_token: !!values.currentTeam?.live_events_token,
-                has_host: !!liveEventsHostOrigin(),
-                had_prior_connection: !!cache.sseConnection,
-            })
-
-            if (!values.realTimeNotificationsEnabled) {
-                posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled' })
-                return
-            }
-
-            const token = values.currentTeam?.live_events_token
-            if (!token) {
-                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_token' })
-                return
-            }
-
-            const host = liveEventsHostOrigin()
-            if (!host) {
-                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_host' })
-                return
-            }
-
-            const url = `${host}/notifications`
-
-            cache.sseConnection?.abort()
-            const abortController = new AbortController()
-            cache.sseConnection = abortController
-            cache.firstMessageLogged = false
-
-            posthog.capture('livestream_sse_connecting', { url })
-
-            void retryWithBackoff(
-                () =>
-                    connectToNotificationsSSE(
-                        url,
-                        token,
-                        abortController.signal,
-                        (notification) => {
-                            if (!values.isInitialLoadComplete) {
-                                return
-                            }
-                            actions.notificationReceived(notification)
-                            if (notification.priority === 'critical') {
-                                showCriticalNotificationToast(notification)
-                            }
-                        },
-                        {
-                            // TEMPORARY: livestream SSE lifecycle tracking.
-                            onFirstMessage: () => {
-                                if (!cache.firstMessageLogged) {
-                                    cache.firstMessageLogged = true
-                                    posthog.capture('livestream_sse_first_message', { url })
-                                }
-                            },
-                            onError: (error) => {
-                                posthog.capture('livestream_sse_error', {
-                                    url,
-                                    error_name: (error as Error | undefined)?.name,
-                                    error_message: (error as Error | undefined)?.message,
-                                })
-                            },
-                        }
-                    ),
-                {
-                    maxAttempts: SSE_RETRY_ATTEMPTS,
-                    initialDelayMs: SSE_RETRY_INITIAL_DELAY_MS,
-                    backoffMultiplier: SSE_RETRY_BACKOFF_MULTIPLIER,
-                    signal: abortController.signal,
-                }
-            ).catch((error) => {
-                // retryWithBackoff rejects with AbortError on clean shutdown; only re-arm when it actually gave up.
-                if (error instanceof DOMException && error.name === 'AbortError') {
-                    return
-                }
-                // TEMPORARY: livestream SSE lifecycle tracking.
-                posthog.capture('livestream_sse_max_errors', {
-                    url,
-                    max_attempts: SSE_RETRY_ATTEMPTS,
-                })
-                // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
-                // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
-                cache.disposables.add(
-                    () => {
-                        const onFocus = (): void => {
-                            posthog.capture('livestream_sse_refocus_reconnect', { url })
-                            actions.startSSE()
-                        }
-                        window.addEventListener('focus', onFocus, { once: true })
-                        return () => window.removeEventListener('focus', onFocus)
-                    },
-                    'sseFocusReconnect',
-                    { pauseOnPageHidden: false }
-                )
-            })
-        },
-        stopSSE: () => {
-            // TEMPORARY: livestream SSE lifecycle tracking.
-            posthog.capture('livestream_sse_stopped', {
-                had_connection: !!cache.sseConnection,
-            })
-            cache.disposables.dispose('sseFocusReconnect')
-            cache.sseConnection?.abort()
-            cache.sseConnection = null
-        },
-        navigateToNotification: ({ notification }) => {
-            const path = values.sourcePathForNotification(notification)
-            if (!path) {
-                return
-            }
-            const isOtherProject = notification.team_id !== null && notification.team_id !== values.currentTeamId
-            if (!isOtherProject) {
-                if (!notification.read) {
-                    actions.markAsRead(notification.id)
-                }
-                router.actions.push(path)
-                return
-            }
-            const targetProjectName = values.projectNameForNotification(notification)
-            LemonDialog.open({
-                title: 'Leave current project?',
-                description: `This notification is in ${targetProjectName ? `"${targetProjectName}"` : 'another project'}. Opening it will reload the page and you'll lose any unsaved work.`,
-                primaryButton: {
-                    children: 'Open',
-
-                    onClick: async () => {
-                        if (!notification.read) {
-                            await actions.markAsRead(notification.id)
-                        }
-                        window.location.href = urls.project(notification.team_id!, path)
-                    },
-                },
-                secondaryButton: {
-                    children: 'Stay here',
-                },
-            })
-        },
-        markAsRead: async ({ id }) => {
-            try {
-                await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/mark_read/`, {})
-            } catch {
-                // Swallow
-            }
-        },
-        toggleRead: async ({ id }) => {
-            const notification = values.inAppNotifications.find((n) => n.id === id)
-            if (!notification) {
-                return
-            }
-            const endpoint = notification.read ? 'mark_read' : 'mark_unread'
-            try {
-                await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/${endpoint}/`, {})
-            } catch {
-                // Swallow
-            }
-        },
-        loadCurrentTeamSuccess: () => {
-            if (values.realTimeNotificationsEnabled && !cache.sseConnection) {
-                actions.startSSE()
-            }
-        },
-        loadMoreNotifications: async () => {
-            if (!values.hasMoreNotifications) {
-                return
-            }
-            try {
-                const resp = await api.get<{
-                    results: InAppNotification[]
-                    next: string | null
-                }>(
-                    `api/environments/${values.currentProjectId}/notifications/?limit=20&offset=${values.loadedFromApiCount}`
-                )
-                actions.appendInAppNotifications(resp.results, !!resp.next)
-            } catch {
-                // Swallow
-            }
-        },
-        loadGroupChildren: async ({ group }) => {
+    listeners(({ actions, values, cache }) => {
+        const fetchGroupChildren = async (group: NotificationGroup): Promise<void> => {
             if (group.full_children_loaded) {
                 return
             }
+            actions.setGroupLoading(group.group_key, true)
             const day = dayjs(group.last_seen).startOf('day')
             const params = new URLSearchParams({
                 notification_type: group.representative.notification_type,
@@ -505,33 +327,241 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     results: InAppNotification[]
                     next: string | null
                 }>(`api/environments/${values.currentProjectId}/notifications/?${params.toString()}`)
-                actions.appendInAppNotifications(resp.results, false)
+                actions.appendInAppNotifications(resp.results, values.hasMoreNotifications)
                 actions.markGroupChildrenLoaded(group.group_key)
             } catch {
                 // Swallow
+            } finally {
+                actions.setGroupLoading(group.group_key, false)
             }
-        },
-        toggleGroupRead: async ({ group }) => {
-            if (!group.full_children_loaded) {
-                await actions.loadGroupChildren(group)
-            }
-            const refreshed = values.groups.find((g) => g.group_key === group.group_key)
-            if (!refreshed) {
-                return
-            }
-            const ids = refreshed.children.map((c) => c.id)
-            const targetRead = refreshed.has_unread
-            actions.setGroupChildrenRead(refreshed.group_key, targetRead)
-            const endpoint = targetRead ? 'mark_read_bulk' : 'mark_unread_bulk'
-            try {
-                await api.create(`api/environments/${values.currentProjectId}/notifications/${endpoint}/`, {
-                    notification_ids: ids,
+        }
+
+        return {
+            togglePolling: ({ pageIsVisible }) => {
+                if (values.realTimeNotificationsEnabled) {
+                    return
+                }
+                if (pageIsVisible) {
+                    actions.loadImportantChanges()
+                } else {
+                    cache.disposables.dispose('pollTimeout')
+                }
+            },
+            startSSE: () => {
+                // Drop any pending focus-reconnect from a previous give-up; we're reconnecting now.
+                cache.disposables.dispose('sseFocusReconnect')
+
+                // TEMPORARY: lifecycle tracking for /notifications SSE connection.
+                // Remove together with livestream_401_debug once root cause is known.
+                posthog.capture('livestream_sse_startsse_called', {
+                    flag_enabled: values.realTimeNotificationsEnabled,
+                    has_token: !!values.currentTeam?.live_events_token,
+                    has_host: !!liveEventsHostOrigin(),
+                    had_prior_connection: !!cache.sseConnection,
                 })
-            } catch {
-                // Swallow; selector reflects optimistic state
-            }
-        },
-    })),
+
+                if (!values.realTimeNotificationsEnabled) {
+                    posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled' })
+                    return
+                }
+
+                const token = values.currentTeam?.live_events_token
+                if (!token) {
+                    posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_token' })
+                    return
+                }
+
+                const host = liveEventsHostOrigin()
+                if (!host) {
+                    posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_host' })
+                    return
+                }
+
+                const url = `${host}/notifications`
+
+                cache.sseConnection?.abort()
+                const abortController = new AbortController()
+                cache.sseConnection = abortController
+                cache.firstMessageLogged = false
+
+                posthog.capture('livestream_sse_connecting', { url })
+
+                void retryWithBackoff(
+                    () =>
+                        connectToNotificationsSSE(
+                            url,
+                            token,
+                            abortController.signal,
+                            (notification) => {
+                                if (!values.isInitialLoadComplete) {
+                                    return
+                                }
+                                actions.notificationReceived(notification)
+                                if (notification.priority === 'critical') {
+                                    showCriticalNotificationToast(notification)
+                                }
+                            },
+                            {
+                                // TEMPORARY: livestream SSE lifecycle tracking.
+                                onFirstMessage: () => {
+                                    if (!cache.firstMessageLogged) {
+                                        cache.firstMessageLogged = true
+                                        posthog.capture('livestream_sse_first_message', { url })
+                                    }
+                                },
+                                onError: (error) => {
+                                    posthog.capture('livestream_sse_error', {
+                                        url,
+                                        error_name: (error as Error | undefined)?.name,
+                                        error_message: (error as Error | undefined)?.message,
+                                    })
+                                },
+                            }
+                        ),
+                    {
+                        maxAttempts: SSE_RETRY_ATTEMPTS,
+                        initialDelayMs: SSE_RETRY_INITIAL_DELAY_MS,
+                        backoffMultiplier: SSE_RETRY_BACKOFF_MULTIPLIER,
+                        signal: abortController.signal,
+                    }
+                ).catch((error) => {
+                    // retryWithBackoff rejects with AbortError on clean shutdown; only re-arm when it actually gave up.
+                    if (error instanceof DOMException && error.name === 'AbortError') {
+                        return
+                    }
+                    // TEMPORARY: livestream SSE lifecycle tracking.
+                    posthog.capture('livestream_sse_max_errors', {
+                        url,
+                        max_attempts: SSE_RETRY_ATTEMPTS,
+                    })
+                    // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
+                    // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
+                    cache.disposables.add(
+                        () => {
+                            const onFocus = (): void => {
+                                posthog.capture('livestream_sse_refocus_reconnect', { url })
+                                actions.startSSE()
+                            }
+                            window.addEventListener('focus', onFocus, { once: true })
+                            return () => window.removeEventListener('focus', onFocus)
+                        },
+                        'sseFocusReconnect',
+                        { pauseOnPageHidden: false }
+                    )
+                })
+            },
+            stopSSE: () => {
+                // TEMPORARY: livestream SSE lifecycle tracking.
+                posthog.capture('livestream_sse_stopped', {
+                    had_connection: !!cache.sseConnection,
+                })
+                cache.disposables.dispose('sseFocusReconnect')
+                cache.sseConnection?.abort()
+                cache.sseConnection = null
+            },
+            navigateToNotification: ({ notification }) => {
+                const path = values.sourcePathForNotification(notification)
+                if (!path) {
+                    return
+                }
+                const isOtherProject = notification.team_id !== null && notification.team_id !== values.currentTeamId
+                if (!isOtherProject) {
+                    if (!notification.read) {
+                        actions.markAsRead(notification.id)
+                    }
+                    router.actions.push(path)
+                    return
+                }
+                const targetProjectName = values.projectNameForNotification(notification)
+                LemonDialog.open({
+                    title: 'Leave current project?',
+                    description: `This notification is in ${targetProjectName ? `"${targetProjectName}"` : 'another project'}. Opening it will reload the page and you'll lose any unsaved work.`,
+                    primaryButton: {
+                        children: 'Open',
+
+                        onClick: async () => {
+                            if (!notification.read) {
+                                await actions.markAsRead(notification.id)
+                            }
+                            window.location.href = urls.project(notification.team_id!, path)
+                        },
+                    },
+                    secondaryButton: {
+                        children: 'Stay here',
+                    },
+                })
+            },
+            markAsRead: async ({ id }) => {
+                try {
+                    await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/mark_read/`, {})
+                } catch {
+                    // Swallow
+                }
+            },
+            toggleRead: async ({ id }) => {
+                const notification = values.inAppNotifications.find((n) => n.id === id)
+                if (!notification) {
+                    return
+                }
+                const endpoint = notification.read ? 'mark_read' : 'mark_unread'
+                try {
+                    await api.create(`api/environments/${values.currentProjectId}/notifications/${id}/${endpoint}/`, {})
+                } catch {
+                    // Swallow
+                }
+            },
+            loadCurrentTeamSuccess: () => {
+                if (values.realTimeNotificationsEnabled && !cache.sseConnection) {
+                    actions.startSSE()
+                }
+            },
+            loadMoreNotifications: async () => {
+                if (!values.hasMoreNotifications) {
+                    return
+                }
+                try {
+                    const resp = await api.get<{
+                        results: InAppNotification[]
+                        next: string | null
+                    }>(
+                        `api/environments/${values.currentProjectId}/notifications/?limit=20&offset=${values.loadedFromApiCount}`
+                    )
+                    actions.appendInAppNotifications(resp.results, !!resp.next)
+                } catch {
+                    // Swallow
+                }
+            },
+            loadGroupChildren: async ({ group }) => {
+                await fetchGroupChildren(group)
+            },
+            toggleGroupRead: async ({ group }) => {
+                if (!group.full_children_loaded) {
+                    await fetchGroupChildren(group)
+                }
+                const refreshed = values.groups.find((g) => g.group_key === group.group_key)
+                if (!refreshed) {
+                    return
+                }
+                const ids = refreshed.children.map((c) => c.id)
+                const targetRead = refreshed.has_unread
+                const unreadDelta = targetRead
+                    ? -refreshed.children.filter((c) => !c.read).length
+                    : refreshed.children.filter((c) => c.read).length
+                actions.setGroupChildrenRead(refreshed.group_key, targetRead)
+                if (unreadDelta !== 0) {
+                    actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount + unreadDelta))
+                }
+                const endpoint = targetRead ? 'mark_read_bulk' : 'mark_unread_bulk'
+                try {
+                    await api.create(`api/environments/${values.currentProjectId}/notifications/${endpoint}/`, {
+                        notification_ids: ids,
+                    })
+                } catch {
+                    // Swallow; selector reflects optimistic state
+                }
+            },
+        }
+    }),
     selectors({
         realTimeNotificationsEnabled: [
             (s) => [s.featureFlags],

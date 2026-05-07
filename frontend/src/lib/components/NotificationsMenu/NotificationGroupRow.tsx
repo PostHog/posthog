@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -21,24 +20,19 @@ export function NotificationGroupRow({
     group: NotificationGroup
     onNavigate?: () => void
 }): JSX.Element {
-    const { expandedGroupKeys } = useValues(sidePanelNotificationsLogic)
+    const { expandedGroupKeys, loadingGroupKeys } = useValues(sidePanelNotificationsLogic)
     const { toggleGroupExpanded, loadGroupChildren, toggleGroupRead } = useActions(sidePanelNotificationsLogic)
     const isExpanded = expandedGroupKeys.has(group.group_key)
-    const [isLoading, setIsLoading] = useState(false)
+    const isLoading = loadingGroupKeys.has(group.group_key)
 
     if (group.count === 1) {
         return <NotificationRow notification={group.representative} onNavigate={onNavigate} />
     }
 
-    const handleExpand = async (e: React.MouseEvent): Promise<void> => {
+    const handleExpand = (e: React.MouseEvent): void => {
         e.stopPropagation()
         if (!group.full_children_loaded && !isExpanded) {
-            setIsLoading(true)
-            try {
-                await loadGroupChildren(group)
-            } finally {
-                setIsLoading(false)
-            }
+            void loadGroupChildren(group)
         }
         toggleGroupExpanded(group.group_key)
     }
