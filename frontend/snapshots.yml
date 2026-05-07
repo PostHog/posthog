@@ -1757,9 +1757,9 @@ snapshots:
     insights-insightstable--is-legend--light:
         hash: v1.k794b7964.d9eec920b0b2f3c9ea87c9e0d2b298bc37339217e4211d0cf1a147630f09b75d.xGcJlQO8pvoNnHyoMNZ4F58uqKh5PDg_UiGlO5bAMn8
     insights-trendsbarchart--compare--dark:
-        hash: v1.k794b7964.f1625cd1579606b9cb401377a4a5c1e5bd62ded63317f04afd120b059d938de6.2IvBdIZnKkmM-IClohS49uEMEdhoQTMRguavoPUZ2QM
+        hash: v1.k794b7964.68689d02aa245c2ccd04888b1c2bc578136eda4117f2fff911bde3f5c276b9da.svBnhEDDJ61_Vp6T3AUEjT3wlS2aamf9o-YNooKTRlw
     insights-trendsbarchart--compare--light:
-        hash: v1.k794b7964.f5985a01d6e1394fce41c9ee2d4b67afe0cee0a5e3e1fa75139d97829b21d2e9.x3PgL_79syQgV-JVJDbe9ha0Tnxs1aeN__kvu3_v0Q0
+        hash: v1.k794b7964.08db5d36c08b26300a7cd09fddd8f02e9ba973ffcf42e556e7f8ae01a27e907b.jN5qaeiDphtPJ90-0-bNC0jmD0MVkSCj6zjO8XzvZkI
     insights-trendslinechart--breakdown--dark:
         hash: v1.k794b7964.4228a311a626ebf45a34acead267954b6b05686aa012ed54242b7a0c5ba298f1.MC_47zRRkXLTsrbhhq1hf2BuXmW8uRCu4fohSF303Is
     insights-trendslinechart--breakdown--light:
