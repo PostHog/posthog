@@ -3182,6 +3182,81 @@
             "readOnlyHint": false
         }
     },
+    "llma-score-definition-create": {
+        "description": "Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`. Boolean scorers can override `true_label`/`false_label`. Scorers always start active (not archived) and at version 1.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create scorer",
+        "title": "Create scorer",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-score-definition-get": {
+        "description": "Retrieve a scorer by ID, including its current immutable `config` payload, `current_version` number, kind, archived state, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get scorer",
+        "title": "Get scorer",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-score-definition-list": {
+        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description. Returns metadata plus the current config snapshot.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List scorers",
+        "title": "List scorers",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-score-definition-new-version": {
+        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Bump scorer to a new version",
+        "title": "Bump scorer to a new version",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-score-definition-update": {
+        "description": "Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules instead, call `llma-score-definition-new-version`. `kind` cannot be changed.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update scorer metadata",
+        "title": "Update scorer metadata",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-sentiment-create": {
         "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",
         "category": "LLM analytics",
