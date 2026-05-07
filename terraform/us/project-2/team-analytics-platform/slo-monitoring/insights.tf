@@ -77,21 +77,31 @@ locals {
     -- Uncorrelated events (cid = '') use bucket-based counting with clamp.
     -- Sampled operations (properties.sample_rate < 1.0) are reweighted by 1/sample_rate
     -- so the dashboard reflects true volume; events without the property coalesce to 1.0.
-    WITH per_cid_hour AS (
+    WITH weighted_events AS (
         SELECT
-            coalesce(nullIf(properties.correlation_id, ''), '') AS cid,
-            toStartOfHour(timestamp) AS event_hour,
-            sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_started') AS starts,
-            sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
-            -- Per-cid sample_rate for the correlated-path collapse. All events in a pair
-            -- share the same rate (coin flip is per-operation) so max() is unambiguous.
-            max(coalesce(toFloat(properties.sample_rate), 1.0)) AS cid_sample_rate,
-            min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
+            event,
+            timestamp,
+            coalesce(nullIf(properties.correlation_id, ''), '') AS correlation_id,
+            properties.outcome AS outcome,
+            coalesce(toFloat(properties.sample_rate), 1.0) AS sample_rate,
+            1.0 / coalesce(toFloat(properties.sample_rate), 1.0) AS weight
         FROM events
         WHERE event IN ('slo_operation_started', 'slo_operation_completed')
           AND properties.operation = '{{OPERATION}}'
           AND properties.region = '{{REGION}}'
           AND timestamp >= now() - INTERVAL 35 DAY
+    ),
+    per_cid_hour AS (
+        SELECT
+            correlation_id AS cid,
+            toStartOfHour(timestamp) AS event_hour,
+            sumIf(weight, event = 'slo_operation_started') AS starts,
+            sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success') AS successes,
+            -- Per-cid sample_rate for the correlated-path collapse. All events in a pair
+            -- share the same rate (coin flip is per-operation) so max() is unambiguous.
+            max(sample_rate) AS cid_sample_rate,
+            min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
+        FROM weighted_events
         GROUP BY cid, event_hour
     ),
     hourly AS (
@@ -324,20 +334,29 @@ resource "posthog_insight" "slo_success_rate" {
         -- No correlation_id needed: daily buckets have negligible cross-bucket issues.
         -- Sampled operations are reweighted by 1/sample_rate so the rate reflects
         -- true volume; events without the property coalesce to 1.0 (no sampling).
-        WITH daily AS (
+        WITH weighted_events AS (
             SELECT
-                toDate(timestamp) AS date,
+                event,
+                timestamp,
                 properties.operation AS operation,
-                sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_started') AS total,
-                greatest(
-                    sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_started')
-                      - sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_completed' AND properties.outcome = 'success'),
-                    0.0
-                ) AS failures
+                properties.outcome AS outcome,
+                1.0 / coalesce(toFloat(properties.sample_rate), 1.0) AS weight
             FROM events
             WHERE event IN ('slo_operation_started', 'slo_operation_completed')
               AND properties.operation IN (${local.slo_operation_list})
               AND timestamp >= now() - INTERVAL 56 DAY
+        ),
+        daily AS (
+            SELECT
+                toDate(timestamp) AS date,
+                operation,
+                sumIf(weight, event = 'slo_operation_started') AS total,
+                greatest(
+                    sumIf(weight, event = 'slo_operation_started')
+                      - sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success'),
+                    0.0
+                ) AS failures
+            FROM weighted_events
             GROUP BY date, operation
         ),
         date_range AS (
@@ -412,31 +431,40 @@ resource "posthog_insight" "slo_volume" {
         -- No correlation_id needed: single 28-day bucket has no cross-bucket issue.
         -- Counts reconstructed to true volume by weighting each event by 1/sample_rate;
         -- events without the property coalesce to 1.0 (no sampling).
+        WITH weighted_events AS (
+            SELECT
+                event,
+                properties.operation AS operation,
+                properties.region AS raw_region,
+                properties.outcome AS outcome,
+                1.0 / coalesce(toFloat(properties.sample_rate), 1.0) AS weight
+            FROM events
+            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+              AND timestamp >= now() - INTERVAL 28 DAY
+        )
         SELECT
-            properties.operation AS operation,
+            operation,
             if(
-                count(properties.region) OVER (PARTITION BY properties.operation) = 1,
+                count(raw_region) OVER (PARTITION BY operation) = 1,
                 'all*',
-                properties.region
+                raw_region
             ) AS region,
-            sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_started') AS started,
-            sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes,
-            sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_completed' AND properties.outcome = 'failure') AS failures,
+            sumIf(weight, event = 'slo_operation_started') AS started,
+            sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success') AS successes,
+            sumIf(weight, event = 'slo_operation_completed' AND outcome = 'failure') AS failures,
             greatest(
-                sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_started')
-                  - sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_completed'),
+                sumIf(weight, event = 'slo_operation_started')
+                  - sumIf(weight, event = 'slo_operation_completed'),
                 0.0
             ) AS never_completed,
             if(
-                sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_started') > 0,
-                round(sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_completed' AND properties.outcome = 'success')
-                  / sumIf(1.0 / coalesce(toFloat(properties.sample_rate), 1.0), event = 'slo_operation_started') * 100, 2),
+                sumIf(weight, event = 'slo_operation_started') > 0,
+                round(sumIf(weight, event = 'slo_operation_completed' AND outcome = 'success')
+                  / sumIf(weight, event = 'slo_operation_started') * 100, 2),
                 NULL
             ) AS success_rate
-        FROM events
-        WHERE event IN ('slo_operation_started', 'slo_operation_completed')
-          AND timestamp >= now() - INTERVAL 28 DAY
-        GROUP BY operation, properties.region
+        FROM weighted_events
+        GROUP BY operation, raw_region
         ORDER BY operation, region
       SQL
     }

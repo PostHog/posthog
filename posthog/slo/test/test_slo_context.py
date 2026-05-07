@@ -2,6 +2,8 @@ import asyncio
 import inspect
 import traceback
 import dataclasses
+from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -172,54 +174,82 @@ def test_build_error_origin_prefers_deepest_repo_frame() -> None:
 
 
 @pytest.mark.parametrize(
-    "overrides,expected_outcome,expected_extra_properties",
+    "overrides, raise_via, expected_outcome, expected_extra_properties",
     [
+        # No raise: fail() -> FAILURE
         (
             [("fail", {"reason": "partial_failure", "failed_checks": 1})],
+            None,
             SloOutcome.FAILURE,
-            {
-                "calculation_interval": "weekly",
-                "reason": "partial_failure",
-                "failed_checks": 1,
-            },
+            {"reason": "partial_failure", "failed_checks": 1},
         ),
+        # No raise: fail() then succeed() -> SUCCESS (last override wins)
         (
             [
                 ("fail", {"reason": "partial_failure", "failed_checks": 1}),
                 ("succeed", {"recovered": True}),
             ],
+            None,
             SloOutcome.SUCCESS,
-            {
-                "calculation_interval": "weekly",
-                "reason": "partial_failure",
-                "failed_checks": 1,
-                "recovered": True,
-            },
+            {"reason": "partial_failure", "failed_checks": 1, "recovered": True},
+        ),
+        # Raise: succeed() then raise -> SUCCESS, override + branch tags preserved
+        (
+            [("succeed", {"execution_path": "error", "error_category": "user_error"})],
+            _raise_runtime_error,
+            SloOutcome.SUCCESS,
+            {"execution_path": "error", "error_category": "user_error"},
+        ),
+        # Raise: tag() then raise (no override) -> FAILURE, branch tag preserved
+        (
+            [("tag", {"execution_path": "blocking"})],
+            _raise_runtime_error,
+            SloOutcome.FAILURE,
+            {"execution_path": "blocking"},
         ),
     ],
 )
 @patch("posthog.slo.context.emit_slo_completed")
 @patch("posthog.slo.context.emit_slo_started")
-def test_slo_operation_allows_no_exception_outcome_override(
+def test_slo_operation_outcome_override(
     mock_emit_slo_started: MagicMock,
     mock_emit_slo_completed: MagicMock,
     overrides: list[tuple[str, dict[str, object]]],
+    raise_via: Callable[..., None] | None,
     expected_outcome: SloOutcome,
     expected_extra_properties: dict[str, object],
 ) -> None:
     spec = _build_spec()
 
-    with slo_operation(spec=spec, properties={"calculation_interval": "weekly"}) as slo:
-        for method_name, props in overrides:
-            getattr(slo, method_name)(**props)
+    with pytest.raises(RuntimeError, match="boom") if raise_via else nullcontext():
+        with slo_operation(spec=spec, properties={"calculation_interval": "weekly"}) as slo:
+            for method_name, props in overrides:
+                getattr(slo, method_name)(**props)
+            if raise_via:
+                raise_via()
 
     mock_emit_slo_started.assert_called_once()
     mock_emit_slo_completed.assert_called_once()
-    started_kwargs = mock_emit_slo_started.call_args.kwargs
     completed_kwargs = mock_emit_slo_completed.call_args.kwargs
     assert completed_kwargs["properties"].outcome == expected_outcome
-    correlation_id = started_kwargs["extra_properties"]["correlation_id"]
-    assert completed_kwargs["extra_properties"] == {**expected_extra_properties, "correlation_id": correlation_id}
+
+    # The context manager auto-populates these on the raise path.
+    auto_error_props = (
+        {
+            "error_type": "RuntimeError",
+            "error_message": "boom",
+            "error_origin": _expected_origin_for(raise_via),
+        }
+        if raise_via
+        else {}
+    )
+    correlation_id = completed_kwargs["extra_properties"]["correlation_id"]
+    assert completed_kwargs["extra_properties"] == {
+        "calculation_interval": "weekly",
+        **expected_extra_properties,
+        **auto_error_props,
+        "correlation_id": correlation_id,
+    }
 
 
 @patch("posthog.slo.context.emit_slo_completed")
@@ -247,26 +277,6 @@ def test_slo_operation_restores_outer_slo_when_nested(
     assert get_current_slo() is None
     assert mock_emit_slo_started.call_count == 2
     assert mock_emit_slo_completed.call_count == 2
-
-
-@patch("posthog.slo.context.emit_slo_completed")
-@patch("posthog.slo.context.emit_slo_started")
-def test_slo_operation_succeed_before_raise_respects_override(
-    mock_emit_slo_started: MagicMock, mock_emit_slo_completed: MagicMock
-) -> None:
-    spec = _build_spec()
-
-    with pytest.raises(RuntimeError, match="user error"):
-        with slo_operation(spec=spec) as slo:
-            slo.succeed(execution_path="error", error_category="user_error")
-            raise RuntimeError("user error")
-
-    mock_emit_slo_completed.assert_called_once()
-    completed_kwargs = mock_emit_slo_completed.call_args.kwargs
-    assert completed_kwargs["properties"].outcome == SloOutcome.SUCCESS
-    assert completed_kwargs["extra_properties"]["execution_path"] == "error"
-    assert completed_kwargs["extra_properties"]["error_category"] == "user_error"
-    assert completed_kwargs["extra_properties"]["error_type"] == "RuntimeError"
 
 
 @pytest.mark.asyncio
@@ -355,21 +365,3 @@ def test_slo_operation_sampled_out_still_propagates_exception(
 
     mock_emit_slo_started.assert_not_called()
     mock_emit_slo_completed.assert_not_called()
-
-
-@patch("posthog.slo.context.emit_slo_completed")
-@patch("posthog.slo.context.emit_slo_started")
-def test_slo_operation_failure_preserves_pre_raise_tags(
-    mock_emit_slo_started: MagicMock, mock_emit_slo_completed: MagicMock
-) -> None:
-    spec = _build_spec()
-
-    with pytest.raises(RuntimeError, match="boom"):
-        with slo_operation(spec=spec) as slo:
-            slo.tag(execution_path="blocking")
-            raise RuntimeError("boom")
-
-    mock_emit_slo_completed.assert_called_once()
-    completed_kwargs = mock_emit_slo_completed.call_args.kwargs
-    assert completed_kwargs["properties"].outcome == SloOutcome.FAILURE
-    assert completed_kwargs["extra_properties"]["execution_path"] == "blocking"

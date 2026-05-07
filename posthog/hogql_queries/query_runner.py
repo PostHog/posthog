@@ -112,7 +112,7 @@ from posthog.models.team import WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
-from posthog.slo.types import SloArea, SloOperation
+from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
@@ -219,6 +219,32 @@ def _is_force_blocking_eligible_for_shared(last_refresh: datetime | None) -> boo
     if last_refresh is None:
         return False
     return datetime.now(UTC) - last_refresh >= SHARED_FORCE_BLOCKING_MIN_AGE
+
+
+def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutcome]:
+    """Classify a query exception for SLO emission.
+
+    Returns the QueryErrorCategory plus the SloOutcome that should be reported:
+
+    - USER_ERROR / RATE_LIMITED / CANCELLED → SUCCESS. They reflect user input,
+      abuse, or normal interaction (cancel-on-navigate-away), not platform
+      reliability. The completed event still fires with the error_category tag
+      so dashboards can slice by it.
+    - QUERY_PERFORMANCE_ERROR and unclassified exceptions → FAILURE. Timeouts
+      and OOM dominate that category at scale; the user-input limits inside it
+      (EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded) are a minority
+      worth living with for now.
+
+    UserAccessControlError is folded into USER_ERROR locally since
+    classify_query_error doesn't recognise it but a 403 is the user's input,
+    not a service failure.
+    """
+    if isinstance(exc, UserAccessControlError):
+        return QueryErrorCategory.USER_ERROR, SloOutcome.SUCCESS
+    category = classify_query_error(exc)
+    if category in (QueryErrorCategory.USER_ERROR, QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED):
+        return category, SloOutcome.SUCCESS
+    return category, SloOutcome.FAILURE
 
 
 def shared_insights_execution_mode(
@@ -1502,33 +1528,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         analytics_props=analytics_props,
                     )
                 except Exception as exc:
-                    # UserAccessControlError isn't recognised by classify_query_error, but a 403
-                    # is the user's input, not a service failure — map it to USER_ERROR locally.
-                    if isinstance(exc, UserAccessControlError):
-                        error_category = QueryErrorCategory.USER_ERROR
+                    # Don't pass execution_path here: whichever branch tag was set before the raise
+                    # (cache_hit / cache_miss / blocking / async_dispatched) stays intact so
+                    # dashboards can attribute errors to the path they happened in. Errors that fire
+                    # before any branch tag is set leave execution_path unset, which is honest.
+                    category, outcome = _classify_error_for_slo(exc)
+                    if outcome == SloOutcome.SUCCESS:
+                        slo.succeed(error_category=category.value)
                     else:
-                        error_category = classify_query_error(exc)
-                    # USER_ERROR, RATE_LIMITED, and CANCELLED should not consume SLO error budget:
-                    # they reflect user input, abuse, or normal interaction (cancel on navigate-away),
-                    # not platform reliability. The completed event still emits with outcome=success
-                    # plus an error_category tag so dashboards can slice by it. QUERY_PERFORMANCE_ERROR
-                    # is intentionally treated as a failure: timeouts and OOM are the dominant case at
-                    # scale; the user-input limits inside it (EstimatedQueryExecutionTimeTooLong,
-                    # QuerySizeExceeded) are a minority worth living with for now.
-                    # We deliberately do NOT pass execution_path here — whichever branch tag was set
-                    # before the raise (cache_hit / cache_miss / blocking / async_dispatched) stays
-                    # intact, so dashboards can attribute errors to the path they happened in. Errors
-                    # that fire before any branch tag is set (access-control denial, cache_manager
-                    # setup) leave execution_path unset, which is honest: we don't know which path
-                    # was attempted.
-                    if error_category in (
-                        QueryErrorCategory.USER_ERROR,
-                        QueryErrorCategory.RATE_LIMITED,
-                        QueryErrorCategory.CANCELLED,
-                    ):
-                        slo.succeed(error_category=error_category.value)
-                    else:
-                        slo.fail(error_category=error_category.value)
+                        slo.fail(error_category=category.value)
                     raise
 
     def _execute_and_cache_blocking(

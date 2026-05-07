@@ -880,6 +880,10 @@ async def test_create_export_assets_creates_exported_assets(
         if c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert subscription_slo_calls == []
+    assert any(
+        c.kwargs.get("properties", {}).get("operation") == SloOperation.QUERY_SERVICE
+        for c in mock_analytics.capture.call_args_list
+    )
 
 
 @patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
@@ -1223,6 +1227,10 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
         if c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert subscription_slo_calls == []
+    assert any(
+        c.kwargs.get("properties", {}).get("operation") == SloOperation.QUERY_SERVICE
+        for c in mock_analytics.capture.call_args_list
+    )
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")

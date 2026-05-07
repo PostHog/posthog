@@ -146,6 +146,7 @@ def slo_operation(
                 ),
                 extra_properties=base_properties or None,
                 capture=capture,
+                sample_rate=spec.sample_rate,
             )
 
         outcome = SloOutcome.SUCCESS
@@ -157,9 +158,12 @@ def slo_operation(
             # success, we just need to propagate the exception" or vice versa.
             outcome = handle.outcome_override or SloOutcome.SUCCESS
         except Exception as exc:
-            handle.completion_properties.setdefault("error_type", type(exc).__name__)
-            handle.completion_properties.setdefault("error_message", str(exc))
-            handle.completion_properties.setdefault("error_origin", _build_error_origin(exc))
+            # Skip the dict mutations + traceback walk on the sampled-out path —
+            # nothing downstream consumes completion_properties when we don't emit.
+            if should_emit:
+                handle.completion_properties.setdefault("error_type", type(exc).__name__)
+                handle.completion_properties.setdefault("error_message", str(exc))
+                handle.completion_properties.setdefault("error_origin", _build_error_origin(exc))
             outcome = handle.outcome_override or SloOutcome.FAILURE
             raise
         finally:
@@ -177,6 +181,7 @@ def slo_operation(
                     ),
                     extra_properties=completion_properties,
                     capture=capture,
+                    sample_rate=spec.sample_rate,
                 )
     finally:
         _current_slo.reset(token)
