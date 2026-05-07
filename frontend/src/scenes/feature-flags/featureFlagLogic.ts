@@ -1944,6 +1944,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const templateGroups = templateValues.filters?.groups ?? []
             const mergedGroups = defaultGroups.length > 0 ? [...defaultGroups, ...templateGroups] : templateGroups
 
+            const leavingRemoteConfigEncrypted =
+                values.featureFlag.is_remote_configuration === true &&
+                templateValues.is_remote_configuration === false &&
+                values.featureFlag.has_encrypted_payloads === true
+
             actions.setFeatureFlag({
                 ...values.featureFlag,
                 ...templateValues,
@@ -1953,6 +1958,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     groups: mergedGroups,
                 },
             } as FeatureFlagType)
+
+            if (leavingRemoteConfigEncrypted) {
+                // Leaving remote config: the backend invariant requires
+                // has_encrypted_payloads=true only on remote config flags,
+                // and the prior ciphertext is no longer valid.
+                actions.resetEncryptedPayload()
+            }
 
             actions.setTemplateExpanded(false)
             actions.applyUrlTemplate(templateId)
@@ -2104,6 +2116,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     },
                     {}
                 )
+            } else if (values.featureFlag.has_encrypted_payloads) {
+                // Leaving remote config: the backend invariant requires
+                // has_encrypted_payloads=true only on remote config flags,
+                // and the prior ciphertext is no longer valid.
+                actions.resetEncryptedPayload()
             }
         },
         saveDescriptionInline: async ({ name }) => {

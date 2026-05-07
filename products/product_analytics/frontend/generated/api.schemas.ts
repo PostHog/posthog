@@ -26,6 +26,11 @@ export interface ColumnConfigurationApi {
     /** @maxLength 255 */
     name?: string
     filters?: unknown
+    /**
+     * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+     * @nullable
+     */
+    order_by?: string[] | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
@@ -50,6 +55,11 @@ export interface PatchedColumnConfigurationApi {
     /** @maxLength 255 */
     name?: string
     filters?: unknown
+    /**
+     * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+     * @nullable
+     */
+    order_by?: string[] | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
@@ -2635,11 +2645,12 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
 
-export const AggregationPropertyTypeApi = {
+export const AggregationPropertyType1Api = {
     Event: 'event',
     Person: 'person',
+    DataWarehouse: 'data_warehouse',
 } as const
 
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
@@ -2778,8 +2789,8 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
-    /** The type of property to aggregate on (event or person). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyTypeApi | null
+    /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyType1Api | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
@@ -9757,6 +9768,64 @@ export interface PatchedInsightApi {
     readonly last_viewed_at?: string | null
 }
 
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
+}
+
 /**
  * * `add` - add
  * `remove` - remove
@@ -9799,6 +9868,64 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+/**
+ * Insight enriched with view-count and recent-viewer fields, used by the trending action.
+ */
+export interface TrendingInsightApi {
+    readonly id: number
+    readonly short_id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    derived_name?: string | null
+    query?: unknown | null
+    readonly dashboards: readonly number[]
+    readonly dashboard_tiles: readonly DashboardTileBasicApi[]
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    readonly last_refresh: string | null
+    readonly refreshing: boolean
+    tags?: unknown[]
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    last_modified_at?: string
+    favorited?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
+    readonly view_count: number
+    /** Up to 3 of the most recent users who viewed this insight in the time window. */
+    readonly viewers: readonly UserBasicApi[]
+    /** User who last modified this insight, or null if never modified after creation. */
+    readonly last_modified_by: UserBasicApi
+}
+
+export interface PaginatedTrendingInsightListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TrendingInsightApi[]
 }
 
 export type ColumnConfigurationsListParams = {
@@ -10035,6 +10162,14 @@ export const InsightsDestroyFormat = {
 
 export type InsightsActivityRetrieveParams = {
     format?: InsightsActivityRetrieveFormat
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number
 }
 
 export type InsightsActivityRetrieveFormat =
@@ -10083,6 +10218,14 @@ export const InsightsSuggestionsCreateFormat = {
 
 export type InsightsAllActivityRetrieveParams = {
     format?: InsightsAllActivityRetrieveFormat
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number
 }
 
 export type InsightsAllActivityRetrieveFormat =
@@ -10141,7 +10284,19 @@ export const InsightsMyLastViewedRetrieveFormat = {
 } as const
 
 export type InsightsTrendingRetrieveParams = {
+    /**
+     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
+     */
+    days?: number
     format?: InsightsTrendingRetrieveFormat
+    /**
+     * Maximum number of insights to return. Defaults to 10. Capped at 100.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type InsightsTrendingRetrieveFormat =

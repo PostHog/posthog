@@ -17491,7 +17491,7 @@
             "additionalProperties": false,
             "properties": {
                 "feature_flag_variants": {
-                    "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split.",
+                    "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
                     "items": {
                         "$ref": "#/definitions/ExperimentVariant"
                     },
@@ -18069,7 +18069,7 @@
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                    "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
                     "type": "string"
                 },
                 "name": {
@@ -32761,8 +32761,8 @@
                 },
                 "aggregationPropertyType": {
                     "default": "event",
-                    "description": "The type of property to aggregate on (event or person). Defaults to event.",
-                    "enum": ["event", "person"],
+                    "description": "The type of property to aggregate on (event, person or data_warehouse). Defaults to event.",
+                    "enum": ["event", "person", "data_warehouse"],
                     "type": "string"
                 },
                 "aggregationType": {
