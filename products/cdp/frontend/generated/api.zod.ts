@@ -25,7 +25,7 @@ export const hogFunctionsCreateBodyMappingsItemFiltersSourceDefault = `events`
 export const hogFunctionsCreateBodyTemplateIdMax = 400
 
 export const hogFunctionsCreateBodyExecutionOrderMin = 0
-export const hogFunctionsCreateBodyExecutionOrderMax = 2147483647
+export const hogFunctionsCreateBodyExecutionOrderMax = 32767
 
 export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
@@ -259,7 +259,7 @@ export const hogFunctionsUpdateBodyMappingsItemFiltersSourceDefault = `events`
 export const hogFunctionsUpdateBodyTemplateIdMax = 400
 
 export const hogFunctionsUpdateBodyExecutionOrderMin = 0
-export const hogFunctionsUpdateBodyExecutionOrderMax = 2147483647
+export const hogFunctionsUpdateBodyExecutionOrderMax = 32767
 
 export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
     type: zod
@@ -493,7 +493,7 @@ export const hogFunctionsPartialUpdateBodyMappingsItemFiltersSourceDefault = `ev
 export const hogFunctionsPartialUpdateBodyTemplateIdMax = 400
 
 export const hogFunctionsPartialUpdateBodyExecutionOrderMin = 0
-export const hogFunctionsPartialUpdateBodyExecutionOrderMax = 2147483647
+export const hogFunctionsPartialUpdateBodyExecutionOrderMax = 32767
 
 export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     type: zod
@@ -727,7 +727,7 @@ export const hogFunctionsEnableBackfillsCreateBodyMappingsItemFiltersSourceDefau
 export const hogFunctionsEnableBackfillsCreateBodyTemplateIdMax = 400
 
 export const hogFunctionsEnableBackfillsCreateBodyExecutionOrderMin = 0
-export const hogFunctionsEnableBackfillsCreateBodyExecutionOrderMax = 2147483647
+export const hogFunctionsEnableBackfillsCreateBodyExecutionOrderMax = 32767
 
 export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
@@ -987,7 +987,7 @@ export const hogFunctionsInvocationsCreateBodyConfigurationOneTemplateOneStatusM
 export const hogFunctionsInvocationsCreateBodyConfigurationOneTemplateIdMax = 400
 
 export const hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMin = 0
-export const hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMax = 2147483647
+export const hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMax = 32767
 
 export const hogFunctionsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 

@@ -20483,7 +20483,7 @@ export namespace Schemas {
       /**
        * Execution priority for transformations. Lower values run first.
        * @minimum 0
-       * @maximum 2147483647
+       * @maximum 32767
        * @nullable
        */
       execution_order?: number | null;
@@ -23608,7 +23608,7 @@ export namespace Schemas {
       property_type: PropertyDefinitionTypeEnum;
       /**
        * @minimum 0
-       * @maximum 2147483647
+       * @maximum 32767
        */
       slot_index: number;
       state?: MaterializedColumnSlotStateEnum;
@@ -29850,7 +29850,7 @@ export namespace Schemas {
       /**
        * Execution priority for transformations. Lower values run first.
        * @minimum 0
-       * @maximum 2147483647
+       * @maximum 32767
        * @nullable
        */
       execution_order?: number | null;
@@ -30316,7 +30316,7 @@ export namespace Schemas {
       property_type?: PropertyDefinitionTypeEnum;
       /**
        * @minimum 0
-       * @maximum 2147483647
+       * @maximum 32767
        */
       slot_index?: number;
       state?: MaterializedColumnSlotStateEnum;
