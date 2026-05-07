@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode, useMemo } from 'react'
 
-import { Badge, DataTable, type DataTableColumn, Link, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
+import { Badge } from '@posthog/quill'
 
 export interface InsightActorsData {
     query: Record<string, unknown>
@@ -58,7 +59,7 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
                         <div className="flex flex-col">
                             <span className="font-medium">{displayName}</span>
                             {row.distinct_id && row.distinct_id !== displayName && (
-                                <span className="text-xs text-text-secondary">{row.distinct_id}</span>
+                                <span className="text-xs text-muted-foreground">{row.distinct_id}</span>
                             )}
                         </div>
                     )
@@ -69,11 +70,7 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
                 header: 'Event count',
                 sortable: true,
                 align: 'right',
-                render: (row): ReactNode => (
-                    <Badge variant="neutral" size="sm">
-                        {row.event_count?.toLocaleString() ?? '—'}
-                    </Badge>
-                ),
+                render: (row): ReactNode => <Badge>{row.event_count?.toLocaleString() ?? '—'}</Badge>,
             },
         ]
 
@@ -84,23 +81,22 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
                 align: 'right',
                 render: (row): ReactNode => {
                     if (row.recordings.length === 0) {
-                        return <span className="text-text-secondary">—</span>
+                        return <span className="text-muted-foreground">—</span>
                     }
                     return (
                         <div className="flex gap-1 justify-end flex-wrap">
                             {row.recordings.map((url, i) => (
-                                <Link
+                                <a
                                     key={i}
                                     href={url}
-                                    external
                                     onClick={(e) => {
                                         e.preventDefault()
                                         openLink(url)
                                     }}
-                                    className="text-xs"
+                                    className="text-xs text-primary hover:underline"
                                 >
                                     {i + 1}
-                                </Link>
+                                </a>
                             ))}
                         </div>
                     )
@@ -113,9 +109,9 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
 
     return (
         <div className="p-4">
-            <Stack gap="sm">
+            <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-secondary">
+                    <span className="text-sm text-muted-foreground">
                         {rows.length} actor{rows.length === 1 ? '' : 's'}
                         {data.hasMore ? '+' : ''}
                     </span>
@@ -126,7 +122,7 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
                     defaultSort={{ key: 'event_count', direction: 'desc' }}
                     emptyMessage="No actors found for this data point"
                 />
-            </Stack>
+            </div>
         </div>
     )
 }

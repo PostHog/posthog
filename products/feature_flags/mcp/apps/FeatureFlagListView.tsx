@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 
-import { Badge, DataTable, type DataTableColumn, formatDate, ListDetailView, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, ListDetailView, formatDate } from '@posthog/mcp-ui'
+import { Badge, Button } from '@posthog/quill'
 
 import { FeatureFlagView, type FeatureFlagData } from './FeatureFlagView'
 import { RolloutBar } from './RolloutBar'
@@ -33,12 +34,14 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
                         sortable: true,
                         render: (row): ReactNode =>
                             onFlagClick ? (
-                                <button
+                                <Button
+                                    variant="link"
+                                    size="sm"
                                     onClick={() => handleClick(row)}
-                                    className="text-link underline decoration-border-primary hover:decoration-link cursor-pointer text-left transition-colors"
+                                    className="h-auto px-0 text-left"
                                 >
                                     {row.key}
-                                </button>
+                                </Button>
                             ) : (
                                 row.key
                             ),
@@ -53,7 +56,7 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
                         header: 'Status',
                         sortable: true,
                         render: (row): ReactNode => (
-                            <Badge variant={row.active ? 'success' : 'neutral'} size="sm">
+                            <Badge variant={row.active ? 'success' : 'default'}>
                                 {row.active ? 'Active' : 'Inactive'}
                             </Badge>
                         ),
@@ -69,7 +72,7 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
                                 return (
                                     <div className="flex gap-1 flex-wrap">
                                         {variants.map((v) => (
-                                            <Badge key={v.key} variant="info" size="sm">
+                                            <Badge key={v.key} variant="info">
                                                 {v.key}: {v.rollout_percentage}%
                                             </Badge>
                                         ))}
@@ -82,7 +85,7 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
                                 return <RolloutBar percentage={rollout ?? 0} className="min-w-[100px]" />
                             }
 
-                            return <span className="text-text-secondary">&mdash;</span>
+                            return <span className="text-muted-foreground">&mdash;</span>
                         },
                     },
                     {
@@ -92,13 +95,11 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
                             row.tags?.length ? (
                                 <div className="flex gap-1 flex-wrap">
                                     {row.tags.map((tag) => (
-                                        <Badge key={tag} variant="neutral" size="sm">
-                                            {tag}
-                                        </Badge>
+                                        <Badge key={tag}>{tag}</Badge>
                                     ))}
                                 </div>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                     {
@@ -107,18 +108,18 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
                         sortable: true,
                         render: (row): ReactNode =>
                             row.updated_at ? (
-                                <span className="text-text-secondary">{formatDate(row.updated_at)}</span>
+                                <span className="text-muted-foreground">{formatDate(row.updated_at)}</span>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                 ]
 
                 return (
                     <div className="p-4">
-                        <Stack gap="sm">
+                        <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm text-text-secondary">
+                                <span className="text-sm text-muted-foreground">
                                     {data.count} {data.count === 1 ? 'flag' : 'flags'}
                                 </span>
                             </div>
@@ -129,7 +130,7 @@ export function FeatureFlagListView({ data, onFlagClick }: FeatureFlagListViewPr
                                 defaultSort={{ key: 'key', direction: 'asc' }}
                                 emptyMessage="No feature flags found"
                             />
-                        </Stack>
+                        </div>
                     </div>
                 )
             }}

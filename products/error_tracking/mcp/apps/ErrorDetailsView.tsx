@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Card, DescriptionList, EmptyState, formatDate, Stack } from '@posthog/mosaic'
+import { DescriptionList, formatDate } from '@posthog/mcp-ui'
+import { Badge, Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
 import { type ExceptionData, StackTraceView } from './StackTraceView'
 
@@ -38,10 +39,14 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
     if (events.length === 0) {
         return (
             <div className="p-4">
-                <EmptyState
-                    title="No error events"
-                    description="No error events found for this issue in the selected time range"
-                />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyTitle>No error events</EmptyTitle>
+                        <EmptyDescription>
+                            No error events found for this issue in the selected time range
+                        </EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
             </div>
         )
     }
@@ -56,62 +61,58 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
 
     return (
         <div className="p-4">
-            <Stack gap="md">
-                <Stack gap="xs">
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="danger" size="md">
-                            {exceptionType}
-                        </Badge>
-                        {properties.$exception_synthetic && (
-                            <Badge variant="neutral" size="sm">
-                                Synthetic
-                            </Badge>
-                        )}
+                        <Badge variant="destructive">{exceptionType}</Badge>
+                        {properties.$exception_synthetic && <Badge>Synthetic</Badge>}
                     </div>
-                    <span className="text-sm text-text-primary">{exceptionMessage}</span>
-                </Stack>
+                    <span className="text-sm">{exceptionMessage}</span>
+                </div>
 
-                <Card padding="md">
-                    <DescriptionList
-                        columns={2}
-                        items={[
-                            ...(event.timestamp
-                                ? [{ label: 'Timestamp', value: formatDate(event.timestamp, true) }]
-                                : []),
-                            ...(event.distinct_id ? [{ label: 'Distinct ID', value: event.distinct_id }] : []),
-                            ...(properties.$browser
-                                ? [
-                                      {
-                                          label: 'Browser',
-                                          value: `${properties.$browser}${properties.$browser_version ? ` ${properties.$browser_version}` : ''}`,
-                                      },
-                                  ]
-                                : []),
-                            ...(properties.$os
-                                ? [
-                                      {
-                                          label: 'OS',
-                                          value: `${properties.$os}${properties.$os_version ? ` ${properties.$os_version}` : ''}`,
-                                      },
-                                  ]
-                                : []),
-                            ...(properties.$lib ? [{ label: 'Library', value: properties.$lib as string }] : []),
-                            ...(properties.$current_url
-                                ? [{ label: 'URL', value: properties.$current_url as string }]
-                                : []),
-                        ]}
-                    />
+                <Card>
+                    <CardContent>
+                        <DescriptionList
+                            columns={2}
+                            items={[
+                                ...(event.timestamp
+                                    ? [{ label: 'Timestamp', value: formatDate(event.timestamp, true) }]
+                                    : []),
+                                ...(event.distinct_id ? [{ label: 'Distinct ID', value: event.distinct_id }] : []),
+                                ...(properties.$browser
+                                    ? [
+                                          {
+                                              label: 'Browser',
+                                              value: `${properties.$browser}${properties.$browser_version ? ` ${properties.$browser_version}` : ''}`,
+                                          },
+                                      ]
+                                    : []),
+                                ...(properties.$os
+                                    ? [
+                                          {
+                                              label: 'OS',
+                                              value: `${properties.$os}${properties.$os_version ? ` ${properties.$os_version}` : ''}`,
+                                          },
+                                      ]
+                                    : []),
+                                ...(properties.$lib ? [{ label: 'Library', value: properties.$lib as string }] : []),
+                                ...(properties.$current_url
+                                    ? [{ label: 'URL', value: properties.$current_url as string }]
+                                    : []),
+                            ]}
+                        />
+                    </CardContent>
                 </Card>
 
                 {exceptions.length > 0 && <StackTraceView exceptions={exceptions} />}
 
                 {events.length > 1 && (
-                    <span className="text-xs text-text-secondary">
+                    <span className="text-xs text-muted-foreground">
                         Showing most recent event. {events.length - 1} more event{events.length - 1 === 1 ? '' : 's'} in
                         this issue.
                     </span>
                 )}
-            </Stack>
+            </div>
         </div>
     )
 }

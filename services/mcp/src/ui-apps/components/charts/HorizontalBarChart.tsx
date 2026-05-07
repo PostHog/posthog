@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { EmptyState } from '@posthog/mosaic'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { formatNumber } from '../utils'
 
@@ -28,7 +29,14 @@ const DEFAULT_COLOR = 'var(--posthog-chart-1, #1d4ed8)'
 
 export function HorizontalBarChart({ bars, maxValue, color = DEFAULT_COLOR }: HorizontalBarChartProps): ReactElement {
     if (bars.length === 0) {
-        return <EmptyState icon="funnel" description="No data available" />
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('funnel')}</EmptyMedia>
+                    <EmptyDescription>No data available</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
 
     const max = maxValue ?? Math.max(...bars.map((b) => b.value), 1)

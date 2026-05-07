@@ -1,6 +1,10 @@
 import type { ReactElement, ReactNode } from 'react'
 
-import { cn } from '../utils'
+// TODO(quill): replace with @posthog/quill DescriptionList (or equivalent)
+// once Quill ships one. The Field/FieldLabel/FieldDescription primitives are
+// form-oriented; this is the read-only list-of-key-value-pairs counterpart.
+// Built on Quill tokens so the visual language already matches.
+import { cn } from '@posthog/quill'
 
 export interface DescriptionListItem {
     label: string
@@ -29,8 +33,8 @@ export function DescriptionList({ items, columns = 1, className }: DescriptionLi
         >
             {filtered.map((item) => (
                 <div key={item.label} className="contents">
-                    <dt className="text-text-secondary font-medium whitespace-nowrap">{item.label}</dt>
-                    <dd className="text-text-primary">{item.value}</dd>
+                    <dt className="text-muted-foreground font-medium whitespace-nowrap">{item.label}</dt>
+                    <dd className="text-foreground">{item.value}</dd>
                 </div>
             ))}
         </dl>

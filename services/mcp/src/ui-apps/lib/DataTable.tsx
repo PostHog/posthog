@@ -1,6 +1,12 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { type ReactElement, type ReactNode, useCallback, useMemo, useState } from 'react'
 
-import { cn } from '../utils'
+// TODO(quill): replace with @posthog/quill DataTable once Quill ships one.
+// This component intentionally mirrors a future Quill DataTable API
+// (`columns`, `data`, `pageSize`, `defaultSort`, `emptyMessage`) so migration
+// becomes a one-line import swap. It is built on Quill primitives and tokens
+// rather than bespoke styles so the visual language already matches.
+import { Button, cn } from '@posthog/quill'
 
 export interface DataTableColumn<T> {
     key: string
@@ -73,7 +79,7 @@ function SortIcon({ direction, active }: { direction?: SortDirection | undefined
         <span
             className={cn(
                 'inline-flex ml-1',
-                active ? 'text-text-primary' : 'text-text-secondary opacity-0 group-hover/th:opacity-50'
+                active ? 'text-foreground' : 'text-muted-foreground opacity-0 group-hover/th:opacity-50'
             )}
         >
             {direction === 'asc' ? '\u2191' : direction === 'desc' ? '\u2193' : '\u2195'}
@@ -120,23 +126,23 @@ export function DataTable<T extends object>({
     const showPagination = pageSize > 0 && sortedData.length > pageSize
 
     if (data.length === 0) {
-        return <div className={cn('py-8 text-center text-sm text-text-secondary', className)}>{emptyMessage}</div>
+        return <div className={cn('py-8 text-center text-sm text-muted-foreground', className)}>{emptyMessage}</div>
     }
 
     return (
-        <div className={cn('overflow-hidden rounded-lg border border-border-primary', className)}>
+        <div className={cn('overflow-hidden rounded-lg border', className)}>
             <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                     <thead>
-                        <tr className="bg-bg-secondary">
+                        <tr className="bg-muted/50">
                             {columns.map((col) => (
                                 <th
                                     key={col.key}
                                     className={cn(
-                                        'group/th px-3 py-2 font-medium text-text-secondary',
+                                        'group/th px-3 py-2 font-medium text-muted-foreground',
                                         'max-w-[200px] truncate',
                                         alignClasses[col.align ?? 'left'],
-                                        col.sortable && 'cursor-pointer select-none hover:text-text-primary'
+                                        col.sortable && 'cursor-pointer select-none hover:text-foreground'
                                     )}
                                     title={col.header}
                                     onClick={col.sortable ? () => handleSort(col.key) : undefined}
@@ -154,13 +160,7 @@ export function DataTable<T extends object>({
                     </thead>
                     <tbody>
                         {pagedData.map((row, rowIndex) => (
-                            <tr
-                                key={rowIndex}
-                                className={cn(
-                                    'border-t border-border-primary',
-                                    rowIndex % 2 === 1 && 'bg-bg-secondary/50'
-                                )}
-                            >
+                            <tr key={rowIndex} className={cn('border-t', rowIndex % 2 === 1 && 'bg-muted/25')}>
                                 {columns.map((col) => {
                                     const content = col.render ? col.render(row) : defaultFormat(getValue(row, col.key))
                                     const title = typeof content === 'string' ? content : undefined
@@ -169,7 +169,7 @@ export function DataTable<T extends object>({
                                         <td
                                             key={col.key}
                                             className={cn(
-                                                'px-3 py-2 text-text-primary',
+                                                'px-3 py-2 text-foreground',
                                                 'max-w-[200px] truncate',
                                                 alignClasses[col.align ?? 'left']
                                             )}
@@ -185,29 +185,33 @@ export function DataTable<T extends object>({
                 </table>
             </div>
             {showPagination && (
-                <div className="flex items-center justify-between border-t border-border-primary px-3 py-2 text-xs text-text-secondary">
+                <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
                     <span>
                         {page * pageSize + 1}&ndash;{Math.min((page + 1) * pageSize, sortedData.length)} of{' '}
                         {sortedData.length}
                     </span>
                     <div className="flex items-center gap-1">
-                        <button
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
                             onClick={() => setPage((p) => Math.max(0, p - 1))}
                             disabled={page === 0}
-                            className="rounded px-2 py-0.5 hover:bg-bg-tertiary disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                            aria-label="Previous page"
                         >
-                            Prev
-                        </button>
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                        </Button>
                         <span className="px-1 tabular-nums">
                             {page + 1} / {totalPages}
                         </span>
-                        <button
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
                             onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                             disabled={page >= totalPages - 1}
-                            className="rounded px-2 py-0.5 hover:bg-bg-tertiary disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                            aria-label="Next page"
                         >
-                            Next
-                        </button>
+                            <ChevronRight className="h-3.5 w-3.5" />
+                        </Button>
                     </div>
                 </div>
             )}

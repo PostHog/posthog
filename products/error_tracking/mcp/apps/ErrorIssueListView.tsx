@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 
-import { Badge, DataTable, type DataTableColumn, formatDate, ListDetailView, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, ListDetailView, formatDate } from '@posthog/mcp-ui'
+import { Badge, Button } from '@posthog/quill'
 
 import { ErrorIssueView, type ErrorIssueData } from './ErrorIssueView'
 
@@ -15,12 +16,12 @@ export interface ErrorIssueListViewProps {
     onIssueClick?: (issue: ErrorIssueData) => Promise<ErrorIssueData | null>
 }
 
-const statusConfig: Record<string, { label: string; variant: 'success' | 'danger' | 'warning' | 'neutral' }> = {
-    active: { label: 'Active', variant: 'danger' },
+const statusConfig: Record<string, { label: string; variant: 'success' | 'destructive' | 'warning' | 'default' }> = {
+    active: { label: 'Active', variant: 'destructive' },
     resolved: { label: 'Resolved', variant: 'success' },
-    archived: { label: 'Archived', variant: 'neutral' },
+    archived: { label: 'Archived', variant: 'default' },
     pending_release: { label: 'Pending release', variant: 'warning' },
-    suppressed: { label: 'Suppressed', variant: 'neutral' },
+    suppressed: { label: 'Suppressed', variant: 'default' },
 }
 
 export function ErrorIssueListView({ data, onIssueClick }: ErrorIssueListViewProps): ReactElement {
@@ -38,12 +39,14 @@ export function ErrorIssueListView({ data, onIssueClick }: ErrorIssueListViewPro
                         sortable: true,
                         render: (row): ReactNode =>
                             onIssueClick ? (
-                                <button
+                                <Button
+                                    variant="link"
+                                    size="sm"
                                     onClick={() => handleClick(row)}
-                                    className="text-link underline decoration-border-primary hover:decoration-link cursor-pointer text-left transition-colors max-w-xs truncate block"
+                                    className="h-auto px-0 text-left max-w-xs truncate"
                                 >
                                     {row.name}
-                                </button>
+                                </Button>
                             ) : (
                                 <span className="max-w-xs truncate block">{row.name}</span>
                             ),
@@ -54,13 +57,9 @@ export function ErrorIssueListView({ data, onIssueClick }: ErrorIssueListViewPro
                         render: (row): ReactNode => {
                             const cfg = statusConfig[row.status ?? 'active'] ?? {
                                 label: row.status ?? 'Unknown',
-                                variant: 'neutral' as const,
+                                variant: 'default' as const,
                             }
-                            return (
-                                <Badge variant={cfg.variant} size="sm">
-                                    {cfg.label}
-                                </Badge>
-                            )
+                            return <Badge variant={cfg.variant}>{cfg.label}</Badge>
                         },
                     },
                     {
@@ -69,18 +68,18 @@ export function ErrorIssueListView({ data, onIssueClick }: ErrorIssueListViewPro
                         sortable: true,
                         render: (row): ReactNode =>
                             row.first_seen ? (
-                                <span className="text-text-secondary">{formatDate(row.first_seen)}</span>
+                                <span className="text-muted-foreground">{formatDate(row.first_seen)}</span>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                 ]
 
                 return (
                     <div className="p-4">
-                        <Stack gap="sm">
+                        <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm text-text-secondary">
+                                <span className="text-sm text-muted-foreground">
                                     {data.count ?? data.results.length} issue
                                     {(data.count ?? data.results.length) === 1 ? '' : 's'}
                                 </span>
@@ -92,7 +91,7 @@ export function ErrorIssueListView({ data, onIssueClick }: ErrorIssueListViewPro
                                 defaultSort={{ key: 'name', direction: 'asc' }}
                                 emptyMessage="No error tracking issues found"
                             />
-                        </Stack>
+                        </div>
                     </div>
                 )
             }}

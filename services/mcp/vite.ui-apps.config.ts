@@ -39,11 +39,20 @@ const ALL_APPS = discoverApps()
 export default defineConfig({
     plugins: [react()],
     resolve: {
-        alias: {
-            products: resolve(__dirname, '../../products'),
-            '@posthog/mosaic': resolve(__dirname, '../../common/mosaic/src'),
-            '@common': resolve(__dirname, '../../common'),
-        },
+        alias: [
+            { find: 'products', replacement: resolve(__dirname, '../../products') },
+            { find: '@posthog/mcp-ui', replacement: resolve(__dirname, 'src/ui-apps/lib') },
+            // Resolve Quill explicitly so files imported via the `products` alias
+            // (which live outside this package's node_modules tree) can find it.
+            // Match exact import (`@posthog/quill`) -> dist/index.js, but leave
+            // subpath imports (`@posthog/quill/tokens.css`, etc.) to fall through
+            // to the package's exports map.
+            {
+                find: /^@posthog\/quill$/,
+                replacement: resolve(__dirname, '../../packages/quill/packages/quill/dist/index.js'),
+            },
+            { find: '@common', replacement: resolve(__dirname, '../../common') },
+        ],
     },
     define: {
         // Inject PostHog configuration at build time

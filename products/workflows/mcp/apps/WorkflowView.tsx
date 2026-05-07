@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Card, DescriptionList, formatDate, Stack } from '@posthog/mosaic'
+import { DescriptionList, formatDate } from '@posthog/mcp-ui'
+import { Badge, Card, CardContent } from '@posthog/quill'
 
 import { STATUS_VARIANTS } from './utils'
 
@@ -27,56 +28,56 @@ export function WorkflowView({ workflow }: WorkflowViewProps): ReactElement {
 
     return (
         <div className="p-4">
-            <Stack gap="md">
-                <Stack gap="xs">
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-lg font-semibold text-text-primary">{workflow.name}</span>
-                        <Badge variant={STATUS_VARIANTS[status] ?? 'neutral'} size="md">
+                        <span className="text-lg font-semibold">{workflow.name}</span>
+                        <Badge variant={STATUS_VARIANTS[status] ?? 'default'}>
                             {status.charAt(0).toUpperCase() + status.slice(1)}
                         </Badge>
-                        {workflow.version != null && (
-                            <Badge variant="neutral" size="sm">
-                                v{workflow.version}
-                            </Badge>
-                        )}
+                        {workflow.version != null && <Badge>v{workflow.version}</Badge>}
                     </div>
                     {workflow.description && (
-                        <span className="text-sm text-text-secondary">{workflow.description}</span>
+                        <span className="text-sm text-muted-foreground">{workflow.description}</span>
                     )}
-                </Stack>
+                </div>
 
-                <Card padding="md">
-                    <DescriptionList
-                        columns={2}
-                        items={[
-                            ...(workflow.exit_condition
-                                ? [{ label: 'Exit condition', value: workflow.exit_condition }]
-                                : []),
-                            ...(workflow.created_at
-                                ? [{ label: 'Created', value: formatDate(workflow.created_at) }]
-                                : []),
-                            ...(workflow.updated_at
-                                ? [{ label: 'Updated', value: formatDate(workflow.updated_at) }]
-                                : []),
-                            ...(workflow.created_by
-                                ? [
-                                      {
-                                          label: 'Created by',
-                                          value:
-                                              workflow.created_by.first_name || workflow.created_by.email || 'Unknown',
-                                      },
-                                  ]
-                                : []),
-                        ]}
-                    />
+                <Card>
+                    <CardContent>
+                        <DescriptionList
+                            columns={2}
+                            items={[
+                                ...(workflow.exit_condition
+                                    ? [{ label: 'Exit condition', value: workflow.exit_condition }]
+                                    : []),
+                                ...(workflow.created_at
+                                    ? [{ label: 'Created', value: formatDate(workflow.created_at) }]
+                                    : []),
+                                ...(workflow.updated_at
+                                    ? [{ label: 'Updated', value: formatDate(workflow.updated_at) }]
+                                    : []),
+                                ...(workflow.created_by
+                                    ? [
+                                          {
+                                              label: 'Created by',
+                                              value:
+                                                  workflow.created_by.first_name ||
+                                                  workflow.created_by.email ||
+                                                  'Unknown',
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
+                    </CardContent>
                 </Card>
 
-                <div className="rounded border border-border-primary bg-[var(--color-background-info)] px-3 py-2">
-                    <span className="text-xs text-text-secondary">
+                <div className="rounded border bg-muted/50 px-3 py-2">
+                    <span className="text-xs text-muted-foreground">
                         View in PostHog for the full visual workflow editor
                     </span>
                 </div>
-            </Stack>
+            </div>
         </div>
     )
 }

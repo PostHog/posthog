@@ -1,38 +1,66 @@
 @import 'tailwindcss';
+
+/*
+ * Quill design system stylesheets.
+ *
+ * Order matters:
+ *   1. tokens.css   — registers Quill's @theme tokens (--color-*, --text-*, etc.)
+ *                     so utility classes like `bg-card`, `text-muted-foreground`
+ *                     resolve against Quill's design tokens.
+ *   2. base.css     — `* { border-color: var(--border) }` reset; load-bearing
+ *                     for primitives that write plain `border` without a colour.
+ *   3. tailwind.css — Quill's `@source` directive pointing at its compiled JS,
+ *                     so Tailwind picks up class names from primitives.
+ *
+ * Quill must be built (`pnpm quill:build`) before this entry compiles.
+ */
+@import '@posthog/quill/tokens.css';
+@import '@posthog/quill/base.css';
+@import '@posthog/quill/tailwind.css';
+
 @import './base.css';
 
-/* Tailwind theme: maps ext-apps CSS variables to Tailwind utility classes. */
-@theme {
-    --color-bg-primary: var(--color-background-primary, #fff);
-    --color-bg-secondary: var(--color-background-secondary, #f9fafb);
-    --color-bg-tertiary: var(--color-background-tertiary, #f2f4f7);
-    --color-text-primary: var(--color-text-primary, #101828);
-    --color-text-secondary: var(--color-text-secondary, #6b7280);
-    --color-text-inverse: var(--color-text-inverse, #fff);
-    --color-border-primary: var(--color-border-primary, #e5e7eb);
-    --color-border-secondary: var(--color-border-secondary, #d1d5db);
-    --color-success: #059669;
-    --color-warning: #d97706;
-    --color-danger: #dc2626;
-    --color-info: #2563eb;
-    --font-sans: var(
-        --font-sans,
-        -apple-system,
-        BlinkMacSystemFont,
-        'Segoe UI',
-        roboto,
-        'Helvetica Neue',
-        arial,
-        sans-serif
-    );
-    --font-mono: var(--font-mono, ui-monospace, sfmono-regular, 'SF Mono', menlo, consolas, monospace);
-    --radius-sm: var(--border-radius-sm, 0.25rem);
-    --radius-md: var(--border-radius-md, 0.375rem);
-    --radius-lg: var(--border-radius-lg, 0.5rem);
+/*
+ * Bridge: when the MCP host (Claude Desktop, etc.) injects ext-apps CSS
+ * variables (`--color-background-primary`, `--color-text-primary`, …),
+ * relay them into the Quill tokens primitives use. Falls back to Quill's
+ * defaults from tokens.css when the host hasn't provided a value.
+ *
+ * See https://github.com/modelcontextprotocol/ext-apps/blob/main/src/spec.types.ts
+ */
+:root {
+    --background: var(--color-background-primary, var(--background));
+    --foreground: var(--color-text-primary, var(--foreground));
+    --card: var(--color-background-secondary, var(--card));
+    --card-foreground: var(--color-text-primary, var(--card-foreground));
+    --popover: var(--color-background-secondary, var(--popover));
+    --popover-foreground: var(--color-text-primary, var(--popover-foreground));
+    --muted: var(--color-background-tertiary, var(--muted));
+    --muted-foreground: var(--color-text-secondary, var(--muted-foreground));
+    --border: var(--color-border-primary, var(--border));
+    --input: var(--color-border-secondary, var(--input));
 }
 
-/* Scan mosaic components, shared components, and all app source files for Tailwind classes */
-@source "../../../../../common/mosaic/src/**/*.tsx";
-@source "../../../../../products/*/mcp/**/*.tsx";
+/*
+ * Charts still rely on a few non-Quill, non-ext-apps variables defined in
+ * base.css — the chart palette and a couple of legacy aliases used by
+ * existing chart components. Tailwind picks them up via @theme below.
+ */
+@theme {
+    /* Legacy ext-apps-named utilities still used by charts and host-bridged surfaces. */
+    --color-bg-primary: var(--color-background-primary, var(--background));
+    --color-bg-secondary: var(--color-background-secondary, var(--card));
+    --color-bg-tertiary: var(--color-background-tertiary, var(--muted));
+    --color-text-primary: var(--color-text-primary, var(--foreground));
+    --color-text-secondary: var(--color-text-secondary, var(--muted-foreground));
+    --color-border-primary: var(--color-border-primary, var(--border));
+    --color-border-secondary: var(--color-border-secondary, var(--input));
+}
+
+/* Scan our own source files (apps, components, shared lib) plus product MCP apps and Quill primitives. */
+@source "../lib/**/*.tsx";
 @source "../components/**/*.tsx";
 @source "../apps/**/*.tsx";
+@source "../../../../../products/*/mcp/**/*.tsx";
+@source "../../../../../packages/quill/packages/primitives/src/**/*.{ts,tsx}";
+@source "../../../../../packages/quill/packages/components/src/**/*.{ts,tsx}";

@@ -1,6 +1,6 @@
-export const STATUS_VARIANTS: Record<string, 'success' | 'neutral' | 'info'> = {
+export const STATUS_VARIANTS: Record<string, 'success' | 'default' | 'info'> = {
     active: 'success',
-    draft: 'neutral',
-    archived: 'neutral',
+    draft: 'default',
+    archived: 'default',
     paused: 'info',
 }

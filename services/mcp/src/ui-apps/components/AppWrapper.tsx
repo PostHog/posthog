@@ -1,7 +1,8 @@
 import type { App } from '@modelcontextprotocol/ext-apps'
+import { Maximize2, Minimize2 } from 'lucide-react'
 import { type ReactElement, type ReactNode, useCallback, useEffect, useState } from 'react'
 
-import { Link } from '@posthog/mosaic'
+import { Button } from '@posthog/quill'
 
 import { useToolResult, type UseToolResultOptions, type UseToolResultReturn } from '../hooks/useToolResult'
 
@@ -42,34 +43,17 @@ export function AppErrorState({ message }: { message: string }): ReactElement {
     }, [message])
 
     return (
-        <div
-            style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: 200,
-                gap: '0.75rem',
-            }}
-        >
+        <div className="flex flex-col items-center justify-center gap-3 h-[200px]">
             <PostHogLogo size={40} />
-            <span style={{ color: 'var(--color-text-danger, #dc2626)', fontSize: '0.8125rem' }}>{message}</span>
+            <span className="text-xs text-destructive">{message}</span>
         </div>
     )
 }
 
 export function AppLoadingState(): ReactElement {
     return (
-        <div
-            style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: 200,
-            }}
-        >
-            <div style={{ animation: 'loading__pulse 2s ease-in-out infinite' }}>
+        <div className="flex flex-col items-center justify-center h-[200px]">
+            <div className="[animation:loading__pulse_2s_ease-in-out_infinite]">
                 <PostHogLogo size={40} />
             </div>
         </div>
@@ -117,13 +101,15 @@ function ExpandButton({
     }
 
     return (
-        <button
+        <Button
+            variant="ghost"
+            size="icon-xs"
             onClick={handleToggle}
-            className="text-xs text-text-secondary hover:text-text-primary cursor-pointer transition-colors"
             title={isFullscreen ? 'Exit fullscreen' : 'Expand'}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Expand'}
         >
-            {isFullscreen ? '\u2716' : '\u26F6'}
-        </button>
+            {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+        </Button>
     )
 }
 
@@ -146,12 +132,6 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
     const hasContent = !error && !isCancelled && isConnected && data
 
     const rootStyle: React.CSSProperties = {
-        display: 'flex',
-        flexDirection: 'column',
-        maxWidth: 960,
-        marginLeft: 'auto',
-        marginRight: 'auto',
-        width: '100%',
         ...(containerDimensions?.height != null
             ? { height: containerDimensions.height }
             : containerDimensions?.maxHeight != null
@@ -164,59 +144,41 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
 
         return (
             <div
+                className="mx-auto flex w-full max-w-[960px] flex-col items-center justify-center gap-3"
                 style={{
                     ...rootStyle,
                     ...(containerDimensions?.height == null ? { minHeight: 200 } : {}),
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.75rem',
                 }}
             >
-                <div style={{ animation: showError ? 'none' : 'loading__pulse 4s ease-in-out infinite' }}>
+                <div className={showError ? '' : '[animation:loading__pulse_4s_ease-in-out_infinite]'}>
                     <PostHogLogo size={40} />
                 </div>
-                {isCancelled && (
-                    <span style={{ color: 'var(--color-text-secondary, #ca8a04)', fontSize: '0.8125rem' }}>
-                        Tool call was cancelled
-                    </span>
-                )}
-                {error && !isCancelled && (
-                    <span style={{ color: 'var(--color-text-danger, #dc2626)', fontSize: '0.8125rem' }}>
-                        {error.message}
-                    </span>
-                )}
+                {isCancelled && <span className="text-xs text-muted-foreground">Tool call was cancelled</span>}
+                {error && !isCancelled && <span className="text-xs text-destructive">{error.message}</span>}
             </div>
         )
     }
 
     return (
-        <div style={rootStyle}>
-            <div style={{ overflow: 'auto' }}>{children(toolResult)}</div>
-            <footer
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0.375rem 0.75rem',
-                    borderTop: '1px solid var(--color-border-primary, #e5e7eb)',
-                    marginTop: 'auto',
-                }}
-            >
+        <div className="mx-auto flex w-full max-w-[960px] flex-col" style={rootStyle}>
+            <div className="overflow-auto">{children(toolResult)}</div>
+            <footer className="mt-auto flex items-center justify-between border-t px-3 py-1.5">
                 <ExpandButton app={app} onDisplayModeChanged={refreshContainerDimensions} />
                 <span className="ml-auto">
                     {posthogUrl ? (
-                        <Link
+                        <a
                             href={posthogUrl}
-                            external
+                            target="_blank"
+                            rel="noreferrer"
                             onClick={(e) => {
                                 e.preventDefault()
                                 openLink(posthogUrl)
                             }}
-                            className="text-xs"
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                         >
                             <PostHogLogo size={16} />
                             <span>View in PostHog</span>
-                        </Link>
+                        </a>
                     ) : (
                         <PostHogLogo size={16} />
                     )}

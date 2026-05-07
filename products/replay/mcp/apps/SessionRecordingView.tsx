@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 
-import { Badge, Card, Stack } from '@posthog/mosaic'
+import { Badge, Card, CardContent } from '@posthog/quill'
 
 export interface SessionRecordingData {
     id: string
@@ -88,79 +88,70 @@ export function SessionRecordingView({ recording }: { recording: SessionRecordin
 
     return (
         <div className="p-4">
-            <Stack gap="md">
-                <Stack gap="xs">
+            <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-lg font-semibold text-text-primary">Session Recording</span>
+                        <span className="text-lg font-semibold">Session Recording</span>
                         {recording.ongoing ? (
-                            <Badge variant="warning" size="md">
-                                Live
-                            </Badge>
+                            <Badge variant="warning">Live</Badge>
                         ) : (
-                            <Badge variant="success" size="md">
-                                {formatDuration(recording.recording_duration)}
-                            </Badge>
+                            <Badge variant="success">{formatDuration(recording.recording_duration)}</Badge>
                         )}
                         {recording.viewed !== undefined && (
-                            <Badge variant={recording.viewed ? 'neutral' : 'success'} size="sm">
+                            <Badge variant={recording.viewed ? 'default' : 'success'}>
                                 {recording.viewed ? 'Viewed' : 'New'}
                             </Badge>
                         )}
-                        {recording.snapshot_source && (
-                            <Badge variant="neutral" size="sm">
-                                {recording.snapshot_source}
-                            </Badge>
-                        )}
+                        {recording.snapshot_source && <Badge>{recording.snapshot_source}</Badge>}
                     </div>
-                    <span className="text-xs font-mono text-text-secondary">{recording.id}</span>
-                </Stack>
+                    <span className="text-xs font-mono text-muted-foreground">{recording.id}</span>
+                </div>
 
-                <Card padding="md">
-                    <Stack gap="sm">
-                        <Row
-                            label="Started"
-                            value={recording.start_time ? formatStartedUtc(recording.start_time) : '\u2014'}
-                        />
-                        <Row label="Active time" value={formatDuration(recording.active_seconds)} />
-                        {recording.start_url && (
-                            <div className="min-w-0">
-                                <Row label="Start URL" value={recording.start_url} truncate />
-                            </div>
-                        )}
-                        {userDisplay && (
-                            <div className="min-w-0">
-                                <Row label="User" value={userDisplay} truncate />
-                            </div>
-                        )}
-                    </Stack>
+                <Card>
+                    <CardContent>
+                        <div className="flex flex-col gap-2">
+                            <Row
+                                label="Started"
+                                value={recording.start_time ? formatStartedUtc(recording.start_time) : '\u2014'}
+                            />
+                            <Row label="Active time" value={formatDuration(recording.active_seconds)} />
+                            {recording.start_url && (
+                                <div className="min-w-0">
+                                    <Row label="Start URL" value={recording.start_url} truncate />
+                                </div>
+                            )}
+                            {userDisplay && (
+                                <div className="min-w-0">
+                                    <Row label="User" value={userDisplay} truncate />
+                                </div>
+                            )}
+                        </div>
+                    </CardContent>
                 </Card>
 
-                <Card padding="md">
-                    <div className="flex">
-                        <div className="flex-1 min-w-0 pr-6">
-                            <span className="text-sm font-semibold text-text-primary">Interactions</span>
-                            <div className="mt-3 w-4/5 max-w-full mx-auto flex flex-row justify-between">
-                                <Stat label="Clicks" value={recording.click_count ?? 0} />
-                                <Stat label="Keypresses" value={recording.keypress_count ?? 0} />
-                                <Stat label="Mouse events" value={recording.mouse_activity_count ?? 0} />
+                <Card>
+                    <CardContent>
+                        <div className="flex">
+                            <div className="flex-1 min-w-0 pr-6">
+                                <span className="text-sm font-semibold">Interactions</span>
+                                <div className="mt-3 w-4/5 max-w-full mx-auto flex flex-row justify-between">
+                                    <Stat label="Clicks" value={recording.click_count ?? 0} />
+                                    <Stat label="Keypresses" value={recording.keypress_count ?? 0} />
+                                    <Stat label="Mouse events" value={recording.mouse_activity_count ?? 0} />
+                                </div>
+                            </div>
+                            <div className="flex-1 min-w-0 pl-6 border-l">
+                                <span className="text-sm font-semibold">Console output</span>
+                                <div className="mt-3 w-4/5 max-w-full mx-auto flex flex-row justify-between">
+                                    <Stat label="Errors" value={errors} />
+                                    <Stat label="Warnings" value={warns} />
+                                    <Stat label="Logs" value={logs} />
+                                </div>
                             </div>
                         </div>
-                        <div
-                            className="flex-1 min-w-0 pl-6"
-                            style={{
-                                borderLeft: '1px solid var(--color-border-primary, #e5e7eb)',
-                            }}
-                        >
-                            <span className="text-sm font-semibold text-text-primary">Console output</span>
-                            <div className="mt-3 w-4/5 max-w-full mx-auto flex flex-row justify-between">
-                                <Stat label="Errors" value={errors} />
-                                <Stat label="Warnings" value={warns} />
-                                <Stat label="Logs" value={logs} />
-                            </div>
-                        </div>
-                    </div>
+                    </CardContent>
                 </Card>
-            </Stack>
+            </div>
         </div>
     )
 }
@@ -168,33 +159,19 @@ export function SessionRecordingView({ recording }: { recording: SessionRecordin
 function Row({ label, value, truncate }: { label: string; value: string; truncate?: boolean }): ReactElement {
     return (
         <div className="flex min-w-0 gap-3">
-            <span className="text-sm text-text-secondary whitespace-nowrap min-w-[100px] shrink-0">{label}</span>
-            <span
-                className={`min-w-0 text-sm text-text-primary ${truncate ? 'truncate' : ''}`}
-                title={truncate ? value : undefined}
-            >
+            <span className="text-sm text-muted-foreground whitespace-nowrap min-w-[100px] shrink-0">{label}</span>
+            <span className={`min-w-0 text-sm ${truncate ? 'truncate' : ''}`} title={truncate ? value : undefined}>
                 {value}
             </span>
         </div>
     )
 }
 
-function Stat({
-    label,
-    value,
-    variant,
-}: {
-    label: string
-    value: number | string
-    variant?: 'danger' | 'warning'
-}): ReactElement {
-    const colorClass =
-        variant === 'danger' ? 'text-red-500' : variant === 'warning' ? 'text-yellow-600' : 'text-text-primary'
-
+function Stat({ label, value }: { label: string; value: number | string }): ReactElement {
     return (
         <div className="text-center">
-            <div className={`text-xl font-semibold ${colorClass}`}>{value}</div>
-            <div className="text-xs text-text-secondary mt-0.5">{label}</div>
+            <div className="text-xl font-semibold">{value}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
         </div>
     )
 }
