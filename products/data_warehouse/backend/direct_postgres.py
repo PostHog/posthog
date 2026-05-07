@@ -322,6 +322,7 @@ def reconcile_postgres_schemas(
             source_schema.columns,
             schema_model.enabled_columns,
             source_schema.detected_primary_keys,
+            schema_model.incremental_field,
         )
         table_model = upsert_direct_postgres_table(
             schema_model.table,
