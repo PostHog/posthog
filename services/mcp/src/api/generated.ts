@@ -26886,6 +26886,64 @@ export namespace Schemas {
       results: TraceReview[];
     }
 
+    /**
+     * Insight enriched with view-count and recent-viewer fields, used by the trending action.
+     */
+    export interface TrendingInsight {
+      readonly id: number;
+      readonly short_id: string;
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      name?: string | null;
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      derived_name?: string | null;
+      query?: unknown | null;
+      readonly dashboards: readonly number[];
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      description?: string | null;
+      /** @nullable */
+      readonly last_refresh: string | null;
+      readonly refreshing: boolean;
+      tags?: unknown[];
+      readonly updated_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly created_at: string | null;
+      last_modified_at?: string;
+      favorited?: boolean;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+      /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
+      readonly view_count: number;
+      /** Up to 3 of the most recent users who viewed this insight in the time window. */
+      readonly viewers: readonly UserBasic[];
+      /** User who last modified this insight, or null if never modified after creation. */
+      readonly last_modified_by: UserBasic;
+    }
+
+    export interface PaginatedTrendingInsightList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TrendingInsight[];
+    }
+
     export interface UserGitHubAccount {
       /**
        * GitHub account type for the installation (e.g. User or Organization).
@@ -40719,6 +40777,14 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsActivityRetrieveParams = {
     format?: EnvironmentsInsightsActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type EnvironmentsInsightsActivityRetrieveFormat = typeof EnvironmentsInsightsActivityRetrieveFormat[keyof typeof EnvironmentsInsightsActivityRetrieveFormat];
@@ -40767,6 +40833,14 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsAllActivityRetrieveParams = {
     format?: EnvironmentsInsightsAllActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type EnvironmentsInsightsAllActivityRetrieveFormat = typeof EnvironmentsInsightsAllActivityRetrieveFormat[keyof typeof EnvironmentsInsightsAllActivityRetrieveFormat];
@@ -40826,7 +40900,19 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsInsightsTrendingRetrieveParams = {
+    /**
+     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
+     */
+    days?: number;
     format?: EnvironmentsInsightsTrendingRetrieveFormat;
+    /**
+     * Maximum number of insights to return. Defaults to 10. Capped at 100.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsInsightsTrendingRetrieveFormat = typeof EnvironmentsInsightsTrendingRetrieveFormat[keyof typeof EnvironmentsInsightsTrendingRetrieveFormat];
@@ -45414,6 +45500,14 @@ export namespace Schemas {
 
     export type InsightsActivityRetrieveParams = {
     format?: InsightsActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type InsightsActivityRetrieveFormat = typeof InsightsActivityRetrieveFormat[keyof typeof InsightsActivityRetrieveFormat];
@@ -45462,6 +45556,14 @@ export namespace Schemas {
 
     export type InsightsAllActivityRetrieveParams = {
     format?: InsightsAllActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type InsightsAllActivityRetrieveFormat = typeof InsightsAllActivityRetrieveFormat[keyof typeof InsightsAllActivityRetrieveFormat];
@@ -45521,7 +45623,19 @@ export namespace Schemas {
     } as const;
 
     export type InsightsTrendingRetrieveParams = {
+    /**
+     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
+     */
+    days?: number;
     format?: InsightsTrendingRetrieveFormat;
+    /**
+     * Maximum number of insights to return. Defaults to 10. Capped at 100.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type InsightsTrendingRetrieveFormat = typeof InsightsTrendingRetrieveFormat[keyof typeof InsightsTrendingRetrieveFormat];
