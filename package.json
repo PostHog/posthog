@@ -120,7 +120,6 @@
         "overrides": {
             "axios": "^1.15.0",
             "@modelcontextprotocol/sdk": "^1.29.0",
-            "@orval/core": ">=8.2.0",
             "@types/react": "18.3.27",
             "@types/react-dom": "18.3.7",
             "cipher-base": ">=1.0.5",
