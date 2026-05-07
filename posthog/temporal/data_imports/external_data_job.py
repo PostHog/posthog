@@ -408,24 +408,26 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-            # Start DuckLake copy workflow as a child (fire-and-forget)
-            try:
-                await workflow.start_child_workflow(
-                    DuckLakeCopyDataImportsWorkflow.run,
-                    DataImportsDuckLakeCopyInputs(
-                        team_id=inputs.team_id,
-                        job_id=job_id,
-                        schema_ids=[inputs.external_data_schema_id],
-                    ),
-                    id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}",
-                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                )
-            except WorkflowAlreadyStartedError:
-                workflow.logger.warning(
-                    "DuckLake copy already running, skipping",
-                    schema_id=str(inputs.external_data_schema_id),
-                )
+            # Start DuckLake copy workflow as a child (fire-and-forget).
+            # Skip for PostHogMWH — data already lives in DuckLake.
+            if source_type != ExternalDataSourceType.POSTHOGMWH:
+                try:
+                    await workflow.start_child_workflow(
+                        DuckLakeCopyDataImportsWorkflow.run,
+                        DataImportsDuckLakeCopyInputs(
+                            team_id=inputs.team_id,
+                            job_id=job_id,
+                            schema_ids=[inputs.external_data_schema_id],
+                        ),
+                        id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}",
+                        task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.warning(
+                        "DuckLake copy already running, skipping",
+                        schema_id=str(inputs.external_data_schema_id),
+                    )
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":

@@ -18421,7 +18421,8 @@
                 "Convex",
                 "ClickHouse",
                 "Plain",
-                "Resend"
+                "Resend",
+                "PostHogMWH"
             ],
             "type": "string"
         },

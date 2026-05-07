@@ -142,6 +142,15 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         if processed_incremental_earliest_value:
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
+        if source_type == ExternalDataSourceType.POSTHOGMWH:
+            return await _run_posthog_mwh_import(
+                job_inputs=job_inputs,
+                model=model,
+                schema=schema,
+                logger=logger,
+                inputs=inputs,
+            )
+
         if SourceRegistry.is_registered(source_type):
             source_inputs = SourceInputs(
                 schema_name=schema.name,
@@ -307,3 +316,124 @@ async def _run(
             await logger.aexception(error_msg)
             await logger.adebug("Error encountered during import_data_activity - re-raising")
             raise
+
+
+async def _run_posthog_mwh_import(
+    job_inputs: PipelineInputs,
+    model: ExternalDataJob,
+    schema: ExternalDataSchema,
+    logger: FilteringBoundLogger,
+    inputs: ImportDataActivityInputs,
+) -> PipelineResult:
+    from django.conf import settings
+
+    from posthog.temporal.data_imports.naming_convention import NamingConvention
+    from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+    from posthog.temporal.data_imports.sources.posthog_mwh.posthog_mwh import (
+        copy_mwh_table_to_s3,
+        get_mwh_columns,
+        get_mwh_row_count,
+    )
+
+    from products.data_warehouse.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, POSTGRES_TO_CLICKHOUSE_TYPE
+
+    schema_name = schema.name
+    if "." not in schema_name:
+        raise ValueError(f"PostHogMWH schema name must be 'schema.table', got: {schema_name}")
+
+    duckgres_schema, table_name = schema_name.split(".", 1)
+    normalized_name = NamingConvention.normalize_identifier(schema_name)
+    folder_path = await database_sync_to_async_pool(model.folder_path)()
+
+    await logger.ainfo(
+        "PostHogMWH: starting server-side COPY TO S3",
+        duckgres_schema=duckgres_schema,
+        table_name=table_name,
+        folder_path=folder_path,
+    )
+
+    await database_sync_to_async_pool(copy_mwh_table_to_s3)(
+        team_id=inputs.team_id,
+        schema_name=duckgres_schema,
+        table_name=table_name,
+        s3_folder_path=folder_path,
+        normalized_table_name=normalized_name,
+    )
+
+    await logger.ainfo("PostHogMWH: COPY TO S3 complete")
+
+    mwh_columns = await database_sync_to_async_pool(get_mwh_columns)(inputs.team_id, duckgres_schema, table_name)
+    row_count = await database_sync_to_async_pool(get_mwh_row_count)(inputs.team_id, duckgres_schema, table_name)
+
+    if row_count == 0:
+        await logger.awarning("PostHogMWH: 0 rows, skipping table registration")
+        return PipelineResult(should_trigger_cdp_producer=False)
+
+    columns: dict[str, dict[str, str]] = {}
+    for col_name, pg_type, _ in mwh_columns:
+        ch_type = POSTGRES_TO_CLICKHOUSE_TYPE.get(pg_type, "String")
+        hogql_type = CLICKHOUSE_HOGQL_MAPPING.get(ch_type, CLICKHOUSE_HOGQL_MAPPING["String"]).__name__
+        columns[col_name] = {"clickhouse": ch_type, "hogql": hogql_type}
+
+    proto = "http" if settings.USE_LOCAL_SETUP else "https"
+    url_pattern = f"{proto}://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{folder_path}/{normalized_name}/*.parquet"
+
+    @database_sync_to_async_pool
+    def _register_table() -> None:
+        source = model.pipeline
+        display_name = build_table_name(source, schema_name)
+
+        table: DataWarehouseTable | None = schema.table
+        if table:
+            table.url_pattern = url_pattern
+            table.format = DataWarehouseTable.TableFormat.Parquet
+            table.row_count = row_count
+            table.columns = columns
+            table.save()
+        else:
+            existing = DataWarehouseTable.objects.filter(
+                team_id=inputs.team_id,
+                name=display_name,
+                external_data_source_id=source.id,
+                deleted=False,
+            ).first()
+            if existing:
+                table = existing
+                table.url_pattern = url_pattern
+                table.format = DataWarehouseTable.TableFormat.Parquet
+                table.row_count = row_count
+                table.columns = columns
+                table.save()
+            else:
+                table = DataWarehouseTable.objects.create(
+                    name=display_name,
+                    url_pattern=url_pattern,
+                    format=DataWarehouseTable.TableFormat.Parquet,
+                    team_id=inputs.team_id,
+                    row_count=row_count,
+                    columns=columns,
+                    external_data_source_id=source.id,
+                )
+
+        fresh_schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema.id, team_id=inputs.team_id)
+        fresh_schema.table = table
+        fresh_schema.save()
+
+    await _register_table()
+
+    from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete, update_last_synced_at
+
+    await update_last_synced_at(job_id=str(model.id), schema_id=str(schema.id), team_id=inputs.team_id)
+    await set_initial_sync_complete(schema_id=schema.id, team_id=inputs.team_id)
+
+    await database_sync_to_async_pool(
+        lambda: ExternalDataJob.objects.filter(id=inputs.run_id).update(rows_synced=row_count)
+    )()
+
+    await logger.ainfo(
+        "PostHogMWH: table registered",
+        row_count=row_count,
+        url_pattern=url_pattern,
+    )
+
+    return PipelineResult(should_trigger_cdp_producer=False)

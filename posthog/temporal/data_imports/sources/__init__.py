@@ -99,6 +99,7 @@ from .plaid.source import PlaidSource
 from .plain.source import PlainSource
 from .polar.source import PolarSource
 from .postgres.source import PostgresSource
+from .posthog_mwh.source import PostHogMWHSource
 from .postmark.source import PostmarkSource
 from .productboard.source import ProductboardSource
 from .quickbooks.source import QuickBooksSource
@@ -244,6 +245,7 @@ __all__ = [
     "PlaidSource",
     "PlainSource",
     "PolarSource",
+    "PostHogMWHSource",
     "PostmarkSource",
     "PostgresSource",
     "ProductboardSource",

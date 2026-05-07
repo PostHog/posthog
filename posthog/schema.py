@@ -2146,6 +2146,7 @@ class ExternalDataSourceType(StrEnum):
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
     RESEND = "Resend"
+    POST_HOG_MWH = "PostHogMWH"
 
 
 class ExternalQueryErrorCode(StrEnum):

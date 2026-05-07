@@ -5735,6 +5735,7 @@ export const externalDataSources = [
     'ClickHouse',
     'Plain',
     'Resend',
+    'PostHogMWH',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

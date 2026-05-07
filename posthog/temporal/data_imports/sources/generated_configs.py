@@ -620,6 +620,11 @@ class PolarSourceConfig(config.Config):
 
 
 @config.config
+class PostHogMWHSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class PostgresSourceConfig(config.Config):
     host: str
     database: str
@@ -994,6 +999,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PLAID: PlaidSourceConfig,
         ExternalDataSourceType.PLAIN: PlainSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
+        ExternalDataSourceType.POSTHOGMWH: PostHogMWHSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,
         ExternalDataSourceType.PRODUCTBOARD: ProductboardSourceConfig,

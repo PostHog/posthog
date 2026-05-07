@@ -38,6 +38,8 @@ from posthog.temporal.common.schedule import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
 if TYPE_CHECKING:
     from posthog.models import Team
 
@@ -53,10 +55,13 @@ def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, i
 
 
 def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: bool = True):
+    is_billable = external_data_schema.source.source_type != ExternalDataSourceType.POSTHOGMWH
+
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
         external_data_schema_id=external_data_schema.id,
         external_data_source_id=external_data_schema.source_id,
+        billable=is_billable,
     )
 
     hour = 0
