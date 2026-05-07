@@ -8,6 +8,8 @@ from parameterized import parameterized
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 
 from products.cdp.backend.max_tools import (
     CreateHogFunctionAction,
@@ -77,7 +79,6 @@ class TestUpsertHogFunctionTool(BaseTest):
             "properties": [{"key": "alert_id", "value": alert_id, "operator": "exact", "type": "event"}],
         }
 
-    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_create_slack_destination_for_alert(self):
         tool = self._setup_tool()
@@ -103,12 +104,11 @@ class TestUpsertHogFunctionTool(BaseTest):
 
         function = await sync_to_async(HogFunction.objects.get)(id=artifact["function_id"])
         assert function.template_id == "template-slack"
-        assert function.team == self.team
+        assert function.team_id == self.team.id
         assert function.filters is not None
         assert function.filters["events"][0]["id"] == "$insight_alert_firing"
         assert function.filters["properties"][0]["value"] == "alert-abc"
 
-    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_create_requires_template_or_hog(self):
         tool = self._setup_tool()
@@ -119,7 +119,6 @@ class TestUpsertHogFunctionTool(BaseTest):
         assert "template_id or hog source" in content
         assert artifact["error"] == "validation_failed"
 
-    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_update_changes_name_and_enabled(self):
         tool = self._setup_tool()
@@ -150,7 +149,6 @@ class TestUpsertHogFunctionTool(BaseTest):
         assert function.name == "New name"
         assert function.enabled is False
 
-    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_update_with_no_fields_returns_error(self):
         tool = self._setup_tool()
@@ -173,7 +171,6 @@ class TestUpsertHogFunctionTool(BaseTest):
         assert "No changes provided" in content
         assert artifact["error"] == "no_changes"
 
-    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_update_unknown_function_returns_not_found(self):
         tool = self._setup_tool()
@@ -183,11 +180,36 @@ class TestUpsertHogFunctionTool(BaseTest):
         assert "not found" in content
         assert artifact["error"] == "function_not_found"
 
+    @pytest.mark.asyncio
+    async def test_update_function_from_other_team_returns_not_found(self):
+        # _resolve_function filters by team_id; this regression test pins that boundary.
+        other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
+        other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
+        other_function = await sync_to_async(HogFunction.objects.create)(
+            team=other_team,
+            type="internal_destination",
+            name="Other team's function",
+        )
+
+        tool = self._setup_tool()
+        content, artifact = await tool._arun_impl(
+            action=UpdateHogFunctionAction(function_id=str(other_function.id), name="Hijacked")
+        )
+
+        assert "not found" in content
+        assert artifact["error"] == "function_not_found"
+        await sync_to_async(other_function.refresh_from_db)()
+        assert other_function.name == "Other team's function"
+
     @parameterized.expand(
         [
             ("enabled_internal_destination", "internal_destination", "template-slack", True, True),
             ("disabled_internal_destination", "internal_destination", "template-slack", False, False),
             ("enabled_transformation", "transformation", None, True, False),
+            ("enabled_destination", "destination", None, True, True),
+            ("enabled_site_destination", "site_destination", None, True, True),
+            ("enabled_source_webhook", "source_webhook", None, True, True),
+            ("enabled_site_app", "site_app", None, True, True),
         ]
     )
     @pytest.mark.asyncio
@@ -204,7 +226,37 @@ class TestUpsertHogFunctionTool(BaseTest):
         assert await tool.is_dangerous_operation(action) is expected
 
     @pytest.mark.asyncio
-    async def test_is_dangerous_operation_for_any_update(self):
+    async def test_is_dangerous_operation_for_update_with_changes(self):
         tool = self._setup_tool()
         action = UpdateHogFunctionAction(function_id="some-id", enabled=False)
         assert await tool.is_dangerous_operation(action) is True
+
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_skips_no_op_update(self):
+        # An update with only function_id set short-circuits to "no changes" without ever touching
+        # the function — there is nothing for the user to approve.
+        tool = self._setup_tool()
+        action = UpdateHogFunctionAction(function_id="some-id")
+        assert await tool.is_dangerous_operation(action) is False
+
+    @pytest.mark.asyncio
+    async def test_update_preview_lists_changed_fields(self):
+        tool = self._setup_tool()
+        _, create_artifact = await tool._arun_impl(
+            action=CreateHogFunctionAction(
+                type="internal_destination",
+                template_id="template-slack",
+                name="Original",
+                filters=self._alert_filter("alert-preview"),
+                inputs={"slack_workspace": {"value": 1}, "channel": {"value": "C0123ABC"}},
+            )
+        )
+        function_id = create_artifact["function_id"]
+
+        action = UpdateHogFunctionAction(function_id=function_id, name="Renamed", enabled=False)
+        preview = await tool.format_dangerous_operation_preview(action)
+
+        assert "fields:" in preview
+        assert "`enabled`" in preview
+        assert "`name`" in preview
+        assert "Renamed" not in preview  # field values are not leaked into the preview

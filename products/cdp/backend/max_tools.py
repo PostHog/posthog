@@ -2,6 +2,7 @@ import re
 import json
 from pathlib import Path
 from textwrap import dedent
+from types import SimpleNamespace
 from typing import Any, Literal, Optional, Union
 
 from asgiref.sync import sync_to_async
@@ -342,22 +343,33 @@ class CreateHogFunctionInputsTool(MaxTool):
         return HogFunctionInputsOutput(inputs_schema=inputs_schema)
 
 
-# Function types that can produce externally-visible side-effects on every matching event.
-_EXTERNAL_SIDE_EFFECT_TYPES: frozenset[str] = frozenset(
+# Function types whose enabled creates produce externally-visible side-effects and should require
+# user approval. `destination` / `site_destination` / `internal_destination` push outbound traffic;
+# `source_webhook` accepts incoming traffic on a registered URL; `site_app` injects JavaScript into
+# every page load. `transformation` runs in-process during ingestion. `warehouse_source_webhook` is
+# rejected entirely by HogFunctionSerializer.validate_type (posthog/api/hog_function.py:266) so it
+# can never reach the dangerous-op gate; it is excluded from this set on purpose.
+_EXTERNAL_SIDE_EFFECT_TYPES: frozenset[HogFunctionType] = frozenset(
     {
         HogFunctionType.DESTINATION,
         HogFunctionType.SITE_DESTINATION,
         HogFunctionType.INTERNAL_DESTINATION,
         HogFunctionType.SOURCE_WEBHOOK,
+        HogFunctionType.SITE_APP,
     }
 )
 
 # Recipe payload + event property catalog shared with the MCP cdp-functions-create tool. Single
 # source of truth — edit the markdown, not this constant. See `description_appendix_file` in
-# products/cdp/mcp/cdp_functions.yaml for the MCP-side consumer.
-_INSIGHT_ALERT_DESTINATION_RECIPE = (
-    Path(__file__).resolve().parent.parent / "recipes" / "insight_alert_destination.md"
-).read_text()
+# products/cdp/mcp/cdp_functions.yaml for the MCP-side consumer. The file is read at import time
+# but wrapped so a missing markdown degrades to a recipe-less description rather than killing the
+# import graph (which would also disable unrelated tools in this module).
+try:
+    _INSIGHT_ALERT_DESTINATION_RECIPE = (
+        Path(__file__).resolve().parent.parent / "recipes" / "insight_alert_destination.md"
+    ).read_text(encoding="utf-8")
+except FileNotFoundError:
+    _INSIGHT_ALERT_DESTINATION_RECIPE = ""
 
 _UPSERT_HOG_FUNCTION_PRELUDE = dedent(
     """
@@ -387,13 +399,17 @@ _UPSERT_HOG_FUNCTION_PRELUDE = dedent(
     The `upsert_alert` tool only attaches an email subscription to the current user. To deliver firings
     to Slack or a webhook, after creating the alert with `upsert_alert` (to obtain `<alert_id>`):
 
-    1. Pick the integration. For Slack, use list_data with kind="integrations" filtered by kind=slack to
-       find the integration id. For a webhook, the user provides the destination URL directly.
+    1. Gather destination details from the user — Max does not currently surface listings of
+       configured integrations or existing destinations:
+       - For Slack: ask the user for the Slack workspace integration's numeric ID and the channel id
+         (e.g. `C0123ABC`) or `#channel-name`. Both are configured under their PostHog project's
+         integration settings.
+       - For webhook: the user provides the destination `https://` URL directly.
 
-    2. Dedupe before creating. Use list_data with kind="hog_functions" and type="internal_destination" to
-       find any existing function whose filters.properties has an entry with key=alert_id and value equal
-       to <alert_id>. If one exists, call this tool with action=update on that function_id; if not, follow
-       the payload spec below to create a new one.
+    2. Re-using vs creating: this tool does not list existing alert destinations. If the user asks to
+       update existing Slack delivery for an alert, ask them for the `function_id` (visible at
+       `/pipeline/destinations/`) and call this tool with `action=update`. When unsure, prefer asking
+       over creating a second destination — duplicates would fire twice on every alert.
     """
 ).strip()
 
@@ -478,14 +494,19 @@ class UpsertHogFunctionTool(MaxTool):
 
     async def is_dangerous_operation(self, action: UpsertHogFunctionAction, **kwargs) -> bool:
         if isinstance(action, UpdateHogFunctionAction):
-            return True
+            # No-op updates short-circuit to "no changes" before any external effect — don't waste
+            # the user's approval on something that isn't going to do anything anyway.
+            changes = action.model_dump(exclude={"action", "function_id"}, exclude_unset=True)
+            return bool(changes)
         return action.enabled and action.type in _EXTERNAL_SIDE_EFFECT_TYPES
 
     async def format_dangerous_operation_preview(self, action: UpsertHogFunctionAction, **kwargs) -> str:
         if isinstance(action, UpdateHogFunctionAction):
             fn = await self._resolve_function(action.function_id)
             label = f"'{fn.name}'" if fn else f"(ID: {action.function_id})"
-            return f"**Update** function {label}"
+            changed_fields = sorted(action.model_dump(exclude={"action", "function_id"}, exclude_unset=True).keys())
+            field_summary = f" — fields: {', '.join(f'`{f}`' for f in changed_fields)}" if changed_fields else ""
+            return f"**Update** function {label}{field_summary}"
 
         name = action.name or action.template_id or action.type
         return f"**Create** {action.type} '{name}' (enabled — will start processing matching events immediately)"
@@ -561,9 +582,17 @@ class UpsertHogFunctionTool(MaxTool):
         """Routing through the serializer (rather than ``HogFunction.objects.create``) is the blessed
         pattern: it resolves ``template_id`` against the template registry, fills in defaults from the
         template, compiles bytecode for ``hog`` and ``filters``, and runs all the per-field validators.
+
+        ``HogFunctionSerializer.create`` reads ``self.context["request"].user`` to populate
+        ``created_by``. Outside a DRF view we have no Request, so we satisfy the contract with a
+        minimal stand-in carrying the calling user.
         """
         team = self._team
-        context: dict[str, Any] = {"get_team": lambda: team, "is_create": instance is None}
+        context: dict[str, Any] = {
+            "request": SimpleNamespace(user=self._user),
+            "get_team": lambda: team,
+            "is_create": instance is None,
+        }
         serializer = HogFunctionSerializer(instance=instance, data=data, partial=instance is not None, context=context)
         serializer.is_valid(raise_exception=True)
         return serializer.save(team=team) if instance is None else serializer.save()
