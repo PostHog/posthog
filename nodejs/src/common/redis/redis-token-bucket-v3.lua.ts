@@ -41,12 +41,15 @@ else
   else
     currentTokens = tonumber(rawPool)
   end
-  tokensBefore = math.min(currentTokens + (timeDiffSeconds * fillRate), poolMax)
+  -- tokensBefore is the uncapped accrued credit. A catch-up call after a long
+  -- silent period can therefore spend more than poolMax in one go. The cap is
+  -- applied below on tokensAfter so the *stored* pool can never exceed poolMax.
+  tokensBefore = currentTokens + (timeDiffSeconds * fillRate)
 end
 
 local tokensAfter
 if tokensBefore - cost >= 0 then
-  tokensAfter = tokensBefore - cost
+  tokensAfter = math.min(tokensBefore - cost, poolMax)
 else
   tokensAfter = -1
 end
