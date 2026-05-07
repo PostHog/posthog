@@ -196,6 +196,20 @@ def _resolve_cloud_pr_authorship_mode(
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
+def task_visibility_q(user_id: int | None, prefix: str = "") -> Q:
+    """Filter for tasks visible to the given user.
+
+    A task is visible if its creator matches `user_id`, or if it has no
+    creator at all (legacy unowned tasks remain visible to any team member —
+    they cannot be executed in any case because oauth.py requires
+    `task.created_by` to mint OAuth tokens).
+
+    `prefix` lets callers traverse from related models (e.g. "task__" when
+    filtering a TaskRun or TaskAutomation queryset).
+    """
+    return Q(**{f"{prefix}created_by_id": user_id}) | Q(**{f"{prefix}created_by__isnull": True})
+
+
 class TasksAccessPermission(BasePermission):
     message = "You need a valid invite code to access this feature."
 
@@ -269,6 +283,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def repositories(self, request, **kwargs):
         repositories = (
             Task.objects.filter(team=self.team, deleted=False, internal=False)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
             .exclude(repository__isnull=True)
             .exclude(repository__exact="")
             .values_list("repository", flat=True)
@@ -324,6 +339,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         tasks = (
             Task.objects.filter(team=self.team, deleted=False, id__in=ids)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
             .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
             .order_by("-created_at", "id")
         )
@@ -365,7 +381,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team=self.team, deleted=False).order_by("-created_at")
+        qs = (
+            queryset.filter(team=self.team, deleted=False)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .order_by("-created_at")
+        )
 
         params = self.request.query_params if hasattr(self, "request") else {}
 
@@ -828,7 +848,11 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_rewrite_rules = {"team_id": "task__team_id"}
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(task__team=self.team).order_by("task__title", "-created_at")
+        return (
+            queryset.filter(task__team=self.team)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None), prefix="task__"))
+            .order_by("task__title", "-created_at")
+        )
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
@@ -914,7 +938,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not task_id:
             raise NotFound("Task ID is required")
 
-        task = Task.objects.get(id=task_id, team=self.team)
+        task = (
+            Task.objects.filter(id=task_id, team=self.team)
+            .filter(task_visibility_q(getattr(request.user, "id", None)))
+            .first()
+        )
+        if task is None:
+            raise NotFound("Task not found")
         environment = request.validated_data.get("environment", TaskRun.Environment.LOCAL)
         mode = request.validated_data.get("mode", "background")
         branch = request.validated_data.get("branch")
@@ -1267,8 +1297,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not task_id:
             raise NotFound("Task ID is required")
 
-        # Verify task belongs to team
-        if not Task.objects.filter(id=task_id, team=self.team).exists():
+        task_visible = (
+            Task.objects.filter(id=task_id, team=self.team)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .exists()
+        )
+        if not task_visible:
             raise NotFound("Task not found")
 
         return queryset.filter(team=self.team, task_id=task_id)
@@ -1280,7 +1314,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
             raise NotFound("Task ID is required")
-        task = Task.objects.get(id=task_id, team=self.team)
+        task = (
+            Task.objects.filter(id=task_id, team=self.team)
+            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
+            .first()
+        )
+        if task is None:
+            raise NotFound("Task not found")
         serializer.save(team=self.team, task=task)
 
     def _trigger_workflow(self, task: Task, task_run: TaskRun, *, raise_on_error: bool = False) -> None:
