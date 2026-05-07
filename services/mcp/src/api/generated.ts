@@ -15114,6 +15114,121 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `passed` - passed
+    * `warned` - warned
+    * `failed` - failed
+    * `skipped` - skipped
+     */
+    export type DiagnosticCheckResultStatusEnum = typeof DiagnosticCheckResultStatusEnum[keyof typeof DiagnosticCheckResultStatusEnum];
+
+
+    export const DiagnosticCheckResultStatusEnum = {
+      Passed: 'passed',
+      Warned: 'warned',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * * `dns` - dns
+    * `config` - config
+    * `wait` - wait
+    * `retry` - retry
+     */
+    export type DiagnosticRemediationTypeEnum = typeof DiagnosticRemediationTypeEnum[keyof typeof DiagnosticRemediationTypeEnum];
+
+
+    export const DiagnosticRemediationTypeEnum = {
+      Dns: 'dns',
+      Config: 'config',
+      Wait: 'wait',
+      Retry: 'retry',
+    } as const;
+
+    export interface DiagnosticDnsRecord {
+      /** DNS record name (the hostname the record is set on). */
+      name: string;
+      /** DNS record type, e.g. CNAME, CAA, A. */
+      type: string;
+      /** DNS record value to set. */
+      value: string;
+    }
+
+    export interface DiagnosticRemediation {
+      /** Category of fix. dns: customer must change DNS records. config: customer must adjust their server config (e.g. allow port 80). wait: no action — the system will resolve on its own. retry: hit Retry.
+
+    * `dns` - dns
+    * `config` - config
+    * `wait` - wait
+    * `retry` - retry */
+      type: DiagnosticRemediationTypeEnum;
+      /** One-line, action-oriented summary of what to do. */
+      summary: string;
+      /** DNS records the customer should add (empty when remediation is not DNS-based). */
+      records: DiagnosticDnsRecord[];
+    }
+
+    export interface DiagnosticCheckResult {
+      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+      id: string;
+      /** Human-readable check name. */
+      name: string;
+      /** passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.
+
+    * `passed` - passed
+    * `warned` - warned
+    * `failed` - failed
+    * `skipped` - skipped */
+      status: DiagnosticCheckResultStatusEnum;
+      /** Customer-facing explanation of the check's outcome. */
+      detail: string;
+      /** Concrete remediation steps when the check failed; null when there's nothing actionable. */
+      remediation?: DiagnosticRemediation | null;
+    }
+
+    /**
+     * * `healthy` - healthy
+    * `warn` - warn
+    * `fail` - fail
+     */
+    export type DiagnosticReportSummaryStatusEnum = typeof DiagnosticReportSummaryStatusEnum[keyof typeof DiagnosticReportSummaryStatusEnum];
+
+
+    export const DiagnosticReportSummaryStatusEnum = {
+      Healthy: 'healthy',
+      Warn: 'warn',
+      Fail: 'fail',
+    } as const;
+
+    export interface DiagnosticReportSummary {
+      /** Overall outcome: healthy if the proxy is serving requests, warn for non-blocking issues, fail otherwise.
+
+    * `healthy` - healthy
+    * `warn` - warn
+    * `fail` - fail */
+      status: DiagnosticReportSummaryStatusEnum;
+      /**
+       * Check id of the most actionable failure, if any. Null when status is healthy.
+       * @nullable
+       */
+      primary_issue: string | null;
+      /**
+       * One-sentence next action the customer should take. Null when nothing's wrong.
+       * @nullable
+       */
+      next_action: string | null;
+    }
+
+    export interface DiagnosticReport {
+      /** When this diagnostic report was generated (UTC). */
+      ran_at: string;
+      /** Top-level outcome and recommended next action. */
+      summary: DiagnosticReportSummary;
+      /** Per-check results in execution order. */
+      checks: DiagnosticCheckResult[];
+    }
+
+    /**
      * * `Up` - Up
     * `Down` - Down
      */
@@ -17383,7 +17498,7 @@ export namespace Schemas {
     }
 
     export interface ExperimentVariant {
-      /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+      /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
       key: string;
       /**
        * Human-readable variant name.
@@ -17401,7 +17516,7 @@ export namespace Schemas {
 
     export interface ExperimentParameters {
       /**
-       * Experiment variants. If not specified, defaults to a 50/50 control/test split.
+       * Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.
        * @nullable
        */
       feature_flag_variants?: ExperimentVariant[] | null;
@@ -18403,6 +18518,45 @@ export namespace Schemas {
       readonly is_used_in_replay_settings: boolean;
     }
 
+    export interface FeatureFlagConditionPropertyAnalysis {
+      /** Property key */
+      key: string;
+      /** Comparison operator */
+      operator: string;
+      /** Expected property value */
+      value: unknown;
+      /** Property type (person, group, etc.) */
+      type: string;
+      /** Actual property value from user */
+      actual_value: unknown | null;
+      /** Whether this property condition matched */
+      matched: boolean;
+      /** Human-readable explanation of the match result */
+      explanation: string;
+    }
+
+    export interface FeatureFlagConditionAnalysis {
+      /** Index of this condition in the feature flag */
+      index: number;
+      /** True when this condition was the one that determined the flag's outcome. Use this to find the winning condition — at most one condition per flag is True. */
+      matched: boolean;
+      /** True when every property in this condition evaluated to true, regardless of whether this condition was the eventual winner. */
+      properties_matched?: boolean;
+      /** Human-readable explanation of why this condition matched/didn't match */
+      explanation: string;
+      /** Rollout percentage for this condition (0.0-100.0) */
+      rollout_percentage: number;
+      /** Whether this condition matched properties but was excluded due to rollout */
+      rollout_excluded: boolean;
+      /**
+       * Variant associated with this condition
+       * @nullable
+       */
+      variant: string | null;
+      /** Analysis of each property in this condition */
+      properties: FeatureFlagConditionPropertyAnalysis[];
+    }
+
     /**
      * * `cohort` - cohort
     * `person` - person
@@ -18813,6 +18967,50 @@ export namespace Schemas {
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+    }
+
+    export interface FeatureFlagTestEvaluationRequest {
+      /** User distinct ID to test against (mutually exclusive with person_id) */
+      distinct_id?: string;
+      /** Person ID to test against (mutually exclusive with distinct_id) */
+      person_id?: string;
+      /**
+       * Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.
+       * @nullable
+       */
+      timestamp?: string | null;
+      /** Groups for feature flag evaluation (JSON object, defaults to empty dict) */
+      groups?: unknown;
+    }
+
+    /**
+     * Person properties at the time of evaluation (for historical evaluations)
+     */
+    export type FeatureFlagTestEvaluationResponsePersonProperties = { [key: string]: unknown };
+
+    export interface FeatureFlagTestEvaluationResponse {
+      /** Feature flag key */
+      flag_key: string;
+      /** The evaluated value of the feature flag (boolean or variant key string) */
+      result: unknown;
+      /** The reason for the evaluation result */
+      reason: string;
+      /**
+       * The index of the condition that matched, if applicable
+       * @nullable
+       */
+      condition_index: number | null;
+      /** Payload associated with the flag result, if any */
+      payload: unknown | null;
+      /** Person properties at the time of evaluation (for historical evaluations) */
+      person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
+      /**
+       * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
+       * @nullable
+       */
+      evaluation_distinct_id: string | null;
+      /** Detailed analysis of each condition in the feature flag */
+      conditions: FeatureFlagConditionAnalysis[];
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
@@ -25249,6 +25447,11 @@ export namespace Schemas {
       readonly archived: boolean;
       /** Current immutable configuration version number. */
       readonly current_version: number;
+      /**
+       * UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.
+       * @nullable
+       */
+      readonly current_version_id: string | null;
       /** Current immutable scorer configuration. */
       readonly config: ScoreDefinitionConfig;
       /** User who created the scorer. */
@@ -25453,6 +25656,7 @@ export namespace Schemas {
     * `in_progress` - In Progress
     * `pending_input` - Pending Input
     * `ready` - Ready
+    * `resolved` - Resolved
     * `failed` - Failed
     * `deleted` - Deleted
     * `suppressed` - Suppressed
@@ -25466,6 +25670,7 @@ export namespace Schemas {
       InProgress: 'in_progress',
       PendingInput: 'pending_input',
       Ready: 'ready',
+      Resolved: 'resolved',
       Failed: 'failed',
       Deleted: 'deleted',
       Suppressed: 'suppressed',
@@ -26840,6 +27045,64 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TraceReview[];
+    }
+
+    /**
+     * Insight enriched with view-count and recent-viewer fields, used by the trending action.
+     */
+    export interface TrendingInsight {
+      readonly id: number;
+      readonly short_id: string;
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      name?: string | null;
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      derived_name?: string | null;
+      query?: unknown | null;
+      readonly dashboards: readonly number[];
+      readonly dashboard_tiles: readonly DashboardTileBasic[];
+      /**
+       * @maxLength 400
+       * @nullable
+       */
+      description?: string | null;
+      /** @nullable */
+      readonly last_refresh: string | null;
+      readonly refreshing: boolean;
+      tags?: unknown[];
+      readonly updated_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly created_at: string | null;
+      last_modified_at?: string;
+      favorited?: boolean;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+      /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
+      readonly view_count: number;
+      /** Up to 3 of the most recent users who viewed this insight in the time window. */
+      readonly viewers: readonly UserBasic[];
+      /** User who last modified this insight, or null if never modified after creation. */
+      readonly last_modified_by: UserBasic;
+    }
+
+    export interface PaginatedTrendingInsightList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TrendingInsight[];
     }
 
     export interface UserGitHubAccount {
@@ -31116,12 +31379,19 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    /**
+     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
+     */
+    export type PatchedSessionSummariesConfigCustomTags = {[key: string]: string};
+
     export interface PatchedSessionSummariesConfig {
       /**
        * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
        * @maxLength 10000
        */
       product_context?: string;
+      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
+      custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -32615,29 +32885,6 @@ export namespace Schemas {
     }
 
     /**
-     * The parameters passed to the query
-     */
-    export type PersonPropertiesAtTimeDebugParams = { [key: string]: unknown };
-
-    export type PersonPropertiesAtTimeDebugEventsItem = { [key: string]: unknown };
-
-    /**
-     * Serializer for the debug information (only available to staff users).
-     */
-    export interface PersonPropertiesAtTimeDebug {
-      /** The ClickHouse query that was executed */
-      query: string;
-      /** The parameters passed to the query */
-      params: PersonPropertiesAtTimeDebugParams;
-      /** Number of events found */
-      events_found: number;
-      /** Raw events that were used to build the properties */
-      events: PersonPropertiesAtTimeDebugEventsItem[];
-      /** Error message if debug query failed */
-      error?: string;
-    }
-
-    /**
      * Serializer for the point-in-time query metadata.
      */
     export interface PersonPropertiesAtTimeMetadata {
@@ -32691,8 +32938,6 @@ export namespace Schemas {
       last_seen_at: string | null;
       /** Metadata about the point-in-time query */
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
-      /** Debug information (only available when debug=true and DEBUG=True) */
-      debug?: PersonPropertiesAtTimeDebug;
     }
 
     export interface PersonUpdatePropertyRequest {
@@ -36747,6 +36992,11 @@ export namespace Schemas {
     export interface ScoreDefinitionNewVersion {
       /** Next immutable scorer configuration. */
       config: ScoreDefinitionConfig;
+      /**
+       * Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check.
+       * @minimum 1
+       */
+      base_version?: number;
     }
 
     /**
@@ -36952,12 +37202,19 @@ export namespace Schemas {
       focus_area?: string;
     }
 
+    /**
+     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
+     */
+    export type SessionSummariesConfigCustomTags = {[key: string]: string};
+
     export interface SessionSummariesConfig {
       /**
        * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
        * @maxLength 10000
        */
       product_context?: string;
+      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
+      custom_tags?: SessionSummariesConfigCustomTags;
     }
 
     /**
@@ -40700,6 +40957,14 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsActivityRetrieveParams = {
     format?: EnvironmentsInsightsActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type EnvironmentsInsightsActivityRetrieveFormat = typeof EnvironmentsInsightsActivityRetrieveFormat[keyof typeof EnvironmentsInsightsActivityRetrieveFormat];
@@ -40748,6 +41013,14 @@ export namespace Schemas {
 
     export type EnvironmentsInsightsAllActivityRetrieveParams = {
     format?: EnvironmentsInsightsAllActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type EnvironmentsInsightsAllActivityRetrieveFormat = typeof EnvironmentsInsightsAllActivityRetrieveFormat[keyof typeof EnvironmentsInsightsAllActivityRetrieveFormat];
@@ -40807,7 +41080,19 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsInsightsTrendingRetrieveParams = {
+    /**
+     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
+     */
+    days?: number;
     format?: EnvironmentsInsightsTrendingRetrieveFormat;
+    /**
+     * Maximum number of insights to return. Defaults to 10. Capped at 100.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsInsightsTrendingRetrieveFormat = typeof EnvironmentsInsightsTrendingRetrieveFormat[keyof typeof EnvironmentsInsightsTrendingRetrieveFormat];
@@ -41406,10 +41691,6 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsPersonsPropertiesAtTimeRetrieveParams = {
-    /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean;
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */
@@ -45410,6 +45691,14 @@ export namespace Schemas {
 
     export type InsightsActivityRetrieveParams = {
     format?: InsightsActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type InsightsActivityRetrieveFormat = typeof InsightsActivityRetrieveFormat[keyof typeof InsightsActivityRetrieveFormat];
@@ -45458,6 +45747,14 @@ export namespace Schemas {
 
     export type InsightsAllActivityRetrieveParams = {
     format?: InsightsAllActivityRetrieveFormat;
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number;
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number;
     };
 
     export type InsightsAllActivityRetrieveFormat = typeof InsightsAllActivityRetrieveFormat[keyof typeof InsightsAllActivityRetrieveFormat];
@@ -45517,7 +45814,19 @@ export namespace Schemas {
     } as const;
 
     export type InsightsTrendingRetrieveParams = {
+    /**
+     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
+     */
+    days?: number;
     format?: InsightsTrendingRetrieveFormat;
+    /**
+     * Maximum number of insights to return. Defaults to 10. Capped at 100.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type InsightsTrendingRetrieveFormat = typeof InsightsTrendingRetrieveFormat[keyof typeof InsightsTrendingRetrieveFormat];
@@ -46245,10 +46554,6 @@ export namespace Schemas {
     } as const;
 
     export type PersonsPropertiesAtTimeRetrieveParams = {
-    /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean;
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */

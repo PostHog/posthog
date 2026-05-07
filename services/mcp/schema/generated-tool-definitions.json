@@ -1354,7 +1354,7 @@
         }
     },
     "error-tracking-suppression-rules-create": {
-        "description": "Create an error tracking suppression rule for the current project. Provide optional `filters` and optional `sampling_rate`; omit `filters` to create a match-all suppression rule.",
+        "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. Prefer `sampling_rate` to dampen noisy issues rather than fully suppressing when uncertain. Confirm with the user before creating any rule that could match more than one distinct error.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking suppression rule",
@@ -1594,7 +1594,7 @@
         }
     },
     "experiment-ship-variant": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the feature flag for 100% of users and cannot be undone via the API. Even when the user has asked you to ship a specific variant, ask them to confirm with the variant key and target experiment before invoking this tool.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Ship experiment variant",
@@ -2253,12 +2253,57 @@
             "readOnlyHint": false
         }
     },
+    "insights-activity-retrieve": {
+        "description": "Audit trail for a single insight by numeric `id`. Returns a paginated list of every change made to it (created, edited, deleted, restored), including who made each change and which fields changed. The full `before`/`after` diff blobs are omitted to keep responses agent-friendly — to inspect the current state of the insight after a change, call `insight-get` with the insight's `short_id`. Paginate with `limit` and `page`.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get insight activity log",
+        "title": "Get insight activity log",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insights-all-activity-retrieve": {
+        "description": "Project-wide audit trail of changes to all insights, most recent first. Returns who created, edited, deleted, or restored each insight and which fields changed. Useful for surfacing what people (or agents) have been working on recently. The full `before`/`after` diff blobs are omitted to keep responses agent-friendly — drill into a specific insight with `insights-activity-retrieve` (or `insight-get` for current state). Paginate with `limit` and `page`.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get recent insight activity across the project",
+        "title": "Get recent insight activity across the project",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "insights-list": {
         "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Get all insights",
         "title": "Get all insights",
+        "required_scopes": ["insight:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "insights-trending-retrieve": {
+        "description": "Returns the most-viewed insights in the project, ranked by view count over the last N days (default 7). Use this to surface the insights that matter most to the team — the ones people actually open. Each result includes standard insight metadata plus `view_count` and up to 3 recent `viewers`. Returns metadata only — call `insight-query` with the returned `short_id` to fetch the actual data for any of them.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get most-viewed insights",
+        "title": "Get most-viewed insights",
         "required_scopes": ["insight:read"],
         "new_mcp": true,
         "annotations": {
@@ -2845,6 +2890,81 @@
         "feature": "llm_analytics",
         "summary": "Update review queue",
         "title": "Update review queue",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-score-definition-create": {
+        "description": "Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`. Boolean scorers can override `true_label`/`false_label`. Scorers always start active (not archived) and at version 1.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create scorer",
+        "title": "Create scorer",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-score-definition-get": {
+        "description": "Retrieve a scorer by ID, including its current immutable `config` payload, `current_version` number, kind, archived state, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get scorer",
+        "title": "Get scorer",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-score-definition-list": {
+        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description. Returns metadata plus the current config snapshot.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List scorers",
+        "title": "List scorers",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-score-definition-new-version": {
+        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Bump scorer to a new version",
+        "title": "Bump scorer to a new version",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-score-definition-update": {
+        "description": "Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules instead, call `llma-score-definition-new-version`. `kind` cannot be changed.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update scorer metadata",
+        "title": "Update scorer metadata",
         "required_scopes": ["llm_analytics:write"],
         "new_mcp": true,
         "annotations": {
@@ -3612,6 +3732,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "proxy-diagnose": {
+        "description": "Run a deep diagnostic on a reverse proxy that's stuck or erroring. Inspects the customer's CNAME, the certificate provider's hostname state, CAA records walked up the DNS tree (the most common stuck-validation cause), HTTP-01 challenge reachability, a live event probe, and certificate expiry. Returns a structured report with each check's status and concrete remediation steps — including the exact DNS records the customer should add when CAA blocks issuance. Use this when proxy-get returns an erroring or timed_out status, or whenever a user asks why their proxy isn't working.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Diagnose reverse proxy",
+        "title": "Diagnose reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "proxy-get": {

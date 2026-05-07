@@ -31,6 +31,12 @@ export interface LemonMarkdownProps {
     wrapCode?: boolean
     /** Whether to generate id attributes on heading elements for anchor linking. */
     generateHeadingIds?: boolean
+    /**
+     * Optional renderer for ` ```mermaid ` code blocks. When omitted, mermaid fences fall back to a
+     * plain text CodeSnippet — this is the default so the mermaid library only ships in bundles
+     * that opt in (see `LemonMarkdownWithMermaid`).
+     */
+    renderMermaid?: (code: string) => React.ReactNode
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
@@ -67,6 +73,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     disableDocsRedirect = false,
     wrapCode = false,
     generateHeadingIds = false,
+    renderMermaid,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
@@ -79,8 +86,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 const languageMatch = /language-(\w+)/.exec(className || '')
                 const isBlock = node?.position?.start?.line !== node?.position?.end?.line || languageMatch
                 if (isBlock) {
-                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     const value = String(children).replace(/\n$/, '')
+                    if (renderMermaid && languageMatch && languageMatch[1].toLowerCase() === 'mermaid') {
+                        return <>{renderMermaid(value)}</>
+                    }
+                    const language = languageMatch ? getLanguage(languageMatch[1]) : Language.Text
                     return (
                         <CodeSnippet language={language} wrap={wrapCode} compact>
                             {value}
@@ -147,7 +157,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     )
                   : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds]
+        [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
     )
 
     return (
@@ -165,6 +175,7 @@ function LemonMarkdownComponent({
     disableDocsRedirect = false,
     wrapCode = false,
     generateHeadingIds = false,
+    renderMermaid,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
@@ -174,6 +185,7 @@ function LemonMarkdownComponent({
                 disableDocsRedirect={disableDocsRedirect}
                 wrapCode={wrapCode}
                 generateHeadingIds={generateHeadingIds}
+                renderMermaid={renderMermaid}
             >
                 {children}
             </LemonMarkdownRenderer>
