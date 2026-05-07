@@ -16,6 +16,7 @@ from django.utils.crypto import get_random_string
 import stripe
 import requests
 import structlog
+from anthropic import APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
@@ -33,9 +34,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
+    ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
+    ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
+    ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     SLACK_INTEGRATION_KINDS,
+    AnthropicIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -391,6 +396,44 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             )
             return instance
 
+        elif validated_data["kind"] == "anthropic":
+            config = validated_data.get("config", {})
+            api_key = config.get("api_key")
+            workspace_label = config.get("workspace_label")
+            force = bool(config.get("force", False))
+
+            if not isinstance(api_key, str) or not api_key.strip():
+                raise ValidationError("An Anthropic API key must be provided")
+            api_key = api_key.strip()
+            # Reject control characters / whitespace inside the key — pasted
+            # tokens with trailing newlines silently break every Anthropic call.
+            if any(ch.isspace() or ord(ch) < 0x20 for ch in api_key):
+                raise ValidationError("Anthropic API key must not contain whitespace or control characters")
+
+            if workspace_label is not None:
+                if not isinstance(workspace_label, str):
+                    raise ValidationError("Workspace label must be a string")
+                workspace_label = workspace_label.strip()
+                if not workspace_label:
+                    workspace_label = None
+                elif len(workspace_label) > ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH:
+                    raise ValidationError(
+                        f"Workspace label must be {ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH} characters or fewer"
+                    )
+                elif workspace_label.startswith(ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX):
+                    raise ValidationError(
+                        f"Workspace label cannot start with '{ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX}'"
+                    )
+
+            instance = AnthropicIntegration.integration_from_key(
+                api_key=api_key,
+                team_id=team_id,
+                created_by=request.user,
+                workspace_label=workspace_label,
+                force=force,
+            )
+            return instance
+
         elif validated_data["kind"] == "twilio":
             config = validated_data.get("config", {})
             account_sid = config.get("account_sid")
@@ -568,6 +611,9 @@ class IntegrationViewSet(
         "channels",
         "github_repos",
         "github_branches",
+        "anthropic_managed_agents",
+        "anthropic_managed_agent_environments",
+        "anthropic_managed_agent_vaults",
     ]
     scope_object_write_actions = [
         "create",
@@ -880,6 +926,111 @@ class IntegrationViewSet(
         _ensure_oauth_token_valid(instance)
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
+
+    @extend_schema(operation_id="integrations_anthropic_managed_agents_retrieve")
+    @action(methods=["GET"], detail=True, url_path="anthropic_managed_agents")
+    def anthropic_managed_agents(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._anthropic_managed_list_response(request, resource="agents")
+
+    @extend_schema(operation_id="integrations_anthropic_managed_agent_envs_retrieve")
+    @action(methods=["GET"], detail=True, url_path="anthropic_managed_agent_environments")
+    def anthropic_managed_agent_environments(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._anthropic_managed_list_response(request, resource="environments")
+
+    @extend_schema(operation_id="integrations_anthropic_managed_agent_vaults_retrieve")
+    @action(methods=["GET"], detail=True, url_path="anthropic_managed_agent_vaults")
+    def anthropic_managed_agent_vaults(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._anthropic_managed_list_response(request, resource="vaults")
+
+    def _anthropic_managed_list_response(self, request: Request, *, resource: str) -> Response:
+        instance = self._get_anthropic_integration_or_400()
+
+        try:
+            limit = int(request.query_params.get("limit", ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT))
+        except (TypeError, ValueError):
+            raise ValidationError("`limit` must be an integer")
+        after = request.query_params.get("after") or None
+        force_refresh = request.query_params.get("force_refresh", "false").lower() == "true"
+
+        # Cache only the default first page; paginated requests bypass the
+        # cache because the cursor reflects upstream state we shouldn't pin.
+        cache_eligible = not after and limit == ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT
+        cache_key = f"anthropic/{instance.id}/{resource}"
+        if cache_eligible and not force_refresh:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached)
+
+        try:
+            anthropic = AnthropicIntegration(instance)
+            data, next_cursor = self._anthropic_resource_list(anthropic, resource=resource, after=after, limit=limit)
+        except AuthenticationError:
+            self._record_anthropic_auth_failure(instance, "Anthropic API key is no longer valid")
+            raise ValidationError("Anthropic API key is no longer valid. Please reconnect the integration.")
+        except PermissionDeniedError:
+            self._record_anthropic_auth_failure(instance, "Anthropic API key is missing required permissions")
+            raise ValidationError(
+                "Anthropic API key is missing required permissions. Please reconnect with a key that has access "
+                "to the Managed Agents beta."
+            )
+        except APIConnectionError:
+            logger.warning("anthropic_list_connection_error", resource=resource, exc_info=True)
+            raise ValidationError("Could not reach Anthropic. Please try again.")
+        except APIStatusError as e:
+            logger.warning("anthropic_list_status_error", resource=resource, status_code=e.status_code, exc_info=True)
+            raise ValidationError(f"Anthropic returned an error (HTTP {e.status_code}). Please try again.")
+
+        body: dict[str, Any] = {"next_cursor": next_cursor, "has_more": bool(next_cursor)}
+        if resource == "agents":
+            body["agents"] = [
+                {
+                    "id": agent["id"],
+                    "name": agent.get("name", agent["id"]),
+                    "version": agent.get("version"),
+                }
+                for agent in data
+                if "id" in agent
+            ]
+        elif resource == "environments":
+            body["environments"] = [
+                {"id": env["id"], "name": env.get("name", env["id"])} for env in data if "id" in env
+            ]
+        else:  # vaults
+            body["vaults"] = [
+                {"id": vault["id"], "display_name": vault.get("display_name", vault["id"])}
+                for vault in data
+                if "id" in vault
+            ]
+
+        if cache_eligible:
+            cache.set(cache_key, body, 60 * 5)  # 5 minutes — UI dropdown freshness window
+
+        return Response(body)
+
+    def _get_anthropic_integration_or_400(self) -> Integration:
+        instance = self.get_object()
+        if instance.kind != Integration.IntegrationKind.ANTHROPIC.value:
+            raise ValidationError(f"Integration {instance.id} is not an Anthropic integration (kind={instance.kind!r})")
+        return instance
+
+    @staticmethod
+    def _anthropic_resource_list(
+        anthropic: AnthropicIntegration, *, resource: str, after: str | None, limit: int
+    ) -> tuple[list[dict], str | None]:
+        if resource == "agents":
+            return anthropic.list_managed_agents(after=after, limit=limit)
+        if resource == "environments":
+            return anthropic.list_managed_agent_environments(after=after, limit=limit)
+        if resource == "vaults":
+            return anthropic.list_managed_agent_vaults(after=after, limit=limit)
+        raise ValueError(f"unknown anthropic managed-agents resource: {resource!r}")
+
+    @staticmethod
+    def _record_anthropic_auth_failure(instance: Integration, message: str) -> None:
+        if instance.errors != ERROR_TOKEN_REFRESH_FAILED:
+            instance.errors = ERROR_TOKEN_REFRESH_FAILED
+            instance.save(update_fields=["errors"])
+        logger.warning("anthropic_managed_list_auth_failure", integration_id=instance.id, message=message)
 
     @extend_schema(
         parameters=[GitHubReposQuerySerializer],

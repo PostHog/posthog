@@ -70,3 +70,19 @@ USER nobody
 
 COPY --from=builder /app/target/release/$BIN /usr/local/bin
 ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/$BIN"]
+
+# Opt-in stage for jumphost images (see bin/rust-jumphost) — not used by
+# request-path services, which keep building the smaller `runtime` stage.
+FROM runtime AS runtime-jumphost
+
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends redis-tools awscli && \
+    rm -rf /var/lib/apt/lists/*
+USER nobody
+
+# Keep the file's final stage equivalent to `runtime` so builds without an
+# explicit `--target` (e.g. canary-flags-enable.yml, ad-hoc `docker build`)
+# keep producing the minimal image instead of silently inheriting the larger
+# jumphost layer.
+FROM runtime AS default

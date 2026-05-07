@@ -141,6 +141,9 @@ rules:
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
+                              |KnowledgeChunk
+                              |KnowledgeDocument
+                              |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
@@ -165,9 +168,11 @@ rules:
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
                               |ScoreDefinition
@@ -185,6 +190,7 @@ rules:
                               |SignalSourceConfig
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SourceBatch
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -199,6 +205,7 @@ rules:
                               |EvaluationReport
                               |Text
                               |Threshold
+                              |ToleratedHash
                               |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
@@ -348,6 +355,9 @@ rules:
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
+                        |KnowledgeChunk
+                        |KnowledgeDocument
+                        |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -368,9 +378,11 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
                         |ScoreDefinition
@@ -388,6 +400,7 @@ rules:
                         |SignalSourceConfig
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SourceBatch
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -402,6 +415,7 @@ rules:
                         |EvaluationReport
                         |Text
                         |Threshold
+                        |ToleratedHash
                         |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
