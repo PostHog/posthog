@@ -1021,10 +1021,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
             payload_enabled_columns = schema.get("enabled_columns")
-            if isinstance(payload_enabled_columns, list) and len(payload_enabled_columns) > 0:
+            if isinstance(payload_enabled_columns, list):
+                # `[]` and `None` are distinct: `None` means sync all columns, `[]` means
+                # sync only the always-retained PK + incremental field.
                 enabled_columns: list[str] | None = [
                     str(column) for column in payload_enabled_columns if isinstance(column, str)
-                ] or None
+                ]
             else:
                 enabled_columns = None
 
