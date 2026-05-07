@@ -10,8 +10,9 @@ pub const ACCEPT_JSON: HeaderValue = HeaderValue::from_static("application/json"
 /// Accepted compression encodings advertised in Accept-Encoding response header.
 pub const ACCEPT_ENCODING_ALL: HeaderValue = HeaderValue::from_static("gzip, deflate, br, zstd");
 
-/// Default Retry-After value (seconds) sent on rate-limited or server-error responses.
-pub const DEFAULT_RETRY_AFTER_SECS: HeaderValue = HeaderValue::from_static("60");
+/// Retry-After value (seconds) sent on retryable error responses (429, 408, 5xx).
+/// SDKs are expected to layer their own jittered exponential backoff on top of this floor.
+pub const DEFAULT_RETRY_AFTER_SECS: HeaderValue = HeaderValue::from_static("1");
 
 // ---------------------------------------------------------------------------
 // Supported content encodings
