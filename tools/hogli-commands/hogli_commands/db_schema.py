@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, TypeVar, cast
 
 import click
 import requests
@@ -27,6 +27,14 @@ LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
 MIN_SCHEMA_ARTIFACT_BYTES = 10_000
 DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
 DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
+T = TypeVar("T")
+
+
+def _require_type(value: object, expected: type[T]) -> T:
+    if not isinstance(value, expected):
+        raise TypeError(f"expected {expected.__name__}, got {type(value).__name__}")
+    return value
 
 
 class SchemaRestoreError(Exception):
@@ -200,39 +208,18 @@ def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
     workflow_run = raw.get("workflow_run")
     if not isinstance(workflow_run, Mapping):
         return None
-
-    artifact_id = raw.get("id")
-    size_in_bytes = raw.get("size_in_bytes")
-    expired = raw.get("expired")
-    name = raw.get("name")
-    archive_download_url = raw.get("archive_download_url")
-    head_sha = workflow_run.get("head_sha")
-    created_at = raw.get("created_at")
-
-    if not isinstance(artifact_id, int):
+    try:
+        return SchemaArtifact(
+            id=_require_type(raw.get("id"), int),
+            name=_require_type(raw.get("name"), str),
+            expired=_require_type(raw.get("expired"), bool),
+            size_in_bytes=_require_type(raw.get("size_in_bytes"), int),
+            archive_download_url=_require_type(raw.get("archive_download_url"), str),
+            head_sha=_require_type(workflow_run.get("head_sha"), str),
+            created_at=_require_type(raw.get("created_at"), str),
+        )
+    except TypeError:
         return None
-    if not isinstance(size_in_bytes, int):
-        return None
-    if not isinstance(expired, bool):
-        return None
-    if not isinstance(name, str):
-        return None
-    if not isinstance(archive_download_url, str):
-        return None
-    if not isinstance(head_sha, str):
-        return None
-    if not isinstance(created_at, str):
-        return None
-
-    return SchemaArtifact(
-        id=artifact_id,
-        name=name,
-        expired=expired,
-        size_in_bytes=size_in_bytes,
-        archive_download_url=archive_download_url,
-        head_sha=head_sha,
-        created_at=created_at,
-    )
 
 
 def _parse_github_datetime(value: str) -> datetime:
