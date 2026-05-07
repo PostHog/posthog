@@ -1,0 +1,125 @@
+name: actionlint spike
+
+# Phase 0 spike from plan-out-adding-actionlint-groovy-unicorn.md.
+# Runs actionlint informationally to count findings before deciding
+# rollout shape and whether to enable shellcheck integration.
+# Both jobs are continue-on-error so the spike PR never blocks merges.
+# Throwaway: delete this file once data is captured.
+#
+# Security note: this workflow does NOT interpolate any untrusted
+# github.event.* fields into run: blocks. The only ${{ ... }} expressions
+# used are github.workflow / github.head_ref / github.ref / github.event_name
+# inside the concurrency block, which is YAML-context only, not shell.
+
+on:
+    pull_request:
+        paths:
+            - .github/workflows/_actionlint-spike.yml
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+env:
+    # actionlint v1.7.12 — pin both the script ref (commit SHA) and the binary version.
+    # Tag SHA: rhysd/actionlint@v1.7.12 -> 914e7df21a07ef503a81201c76d2b11c789d3fca
+    ACTIONLINT_VERSION: 1.7.12
+    ACTIONLINT_SCRIPT_REF: 914e7df21a07ef503a81201c76d2b11c789d3fca
+
+jobs:
+    actionlint-strict:
+        name: actionlint (shellcheck on)
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        continue-on-error: true
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Install actionlint (pinned)
+              run: |
+                  set -euo pipefail
+                  mkdir -p ./.bin
+                  curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SCRIPT_REF}/scripts/download-actionlint.bash" \
+                      | bash -s -- "${ACTIONLINT_VERSION}" ./.bin
+                  ./.bin/actionlint -version
+
+            - name: Run actionlint (default; shellcheck on if available)
+              run: |
+                  set -uo pipefail
+                  ./.bin/actionlint -format '{{json .}}' > actionlint.json
+                  status=$?
+                  echo "actionlint exit status: $status"
+                  echo "Total findings: $(jq 'length' actionlint.json)"
+
+            - name: Summarize findings by kind
+              run: |
+                  set -euo pipefail
+                  total=$(jq 'length' actionlint.json)
+                  {
+                      echo "# actionlint (shellcheck on)"
+                      echo
+                      echo "**actionlint:** v${ACTIONLINT_VERSION}"
+                      echo "**Total findings:** $total"
+                      echo
+                      echo "| kind | count |"
+                      echo "|---|---|"
+                      jq -r 'group_by(.kind) | map({kind: .[0].kind, count: length}) | sort_by(-.count) | .[] | "| `\(.kind)` | \(.count) |"' actionlint.json
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload findings JSON
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: actionlint-strict-findings
+                  path: actionlint.json
+                  retention-days: 14
+
+    actionlint-no-shellcheck:
+        name: actionlint (shellcheck off)
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        continue-on-error: true
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Install actionlint (pinned)
+              run: |
+                  set -euo pipefail
+                  mkdir -p ./.bin
+                  curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SCRIPT_REF}/scripts/download-actionlint.bash" \
+                      | bash -s -- "${ACTIONLINT_VERSION}" ./.bin
+                  ./.bin/actionlint -version
+
+            - name: Run actionlint (-shellcheck= disabled)
+              run: |
+                  set -uo pipefail
+                  ./.bin/actionlint -shellcheck= -format '{{json .}}' > actionlint.json
+                  status=$?
+                  echo "actionlint exit status: $status"
+                  echo "Total findings: $(jq 'length' actionlint.json)"
+
+            - name: Summarize findings by kind
+              run: |
+                  set -euo pipefail
+                  total=$(jq 'length' actionlint.json)
+                  {
+                      echo "# actionlint (shellcheck off)"
+                      echo
+                      echo "**actionlint:** v${ACTIONLINT_VERSION}"
+                      echo "**Total findings:** $total"
+                      echo
+                      echo "| kind | count |"
+                      echo "|---|---|"
+                      jq -r 'group_by(.kind) | map({kind: .[0].kind, count: length}) | sort_by(-.count) | .[] | "| `\(.kind)` | \(.count) |"' actionlint.json
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload findings JSON
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: actionlint-no-shellcheck-findings
+                  path: actionlint.json
+                  retention-days: 14
