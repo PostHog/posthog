@@ -19,13 +19,13 @@ new (first seen in the last 24-48h), spiking, or affecting many distinct users.
 
 ## Available tools
 
-| Tool                                     | Purpose                                                        |
-| ---------------------------------------- | -------------------------------------------------------------- |
-| `posthog:query-error-tracking-issues`    | List + rank issues with metrics (users, sessions, occurrences) |
-| `posthog:error-tracking-issues-retrieve` | Full issue record (description, assignee, external references) |
-| `posthog:execute-sql`                    | Pull sample exception events for context                       |
-| `posthog:query-session-recordings-list`  | Find replays of users hitting an issue                         |
-| `posthog:inbox-reports-list`             | Pre-curated actionable signals if the project uses Inbox       |
+| Tool                                        | Purpose                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------- |
+| `posthog:query-error-tracking-issues-list`  | List + rank issues with aggregate metrics (occurrences, users, sessions)  |
+| `posthog:query-error-tracking-issue`        | Compact details for a single issue (status, assignee, top frame, release) |
+| `posthog:query-error-tracking-issue-events` | Sampled `$exception` events with stack, URL, browser, and `$session_id`   |
+| `posthog:query-session-recordings-list`     | Find replays of users hitting an issue                                    |
+| `posthog:inbox-reports-list`                | Pre-curated actionable signals if the project uses Inbox                  |
 
 ## Workflow
 
@@ -51,7 +51,7 @@ Pick what "matters" means:
 Start narrow and widen if too few issues come back:
 
 ```json
-posthog:query-error-tracking-issues
+posthog:query-error-tracking-issues-list
 {
   "status": "active",
   "orderBy": "users",
@@ -81,8 +81,8 @@ For new-issues-only, run a parallel query with `orderBy: "first_seen"`:
 
 The list will include known noise. Before presenting, drop or call out:
 
-- Issues already assigned to a user actively working on them (check `assignee` from
-  `error-tracking-issues-retrieve`).
+- Issues already assigned to a user actively working on them (check `assignee`
+  on the list result, or call `query-error-tracking-issue` for the full record).
 - Issues whose volume is flat over the window — they're not new, the user already
   lives with them. Surface them only if they're in the top by users.
 - Bot-only issues — if all events come from headless browsers or crawler user agents,
@@ -98,23 +98,18 @@ of the window:
 ### Step 4 — Add context for the top items
 
 For the top 3-5 candidates, pull a sample exception so the summary includes a stack
-frame and URL, not just a title.
+frame and URL, not just a title. Use `query-error-tracking-issue-events` rather than
+raw SQL — it returns normalized fields (`$exception_types`, `$exception_values`,
+`$current_url`, browser/OS, `$session_id`) and defaults to `onlyAppFrames: true` to
+strip vendor noise from the stack:
 
-```sql
-posthog:execute-sql
-SELECT
-    timestamp,
-    properties.$exception_type AS type,
-    properties.$exception_message AS message,
-    properties.$current_url AS url,
-    properties.$browser AS browser,
-    properties.$lib_version AS sdk_version,
-    properties.$release AS release
-FROM events
-WHERE event = '$exception'
-    AND properties.$exception_issue_id = '<issue_id>'
-ORDER BY timestamp DESC
-LIMIT 1
+```json
+posthog:query-error-tracking-issue-events
+{
+  "issueId": "<issue_id>",
+  "limit": 1,
+  "verbosity": "stack"
+}
 ```
 
 If the user wants to see what users were doing, hand off to `finding-replay-for-issue`
