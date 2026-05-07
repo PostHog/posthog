@@ -16,7 +16,7 @@ class DiscoverSchemasWorkflow(PostHogWorkflow):
     """Per-source schema discovery workflow.
 
     Runs `sync_new_schemas_activity` for a single `ExternalDataSource` on a slow
-    cadence (typically daily), independently of per-schema sync schedules. This
+    cadence (every 6h), independently of per-schema sync schedules. This
     keeps the expensive schema-discovery pass out of the per-schema sync hot
     path — see `external_data_job.ExternalDataJobWorkflow.run`, which used to
     fire it on every individual schema sync.

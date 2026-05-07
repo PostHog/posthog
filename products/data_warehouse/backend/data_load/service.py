@@ -382,7 +382,7 @@ def delete_cdc_extraction_schedule(source_id: str) -> None:
 # Schema discovery scheduling (source-level)
 # ---------------------------------------------------------------------------
 
-DISCOVER_SCHEMAS_INTERVAL = timedelta(days=1)
+DISCOVER_SCHEMAS_INTERVAL = timedelta(hours=6)
 
 
 def _get_discover_schemas_schedule_id(source_id: str) -> str:
@@ -391,8 +391,8 @@ def _get_discover_schemas_schedule_id(source_id: str) -> str:
 
 def _discover_schemas_offset(source_id: str, interval: timedelta) -> timedelta:
     # Deterministically spread schedules across the interval window so a million
-    # daily-cadence sources don't all fire at the same minute. Hashing on the
-    # source_id keeps the offset stable across redeploys.
+    # sources sharing the same cadence don't all fire at the same minute. Hashing
+    # on the source_id keeps the offset stable across redeploys.
     rng = random.Random(source_id)
     seconds = int(rng.uniform(0, interval.total_seconds()))
     return timedelta(seconds=seconds)

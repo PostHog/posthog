@@ -1139,9 +1139,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
 
-        # Per-source schema discovery schedule. Runs daily so newly added upstream
-        # resources (Slack channels, Postgres tables, …) get picked up without
-        # re-discovering on every per-schema sync tick.
+        # Per-source schema discovery schedule. Runs every 6h so newly added
+        # upstream resources (Slack channels, Postgres tables, …) get picked up
+        # without re-discovering on every per-schema sync tick.
         try:
             sync_discover_schemas_schedule(new_source_model, create=True)
         except Exception as e:
