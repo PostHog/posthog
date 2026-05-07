@@ -27,8 +27,14 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
+        from posthog.admin import install_admin_app_list_overrides
 
-        self._setup_lazy_admin()
+        # Install the OAuth sidebar regrouping override eagerly. It must wrap
+        # `get_app_list` before the first admin request — if it were installed
+        # from inside `register_all_admin()` it would only land mid-call, after
+        # the original method had already started executing.
+        install_admin_app_list_overrides()
+
         self._prewarm_timezone_offsets_cache()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"  # ty: ignore[invalid-assignment]
         # Fall back to DEV_API_KEY in debug so feature flags work locally without manual env setup.
@@ -127,50 +133,3 @@ class PostHogConfig(AppConfig):
             get_available_timezones_with_offsets()
         except Exception:
             logger.warning("prewarm_timezone_offsets_cache_failure", exc_info=True)
-
-    def _setup_lazy_admin(self):
-        """Set up lazy loading of admin classes to avoid importing all at startup."""
-        import sys
-
-        from django.contrib import admin
-
-        class LazyAdminRegistry(dict):
-            """Lazy admin registry that loads admin on first access."""
-
-            _loaded = False
-
-            def _ensure_loaded(self):
-                if not self._loaded:
-                    from posthog.admin import register_all_admin
-
-                    self._loaded = True
-                    register_all_admin()
-
-            # Override only the essential methods that trigger loading
-            def __getitem__(self, key):
-                self._ensure_loaded()
-                return super().__getitem__(key)
-
-            def __iter__(self):
-                self._ensure_loaded()
-                return super().__iter__()
-
-            def __len__(self):
-                self._ensure_loaded()
-                return super().__len__()
-
-            def __contains__(self, key):
-                self._ensure_loaded()
-                return super().__contains__(key)
-
-        # Don't use lazy loading in tests and migrations
-        if not settings.TEST and "migrate" not in sys.argv and "test" not in sys.argv:
-            admin.site._registry = LazyAdminRegistry()
-
-        # Install the OAuth sidebar regrouping override eagerly. It must wrap
-        # `get_app_list` before the first admin request — if it were installed
-        # from inside `register_all_admin()` it would only land mid-call, after
-        # the original method had already started executing.
-        from posthog.admin import install_admin_app_list_overrides
-
-        install_admin_app_list_overrides()

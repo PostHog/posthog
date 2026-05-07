@@ -77,7 +77,10 @@ PRODUCTS_APPS = [
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
-    "django.contrib.admin",
+    # PostHogAdminConfig inherits from SimpleAdminConfig (no startup autodiscover)
+    # and points `default_site` at `PostHogAdminSite`, which lazily registers all
+    # admins on first registry access.
+    "posthog.admin.apps.PostHogAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
