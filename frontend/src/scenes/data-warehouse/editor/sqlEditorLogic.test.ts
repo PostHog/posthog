@@ -296,6 +296,29 @@ describe('sqlEditorLogic', () => {
             })
     })
 
+    it('does not recreate the current raw query tab when its tab URL is pushed again', async () => {
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        const createTabSpy = jest.spyOn(logic.actions, 'createTab')
+
+        router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
+
+        await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+        expect(createTabSpy).toHaveBeenCalledTimes(1)
+
+        const { pathname, search, hash } = router.values.location
+        const currentTabUrl = `${pathname}${search}${hash}`
+        router.actions.push(currentTabUrl)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(createTabSpy).toHaveBeenCalledTimes(1)
+    })
+
     it('syncs filters to the URL hash and removes them after reset', async () => {
         const filters: HogQLFilters = {
             dateRange: {
@@ -714,6 +737,24 @@ describe('sqlEditorLogic', () => {
                 true,
             ],
             ['plain tab vs empty target', { name: 'Untitled' }, {}, true],
+            [
+                'plain tab vs matching hash query target',
+                { name: 'Untitled' },
+                { hashQ: 'SELECT 1', queryInput: 'SELECT 1' },
+                true,
+            ],
+            [
+                'plain tab vs different hash query target',
+                { name: 'Untitled' },
+                { hashQ: 'SELECT 2', queryInput: 'SELECT 1' },
+                false,
+            ],
+            [
+                'plain tab vs matching open query target',
+                { name: 'Untitled' },
+                { openQuery: 'SELECT 1', queryInput: 'SELECT 1' },
+                true,
+            ],
             ['plain tab vs insight target', { name: 'Untitled' }, { insightShortId: MOCK_INSIGHT_SHORT_ID }, false],
             ['plain tab vs view target', { name: 'Untitled' }, { viewId: MOCK_VIEW.id }, false],
             ['plain tab vs draft target', { name: 'Untitled' }, { draftId: MOCK_DRAFT.id }, false],

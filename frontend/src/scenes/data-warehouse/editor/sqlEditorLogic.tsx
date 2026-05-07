@@ -14,7 +14,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
@@ -345,10 +345,21 @@ export function getDisplayTypeToSaveInsight(
     return effectiveVisualizationType || ChartDisplayType.ActionsLineGraph
 }
 
-export function activeTabMatchesUrlTarget(
-    activeTab: QueryTab | null,
-    target: { draftId?: string; insightShortId?: string; viewId?: string }
-): boolean {
+type SqlEditorUrlTarget = {
+    draftId?: string
+    hashQ?: string
+    insightShortId?: string
+    openQuery?: string
+    queryInput?: string | null
+    viewId?: string
+}
+
+type SqlEditorActionToUrlResponse = [string, undefined, Record<string, any>, { replace: true }] | undefined
+
+export function activeTabMatchesUrlTarget(activeTab: QueryTab | null, target: SqlEditorUrlTarget): boolean {
+    const plainQueryTarget = target.openQuery ?? target.hashQ
+    const plainQueryMatches = plainQueryTarget === undefined || target.queryInput === plainQueryTarget
+
     if (target.draftId) {
         return activeTab?.draft?.id === target.draftId
     }
@@ -361,7 +372,53 @@ export function activeTabMatchesUrlTarget(
         return activeTab?.insight?.short_id === target.insightShortId
     }
 
-    return !activeTab?.draft && !activeTab?.view && !activeTab?.insight
+    return !activeTab?.draft && !activeTab?.view && !activeTab?.insight && plainQueryMatches
+}
+
+function getSqlEditorActionToUrl(
+    values: sqlEditorLogicType['values'],
+    hash: Record<string, any> = getTabHash(values)
+): SqlEditorActionToUrlResponse {
+    const nextLocation = combineUrl(urls.sqlEditor(), undefined, hash)
+    const currentLocation = router.values.location
+
+    if (
+        currentLocation.pathname === nextLocation.pathname &&
+        currentLocation.search === nextLocation.search &&
+        currentLocation.hash === nextLocation.hash
+    ) {
+        return undefined
+    }
+
+    return [urls.sqlEditor(), undefined, hash, { replace: true }]
+}
+
+function getCreateTabHash(
+    values: sqlEditorLogicType['values'],
+    query?: string,
+    view?: DataWarehouseSavedQuery,
+    insight?: QueryBasedInsightModel,
+    draft?: DataWarehouseSavedQueryDraft
+): Record<string, any> {
+    const insightVisualizationQuery = toDataVisualizationNode(insight?.query)
+    const queryInput =
+        query ??
+        draft?.query.query ??
+        view?.query?.query ??
+        insightVisualizationQuery?.source.query ??
+        values.queryInput ??
+        ''
+
+    return getTabHash({
+        ...values,
+        queryInput,
+        activeTab: {
+            ...values.activeTab,
+            view,
+            insight,
+            draft,
+        } as QueryTab,
+    })
 }
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
@@ -2116,19 +2173,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (values.isEmbeddedMode) {
                 return
             }
-            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+            return getSqlEditorActionToUrl(values)
         },
-        createTab: () => {
+        createTab: ({ query, view, insight, draft }) => {
             if (values.isEmbeddedMode) {
                 return
             }
-            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+            return getSqlEditorActionToUrl(values, getCreateTabHash(values, query, view, insight, draft))
         },
-        setActiveTab: () => {
+        setActiveTab: ({ tab }) => {
             if (values.isEmbeddedMode || !values.activeTab) {
                 return
             }
-            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+            return getSqlEditorActionToUrl(values, getTabHash({ ...values, outputActiveTab: tab }))
         },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
@@ -2237,10 +2294,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 if (
                     draftIdFromUrl &&
-                    (searchParams.open_draft ||
-                        !activeTabMatchesUrlTarget(values.activeTab, {
-                            draftId: draftIdFromUrl,
-                        }))
+                    !activeTabMatchesUrlTarget(values.activeTab, {
+                        draftId: draftIdFromUrl,
+                    })
                 ) {
                     const draftId = draftIdFromUrl
                     const draft = values.drafts.find((draft) => {
@@ -2264,10 +2320,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return
                 } else if (
                     viewIdFromUrl &&
-                    (searchParams.open_view ||
-                        !activeTabMatchesUrlTarget(values.activeTab, {
-                            viewId: viewIdFromUrl,
-                        }))
+                    !activeTabMatchesUrlTarget(values.activeTab, {
+                        viewId: viewIdFromUrl,
+                    })
                 ) {
                     // Open view
                     const viewId = viewIdFromUrl
@@ -2305,13 +2360,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                     actions.setViewLoading(false)
                     tabAdded = true
-                    router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
+                    router.actions.replace(urls.sqlEditor(), undefined, getCreateTabHash(values, queryToOpen, view))
                 } else if (
                     insightShortIdFromUrl &&
-                    (searchParams.open_insight ||
-                        !activeTabMatchesUrlTarget(values.activeTab, {
-                            insightShortId: insightShortIdFromUrl,
-                        }))
+                    !activeTabMatchesUrlTarget(values.activeTab, {
+                        insightShortId: insightShortIdFromUrl,
+                    })
                 ) {
                     // reset current tab
                     if (values.activeTab) {
@@ -2327,7 +2381,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         // Add new blank tab
                         actions.createTab()
                         tabAdded = true
-                        router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
+                        router.actions.replace(urls.sqlEditor(), undefined, getCreateTabHash(values))
                         return
                     }
 
@@ -2376,8 +2430,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
 
                     tabAdded = true
-                    router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
-                } else if (searchParams.open_query) {
+                    router.actions.replace(
+                        urls.sqlEditor(),
+                        undefined,
+                        getCreateTabHash(values, queryToOpen, undefined, insight)
+                    )
+                } else if (
+                    searchParams.open_query &&
+                    !activeTabMatchesUrlTarget(values.activeTab, {
+                        openQuery: searchParams.open_query,
+                        queryInput: values.queryInput,
+                    })
+                ) {
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
@@ -2387,12 +2451,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     !viewIdFromUrl &&
                     !insightShortIdFromUrl &&
                     (values.queryInput === null ||
-                        !activeTabMatchesUrlTarget(values.activeTab, {}) ||
+                        !activeTabMatchesUrlTarget(values.activeTab, {
+                            hashQ: hashParams.q,
+                            queryInput: values.queryInput,
+                        }) ||
                         values.queryInput !== hashParams.q)
                 ) {
                     actions.createTab(hashParams.q)
                     tabAdded = true
-                } else if (values.queryInput === null) {
+                } else if (values.queryInput === null && !values.activeTab) {
                     actions.createTab('')
                     tabAdded = true
                 }
