@@ -106,10 +106,13 @@ function parseListSearchParam(raw: unknown): string[] {
 }
 
 function parseBooleanSearchParam(raw: unknown): boolean | undefined {
-    if (raw === undefined || raw === null) {
-        return undefined
+    if (raw === 'true') {
+        return true
     }
-    return raw === 'true' || raw === true
+    if (raw === 'false') {
+        return false
+    }
+    return undefined
 }
 
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
