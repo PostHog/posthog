@@ -32,6 +32,30 @@ from products.data_warehouse.backend.models.external_data_source import External
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
+class _FakeColumn:
+    def __init__(self, name: str, type_code: int) -> None:
+        self.name = name
+        self.type_code = type_code
+
+
+class _FakeVerificationCursor:
+    def __init__(self, description) -> None:
+        self.description = description
+
+    def fetchall(self):
+        raise AssertionError("schema fetching should use cursor.description")
+
+
+class _FakeVerificationConnection:
+    def __init__(self, description) -> None:
+        self.description = description
+        self.calls: list[tuple[str, list[str] | None]] = []
+
+    def execute(self, query: str, params: list[str] | None = None):
+        self.calls.append((query, params))
+        return _FakeVerificationCursor(self.description)
+
+
 @pytest.mark.asyncio
 async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
     schema_id = uuid.uuid4()
@@ -812,6 +836,59 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     assert results[0].passed is True
     assert results[1].name == "outside_tolerance"
     assert results[1].passed is False
+
+
+def test_fetch_delta_schema_uses_select_metadata_for_duckgres_cursor():
+    conn = _FakeVerificationConnection([_FakeColumn("id", 20), _FakeColumn("name", 25)])
+
+    result = ducklake_module._fetch_delta_schema(conn, "s3://bucket/staged/customers", parameter_placeholder="%s")
+
+    assert result == [("id", "20"), ("name", "25")]
+    assert conn.calls == [
+        ("SELECT * FROM delta_scan(%s) LIMIT 0", ["s3://bucket/staged/customers"]),
+    ]
+
+
+def test_fetch_schema_uses_select_metadata_for_duckgres_cursor():
+    conn = _FakeVerificationConnection([_FakeColumn("id", 20), _FakeColumn("name", 25)])
+
+    result = ducklake_module._fetch_schema(conn, "posthog_data_imports_team_1.postgres_customers")
+
+    assert result == [("id", "20"), ("name", "25")]
+    assert conn.calls == [
+        ("SELECT * FROM posthog_data_imports_team_1.postgres_customers LIMIT 0", None),
+    ]
+
+
+def test_fetch_schema_uses_select_metadata_for_duckdb_tuple_cursor():
+    """DuckDB's cursor.description returns DBAPI-style 7-tuples; the dev path must still work."""
+    description = [
+        ("id", "BIGINT", None, None, None, None, None),
+        ("name", "VARCHAR", None, None, None, None, None),
+    ]
+    conn = _FakeVerificationConnection(description)
+
+    result = ducklake_module._fetch_schema(conn, "ducklake.posthog_data_imports_team_1.postgres_customers")
+
+    assert result == [("id", "BIGINT"), ("name", "VARCHAR")]
+    assert conn.calls == [
+        ("SELECT * FROM ducklake.posthog_data_imports_team_1.postgres_customers LIMIT 0", None),
+    ]
+
+
+def test_fetch_delta_schema_uses_select_metadata_for_duckdb_tuple_cursor():
+    description = [
+        ("id", "BIGINT", None, None, None, None, None),
+        ("name", "VARCHAR", None, None, None, None, None),
+    ]
+    conn = _FakeVerificationConnection(description)
+
+    result = ducklake_module._fetch_delta_schema(conn, "s3://bucket/customers", parameter_placeholder="?")
+
+    assert result == [("id", "BIGINT"), ("name", "VARCHAR")]
+    assert conn.calls == [
+        ("SELECT * FROM delta_scan(?) LIMIT 0", ["s3://bucket/customers"]),
+    ]
 
 
 def test_ducklake_copy_data_imports_workflow_parse_inputs():
