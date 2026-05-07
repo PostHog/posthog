@@ -147,8 +147,6 @@ class ArtifactAdmin(admin.ModelAdmin):
 
     @admin.display(description="Repo", ordering="repo__repo_full_name")
     def repo_link(self, artifact: Artifact) -> str | SafeString:
-        if artifact.repo_id is None:
-            return "—"
         url = reverse("admin:visual_review_repo_change", args=[artifact.repo_id])
         return format_html('<a href="{}">{}</a>', url, artifact.repo.repo_full_name)
 
@@ -295,8 +293,6 @@ class RunAdmin(admin.ModelAdmin):
 
     @admin.display(description="Repo", ordering="repo__repo_full_name")
     def repo_link(self, run: Run) -> str | SafeString:
-        if run.repo_id is None:
-            return "—"
         url = reverse("admin:visual_review_repo_change", args=[run.repo_id])
         return format_html('<a href="{}">{}</a>', url, run.repo.repo_full_name)
 
@@ -446,8 +442,6 @@ class RunSnapshotAdmin(admin.ModelAdmin):
 
     @admin.display(description="Run", ordering="run__created_at")
     def run_link(self, snapshot: RunSnapshot) -> str | SafeString:
-        if snapshot.run_id is None:
-            return "—"
         url = reverse("admin:visual_review_run_change", args=[snapshot.run_id])
         return format_html('<a href="{}">{}</a>', url, snapshot.run_id)
 
@@ -523,8 +517,6 @@ class ToleratedHashAdmin(admin.ModelAdmin):
 
     @admin.display(description="Repo", ordering="repo__repo_full_name")
     def repo_link(self, hash_obj: ToleratedHash) -> str | SafeString:
-        if hash_obj.repo_id is None:
-            return "—"
         url = reverse("admin:visual_review_repo_change", args=[hash_obj.repo_id])
         return format_html('<a href="{}">{}</a>', url, hash_obj.repo.repo_full_name)
 
@@ -589,8 +581,6 @@ class QuarantinedIdentifierAdmin(admin.ModelAdmin):
 
     @admin.display(description="Repo", ordering="repo__repo_full_name")
     def repo_link(self, q: QuarantinedIdentifier) -> str | SafeString:
-        if q.repo_id is None:
-            return "—"
         url = reverse("admin:visual_review_repo_change", args=[q.repo_id])
         return format_html('<a href="{}">{}</a>', url, q.repo.repo_full_name)
 
