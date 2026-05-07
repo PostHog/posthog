@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { LemonMarkdown as LemonMarkdownComponent, LemonMarkdownProps } from './LemonMarkdown'
+import { LemonMarkdownWithMermaid } from './LemonMarkdownWithMermaid'
 
 type Story = StoryObj<LemonMarkdownProps>
 const meta: Meta<LemonMarkdownProps> = {
@@ -141,10 +142,11 @@ export const TaskLists: Story = {
 }
 
 export const MermaidDiagrams: Story = {
+    render: (args) => <LemonMarkdownWithMermaid {...args}>{args.children}</LemonMarkdownWithMermaid>,
     args: {
         children: `# Mermaid diagrams
 
-Code fences with the \`mermaid\` language are rendered as diagrams.
+Code fences with the \`mermaid\` language are rendered as diagrams when the surface uses \`LemonMarkdownWithMermaid\`.
 
 ## Flowchart
 

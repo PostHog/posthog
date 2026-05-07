@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -30,9 +30,6 @@ export interface MermaidDiagramProps {
 export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const reactId = useId()
-    // Mermaid renders into an id selector internally, so it must be a valid CSS id.
-    // useId() returns colons that break querySelector, so we sanitize and add a counter
-    // to keep ids unique across multiple diagrams that share the same React id.
     const [diagramId] = useState(() => {
         diagramCounter += 1
         const safe = reactId.replace(/[^a-zA-Z0-9_-]/g, '')
@@ -42,6 +39,7 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
     const [svg, setSvg] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
+    const initializedTheme = useRef<boolean | null>(null)
 
     useEffect(() => {
         let cancelled = false
@@ -53,12 +51,15 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
                 if (cancelled) {
                     return null
                 }
-                mermaid.initialize({
-                    startOnLoad: false,
-                    theme: isDarkModeOn ? 'dark' : 'default',
-                    securityLevel: 'strict',
-                    fontFamily: 'inherit',
-                })
+                if (initializedTheme.current !== isDarkModeOn) {
+                    mermaid.initialize({
+                        startOnLoad: false,
+                        theme: isDarkModeOn ? 'dark' : 'default',
+                        securityLevel: 'strict',
+                        fontFamily: 'inherit',
+                    })
+                    initializedTheme.current = isDarkModeOn
+                }
                 return mermaid.render(diagramId, code)
             })
             .then((result) => {
@@ -86,7 +87,7 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
 
     if (error) {
         return (
-            <div className={className}>
+            <div className={className} data-attr="mermaid-error">
                 <div className="mb-1 text-xs text-danger">Could not render Mermaid diagram: {error}</div>
                 <CodeSnippet language={Language.Text} compact wrap>
                     {code}
@@ -97,7 +98,7 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
 
     if (loading && !svg) {
         return (
-            <div className={`flex items-center justify-center p-4 ${className ?? ''}`}>
+            <div className={`flex items-center justify-center p-4 ${className ?? ''}`} data-attr="mermaid-loading">
                 <Spinner />
             </div>
         )
@@ -106,8 +107,11 @@ export function MermaidDiagram({ code, className }: MermaidDiagramProps): JSX.El
     return (
         <div
             className={`LemonMarkdown__mermaid ${className ?? ''}`}
+            data-attr="mermaid-rendered"
             // eslint-disable-next-line react/no-danger -- mermaid sanitizes output via securityLevel: 'strict'
             dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
         />
     )
 }
+
+export default MermaidDiagram
