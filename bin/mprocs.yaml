@@ -421,7 +421,7 @@ procs:
             tech: Python
 
     migrate-postgres:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=postgres'
+        shell: 'bin/wait-for-docker && ./bin/hogli db:restore-schema-if-fresh && bin/migrate --scope=postgres'
         capability: core_infra
         ready_pattern: 'All migrations completed successfully'
         groups:
