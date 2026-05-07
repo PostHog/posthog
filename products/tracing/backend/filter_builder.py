@@ -80,6 +80,8 @@ class TraceSpansFilterBuilder:
         if self.query.filterGroup and self.query.filterGroup.values:
             for property_group in self.query.filterGroup.values:
                 for prop in property_group.values:
+                    if not isinstance(prop, SpanPropertyFilter):
+                        continue
                     prop_type = getattr(prop, "type", None)
                     if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
                         self.resource_attribute_filters.append(prop)

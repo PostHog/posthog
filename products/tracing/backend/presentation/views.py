@@ -12,6 +12,7 @@ No business logic here - that belongs in logic.py via the facade.
 
 import json
 from datetime import UTC, datetime
+from typing import cast
 
 from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
@@ -24,6 +25,7 @@ from rest_framework.response import Response
 from posthog.schema import (
     CachedTraceSpansQueryResponse,
     DateRange,
+    LogsOrderBy,
     ProductKey,
     PropertyGroupFilter,
     TraceSpansQuery,
@@ -38,6 +40,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import User
 
 from ..bubble_up import BubbleUpRegion, run_bubble_up
 from ..logic import (
@@ -230,7 +233,7 @@ class _TracingValuesQuerySerializer(serializers.Serializer):
 
 
 @extend_schema(tags=["tracing"])
-class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):  # pyright: ignore[reportIncompatibleMethodOverride]
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
 
@@ -267,9 +270,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         after_cursor = query_data.get("after", None)
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
 
-        order_by = query_data.get("orderBy")
-        if order_by not in ("earliest", "latest"):
-            order_by = "latest"
+        order_by_raw = query_data.get("orderBy")
+        if order_by_raw not in ("earliest", "latest"):
+            order_by_raw = "latest"
+        order_by: LogsOrderBy = LogsOrderBy.EARLIEST if order_by_raw == "earliest" else LogsOrderBy.LATEST
 
         requested_limit = min(query_data.get("limit", 100), 1000)
         prefetch_spans = query_data.get("prefetchSpans", None)
@@ -296,13 +300,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=request.user)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=cast(User | None, request.user))
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
         raw_results = response.results or []
         trimmed, has_more, next_cursor = paginate_traces_in_results(
             raw_results,
             page_size=requested_limit,
-            order_latest=order_by != "earliest",
+            order_latest=order_by != LogsOrderBy.EARLIEST,
         )
 
         return Response(
@@ -353,7 +357,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         runner = TraceSpansSparklineQueryRunner(spans_query, self.team)
         try:
-            response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=request.user)
+            response = runner.run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                user=cast(User | None, request.user),
+            )
         except ExposedHogQLError as exc:
             return Response(
                 {
@@ -481,7 +488,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=request.user)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=cast(User | None, request.user))
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
 
         return Response(
