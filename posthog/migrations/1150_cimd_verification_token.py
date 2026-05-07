@@ -10,7 +10,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1148_backfill_encrypted_payloads_invariant"),
+        ("posthog", "1149_integrationrepositorycacheentry_user_integration"),
     ]
 
     operations = [

@@ -769,6 +769,18 @@ export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
     })
     .describe('Request serializer for evaluation summary - accepts IDs only, fetches data server-side.')
 
+export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
+    experiment_id: zod.string().describe('`$ai_experiment_id` whose offline-evaluation items to return.'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe('Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.'),
+    date_to: zod
+        .string()
+        .nullish()
+        .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
+})
+
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
@@ -1105,15 +1117,6 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
     date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
 })
 
-/**
- * Fetch the recent $ai_generation events for the sentiment tab.
-
-Backed by `_SENTIMENT_GENERATIONS_SQL` reading `posthog.ai_events` through
-`execute_with_ai_events_fallback`, so heavy `input` values survive the
-post-cutover strip on `events.properties.$ai_input`. Frontend callers
-pass the same `HogQLFilters` payload they previously passed to
-`api.query({kind: HogQLQuery, filters: ...})`.
- */
 export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
     .object({
         filters: zod.unknown().optional(),

@@ -10,7 +10,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1149_cimd_verification_token"),
+        ("posthog", "1150_cimd_verification_token"),
     ]
 
     operations = [

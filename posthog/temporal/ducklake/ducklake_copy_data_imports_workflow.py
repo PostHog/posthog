@@ -204,7 +204,9 @@ async def prepare_data_imports_ducklake_metadata_activity(
         source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
 
         # Get partition column from Delta metadata (source of truth)
-        partition_column = _detect_data_imports_partition_column(source_table_uri)
+        partition_column = await database_sync_to_async(_detect_data_imports_partition_column)(
+            source_table_uri, team_id=inputs.team_id
+        )
 
         staging_uri: str | None = None
         if not is_dev_mode():
@@ -333,17 +335,17 @@ def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingClea
     )
 
 
-def _detect_data_imports_partition_column(table_uri: str) -> str | None:
+def _detect_data_imports_partition_column(table_uri: str, *, team_id: int) -> str | None:
     """Detect partition column from Delta metadata (source of truth)."""
     if not table_uri:
         return None
-    partition_columns = _fetch_delta_partition_columns(table_uri)
+    partition_columns = _fetch_delta_partition_columns(table_uri, team_id=team_id)
     return partition_columns[0] if partition_columns else None
 
 
-def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
+def _fetch_delta_partition_columns(table_uri: str, *, team_id: int) -> list[str]:
     """Fetch partition columns from Delta table metadata."""
-    options = get_deltalake_storage_options()
+    options = get_deltalake_storage_options(team_id=team_id)
     try:
         delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=options)
     except Exception as exc:

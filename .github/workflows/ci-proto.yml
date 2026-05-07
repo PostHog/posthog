@@ -45,15 +45,10 @@ jobs:
                         - '.github/workflows/ci-proto.yml'
 
     lint:
-        name: Lint proto definitions (${{ matrix.runner }})
+        name: Lint proto definitions (depot-ubuntu-22.04-4)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2204","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 5
 
         steps:
@@ -71,15 +66,10 @@ jobs:
               run: buf lint proto/
 
     breaking:
-        name: Check for breaking changes (${{ matrix.runner }})
+        name: Check for breaking changes (depot-ubuntu-22.04-4)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2204","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 5
 
         steps:
@@ -97,15 +87,10 @@ jobs:
               run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
 
     python-codegen:
-        name: Check Python proto stubs are up to date (${{ matrix.runner }})
+        name: Check Python proto stubs are up to date (depot-ubuntu-22.04-4)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2204","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-22.04-4","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 10
 
         steps:

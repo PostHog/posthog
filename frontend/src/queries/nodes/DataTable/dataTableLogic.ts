@@ -238,6 +238,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showSavedQueries: query.showSavedQueries ?? false,
                         showSavedFilters: query.showSavedFilters ?? false,
                         showTableViews: query.showTableViews ?? false,
+                        showAbsoluteTime: query.showAbsoluteTime ?? false,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                         showOpenEditorButton:

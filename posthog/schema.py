@@ -1287,6 +1287,10 @@ class DangerousOperationResponse(BaseModel):
     toolName: str
 
 
+class DashboardAutoRefreshInterval(RootModel[Literal[1800]]):
+    root: Literal[1800] = 1800
+
+
 class DataColorToken(StrEnum):
     PRESET_1 = "preset-1"
     PRESET_2 = "preset-2"
@@ -8064,6 +8068,15 @@ class SavedInsightNode(BaseModel):
     kind: Literal["SavedInsightNode"] = "SavedInsightNode"
     propertiesViaUrl: bool | None = Field(default=None, description="Link properties via the URL (default: false)")
     shortId: str
+    showAbsoluteTime: bool | None = Field(
+        default=None,
+        description=(
+            "Render date-time columns (timestamp, created_at, last_seen, last_seen_at,"
+            ' session_start, session_end) as absolute date+time instead of relative ("X'
+            ' ago"). The toggle is exposed in the column header menu only on'
+            " EventsQuery / ActorsQuery sources."
+        ),
+    )
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: bool | None = Field(
         default=None,
@@ -22685,6 +22698,15 @@ class DataTableNode(BaseModel):
         | Response26
         | None
     ) = None
+    showAbsoluteTime: bool | None = Field(
+        default=None,
+        description=(
+            "Render date-time columns (timestamp, created_at, last_seen, last_seen_at,"
+            ' session_start, session_end) as absolute date+time instead of relative ("X'
+            ' ago"). The toggle is exposed in the column header menu only on'
+            " EventsQuery / ActorsQuery sources."
+        ),
+    )
     showActions: bool | None = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: bool | None = Field(
         default=None,

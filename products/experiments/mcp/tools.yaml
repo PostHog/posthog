@@ -572,6 +572,18 @@ tools:
                parameters — without it, changes save but do NOT
                sync to the feature flag.
 
+            5. Setting allow_unknown_events=true REQUIRES EXPLICIT
+               USER CONFIRMATION. When the API returns
+               "Event(s) '...' not found", do NOT silently retry
+               with allow_unknown_events=true. Default to
+               course-correcting: surface the missing event names
+               and ask whether the user meant a different (existing)
+               event. Only set allow_unknown_events=true when the
+               user explicitly confirms the event is intentional
+               (e.g. about to be instrumented). Course-correcting
+               to a known event is the expected default; flipping
+               the flag is the exception.
+
 
             Update an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the
             user's reference first. Metrics can be changed at any time including while running. Cannot add/remove
