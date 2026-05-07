@@ -607,9 +607,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         breakdown_limit = breakdown_filter.breakdown_limit if breakdown_filter else None
         limit = breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
 
-        # Cohort breakdowns are over a user-picked, enumerable set — a limit smaller than
-        # the cohort count would bucket some selected cohorts as "Other", which then crashes
-        # the label lookup in `build_series_response` (Cohort.objects.get(pk=<Other sentinel>)).
+        # Cohorts are a user-picked, enumerable set — a smaller limit would push declared
+        # cohorts into "Other", which crashes the label lookup in `build_series_response`.
         if (
             breakdown_filter is not None
             and breakdown_filter.breakdown_type == "cohort"

@@ -142,6 +142,7 @@ export class KafkaProducerWrapper {
         }
         try {
             const produceTimer = ingestEventKafkaProduceLatency.labels(labels).startTimer()
+            const produceLatencyTimer = kafkaProducerProduceLatencySeconds.labels(labels).startTimer()
             kafkaProducerMessagesQueuedCounter.labels(labels).inc()
             if (value) {
                 kafkaProducerMessageSizeBytes.labels(labels).observe(value.length)
@@ -180,6 +181,7 @@ export class KafkaProducerWrapper {
             kafkaProducerMessagesWrittenCounter.labels(labels).inc()
             logger.debug('📤', 'Produced message', { topic: topic, offset: result })
             produceTimer()
+            produceLatencyTimer()
         } catch (error) {
             const errorCode = (error as LibrdKafkaError)?.code
             const failureLabels = {
@@ -320,6 +322,13 @@ export const ingestEventKafkaProduceLatency = new Summary({
     help: 'Wait time for individual Kafka produces',
     labelNames: ['topic_name', 'producer_name'],
     percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+export const kafkaProducerProduceLatencySeconds = new Histogram({
+    name: 'kafka_producer_produce_latency_seconds',
+    help: 'Latency of individual Kafka produces, from queue time to delivery ack.',
+    labelNames: ['topic_name', 'producer_name'],
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 7.5, 10, 15, 20, 30, 45, 60],
 })
 
 export const kafkaProducerMessageSizeBytes = new Histogram({

@@ -1718,6 +1718,7 @@ dependencies = [
  "base64 0.22.1",
  "brotli",
  "bytes",
+ "capture",
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
@@ -2224,6 +2225,7 @@ name = "common-redis"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "futures-timer",
  "redis",
  "serde-pickle",
  "testcontainers",
@@ -2237,6 +2239,7 @@ dependencies = [
 name = "common-s3"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
@@ -2581,16 +2584,12 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
- "common-kafka",
  "common-metrics",
  "cyclotron-core",
  "envconfig",
  "eyre",
  "health",
- "rdkafka",
- "serde_json",
  "sqlx",
- "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -3335,11 +3334,14 @@ dependencies = [
  "anyhow",
  "assert-json-diff",
  "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
  "axum 0.7.9",
  "axum-client-ip",
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "clap",
  "common-alloc",
  "common-cache",
  "common-compression",
@@ -3357,9 +3359,9 @@ dependencies = [
  "fancy-regex 0.17.0",
  "futures",
  "governor",
- "health",
  "hex",
  "json5",
+ "lifecycle",
  "limiters",
  "md5",
  "metrics",
@@ -3385,10 +3387,12 @@ dependencies = [
  "sha2",
  "sqlx",
  "strum 0.28.0",
+ "subtle",
  "test-case",
  "thiserror 2.0.18",
  "tokio",
  "tokio-retry",
+ "tokio-util",
  "tower 0.4.13",
  "tower-http 0.5.2",
  "tracing",
@@ -3472,6 +3476,34 @@ name = "fixedbitset"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+
+[[package]]
+name = "flags-consumer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "clap",
+ "common-alloc",
+ "common-database",
+ "common-kafka",
+ "common-metrics",
+ "envconfig",
+ "lifecycle",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "personhog-common",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "flate2"
@@ -4421,7 +4453,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "system-configuration 0.7.0",
  "tokio",
  "tower-service",
@@ -5330,9 +5362,9 @@ checksum = "2c4a545a15244c7d945065b5d392b2d2d7f21526fba56ce51467b06ed445e8f7"
 
 [[package]]
 name = "libc"
-version = "0.2.182"
+version = "0.2.185"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
+checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
 
 [[package]]
 name = "libflate"
@@ -5766,9 +5798,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.1.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a69bcab0ad47271a0234d9422b131806bf3968021e5dc9328caf2d4cd58557fc"
+checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
 dependencies = [
  "libc",
  "wasi 0.11.1+wasi-snapshot-preview1",
@@ -6702,6 +6734,7 @@ dependencies = [
  "common-alloc",
  "dashmap 6.1.0",
  "envconfig",
+ "futures",
  "k8s-awareness",
  "kube",
  "lifecycle",
@@ -7250,18 +7283,19 @@ dependencies = [
  "common-metrics",
  "envconfig",
  "futures",
- "health",
+ "lifecycle",
  "metrics",
+ "metrics-util",
  "personhog-proto",
  "quick_cache",
  "rand 0.8.5",
  "regex",
+ "rstest",
  "serde",
  "serde_json",
  "serve-metrics",
  "sqlx",
  "thiserror 2.0.18",
- "time",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",
@@ -7638,7 +7672,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls 0.23.37",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -7675,7 +7709,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -7873,7 +7907,7 @@ dependencies = [
  "rustls-native-certs 0.8.3",
  "ryu",
  "sha1_smol",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "tokio",
  "tokio-rustls 0.26.4",
  "tokio-util",
@@ -8985,12 +9019,12 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
+checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10043,9 +10077,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.50.0"
+version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27ad5e34374e03cfffefc301becb44e9dc3c17584f414349ebe29ed26661822d"
+checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
 dependencies = [
  "bytes",
  "libc",
@@ -10053,7 +10087,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "tokio-macros",
  "windows-sys 0.61.2",
 ]
@@ -10070,9 +10104,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "2.6.0"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af407857209536a95c8e56f8231ef2c2e2aff839b22e07a1ffcbc617e9db9fa5"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10242,6 +10276,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+ "zstd",
 ]
 
 [[package]]
@@ -10263,7 +10298,7 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "socket2 0.6.2",
+ "socket2 0.6.3",
  "sync_wrapper 1.0.2",
  "tokio",
  "tokio-stream",
@@ -10774,29 +10809,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
 dependencies = [
  "try-lock",
-]
-
-[[package]]
-name = "warm-flags-cache"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-s3",
- "clap",
- "common-alloc",
- "common-database",
- "common-hypercache",
- "common-redis",
- "common-s3",
- "common-types",
- "envconfig",
- "feature-flags",
- "rand 0.8.5",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

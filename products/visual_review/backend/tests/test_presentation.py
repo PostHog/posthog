@@ -1,5 +1,8 @@
 """Integration tests for visual_review DRF views."""
 
+from urllib.parse import quote
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -8,11 +11,12 @@ from rest_framework import status
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunType
-from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.models import Run, RunSnapshot
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
-class TestRepoViewSet(APIBaseTest):
+class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
     def test_create_repo(self):
@@ -55,7 +59,7 @@ class TestRepoViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
-class TestRunViewSet(APIBaseTest):
+class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
     def setUp(self):
@@ -189,3 +193,138 @@ class TestRunViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Per-snapshot approval is DB only — run not finalized
         self.assertFalse(response.json()["run"]["approved"])
+
+    def _seed_history_row(
+        self,
+        sha: str,
+        branch: str,
+        content_hash: str,
+        *,
+        baseline_content_hash: str | None = None,
+        run_type: str = RunType.STORYBOOK,
+        run_status: str = RunStatus.COMPLETED,
+        result: str = SnapshotResult.UNCHANGED,
+    ) -> RunSnapshot:
+        """Create one Run + one RunSnapshot directly, with full control over result and status."""
+        artifact, _ = logic.get_or_create_artifact(
+            repo_id=self.vr_project.id,
+            content_hash=content_hash,
+            storage_path=f"visual_review/{content_hash}",
+        )
+        # History dedup keys on `baseline_artifact_id`, so tests must seed it.
+        # Default to the same artifact as `current_` for trivial cases.
+        baseline_artifact = artifact
+        if baseline_content_hash is not None and baseline_content_hash != content_hash:
+            baseline_artifact, _ = logic.get_or_create_artifact(
+                repo_id=self.vr_project.id,
+                content_hash=baseline_content_hash,
+                storage_path=f"visual_review/{baseline_content_hash}",
+            )
+        # Only one un-superseded run per (repo, branch, run_type) is allowed (partial unique
+        # index). Supersede the prior latest with the new run's id before insert.
+        new_id = uuid4()
+        Run.objects.filter(
+            repo_id=self.vr_project.id, branch=branch, run_type=run_type, superseded_by_id__isnull=True
+        ).update(superseded_by_id=new_id)
+        run = Run.objects.create(
+            id=new_id,
+            repo_id=self.vr_project.id,
+            team_id=self.team.id,
+            run_type=run_type,
+            commit_sha=sha,
+            branch=branch,
+            status=run_status,
+        )
+        return RunSnapshot.objects.create(
+            run=run,
+            team_id=self.team.id,
+            identifier="Button",
+            current_hash=content_hash,
+            current_artifact=artifact,
+            baseline_artifact=baseline_artifact,
+            result=result,
+        )
+
+    def _history_url(self, identifier: str, run_type: str = RunType.STORYBOOK) -> str:
+        return (
+            f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}"
+            f"/snapshots/{run_type}/{quote(identifier, safe='')}/"
+        )
+
+    def test_snapshot_history(self):
+        """History returns one entry per *baseline transition* — every time
+        the committed `.snapshots.yml` baseline actually moved.
+
+        LAG-on-`baseline_artifact_id` (ASC) keeps the FIRST run of each
+        baseline period, so the user sees the inception event plus every
+        change since. Tolerated drift / pixel jitter (current_ flickers but
+        baseline_ stays put) collapse naturally — no `result` filter needed.
+        """
+        # Two master runs sharing baseline `base-1` — collapse; the older
+        # one is the inception event for that baseline period.
+        self._seed_history_row(sha="aaa1111", branch="master", content_hash="hash-A", baseline_content_hash="base-1")
+        self._seed_history_row(sha="aaa2222", branch="master", content_hash="hash-A", baseline_content_hash="base-1")
+        # New baseline on main — distinct entry (transition to base-2).
+        self._seed_history_row(
+            sha="bbb1111",
+            branch="main",
+            content_hash="hash-B",
+            baseline_content_hash="base-2",
+            result=SnapshotResult.CHANGED,
+        )
+        # Tolerated drift on master: current_ flickers, baseline stays at
+        # base-2 — must NOT create a new entry (the prod bug behind 252
+        # fake events on a single tolerated-drift story).
+        self._seed_history_row(
+            sha="ddd0000", branch="master", content_hash="hash-jitter", baseline_content_hash="base-2"
+        )
+
+        # PR-branch run — filtered out by branch.
+        self._seed_history_row(
+            sha="ddd1111", branch="feat/something", content_hash="hash-feat", baseline_content_hash="base-3"
+        )
+        # Playwright run on master — filtered out by run_type.
+        self._seed_history_row(
+            sha="ccc1111",
+            branch="master",
+            content_hash="hash-pw",
+            baseline_content_hash="base-pw",
+            run_type=RunType.PLAYWRIGHT,
+        )
+        # Pending master run — filtered out by status (no baseline_artifact yet).
+        self._seed_history_row(
+            sha="eee1111",
+            branch="master",
+            content_hash="hash-pending",
+            baseline_content_hash="base-pending",
+            run_status=RunStatus.PENDING,
+            result=SnapshotResult.NEW,
+        )
+
+        response = self.client.get(self._history_url("Button"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        results = body["results"]
+        # Two baseline transitions: aaa1111 (inception, base-1) and bbb1111
+        # (transition to base-2). aaa2222 collapses into aaa1111's period;
+        # ddd0000 collapses into bbb1111's.
+        self.assertEqual(body["count"], 2)
+        # Output is newest-first.
+        self.assertEqual(results[0]["commit_sha"], "bbb1111")
+        self.assertEqual(results[1]["commit_sha"], "aaa1111")
+        for entry in results:
+            self.assertIn("snapshot_id", entry)
+            self.assertIn("review_state", entry)
+            self.assertIn("diff_percentage", entry)
+
+    def test_snapshot_history_with_special_chars_in_identifier(self):
+        """Identifiers with `--`, spaces and dots round-trip via percent-encoding.
+
+        Note: identifiers containing `/` are NOT supported with this encoding scheme —
+        ASGI servers decode `%2F` to `/` before URL routing, breaking the path regex.
+        Don't ship snapshot identifiers with literal slashes.
+        """
+        response = self.client.get(self._history_url("Components-Button--default v2.0"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)

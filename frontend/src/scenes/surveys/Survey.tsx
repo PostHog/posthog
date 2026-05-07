@@ -6,6 +6,7 @@ import { LemonDivider, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
 
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -28,7 +29,15 @@ export const scene: SceneExport<SurveyLogicProps> = {
 
 export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     const { editingSurvey, setSelectedPageIndex, loadSurvey } = useActions(surveyLogic)
-    const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
+    const { isEditingSurvey, surveyMissing, survey } = useValues(surveyLogic)
+
+    const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
+
+    useFileSystemLogView({
+        type: 'survey',
+        ref: surveyId,
+        enabled: Boolean(surveyId),
+    })
 
     // register tool so edits from AI will always reload the survey data on-page
     useMaxTool({

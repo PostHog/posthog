@@ -1,62 +1,92 @@
 """
-Collaboration service for notebooks using Redis as the step buffer.
+Redis-stream backed buffer for prosemirror-collab steps.
 """
 
 import json
+import asyncio
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from typing import Any, Literal
 
-from posthog import redis
+import structlog
+import redis.exceptions as redis_exceptions
 
-TTL_SECONDS = 60 * 60 * 24  # 1 day
-VERSION_KEY = "notebook:collab:{team_id}:{notebook_id}:version"
-STEPS_KEY = "notebook:collab:{team_id}:{notebook_id}:steps"
+from posthog import redis as redis_module
 
-# Atomic operation: append steps only if the last_seen_version matches the current version in Redis.
-# Each step is stored individually in a sorted set (score=version), for example:
-#   score=3  {"step": {"stepType": "replace", "from": 0, "to": 0}, "client_id": "uuid1", "v": 3}
-# Returns {-1, 0} if not initialized, {0, current} if mismatch, {1, new} if accepted.
-_APPEND_STEPS_LUA = """
-local version_key, steps_key = KEYS[1], KEYS[2]
-local last_seen_version, ttl_seconds = tonumber(ARGV[1]), ARGV[2]
+logger = structlog.get_logger(__name__)
 
-local current_version = redis.call('GET', version_key)
-if not current_version then return {-1, 0} end
+STREAM_KEY_PATTERN = "notebook:collab:{{{team_id}:{notebook_id}}}:stream"
 
-if tonumber(current_version) ~= last_seen_version then
-    return {0, tonumber(current_version)}
-end
+STREAM_TTL_SECONDS = 60 * 60 * 24  # 1 day, refreshed on every XADD
+STREAM_MAX_LENGTH = 5000  # ~hour of heavy editing
+STREAM_READ_COUNT = 32
 
-local next_version = tonumber(current_version)
-for i = 3, #ARGV do
-    next_version = next_version + 1
-    redis.call('ZADD', steps_key, next_version, ARGV[i])
-end
+# Max XREAD wait, proxies idle-kill connections around 60s
+STREAM_BLOCK_MS = 15_000
 
-redis.call('SET', version_key, next_version, 'EX', ttl_seconds)
-redis.call('EXPIRE', steps_key, ttl_seconds)
-return {1, next_version}
-"""
+# SSE lifetime cap - browser auto-reconnects via Last-Event-ID
+STREAM_LIFETIME_SECONDS = 5 * 60
+
+DATA_KEY = b"data"
+KEEPALIVE_COMMENT = b": keepalive\n\n"
 
 
 @dataclass
 class StepEntry:
     step: dict
     client_id: str
-    v: int  # ensures ZADD doesn't dedup identical steps across versions
 
 
 @dataclass
 class SubmitResult:
-    accepted: bool
+    # "accepted" - steps appended; `version` is the new top
+    # "conflict" - caller is behind; `version` is the current top, `steps_since` is the missed range
+    # "stale"    - missed range was trimmed (MAXLEN/TTL); caller must reload from Postgres
+    status: Literal["accepted", "conflict", "stale"]
     version: int
     steps_since: list[StepEntry] | None = None
 
 
-def initialize_collab_session(team_id: int, notebook_id: str, version: int) -> None:
-    """Seed the Redis version from Postgres if not already present."""
-    client = redis.get_client()
-    version_key = VERSION_KEY.format(team_id=team_id, notebook_id=notebook_id)
-    client.set(version_key, str(version), ex=TTL_SECONDS, nx=True)
+# Atomically append N step entries if the latest stream version equals last_seen_version.
+# If the stream is empty we trust the caller's last_seen_version,
+# frontend always loads it from Postgres and seed the stream from there.
+#
+# ARGV:
+#   1: last_seen_version (int)
+#   2: ttl_seconds (int)
+#   3: max_length (int)
+#   4..N: step entry JSON strings (one per prosemirror step)
+#
+# Returns:
+#   {0, current_version}     -- conflict, caller should fetch missed steps
+#   {1, new_version}         -- accepted
+_APPEND_STEPS_LUA = """
+local stream_key = KEYS[1]
+local last_seen_version = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+local max_length = tonumber(ARGV[3])
+
+local current_version = last_seen_version
+local last = redis.call('XREVRANGE', stream_key, '+', '-', 'COUNT', 1)
+if #last > 0 then
+    local id_str = last[1][1]
+    local dash = string.find(id_str, '-')
+    current_version = tonumber(string.sub(id_str, 1, dash - 1))
+end
+
+if current_version ~= last_seen_version then
+    return {0, current_version}
+end
+
+local next_version = current_version
+for i = 4, #ARGV do
+    next_version = next_version + 1
+    redis.call('XADD', stream_key, 'MAXLEN', '~', max_length, next_version .. '-0', 'data', ARGV[i])
+end
+
+redis.call('EXPIRE', stream_key, ttl)
+return {1, next_version}
+"""
 
 
 def submit_steps(
@@ -65,40 +95,93 @@ def submit_steps(
     client_id: str,
     steps_json: list[dict],
     last_seen_version: int,
+    *,
+    user_id: int | None = None,
+    user_name: str | None = None,
+    cursor_head: int | None = None,
 ) -> SubmitResult:
-    """Try to submit steps at last_seen_version.
-    Version increments by len(steps), matching Prosemirror's per-step versioning.
-    If rejected, steps_since contains missed StepEntry items for rebase.
-    """
-    client = redis.get_client()
-    version_key = VERSION_KEY.format(team_id=team_id, notebook_id=notebook_id)
-    steps_key = STEPS_KEY.format(team_id=team_id, notebook_id=notebook_id)
+    client = redis_module.get_client()
+    stream_key = STREAM_KEY_PATTERN.format(team_id=team_id, notebook_id=notebook_id)
 
-    step_entries = [
-        json.dumps({"step": s, "client_id": client_id, "v": last_seen_version + i + 1})
-        for i, s in enumerate(steps_json)
-    ]
+    # Presence (author + cursor) is constant for the whole batch — build once, spread per step.
+    presence: dict[str, Any] = {
+        k: v for k, v in (("user_id", user_id), ("user_name", user_name), ("cursor_head", cursor_head)) if v is not None
+    }
+    # Version isn't in the payload — the stream id (N-0) IS the version, and SSE delivers it as `id:`.
+    serialized = [json.dumps({"step": step, "client_id": client_id, **presence}) for step in steps_json]
 
     script = client.register_script(_APPEND_STEPS_LUA)
     accepted, version = script(
-        keys=[version_key, steps_key],
-        args=[last_seen_version, TTL_SECONDS, *step_entries],
+        keys=[stream_key],
+        args=[last_seen_version, STREAM_TTL_SECONDS, STREAM_MAX_LENGTH, *serialized],
     )
-
-    if accepted == -1:
-        return SubmitResult(accepted=False, version=0)
 
     if accepted == 1:
-        return SubmitResult(accepted=True, version=version)
+        return SubmitResult(status="accepted", version=version)
 
-    # Rejected - fetch steps the client missed
-    raw = client.zrangebyscore(steps_key, f"({last_seen_version}", version)
+    return _fetch_missed_steps(stream_key, last_seen_version=last_seen_version, current_version=version)
 
-    if len(raw) < version - last_seen_version:
-        return SubmitResult(accepted=False, version=version, steps_since=None)
 
-    return SubmitResult(
-        accepted=False,
-        version=version,
-        steps_since=[StepEntry(**json.loads(r)) for r in raw],
-    )
+def _fetch_missed_steps(stream_key: str, *, last_seen_version: int, current_version: int) -> SubmitResult:
+    client = redis_module.get_client()
+    raw = client.xrange(stream_key, min=f"({last_seen_version}-0", max=f"{current_version}-0")
+
+    missed_steps: list[StepEntry] = []
+    for _stream_id, fields in raw:
+        data = json.loads(fields[DATA_KEY])
+        missed_steps.append(StepEntry(step=data["step"], client_id=data["client_id"]))
+
+    # MAXLEN/TTL trimmed part of the gap - incomplete rebase set, reload from Postgres
+    gap_size = current_version - last_seen_version
+    if len(missed_steps) < gap_size:
+        return SubmitResult(status="stale", version=current_version)
+
+    return SubmitResult(status="conflict", version=current_version, steps_since=missed_steps)
+
+
+async def stream_collab_sse(
+    team_id: int,
+    notebook_id: str,
+    *,
+    last_event_id: str | None,
+) -> AsyncGenerator[bytes, None]:
+    """
+    Tail this notebook's Redis stream from last_event_id (or from now if None).
+    Yields one SSE frame per step, plus a keepalive comment during idle gaps.
+    """
+    client = redis_module.get_async_client()
+    stream_key = STREAM_KEY_PATTERN.format(team_id=team_id, notebook_id=notebook_id)
+    current_id = last_event_id or "$"
+
+    try:
+        async with asyncio.timeout(STREAM_LIFETIME_SECONDS):
+            while True:
+                try:
+                    messages = await client.xread(
+                        {stream_key: current_id}, block=STREAM_BLOCK_MS, count=STREAM_READ_COUNT
+                    )
+                except redis_exceptions.RedisError as err:
+                    logger.warning("notebook_collab_stream_error", notebook_short_id=notebook_id, error=str(err))
+                    yield b'event: error\ndata: {"error":"stream error"}\n\n'
+                    return
+
+                if not messages:
+                    yield KEEPALIVE_COMMENT
+                    continue
+
+                # We only XREAD one stream key, so messages is always [(key, entries)]
+                _, entries = messages[0]
+                for stream_id, fields in entries:
+                    current_id = stream_id.decode()
+                    try:
+                        data = json.loads(fields[DATA_KEY])
+                    except json.JSONDecodeError:
+                        logger.warning("notebook_collab_invalid_payload", stream_key=stream_key, stream_id=current_id)
+                        continue
+                    yield f"id: {current_id}\nevent: step\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
+
+                # cooperative yield: prevents tight-loop monopolization when XREAD doesn't block
+                await asyncio.sleep(0)
+    except TimeoutError:
+        # Lifetime cap hit; client reconnects with Last-Event-ID against a fresh worker
+        return

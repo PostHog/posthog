@@ -3,11 +3,13 @@ import './ErrorBoundary.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { IconCopy } from '@posthog/icons'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@posthog/react'
 
 import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 
 const DOM_MUTATION_PATTERNS = [
@@ -52,6 +54,13 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
                 const isBrowserExtensionError = isDOMModificationError(normalizedError)
 
+                const errorDetails = [
+                    exceptionEvent?.uuid ? `Exception ID: ${exceptionEvent.uuid}` : null,
+                    stack || (name || message ? `${name}: ${message}` : null),
+                ]
+                    .filter(Boolean)
+                    .join('\n\n')
+
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
                         <h2>An error has occurred</h2>
@@ -91,23 +100,39 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         )}
                         {!isBrowserExtensionError && (
                             <>
-                                Please help us resolve the issue by sending a screenshot of this message.
-                                <LemonButton
-                                    type="primary"
-                                    fullWidth
-                                    center
-                                    onClick={() => {
-                                        openSupportForm({
-                                            kind: 'bug',
-                                            isEmailFormOpen: true,
-                                            exception_event: exceptionEvent ?? null,
-                                        })
-                                    }}
-                                    targetBlank
-                                    className="mt-2"
-                                >
-                                    Email an engineer
-                                </LemonButton>
+                                <p className="mb-2">
+                                    Click below to send this to an engineer.{' '}
+                                    {exceptionEvent
+                                        ? "We'll attach the exception ID, stack trace, and session replay automatically"
+                                        : "We'll attach the session replay automatically"}{' '}
+                                    — just tell us what you were doing, and add a screenshot if you think it will help.
+                                </p>
+                                <div className="flex gap-2 flex-wrap">
+                                    <LemonButton
+                                        type="primary"
+                                        center
+                                        onClick={() => {
+                                            openSupportForm({
+                                                kind: 'bug',
+                                                isEmailFormOpen: true,
+                                                exception_event: exceptionEvent ?? null,
+                                            })
+                                        }}
+                                        className="flex-1"
+                                    >
+                                        Email an engineer
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        center
+                                        icon={<IconCopy />}
+                                        onClick={() => void copyToClipboard(errorDetails, 'error details')}
+                                        disabledReason={!errorDetails ? 'No details to copy' : undefined}
+                                        className="flex-1"
+                                    >
+                                        Copy error details
+                                    </LemonButton>
+                                </div>
                             </>
                         )}
                     </div>

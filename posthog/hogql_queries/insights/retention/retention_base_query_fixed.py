@@ -1,5 +1,10 @@
+from typing import Literal
+
+from posthog.schema import EntityType, RetentionEntity
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
@@ -11,27 +16,195 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
+        has_data_warehouse_series = (
+            self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
+        )
+
+        if has_data_warehouse_series:
+            return self.build_base_query_dwh(
+                start_interval_index_filter=start_interval_index_filter,
+                selected_breakdown_value=selected_breakdown_value,
+            )
+
+        return self.build_base_query_legacy(
+            start_interval_index_filter=start_interval_index_filter,
+            selected_breakdown_value=selected_breakdown_value,
+        )
+
+    # Nested fixed-interval query with data warehouse support.
+    # Intended as a drop-in replacement for the legacy query while we verify
+    # parity in production.
+    def build_base_query_dwh(
+        self,
+        start_interval_index_filter: int | None = None,
+        selected_breakdown_value: str | list[str] | int | None = None,
+    ) -> ast.SelectQuery:
+        is_valid_start_interval = self._is_valid_start_interval_expr()
+        intervals_from_base_expr, _ = self._get_intervals_from_base_exprs()
+
+        start_event_query = self._build_dwh_retention_event_query(
+            entity=self.start_event,
+            legacy_entity_expr=self.start_entity_expr,
+            query_kind="start",
+        )
+        return_event_query = self._build_dwh_retention_event_query(
+            entity=self.return_event,
+            legacy_entity_expr=self.return_entity_expr,
+            query_kind="return",
+        )
+
+        retention_events = ast.SelectSetQuery.create_from_queries([start_event_query, return_event_query], "UNION ALL")
+
+        base_query = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=ast.Field(chain=["actor_id"])),
+                ast.Alias(
+                    alias="start_event_timestamps",
+                    expr=parse_expr("arrayFlatten(groupArray(start_event_timestamps))"),
+                ),
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
+                ),
+                self._date_range_alias(),
+                ast.Alias(
+                    alias="start_interval_index",
+                    expr=parse_expr(
+                        """
+                        arrayJoin(
+                            arrayFilter(
+                                x -> x > -1,
+                                arrayMap(
+                                (interval_index, interval_date) ->
+                                    if(
+                                        {is_valid_start_interval},
+                                        interval_index - 1,
+                                        -1
+                                    ),
+                                    arrayEnumerate(date_range),
+                                    date_range
+                                )
+                            )
+                        )
+                    """,
+                        {"is_valid_start_interval": is_valid_start_interval},
+                    ),
+                ),
+                ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
+            ],
+            select_from=ast.JoinExpr(table=retention_events, alias="retention_events"),
+            group_by=[ast.Field(chain=["actor_id"])],
+            having=ast.And(
+                exprs=[
+                    (
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["start_interval_index"]),
+                            right=ast.Constant(value=start_interval_index_filter),
+                        )
+                        if start_interval_index_filter is not None
+                        else ast.Constant(value=1)
+                    ),
+                    (
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["breakdown_value"]),
+                            right=ast.Constant(value=selected_breakdown_value),
+                        )
+                        if selected_breakdown_value is not None
+                        else ast.Constant(value=1)
+                    ),
+                ]
+            ),
+        )
+
+        return base_query
+
+    def _build_dwh_retention_event_query(
+        self,
+        entity: RetentionEntity,
+        legacy_entity_expr: ast.Expr,
+        query_kind: Literal["start", "return"],
+    ) -> ast.SelectQuery:
+        entity_is_dwh = entity.type == EntityType.DATA_WAREHOUSE
+
+        actor_column_name = entity.aggregation_target_field if entity_is_dwh else self.aggregation_target_events_column
+        assert actor_column_name
+        actor_field = ast.Field(chain=[actor_column_name])
+
+        timestamp_column_name = entity.timestamp_field if entity_is_dwh else "timestamp"
+        assert timestamp_column_name
+        timestamp_field = ast.Field(chain=[timestamp_column_name])
+
+        start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=timestamp_field)
+        entity_expr = self._get_dwh_retention_entity_expr(entity=entity, legacy_entity_expr=legacy_entity_expr)
+
+        if query_kind == "start":
+            timestamps_expr = parse_expr(
+                """
+                arraySort(
+                    groupUniqArrayIf(
+                        {start_of_interval_sql},
+                        {entity_expr} and
+                        {filter_timestamp}
+                    )
+                )
+                """,
+                {
+                    "start_of_interval_sql": start_of_interval_sql,
+                    "entity_expr": entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
+                },
+            )
+        else:
+            timestamps_expr = self._get_return_event_timestamps_expr(
+                minimum_occurrences=self.minimum_occurrences,
+                start_of_interval_sql=start_of_interval_sql,
+                return_entity_expr=entity_expr,
+                timestamp_field=timestamp_field,
+            )
+
+        table_name = entity.table_name if entity_is_dwh else "events"
+        assert table_name
+        where_expr = None if entity_is_dwh else ast.And(exprs=self._event_filters())
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias="actor_id", expr=actor_field),
+                ast.Alias(
+                    alias="start_event_timestamps",
+                    expr=timestamps_expr if query_kind == "start" else ast.Array(exprs=[]),
+                ),
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=ast.Array(exprs=[]) if query_kind == "start" else timestamps_expr,
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+            where=where_expr,
+            group_by=[ast.Field(chain=["actor_id"])],
+        )
+
+    def _get_dwh_retention_entity_expr(self, entity: RetentionEntity, legacy_entity_expr: ast.Expr) -> ast.Expr:
+        if entity.type != EntityType.DATA_WAREHOUSE:
+            return legacy_entity_expr
+
+        if entity.properties:
+            return property_to_expr(entity.properties, self.team)
+
+        return ast.Constant(value=True)
+
+    # Original version of the fixed interval query.
+    def build_base_query_legacy(
+        self,
+        start_interval_index_filter: int | None = None,
+        selected_breakdown_value: str | list[str] | int | None = None,
+    ) -> ast.SelectQuery:
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        event_filters = self.global_event_filters.copy()
-        if (
-            self.query.breakdownFilter
-            and self.query.breakdownFilter.breakdowns
-            and len(self.query.breakdownFilter.breakdowns) == 1
-            and self.query.breakdownFilter.breakdowns[0].type == "cohort"
-        ):
-            cohort_id = self.query.breakdownFilter.breakdowns[0].property
-            # Don't add cohort filter for "all users" (cohort_id = 0)
-            if int(cohort_id) != ALL_USERS_COHORT_ID:
-                event_filters.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.InCohort,
-                        left=ast.Field(chain=["person_id"]),
-                        right=ast.Constant(value=int(cohort_id)),
-                    )
-                )
+        event_filters = self._event_filters()
 
         start_event_timestamps = parse_expr(
             """
@@ -46,13 +219,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             {
                 "start_of_interval_sql": start_of_interval_sql,
                 "start_entity_expr": self.start_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter,
+                "filter_timestamp": self.events_timestamp_filter(),
             },
         )
 
-        minimum_occurrences = self.query.retentionFilter.minimumOccurrences or 1
         minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
-            minimum_occurrences=minimum_occurrences,
+            minimum_occurrences=self.minimum_occurrences,
             start_of_interval_sql=start_of_interval_sql,
             return_entity_expr=self.return_entity_expr,
         )
@@ -78,11 +250,11 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     "start_of_interval_sql": start_of_interval_sql,
                     "property_aggregation_expr": self.property_aggregation_expr,
                     "start_entity_expr": self.start_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(),
                 },
             )
             return_event_data = self._get_return_event_timestamps_expr(
-                minimum_occurrences=minimum_occurrences,
+                minimum_occurrences=self.minimum_occurrences,
                 start_of_interval_sql=start_of_interval_sql,
                 return_entity_expr=self.return_entity_expr,
             )
@@ -91,7 +263,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return_event_values = (start_event_data, return_event_data)
         else:
             return_event_timestamps = self._get_return_event_timestamps_expr(
-                minimum_occurrences=minimum_occurrences,
+                minimum_occurrences=self.minimum_occurrences,
                 start_of_interval_sql=start_of_interval_sql,
                 return_entity_expr=self.return_entity_expr,
             )
@@ -118,151 +290,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 },
             )
             # interval must be same as first interval of in which start event happened
-            is_valid_start_interval = parse_expr("start_event_timestamps[1] = interval_date")
-            is_first_interval_after_start_event = parse_expr(
-                "start_event_timestamps[1] = date_range[start_interval_index + 1]"
-            )
+            is_valid_start_interval = self._is_valid_start_interval_expr()
         else:
             # start event must have happened in the interval
-            is_valid_start_interval = parse_expr("has(start_event_timestamps, interval_date)")
-            is_first_interval_after_start_event = parse_expr(
-                "has(start_event_timestamps, date_range[start_interval_index + 1])"
-            )
-
-        intervals_from_base_array_aggregator = "arrayJoin"
-
-        intervals_from_base_expr: ast.Expr
-        retention_value_expr: ast.Expr | None = None
-
-        if self.property_aggregation_expr and return_event_values:
-            # return_event_values raw exprs are added as named SELECT aliases (_start_event_data, _return_event_data)
-            # in select_fields below. Here we only build the combined_data expression using field references.
-            start_event_data_ref = ast.Field(chain=["_start_event_data"])
-            return_event_data_ref = ast.Field(chain=["_return_event_data"])
-
-            # When start and return events are different event types, return events that occur
-            # strictly after the start event within interval 0 are counted for that interval.
-            # When they are the same event type, start_data already captures all occurrences in
-            # interval 0; allowing return_data to also contribute would double-count.
-            different_event_entities = (
-                self.start_event.id != self.return_event.id or self.start_event.type != self.return_event.type
-            )
-
-            if different_event_entities:
-                # Include return events in interval 0 (index 0 = same interval as cohort) only when
-                # they happen strictly after the earliest start event in that interval.
-                combined_data = parse_expr(
-                    """
-                    arrayConcat(
-                        arrayFilter(
-                            x -> x.1 >= 0,
-                            arrayMap(
-                                item -> (toInt(if(item.1 = date_range[start_interval_index + 1], 0, -1)), item.2),
-                                {start_data}
-                            )
-                        ),
-                        arrayFilter(
-                            x -> x.1 >= 0,
-                            arrayMap(
-                                item -> (
-                                    toInt(indexOf(
-                                        arraySlice(date_range, start_interval_index + 1, {lookahead_plus_one}),
-                                        item.1
-                                    ) - 1),
-                                    item.2
-                                ),
-                                arrayFilter(
-                                    x -> (
-                                        x.1 > date_range[start_interval_index + 1] OR (
-                                            x.1 = date_range[start_interval_index + 1] AND
-                                            x.3 > arrayMin(
-                                                arrayMap(
-                                                    y -> y.3,
-                                                    arrayFilter(
-                                                        z -> z.1 = date_range[start_interval_index + 1],
-                                                        {start_data}
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    ),
-                                    {return_data}
-                                )
-                            )
-                        )
-                    )
-                    """,
-                    {
-                        "lookahead_plus_one": ast.Constant(value=self.query_date_range.lookahead + 1),
-                        "start_data": start_event_data_ref,
-                        "return_data": return_event_data_ref,
-                    },
-                )
-            else:
-                # Same event: return events only contribute to intervals > 0 (current behaviour).
-                combined_data = parse_expr(
-                    """
-                    arrayConcat(
-                        arrayFilter(
-                            x -> x.1 >= 0,
-                            arrayMap(
-                                item -> (toInt(if(item.1 = date_range[start_interval_index + 1], 0, -1)), item.2),
-                                {start_data}
-                            )
-                        ),
-                        arrayFilter(
-                            x -> x.1 > 0,
-                            arrayMap(
-                                item -> (
-                                    toInt(indexOf(
-                                        arraySlice(date_range, start_interval_index + 2, {lookahead}),
-                                        item.1
-                                    )),
-                                    item.2
-                                ),
-                                {return_data}
-                            )
-                        )
-                    )
-                    """,
-                    {
-                        "lookahead": ast.Constant(value=self.query_date_range.lookahead),
-                        "start_data": start_event_data_ref,
-                        "return_data": return_event_data_ref,
-                    },
-                )
-
-            intervals_from_base_expr = parse_expr("(arrayJoin({data})).1", {"data": combined_data})
-            retention_value_expr = parse_expr("(arrayJoin({data})).2", {"data": combined_data})
-
-        elif self.is_custom_bracket_retention:
-            bucket_logic = self._get_custom_bracket_intervals_from_base_expr()
-            intervals_from_base_expr = parse_expr(
-                f"""
-                {intervals_from_base_array_aggregator}(
-                    arrayDistinct(
-                        arrayConcat(
-                            if({{is_first_interval_after_start_event}}, [0], []),
-                            arrayFilter(
-                                x -> x >= 0,
-                                arrayMap(
-                                    _timestamp -> {{bucket_logic}},
-                                    return_event_timestamps
-                                )
-                            )
-                        )
-                    )
-                )
-                """,
-                {
-                    "is_first_interval_after_start_event": is_first_interval_after_start_event,
-                    "bucket_logic": bucket_logic,
-                },
-            )
-        else:
-            intervals_from_base_expr = self._get_default_intervals_from_base_expr(
-                is_first_interval_after_start_event, intervals_from_base_array_aggregator
-            )
+            is_valid_start_interval = self._is_valid_start_interval_expr()
+        retention_value_expr: ast.Expr | None
+        intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs(
+            has_property_aggregation_aliases=bool(self.property_aggregation_expr and return_event_values)
+        )
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", self.aggregation_target_events_column])),
@@ -270,25 +305,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             # when TARGET_FIRST_TIME, also adds filter for start (target) event performed for first time
             ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps),
             # get all intervals between date_from and date_to (represented by start of interval)
-            ast.Alias(
-                alias="date_range",
-                expr=parse_expr(
-                    """
-                        arrayMap(
-                            x -> {date_from_start_of_interval} + {to_interval_function},
-                            range(0, {intervals_between})
-                        )
-                    """,
-                    {
-                        "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
-                        "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
-                        "to_interval_function": ast.Call(
-                            name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
-                            args=[ast.Field(chain=["x"])],
-                        ),
-                    },
-                ),
-            ),
+            self._date_range_alias(),
             *minimum_occurrences_aliases,
         ]
 
@@ -393,7 +410,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 {
                     "start_of_interval_timestamp": start_of_interval_sql,
                     "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(),
                 },
             ),
         )
@@ -410,8 +427,209 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
         return [return_event_timestamps_with_dupes, return_event_counts_by_interval]
 
+    def _date_range_alias(self) -> ast.Alias:
+        return ast.Alias(
+            alias="date_range",
+            expr=parse_expr(
+                """
+                    arrayMap(
+                        x -> {date_from_start_of_interval} + {to_interval_function},
+                        range(0, {intervals_between})
+                    )
+                """,
+                {
+                    "intervals_between": ast.Constant(value=self.query_date_range.intervals_between),
+                    "date_from_start_of_interval": self.query_date_range.date_from_to_start_of_interval_hogql(),
+                    "to_interval_function": ast.Call(
+                        name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
+                        args=[ast.Field(chain=["x"])],
+                    ),
+                },
+            ),
+        )
+
+    def _event_filters(self) -> list[ast.Expr]:
+        event_filters = self.global_event_filters.copy()
+        if (
+            self.query.breakdownFilter
+            and self.query.breakdownFilter.breakdowns
+            and len(self.query.breakdownFilter.breakdowns) == 1
+            and self.query.breakdownFilter.breakdowns[0].type == "cohort"
+        ):
+            cohort_id = self.query.breakdownFilter.breakdowns[0].property
+            # Don't add cohort filter for "all users" (cohort_id = 0)
+            if int(cohort_id) != ALL_USERS_COHORT_ID:
+                event_filters.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.InCohort,
+                        left=ast.Field(chain=["person_id"]),
+                        right=ast.Constant(value=int(cohort_id)),
+                    )
+                )
+
+        return event_filters
+
+    def _is_valid_start_interval_expr(self) -> ast.Expr:
+        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
+            return parse_expr("start_event_timestamps[1] = interval_date")
+
+        return parse_expr("has(start_event_timestamps, interval_date)")
+
+    def _is_first_interval_after_start_event_expr(self) -> ast.Expr:
+        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
+            return parse_expr("start_event_timestamps[1] = date_range[start_interval_index + 1]")
+
+        return parse_expr("has(start_event_timestamps, date_range[start_interval_index + 1])")
+
+    def _get_intervals_from_base_exprs(
+        self, has_property_aggregation_aliases: bool = False
+    ) -> tuple[ast.Expr, ast.Expr | None]:
+        is_first_interval_after_start_event = self._is_first_interval_after_start_event_expr()
+        intervals_from_base_array_aggregator = "arrayJoin"
+
+        if self.property_aggregation_expr and has_property_aggregation_aliases:
+            # _start_event_data and _return_event_data are added as aliases before intervals_from_base is selected.
+            start_event_data_ref = ast.Field(chain=["_start_event_data"])
+            return_event_data_ref = ast.Field(chain=["_return_event_data"])
+
+            # When start and return events are different event types, return events that occur
+            # strictly after the start event within interval 0 are counted for that interval.
+            # When they are the same event type, start_data already captures all occurrences in
+            # interval 0; allowing return_data to also contribute would double-count.
+            different_event_entities = (
+                self.start_event.id != self.return_event.id or self.start_event.type != self.return_event.type
+            )
+
+            if different_event_entities:
+                # Include return events in interval 0 (index 0 = same interval as cohort) only when
+                # they happen strictly after the earliest start event in that interval.
+                combined_data = parse_expr(
+                    """
+                    arrayConcat(
+                        arrayFilter(
+                            x -> x.1 >= 0,
+                            arrayMap(
+                                item -> (toInt(if(item.1 = date_range[start_interval_index + 1], 0, -1)), item.2),
+                                {start_data}
+                            )
+                        ),
+                        arrayFilter(
+                            x -> x.1 >= 0,
+                            arrayMap(
+                                item -> (
+                                    toInt(indexOf(
+                                        arraySlice(date_range, start_interval_index + 1, {lookahead_plus_one}),
+                                        item.1
+                                    ) - 1),
+                                    item.2
+                                ),
+                                arrayFilter(
+                                    x -> (
+                                        x.1 > date_range[start_interval_index + 1] OR (
+                                            x.1 = date_range[start_interval_index + 1] AND
+                                            x.3 > arrayMin(
+                                                arrayMap(
+                                                    y -> y.3,
+                                                    arrayFilter(
+                                                        z -> z.1 = date_range[start_interval_index + 1],
+                                                        {start_data}
+                                                    )
+                                                )
+                                            )
+                                        )
+                                    ),
+                                    {return_data}
+                                )
+                            )
+                        )
+                    )
+                    """,
+                    {
+                        "lookahead_plus_one": ast.Constant(value=self.query_date_range.lookahead + 1),
+                        "start_data": start_event_data_ref,
+                        "return_data": return_event_data_ref,
+                    },
+                )
+            else:
+                # Same event: return events only contribute to intervals > 0 (current behaviour).
+                combined_data = parse_expr(
+                    """
+                    arrayConcat(
+                        arrayFilter(
+                            x -> x.1 >= 0,
+                            arrayMap(
+                                item -> (toInt(if(item.1 = date_range[start_interval_index + 1], 0, -1)), item.2),
+                                {start_data}
+                            )
+                        ),
+                        arrayFilter(
+                            x -> x.1 > 0,
+                            arrayMap(
+                                item -> (
+                                    toInt(indexOf(
+                                        arraySlice(date_range, start_interval_index + 2, {lookahead}),
+                                        item.1
+                                    )),
+                                    item.2
+                                ),
+                                {return_data}
+                            )
+                        )
+                    )
+                    """,
+                    {
+                        "lookahead": ast.Constant(value=self.query_date_range.lookahead),
+                        "start_data": start_event_data_ref,
+                        "return_data": return_event_data_ref,
+                    },
+                )
+
+            return (
+                parse_expr("(arrayJoin({data})).1", {"data": combined_data}),
+                parse_expr("(arrayJoin({data})).2", {"data": combined_data}),
+            )
+
+        if self.is_custom_bracket_retention:
+            bucket_logic = self._get_custom_bracket_intervals_from_base_expr()
+            return (
+                parse_expr(
+                    f"""
+                    {intervals_from_base_array_aggregator}(
+                        arrayDistinct(
+                            arrayConcat(
+                                if({{is_first_interval_after_start_event}}, [0], []),
+                                arrayFilter(
+                                    x -> x >= 0,
+                                    arrayMap(
+                                        _timestamp -> {{bucket_logic}},
+                                        return_event_timestamps
+                                    )
+                                )
+                            )
+                        )
+                    )
+                    """,
+                    {
+                        "is_first_interval_after_start_event": is_first_interval_after_start_event,
+                        "bucket_logic": bucket_logic,
+                    },
+                ),
+                None,
+            )
+
+        return (
+            self._get_default_intervals_from_base_expr(
+                is_first_interval_after_start_event, intervals_from_base_array_aggregator
+            ),
+            None,
+        )
+
     def _get_return_event_timestamps_expr(
-        self, minimum_occurrences: int, start_of_interval_sql: ast.Expr, return_entity_expr: ast.Expr
+        self,
+        minimum_occurrences: int,
+        start_of_interval_sql: ast.Expr,
+        return_entity_expr: ast.Expr,
+        timestamp_field: ast.Expr | None = None,
     ) -> ast.Expr:
         if self.property_aggregation_expr:
             # Collect 3-tuples of (interval_start, value, actual_timestamp) for return events.
@@ -428,7 +646,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     "start_of_interval_timestamp": start_of_interval_sql,
                     "property_aggregation_expr": self.property_aggregation_expr,
                     "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter,
+                    "filter_timestamp": self.events_timestamp_filter(),
                 },
             )
 
@@ -459,7 +677,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             {
                 "start_of_interval_timestamp": start_of_interval_sql,
                 "returning_entity_expr": return_entity_expr,
-                "filter_timestamp": self.events_timestamp_filter,
+                "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
             },
         )
 

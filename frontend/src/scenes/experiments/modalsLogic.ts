@@ -34,6 +34,8 @@ export const modalsLogic = kea<modalsLogicType>([
         closeDescriptionModal: true,
         openStatsEngineModal: true,
         closeStatsEngineModal: true,
+        openCupedModal: true,
+        closeCupedModal: true,
         openPrimaryMetricModal: (uuid: string) => ({ uuid }),
         closePrimaryMetricModal: true,
         openSecondaryMetricModal: (uuid: string) => ({ uuid }),
@@ -196,6 +198,13 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openStatsEngineModal: () => true,
                 closeStatsEngineModal: () => false,
+            },
+        ],
+        isCupedModalOpen: [
+            false,
+            {
+                openCupedModal: () => true,
+                closeCupedModal: () => false,
             },
         ],
         isRunningTimeConfigModalOpen: [

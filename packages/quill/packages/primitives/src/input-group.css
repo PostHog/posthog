@@ -1,0 +1,273 @@
+/* stylelint-disable selector-class-pattern -- escaped Tailwind group classes (.group\/input-group) fall outside strict BEM */
+@layer components {
+    .quill-input-group {
+        position: relative;
+        width: 100%;
+        min-width: 0;
+        height: 2rem;
+        background-color: color-mix(in oklab, var(--input) 20%, transparent);
+        border: 1px solid var(--input);
+        border-radius: var(--radius-sm);
+        outline: none;
+        transition:
+            color 0.15s ease,
+            background-color 0.15s ease,
+            border-color 0.15s ease;
+    }
+
+    :is(.dark, [theme='dark']) .quill-input-group {
+        background-color: color-mix(in oklab, var(--input) 30%, transparent);
+    }
+
+    .quill-input-group:has([data-slot='input-group-control']:focus-visible) {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-input-group:has([data-slot][aria-invalid='true']) {
+        background-color: color-mix(in oklab, var(--destructive) 50%, transparent);
+        border-color: color-mix(in oklab, var(--destructive-foreground) 30%, transparent);
+    }
+
+    .quill-input-group:has([data-slot][aria-invalid='true']):focus-within {
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive-foreground) 50%, transparent);
+    }
+
+    .quill-input-group[aria-disabled='true'] {
+        pointer-events: none;
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    /* Block-align variants grow the container and stack children */
+    .quill-input-group:has(> [data-align='block-end']),
+    .quill-input-group:has(> [data-align='block-start']) {
+        flex-direction: column;
+        height: auto;
+    }
+
+    .quill-input-group:has(> textarea) {
+        height: auto;
+    }
+
+    .quill-input-group:has(> [data-align='block-end']) > input {
+        padding-top: 0.75rem;
+    }
+
+    .quill-input-group:has(> [data-align='block-start']) > input {
+        padding-bottom: 0.75rem;
+    }
+
+    .quill-input-group:has(> [data-align='inline-end']) > input {
+        padding-inline-end: 0.375rem;
+    }
+
+    .quill-input-group:has(> [data-align='inline-start']) > input {
+        padding-inline-start: 0.375rem;
+    }
+
+    /* Neutralize the nested combobox focus ring duplication */
+    [data-slot='combobox-content'] .quill-input-group:focus-within {
+        border-color: inherit;
+        box-shadow: none;
+    }
+
+    /* =========================================================================
+       InputGroupAddon
+       Spacing follows shadcn's InputGroup reference:
+         inline padding   → 0.625rem (10px, `px-2.5`)
+         block padding    → 0.375rem (6px,  `py-1.5`)
+         block-start top  → 0.5rem  (8px,  `pt-2`)
+         block-end bottom → 0.5rem  (8px,  `pb-2`)
+       Applied here so all input-group scenarios (inline/block, input/textarea)
+       share the same visual rhythm.
+       ========================================================================= */
+    .quill-input-group__addon {
+        padding-block: 0.375rem;
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1.625;
+        color: var(--muted-foreground);
+        cursor: text;
+    }
+
+    .group\/input-group[data-disabled='true'] .quill-input-group__addon {
+        opacity: 0.5;
+    }
+
+    .quill-input-group__addon--align-inline-start {
+        order: -1;
+        padding-inline-start: 0.525rem;
+    }
+
+    .quill-input-group__addon--align-inline-start:has(> button) {
+        margin-inline-start: -0.275rem;
+    }
+
+    .quill-input-group__addon--align-inline-start:has(> kbd) {
+        margin-inline-start: -0.275rem;
+    }
+
+    .quill-input-group__addon--align-inline-end {
+        order: 99;
+        padding-inline-end: 0.525rem;
+    }
+
+    .quill-input-group__addon--align-inline-end:has(> button) {
+        margin-inline-end: -0.275rem;
+    }
+
+    .quill-input-group__addon--align-inline-end:has(> button[data-size='sm']) {
+        margin-inline-end: -0.475rem;
+    }
+
+    .quill-input-group__addon--align-inline-end:has(> kbd) {
+        margin-inline-end: -0.175rem;
+    }
+
+    .quill-input-group__addon--align-block-start {
+        justify-content: flex-start;
+        order: -1;
+        width: 100%;
+        padding-inline: 0.625rem;
+        padding-top: 0.5rem;
+    }
+
+    .group\/input-group:has(> input) .quill-input-group__addon--align-block-start {
+        padding-top: 0.5rem;
+    }
+
+    .quill-input-group__addon--align-block-end {
+        justify-content: flex-start;
+        order: 99;
+        width: 100%;
+        padding-inline: 0.625rem;
+        padding-bottom: 0.5rem;
+    }
+
+    .group\/input-group:has(> input) .quill-input-group__addon--align-block-end {
+        padding-bottom: 0.5rem;
+    }
+
+    /* kbd inside an addon gets a muted chip */
+    .quill-input-group__addon [data-slot='kbd'] {
+        padding-inline: 0.25rem;
+        font-size: 0.625rem;
+        background-color: color-mix(in oklab, var(--muted-foreground) 10%, transparent);
+        border-radius: calc(var(--radius-sm) - 2px);
+    }
+
+    .quill-input-group__addon > svg:not([class*='size-']) {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    /* =========================================================================
+       InputGroupText
+       ========================================================================= */
+    .quill-input-group__text {
+        position: relative;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        color: var(--muted-foreground);
+    }
+
+    .quill-input-group__text svg {
+        pointer-events: none;
+    }
+
+    .quill-input-group__text svg:not([class*='size-']) {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    /* =========================================================================
+       InputGroupButton — variant sizes that override button padding
+       ========================================================================= */
+    .quill-input-group__button {
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        border-radius: calc(var(--radius-sm) - 2px);
+        box-shadow: none;
+    }
+
+    .quill-input-group__button--size-xs {
+        gap: 0.25rem;
+        height: 1.25rem;
+        padding-inline: 0.25rem;
+        border-radius: calc(var(--radius-sm) - 2px);
+    }
+
+    .quill-input-group__button--size-xs svg:not([class*='size-']) {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    .quill-input-group__button--size-sm {
+        gap: 0.25rem;
+    }
+
+    .quill-input-group__button--size-icon-xs {
+        width: 1.5rem;
+        height: 1.5rem;
+        padding: 0;
+    }
+
+    .quill-input-group__button--size-icon-xs:has(> svg) {
+        padding: 0;
+    }
+
+    .quill-input-group__button--size-icon-sm {
+        width: 1.75rem;
+        height: 1.75rem;
+        padding: 0;
+    }
+
+    .quill-input-group__button--size-icon-sm:has(> svg) {
+        padding: 0;
+    }
+
+    /* =========================================================================
+       InputGroupInput / Textarea / NumberInput — strip default input chrome.
+       Compound selectors raise specificity above `.quill-input` / `.quill-textarea`
+       so overrides win regardless of stylesheet chunk load order.
+       ========================================================================= */
+    .quill-input.quill-input-group__control,
+    .quill-textarea.quill-input-group__control {
+        flex: 1 1 auto;
+        height: auto;
+        padding-inline: 0.625rem;
+        background-color: transparent;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .quill-input.quill-input-group__control:focus-visible,
+    .quill-textarea.quill-input-group__control:focus-visible,
+    .quill-input.quill-input-group__control[aria-invalid='true'],
+    .quill-textarea.quill-input-group__control[aria-invalid='true'],
+    .quill-input.quill-input-group__control:focus-visible[aria-invalid='true'],
+    .quill-textarea.quill-input-group__control:focus-visible[aria-invalid='true'] {
+        border: 0;
+        box-shadow: none;
+    }
+
+    .quill-input.quill-input-group__control[aria-invalid='true'] {
+        background-color: transparent;
+    }
+
+    :is(.dark, [theme='dark']) .quill-input.quill-input-group__control,
+    :is(.dark, [theme='dark']) .quill-textarea.quill-input-group__control {
+        background-color: transparent;
+    }
+
+    .quill-textarea.quill-input-group__control--textarea {
+        padding-block: 0.5rem;
+        resize: none;
+    }
+
+    .quill-textarea.quill-input-group__control--textarea[aria-invalid='true'] {
+        background-color: transparent;
+    }
+}

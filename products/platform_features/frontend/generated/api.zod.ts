@@ -158,15 +158,15 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
 export const MembersUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner')
-        .optional(),
+        .optional()
+        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
 })
 
 export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner')
-        .optional(),
+        .optional()
+        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
 })
 
 export const rolesCreateBodyNameMax = 200
@@ -240,6 +240,7 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
     created_at: zod.iso.datetime({}).optional(),
 })
 
+export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72
 
 export const commentsCreateBodyScopeMax = 79
@@ -248,6 +249,12 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
+    is_task: zod
+        .boolean()
+        .default(commentsCreateBodyIsTaskDefault)
+        .describe(
+            'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
+        ),
     content: zod.string().nullish(),
     rich_content: zod.unknown().nullish(),
     item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
@@ -256,6 +263,7 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     source_comment: zod.uuid().nullish(),
 })
 
+export const commentsUpdateBodyIsTaskDefault = false
 export const commentsUpdateBodyItemIdMax = 72
 
 export const commentsUpdateBodyScopeMax = 79
@@ -264,6 +272,12 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
+    is_task: zod
+        .boolean()
+        .default(commentsUpdateBodyIsTaskDefault)
+        .describe(
+            'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
+        ),
     content: zod.string().nullish(),
     rich_content: zod.unknown().nullish(),
     item_id: zod.string().max(commentsUpdateBodyItemIdMax).nullish(),
@@ -272,6 +286,7 @@ export const CommentsUpdateBody = /* @__PURE__ */ zod.object({
     source_comment: zod.uuid().nullish(),
 })
 
+export const commentsPartialUpdateBodyIsTaskDefault = false
 export const commentsPartialUpdateBodyItemIdMax = 72
 
 export const commentsPartialUpdateBodyScopeMax = 79
@@ -280,10 +295,156 @@ export const CommentsPartialUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().nullish(),
     mentions: zod.array(zod.number()).optional(),
     slug: zod.string().optional(),
+    is_task: zod
+        .boolean()
+        .default(commentsPartialUpdateBodyIsTaskDefault)
+        .describe(
+            'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
+        ),
     content: zod.string().nullish(),
     rich_content: zod.unknown().nullish(),
     item_id: zod.string().max(commentsPartialUpdateBodyItemIdMax).nullish(),
     item_context: zod.unknown().nullish(),
     scope: zod.string().max(commentsPartialUpdateBodyScopeMax).optional(),
     source_comment: zod.uuid().nullish(),
+})
+
+/**
+ * Update the authenticated user's pinned sidebar tabs and/or homepage for the current team. Pass `@me` as the UUID. Send `tabs` to replace the pinned tab list, `homepage` to set the home destination (any PostHog URL — dashboard, insight, search results, scene). Either field may be omitted to leave it unchanged; sending `homepage: null` or `{}` clears the homepage.
+ */
+export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    tabs: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .optional()
+                    .describe('Stable identifier for the tab. Generated client-side; safe to omit on create.'),
+                pathname: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                    ),
+                search: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Query string portion of the URL, including the leading `?`. Empty string when there is no query.'
+                    ),
+                hash: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment.'
+                    ),
+                title: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Default tab title derived from the destination scene. Used when `customTitle` is not set.'
+                    ),
+                customTitle: zod
+                    .string()
+                    .nullish()
+                    .describe('Optional user-provided title that overrides `title` in the navigation UI.'),
+                iconType: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`.'
+                    ),
+                sceneId: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
+                    ),
+                sceneKey: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        'Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.'
+                    ),
+                sceneParams: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination.'
+                    ),
+                pinned: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether this entry is pinned. Always coerced to true on save — pass true or omit.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged.'
+        ),
+    homepage: zod
+        .object({
+            id: zod
+                .string()
+                .optional()
+                .describe('Stable identifier for the tab. Generated client-side; safe to omit on create.'),
+            pathname: zod
+                .string()
+                .optional()
+                .describe(
+                    'URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination.'
+                ),
+            search: zod
+                .string()
+                .optional()
+                .describe(
+                    'Query string portion of the URL, including the leading `?`. Empty string when there is no query.'
+                ),
+            hash: zod
+                .string()
+                .optional()
+                .describe(
+                    'Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment.'
+                ),
+            title: zod
+                .string()
+                .optional()
+                .describe('Default tab title derived from the destination scene. Used when `customTitle` is not set.'),
+            customTitle: zod
+                .string()
+                .nullish()
+                .describe('Optional user-provided title that overrides `title` in the navigation UI.'),
+            iconType: zod
+                .string()
+                .optional()
+                .describe(
+                    'Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`.'
+                ),
+            sceneId: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.'
+                ),
+            sceneKey: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.'
+                ),
+            sceneParams: zod
+                .unknown()
+                .optional()
+                .describe(
+                    'Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination.'
+                ),
+            pinned: zod
+                .boolean()
+                .optional()
+                .describe('Whether this entry is pinned. Always coerced to true on save — pass true or omit.'),
+        })
+        .nullish()
+        .describe(
+            "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
+        ),
 })

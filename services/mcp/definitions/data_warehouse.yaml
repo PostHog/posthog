@@ -9,47 +9,14 @@ feature: data_warehouse
 url_prefix: /data-warehouse
 ui_apps: {}
 tools:
-    fix-hogql-retrieve:
-        operation: fix_hogql_retrieve
-        enabled: false
-    fix-hogql-create:
-        operation: fix_hogql_create
-        enabled: false
-    lineage-get-upstream-retrieve:
-        operation: lineage_get_upstream_retrieve
-        enabled: false
-    managed-viewsets-retrieve:
-        operation: managed_viewsets_retrieve
-        enabled: false
-    managed-viewsets-update:
-        operation: managed_viewsets_update
-        enabled: false
-    warehouse-saved-query-drafts-list:
-        operation: warehouse_saved_query_drafts_list
-        enabled: false
-    warehouse-saved-query-drafts-create:
-        operation: warehouse_saved_query_drafts_create
-        enabled: false
-    warehouse-saved-query-drafts-retrieve:
-        operation: warehouse_saved_query_drafts_retrieve
-        enabled: false
-    warehouse-saved-query-drafts-update:
-        operation: warehouse_saved_query_drafts_update
-        enabled: false
-    warehouse-saved-query-drafts-partial-update:
-        operation: warehouse_saved_query_drafts_partial_update
-        enabled: false
-    warehouse-saved-query-drafts-destroy:
-        operation: warehouse_saved_query_drafts_destroy
-        enabled: false
     data-modeling-jobs-list:
         operation: data_modeling_jobs_list
         enabled: false
-    data-modeling-jobs-retrieve:
-        operation: data_modeling_jobs_retrieve
-        enabled: false
     data-modeling-jobs-recent-retrieve:
         operation: data_modeling_jobs_recent_retrieve
+        enabled: false
+    data-modeling-jobs-retrieve:
+        operation: data_modeling_jobs_retrieve
         enabled: false
     data-modeling-jobs-running-retrieve:
         operation: data_modeling_jobs_running_retrieve
@@ -90,53 +57,41 @@ tools:
     data-warehouse-warehouse-status-retrieve:
         operation: data_warehouse_warehouse_status_retrieve
         enabled: false
-    external-data-schemas-list:
-        operation: external_data_schemas_list
+    external-data-schemas-cancel-create:
+        operation: external_data_schemas_cancel_create
         enabled: false
     external-data-schemas-create:
         operation: external_data_schemas_create
         enabled: false
-    external-data-sources-list:
-        operation: external_data_sources_list
+    external-data-schemas-delete-data-destroy:
+        operation: external_data_schemas_delete_data_destroy
         enabled: false
-    external-data-sources-create:
-        operation: external_data_sources_create
+    external-data-schemas-destroy:
+        operation: external_data_schemas_destroy
         enabled: false
-    external-data-sources-retrieve:
-        operation: external_data_sources_retrieve
+    external-data-schemas-incremental-fields-create:
+        operation: external_data_schemas_incremental_fields_create
         enabled: false
-    external-data-sources-update:
-        operation: external_data_sources_update
+    external-data-schemas-list:
+        operation: external_data_schemas_list
         enabled: false
-    external-data-sources-partial-update:
-        operation: external_data_sources_partial_update
+    external-data-schemas-partial-update:
+        operation: external_data_schemas_partial_update
         enabled: false
-    external-data-sources-destroy:
-        operation: external_data_sources_destroy
+    external-data-schemas-reload-create:
+        operation: external_data_schemas_reload_create
         enabled: false
-    external-data-sources-create-webhook-create:
-        operation: external_data_sources_create_webhook_create
+    external-data-schemas-resync-create:
+        operation: external_data_schemas_resync_create
         enabled: false
-    external-data-sources-delete-webhook-create:
-        operation: external_data_sources_delete_webhook_create
+    external-data-schemas-retrieve:
+        operation: external_data_schemas_retrieve
         enabled: false
-    external-data-sources-jobs-retrieve:
-        operation: external_data_sources_jobs_retrieve
+    external-data-schemas-update:
+        operation: external_data_schemas_update
         enabled: false
-    external-data-sources-refresh-schemas-create:
-        operation: external_data_sources_refresh_schemas_create
-        enabled: false
-    external-data-sources-reload-create:
-        operation: external_data_sources_reload_create
-        enabled: false
-    external-data-sources-revenue-analytics-config-partial-update:
-        operation: external_data_sources_revenue_analytics_config_partial_update
-        enabled: false
-    external-data-sources-update-webhook-inputs-create:
-        operation: external_data_sources_update_webhook_inputs_create
-        enabled: false
-    external-data-sources-webhook-info-retrieve:
-        operation: external_data_sources_webhook_info_retrieve
+    external-data-sources-bulk-update-schemas-partial-update:
+        operation: external_data_sources_bulk_update_schemas_partial_update
         enabled: false
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
@@ -144,20 +99,101 @@ tools:
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
         enabled: false
+    external-data-sources-create:
+        operation: external_data_sources_create
+        enabled: false
+    external-data-sources-create-webhook-create:
+        operation: external_data_sources_create_webhook_create
+        enabled: false
     external-data-sources-database-schema-create:
         operation: external_data_sources_database_schema_create
+        enabled: false
+    external-data-sources-delete-webhook-create:
+        operation: external_data_sources_delete_webhook_create
+        enabled: false
+    external-data-sources-destroy:
+        operation: external_data_sources_destroy
+        enabled: false
+    external-data-sources-jobs-retrieve:
+        operation: external_data_sources_jobs_retrieve
+        enabled: false
+    external-data-sources-list:
+        operation: external_data_sources_list
+        enabled: false
+    external-data-sources-partial-update:
+        operation: external_data_sources_partial_update
+        enabled: false
+    external-data-sources-refresh-schemas-create:
+        operation: external_data_sources_refresh_schemas_create
+        enabled: false
+    external-data-sources-reload-create:
+        operation: external_data_sources_reload_create
+        enabled: false
+    external-data-sources-retrieve:
+        operation: external_data_sources_retrieve
+        enabled: false
+    external-data-sources-revenue-analytics-config-partial-update:
+        operation: external_data_sources_revenue_analytics_config_partial_update
         enabled: false
     external-data-sources-source-prefix-create:
         operation: external_data_sources_source_prefix_create
         enabled: false
+    external-data-sources-update:
+        operation: external_data_sources_update
+        enabled: false
+    external-data-sources-update-webhook-inputs-create:
+        operation: external_data_sources_update_webhook_inputs_create
+        enabled: false
+    external-data-sources-webhook-info-retrieve:
+        operation: external_data_sources_webhook_info_retrieve
+        enabled: false
     external-data-sources-wizard-retrieve:
         operation: external_data_sources_wizard_retrieve
+        enabled: false
+    fix-hogql-create:
+        operation: fix_hogql_create
+        enabled: false
+    fix-hogql-list:
+        operation: fix_hogql_list
+        enabled: false
+    insight-variables-create:
+        operation: insight_variables_create
+        enabled: false
+    insight-variables-destroy:
+        operation: insight_variables_destroy
+        enabled: false
+    insight-variables-list:
+        operation: insight_variables_list
+        enabled: false
+    insight-variables-partial-update:
+        operation: insight_variables_partial_update
+        enabled: false
+    insight-variables-retrieve:
+        operation: insight_variables_retrieve
+        enabled: false
+    insight-variables-update:
+        operation: insight_variables_update
+        enabled: false
+    lineage-get-upstream-retrieve:
+        operation: lineage_get_upstream_retrieve
+        enabled: false
+    managed-viewsets-retrieve:
+        operation: managed_viewsets_retrieve
+        enabled: false
+    managed-viewsets-update:
+        operation: managed_viewsets_update
+        enabled: false
+    query-tab-state-create:
+        operation: query_tab_state_create
+        enabled: false
+    query-tab-state-destroy:
+        operation: query_tab_state_destroy
         enabled: false
     query-tab-state-list:
         operation: query_tab_state_list
         enabled: false
-    query-tab-state-create:
-        operation: query_tab_state_create
+    query-tab-state-partial-update:
+        operation: query_tab_state_partial_update
         enabled: false
     query-tab-state-retrieve:
         operation: query_tab_state_retrieve
@@ -165,38 +201,14 @@ tools:
     query-tab-state-update:
         operation: query_tab_state_update
         enabled: false
-    query-tab-state-partial-update:
-        operation: query_tab_state_partial_update
-        enabled: false
-    query-tab-state-destroy:
-        operation: query_tab_state_destroy
-        enabled: false
     query-tab-state-user-retrieve:
         operation: query_tab_state_user_retrieve
         enabled: false
-    warehouse-dag-retrieve:
-        operation: warehouse_dag_retrieve
+    warehouse-dag-list:
+        operation: warehouse_dag_list
         enabled: false
     warehouse-model-paths-list:
         operation: warehouse_model_paths_list
-        enabled: false
-    warehouse-saved-queries-list:
-        operation: warehouse_saved_queries_list
-        enabled: false
-    warehouse-saved-queries-create:
-        operation: warehouse_saved_queries_create
-        enabled: false
-    warehouse-saved-queries-retrieve:
-        operation: warehouse_saved_queries_retrieve
-        enabled: false
-    warehouse-saved-queries-update:
-        operation: warehouse_saved_queries_update
-        enabled: false
-    warehouse-saved-queries-partial-update:
-        operation: warehouse_saved_queries_partial_update
-        enabled: false
-    warehouse-saved-queries-destroy:
-        operation: warehouse_saved_queries_destroy
         enabled: false
     warehouse-saved-queries-activity-retrieve:
         operation: warehouse_saved_queries_activity_retrieve
@@ -207,14 +219,32 @@ tools:
     warehouse-saved-queries-cancel-create:
         operation: warehouse_saved_queries_cancel_create
         enabled: false
+    warehouse-saved-queries-create:
+        operation: warehouse_saved_queries_create
+        enabled: false
     warehouse-saved-queries-dependencies-retrieve:
         operation: warehouse_saved_queries_dependencies_retrieve
         enabled: false
     warehouse-saved-queries-descendants-create:
         operation: warehouse_saved_queries_descendants_create
         enabled: false
+    warehouse-saved-queries-destroy:
+        operation: warehouse_saved_queries_destroy
+        enabled: false
+    warehouse-saved-queries-list:
+        operation: warehouse_saved_queries_list
+        enabled: false
     warehouse-saved-queries-materialize-create:
         operation: warehouse_saved_queries_materialize_create
+        enabled: false
+    warehouse-saved-queries-partial-update:
+        operation: warehouse_saved_queries_partial_update
+        enabled: false
+    warehouse-saved-queries-resume-schedules-create:
+        operation: warehouse_saved_queries_resume_schedules_create
+        enabled: false
+    warehouse-saved-queries-retrieve:
+        operation: warehouse_saved_queries_retrieve
         enabled: false
     warehouse-saved-queries-revert-materialization-create:
         operation: warehouse_saved_queries_revert_materialization_create
@@ -225,26 +255,41 @@ tools:
     warehouse-saved-queries-run-history-retrieve:
         operation: warehouse_saved_queries_run_history_retrieve
         enabled: false
-    warehouse-saved-queries-resume-schedules-create:
-        operation: warehouse_saved_queries_resume_schedules_create
+    warehouse-saved-queries-update:
+        operation: warehouse_saved_queries_update
         enabled: false
-    warehouse-saved-query-folders-list:
-        operation: warehouse_saved_query_folders_list
+    warehouse-saved-query-drafts-create:
+        operation: warehouse_saved_query_drafts_create
+        enabled: false
+    warehouse-saved-query-drafts-destroy:
+        operation: warehouse_saved_query_drafts_destroy
+        enabled: false
+    warehouse-saved-query-drafts-list:
+        operation: warehouse_saved_query_drafts_list
+        enabled: false
+    warehouse-saved-query-drafts-partial-update:
+        operation: warehouse_saved_query_drafts_partial_update
+        enabled: false
+    warehouse-saved-query-drafts-retrieve:
+        operation: warehouse_saved_query_drafts_retrieve
+        enabled: false
+    warehouse-saved-query-drafts-update:
+        operation: warehouse_saved_query_drafts_update
         enabled: false
     warehouse-saved-query-folders-create:
         operation: warehouse_saved_query_folders_create
         enabled: false
-    warehouse-saved-query-folders-retrieve:
-        operation: warehouse_saved_query_folders_retrieve
+    warehouse-saved-query-folders-destroy:
+        operation: warehouse_saved_query_folders_destroy
+        enabled: false
+    warehouse-saved-query-folders-list:
+        operation: warehouse_saved_query_folders_list
         enabled: false
     warehouse-saved-query-folders-partial-update:
         operation: warehouse_saved_query_folders_partial_update
         enabled: false
-    warehouse-saved-query-folders-destroy:
-        operation: warehouse_saved_query_folders_destroy
-        enabled: false
-    warehouse-tables-list:
-        operation: warehouse_tables_list
+    warehouse-saved-query-folders-retrieve:
+        operation: warehouse_saved_query_folders_retrieve
         enabled: false
     warehouse-tables-create:
         operation: warehouse_tables_create
@@ -252,69 +297,24 @@ tools:
     warehouse-tables-file-create:
         operation: warehouse_tables_file_create
         enabled: false
-    warehouse-view-link-list:
-        operation: warehouse_view_link_list
+    warehouse-tables-list:
+        operation: warehouse_tables_list
         enabled: false
     warehouse-view-link-create:
         operation: warehouse_view_link_create
         enabled: false
+    warehouse-view-link-list:
+        operation: warehouse_view_link_list
+        enabled: false
     warehouse-view-link-validate-create:
         operation: warehouse_view_link_validate_create
-        enabled: false
-    warehouse-view-links-list:
-        operation: warehouse_view_links_list
         enabled: false
     warehouse-view-links-create:
         operation: warehouse_view_links_create
         enabled: false
+    warehouse-view-links-list:
+        operation: warehouse_view_links_list
+        enabled: false
     warehouse-view-links-validate-create:
         operation: warehouse_view_links_validate_create
-        enabled: false
-    external-data-schemas-retrieve:
-        operation: external_data_schemas_retrieve
-        enabled: false
-    external-data-schemas-update:
-        operation: external_data_schemas_update
-        enabled: false
-    external-data-schemas-partial-update:
-        operation: external_data_schemas_partial_update
-        enabled: false
-    external-data-schemas-destroy:
-        operation: external_data_schemas_destroy
-        enabled: false
-    external-data-schemas-cancel-create:
-        operation: external_data_schemas_cancel_create
-        enabled: false
-    external-data-schemas-delete-data-destroy:
-        operation: external_data_schemas_delete_data_destroy
-        enabled: false
-    external-data-schemas-incremental-fields-create:
-        operation: external_data_schemas_incremental_fields_create
-        enabled: false
-    external-data-schemas-reload-create:
-        operation: external_data_schemas_reload_create
-        enabled: false
-    external-data-schemas-resync-create:
-        operation: external_data_schemas_resync_create
-        enabled: false
-    external-data-sources-bulk-update-schemas-partial-update:
-        operation: external_data_sources_bulk_update_schemas_partial_update
-        enabled: false
-    insight-variables-list:
-        operation: insight_variables_list
-        enabled: false
-    insight-variables-create:
-        operation: insight_variables_create
-        enabled: false
-    insight-variables-retrieve:
-        operation: insight_variables_retrieve
-        enabled: false
-    insight-variables-update:
-        operation: insight_variables_update
-        enabled: false
-    insight-variables-partial-update:
-        operation: insight_variables_partial_update
-        enabled: false
-    insight-variables-destroy:
-        operation: insight_variables_destroy
         enabled: false

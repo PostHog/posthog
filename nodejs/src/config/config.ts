@@ -1,4 +1,10 @@
 import { getDefaultCdpConfig } from '../cdp/config'
+import {
+    getDefaultKafkaWarehouseProducerEnvConfig,
+    getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig,
+    getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
+    getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
+} from '../cdp/outputs/producers'
 import { getDefaultCommonConfig } from '../common/config'
 import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { getDefaultErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
@@ -27,6 +33,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultErrorTrackingConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
         ...getDefaultSessionRecordingApiConfig(),
+        ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
+        ...getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig(),
+        ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),
+        ...getDefaultKafkaWarehouseProducerEnvConfig(),
     }
 }
 

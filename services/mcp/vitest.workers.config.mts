@@ -17,6 +17,10 @@ export default defineWorkersProject({
     test: {
         name: 'workers',
         include: ['tests/workers/**/*.test.ts'],
+        // The first test in each file pays workerd + DurableObject cold-start
+        // overhead that can push it past the 5s default. Bump the ceiling so
+        // these tests don't flake on slower CI runners.
+        testTimeout: 15000,
         poolOptions: {
             workers: {
                 singleWorker: true,
@@ -31,7 +35,6 @@ export default defineWorkersProject({
                         POSTHOG_ANALYTICS_HOST: '',
                         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: '',
                         POSTHOG_UI_APPS_TOKEN: '',
-                        INKEEP_API_KEY: '',
                         MCP_CAT_PROJECT_ID: '',
                         // Generic test marker. Code can short-circuit features
                         // that need real network (e.g. context-mill GitHub

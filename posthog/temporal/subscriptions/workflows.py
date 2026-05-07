@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 import datetime as dt
+import dataclasses
 
 import temporalio.common
 import temporalio.workflow
@@ -26,6 +27,7 @@ from posthog.temporal.subscriptions.activities import (
     deliver_subscription,
     fetch_due_subscriptions_activity,
     update_delivery_record,
+    validate_subscription_for_delivery,
 )
 from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.types import (
@@ -173,6 +175,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         final_status = DeliveryStatus.SKIPPED
         delivery_exported_asset_ids: list[int] = []
         delivery_recipient_results: list[dict] = []
+        # Hoisted so the finally block can always pass it to update_delivery_record,
+        # even on early returns (no-assets SKIPPED) or exceptions before the summary
+        # activity runs.
+        change_summary: str | None = None
 
         try:
             # Create delivery history record — uuid4() is deterministic across
@@ -194,6 +200,26 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
+
+            # Validate up-front: if the subscription is already disabled or its target
+            # configuration is permanently broken, auto-disable and short-circuit before
+            # the export pipeline runs.
+            abort_info = await temporalio.workflow.execute_activity(
+                validate_subscription_for_delivery,
+                inputs.subscription_id,
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(seconds=30),
+                    maximum_attempts=3,
+                ),
+            )
+            if abort_info is not None:
+                # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient) → SKIPPED default.
+                if abort_info.failed_recipient is not None:
+                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    final_status = DeliveryStatus.FAILED
+                return
 
             # Phase 1: Prepare — create ExportedAssets and persist insight snapshots
             # onto SubscriptionDelivery.content_snapshot (written from within the
@@ -261,7 +287,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # Generate LLM change summary (best-effort, skip if not enabled).
             # Reads content_snapshot back from Postgres — persisted inline by
             # create_export_assets above via delivery_id.
-            change_summary: str | None = None
             if delivery_id is not None:
                 try:
                     snapshot_result = await temporalio.workflow.execute_activity(
@@ -344,6 +369,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             status=final_status,
                             exported_asset_ids=delivery_exported_asset_ids or None,
                             recipient_results=delivery_recipient_results or None,
+                            change_summary=change_summary,
                             error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
                             if caught_error
                             else None,
@@ -363,7 +389,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
-            # Advance schedule — always for scheduled deliveries, even on failure
+            # Advance schedule — always for scheduled deliveries, even on failure.
+            # The activity itself no-ops when the subscription is disabled, so a
+            # just-auto-disabled sub doesn't get a misleading future delivery date.
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 await temporalio.workflow.execute_activity(
                     advance_next_delivery_date,

@@ -1,29 +1,27 @@
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
+import './dot.css'
 import { cn } from './lib/utils'
 
-const dotVariants = cva(
-    'group/dot relative inline-flex p-0.5 shrink-0 items-center justify-center rounded-full border border-transparent font-medium whitespace-nowrap transition-all',
-    {
-        variants: {
-            variant: {
-                default: 'text-accent [&_[data-slot=dot-inner]]:bg-accent-foreground/40 [&_[data-slot=dot-pulse]]:border-accent-foreground/40',
-                info: 'text-info [&_[data-slot=dot-inner]]:bg-info-foreground [&_[data-slot=dot-pulse]]:border-info-foreground',
-                destructive: 'text-destructive [&_[data-slot=dot-inner]]:bg-destructive-foreground [&_[data-slot=dot-pulse]]:border-destructive-foreground',
-                warning: 'text-warning [&_[data-slot=dot-inner]]:bg-warning-foreground [&_[data-slot=dot-pulse]]:border-warning-foreground',
-                success: 'text-success [&_[data-slot=dot-inner]]:bg-success-foreground [&_[data-slot=dot-pulse]]:border-success-foreground',
-            },
-            pulse: {
-                true: '',
-                false: '',
-            },
+const dotVariants = cva('quill-dot relative inline-flex p-0.5 shrink-0 items-center justify-center whitespace-nowrap', {
+    variants: {
+        variant: {
+            default: 'quill-dot--variant-default',
+            info: 'quill-dot--variant-info',
+            destructive: 'quill-dot--variant-destructive',
+            warning: 'quill-dot--variant-warning',
+            success: 'quill-dot--variant-success',
         },
-        defaultVariants: {
-            variant: 'default',
+        pulse: {
+            true: 'quill-dot--pulse',
+            false: '',
         },
-    }
-)
+    },
+    defaultVariants: {
+        variant: 'default',
+    },
+})
 
 function Dot({
     className,
@@ -32,15 +30,20 @@ function Dot({
     ...props
 }: React.ComponentProps<'span'> & VariantProps<typeof dotVariants>): React.ReactElement {
     return (
-        <span data-quill data-slot="dot" className={cn(dotVariants({ variant, pulse }), className)} {...props}>
+        <span
+            data-quill
+            data-slot="dot"
+            className={cn(dotVariants({ variant, pulse }), className)}
+            {...props}
+        >
             {pulse && (
                 <span
                     aria-hidden
                     data-slot="dot-pulse"
-                    className="pointer-events-none absolute inset-px rounded-full border-[.5px] border-current motion-safe:animate-radar motion-reduce:hidden bg-transparent"
+                    className="quill-dot__pulse pointer-events-none absolute inset-px"
                 />
             )}
-            <span data-slot="dot-inner" className={cn('rounded-full size-2 ', pulse && 'motion-safe:animate-pulse [animation-duration:.5s] [animation-delay:-2s]')} />
+            <span data-slot="dot-inner" className="quill-dot__inner" />
         </span>
     )
 }

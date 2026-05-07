@@ -29,6 +29,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.models import Team
 from posthog.rate_limit import (
@@ -291,6 +292,7 @@ class LogExplainViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         POST /api/environments/:id/logs/explainLogWithAI/
         """
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         self._validate_feature_access(request)
 
         serializer = ExplainRequestSerializer(data=request.data)

@@ -57,30 +57,485 @@ export const DataWarehouseProvisionCreateBody = /* @__PURE__ */ zod.object({
 
 export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
+    sync_type: zod
+        .union([
+            zod
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .describe(
+                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+        ),
+    incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
+    incremental_field_type: zod
+        .union([
+            zod
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .describe(
+                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+        ),
+    sync_frequency: zod
+        .union([
+            zod
+                .enum([
+                    'never',
+                    '1min',
+                    '5min',
+                    '15min',
+                    '30min',
+                    '1hour',
+                    '6hour',
+                    '12hour',
+                    '24hour',
+                    '7day',
+                    '30day',
+                ])
+                .describe(
+                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+        ),
+    sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+    primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
+    cdc_table_mode: zod
+        .union([
+            zod
+                .enum(['consolidated', 'cdc_only', 'both'])
+                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
 })
 
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
+    sync_type: zod
+        .union([
+            zod
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .describe(
+                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+        ),
+    incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
+    incremental_field_type: zod
+        .union([
+            zod
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .describe(
+                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+        ),
+    sync_frequency: zod
+        .union([
+            zod
+                .enum([
+                    'never',
+                    '1min',
+                    '5min',
+                    '15min',
+                    '30min',
+                    '1hour',
+                    '6hour',
+                    '12hour',
+                    '24hour',
+                    '7day',
+                    '30day',
+                ])
+                .describe(
+                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+        ),
+    sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+    primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
+    cdc_table_mode: zod
+        .union([
+            zod
+                .enum(['consolidated', 'cdc_only', 'both'])
+                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
 })
 
 export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
+    sync_type: zod
+        .union([
+            zod
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .describe(
+                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+        ),
+    incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
+    incremental_field_type: zod
+        .union([
+            zod
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .describe(
+                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+        ),
+    sync_frequency: zod
+        .union([
+            zod
+                .enum([
+                    'never',
+                    '1min',
+                    '5min',
+                    '15min',
+                    '30min',
+                    '1hour',
+                    '6hour',
+                    '12hour',
+                    '24hour',
+                    '7day',
+                    '30day',
+                ])
+                .describe(
+                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+        ),
+    sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+    primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
+    cdc_table_mode: zod
+        .union([
+            zod
+                .enum(['consolidated', 'cdc_only', 'both'])
+                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
 })
 
 export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
+    sync_type: zod
+        .union([
+            zod
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .describe(
+                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+        ),
+    incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
+    incremental_field_type: zod
+        .union([
+            zod
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .describe(
+                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+        ),
+    sync_frequency: zod
+        .union([
+            zod
+                .enum([
+                    'never',
+                    '1min',
+                    '5min',
+                    '15min',
+                    '30min',
+                    '1hour',
+                    '6hour',
+                    '12hour',
+                    '24hour',
+                    '7day',
+                    '30day',
+                ])
+                .describe(
+                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+        ),
+    sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+    primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
+    cdc_table_mode: zod
+        .union([
+            zod
+                .enum(['consolidated', 'cdc_only', 'both'])
+                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
 })
 
 export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
+    sync_type: zod
+        .union([
+            zod
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .describe(
+                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+        ),
+    incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
+    incremental_field_type: zod
+        .union([
+            zod
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .describe(
+                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+        ),
+    sync_frequency: zod
+        .union([
+            zod
+                .enum([
+                    'never',
+                    '1min',
+                    '5min',
+                    '15min',
+                    '30min',
+                    '1hour',
+                    '6hour',
+                    '12hour',
+                    '24hour',
+                    '7day',
+                    '30day',
+                ])
+                .describe(
+                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+        ),
+    sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+    primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
+    cdc_table_mode: zod
+        .union([
+            zod
+                .enum(['consolidated', 'cdc_only', 'both'])
+                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
 })
 
 export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
+    sync_type: zod
+        .union([
+            zod
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .describe(
+                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+        ),
+    incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
+    incremental_field_type: zod
+        .union([
+            zod
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .describe(
+                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+        ),
+    sync_frequency: zod
+        .union([
+            zod
+                .enum([
+                    'never',
+                    '1min',
+                    '5min',
+                    '15min',
+                    '30min',
+                    '1hour',
+                    '6hour',
+                    '12hour',
+                    '24hour',
+                    '7day',
+                    '30day',
+                ])
+                .describe(
+                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+        ),
+    sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+    primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
+    cdc_table_mode: zod
+        .union([
+            zod
+                .enum(['consolidated', 'cdc_only', 'both'])
+                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
 })
 
 export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
+    sync_type: zod
+        .union([
+            zod
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .describe(
+                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+        ),
+    incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
+    incremental_field_type: zod
+        .union([
+            zod
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .describe(
+                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+        ),
+    sync_frequency: zod
+        .union([
+            zod
+                .enum([
+                    'never',
+                    '1min',
+                    '5min',
+                    '15min',
+                    '30min',
+                    '1hour',
+                    '6hour',
+                    '12hour',
+                    '24hour',
+                    '7day',
+                    '30day',
+                ])
+                .describe(
+                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                ),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+        ),
+    sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
+    primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
+    cdc_table_mode: zod
+        .union([
+            zod
+                .enum(['consolidated', 'cdc_only', 'both'])
+                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+            zod.literal(null),
+        ])
+        .nullish()
+        .describe(
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
 })
 
 /**
@@ -90,15 +545,185 @@ export const externalDataSourcesCreateBodyPrefixMax = 100
 
 export const externalDataSourcesCreateBodyDescriptionMax = 400
 
-export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod
-    .object({
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesCreateBodyDescriptionMax).nullish(),
-        job_inputs: zod.unknown().nullish(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+export const externalDataSourcesCreateBodyAccessMethodDefault = `warehouse`
+export const externalDataSourcesCreateBodyCreatedViaDefault = `api`
+
+export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
+    source_type: zod
+        .enum([
+            'Ashby',
+            'Supabase',
+            'CustomerIO',
+            'Github',
+            'Stripe',
+            'Hubspot',
+            'Postgres',
+            'Zendesk',
+            'Snowflake',
+            'Salesforce',
+            'MySQL',
+            'MongoDB',
+            'MSSQL',
+            'Vitally',
+            'BigQuery',
+            'Chargebee',
+            'Clerk',
+            'GoogleAds',
+            'TemporalIO',
+            'DoIt',
+            'GoogleSheets',
+            'MetaAds',
+            'Klaviyo',
+            'Mailchimp',
+            'Braze',
+            'Mailjet',
+            'Redshift',
+            'Polar',
+            'RevenueCat',
+            'LinkedinAds',
+            'RedditAds',
+            'TikTokAds',
+            'BingAds',
+            'Shopify',
+            'Attio',
+            'SnapchatAds',
+            'Linear',
+            'Intercom',
+            'Amplitude',
+            'Mixpanel',
+            'Jira',
+            'ActiveCampaign',
+            'Marketo',
+            'Adjust',
+            'AppsFlyer',
+            'Freshdesk',
+            'GoogleAnalytics',
+            'Pipedrive',
+            'SendGrid',
+            'Slack',
+            'PagerDuty',
+            'Asana',
+            'Notion',
+            'Airtable',
+            'Greenhouse',
+            'BambooHR',
+            'Lever',
+            'GitLab',
+            'Datadog',
+            'Sentry',
+            'Pendo',
+            'FullStory',
+            'AmazonAds',
+            'PinterestAds',
+            'AppleSearchAds',
+            'QuickBooks',
+            'Xero',
+            'NetSuite',
+            'WooCommerce',
+            'BigCommerce',
+            'PayPal',
+            'Square',
+            'Zoom',
+            'Trello',
+            'Monday',
+            'ClickUp',
+            'Confluence',
+            'Recurly',
+            'SalesLoft',
+            'Outreach',
+            'Gong',
+            'Calendly',
+            'Typeform',
+            'Iterable',
+            'ZohoCRM',
+            'Close',
+            'Oracle',
+            'DynamoDB',
+            'Elasticsearch',
+            'Kafka',
+            'LaunchDarkly',
+            'Braintree',
+            'Recharge',
+            'HelpScout',
+            'Gorgias',
+            'Instagram',
+            'YouTubeAnalytics',
+            'FacebookPages',
+            'TwitterAds',
+            'Workday',
+            'ServiceNow',
+            'Pardot',
+            'Copper',
+            'Front',
+            'ChartMogul',
+            'Zuora',
+            'Paddle',
+            'CircleCI',
+            'CockroachDB',
+            'Firebase',
+            'AzureBlob',
+            'GoogleDrive',
+            'OneDrive',
+            'SharePoint',
+            'Box',
+            'SFTP',
+            'MicrosoftTeams',
+            'Aircall',
+            'Webflow',
+            'Okta',
+            'Auth0',
+            'Productboard',
+            'Smartsheet',
+            'Wrike',
+            'Plaid',
+            'SurveyMonkey',
+            'Eventbrite',
+            'RingCentral',
+            'Twilio',
+            'Freshsales',
+            'Shortcut',
+            'ConvertKit',
+            'Drip',
+            'CampaignMonitor',
+            'MailerLite',
+            'Omnisend',
+            'Brevo',
+            'Postmark',
+            'Granola',
+            'BuildBetter',
+            'Convex',
+            'ClickHouse',
+            'Plain',
+            'Resend',
+        ])
+        .describe(
+            '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend'
+        )
+        .describe(
+            "The source type (e.g. 'Postgres', 'Stripe').\n\n* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend"
+        ),
+    payload: zod
+        .record(zod.string(), zod.unknown())
+        .describe("Connection credentials and a 'schemas' array. Keys depend on source_type."),
+    prefix: zod.string().max(externalDataSourcesCreateBodyPrefixMax).nullish().describe('Table name prefix in HogQL.'),
+    description: zod
+        .string()
+        .max(externalDataSourcesCreateBodyDescriptionMax)
+        .nullish()
+        .describe('Human-readable description.'),
+    access_method: zod
+        .enum(['warehouse', 'direct'])
+        .describe('* `warehouse` - warehouse\n* `direct` - direct')
+        .default(externalDataSourcesCreateBodyAccessMethodDefault)
+        .describe(
+            "Connection mode: 'warehouse' (import) or 'direct' (live query).\n\n* `warehouse` - warehouse\n* `direct` - direct"
+        ),
+    created_via: zod
+        .enum(['web', 'api', 'mcp'])
+        .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+        .default(externalDataSourcesCreateBodyCreatedViaDefault)
+        .describe('Where the request came from\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'),
+})
 
 /**
  * Create, Read, Update and Delete External data Sources.
@@ -109,6 +734,13 @@ export const externalDataSourcesUpdateBodyDescriptionMax = 400
 
 export const ExternalDataSourcesUpdateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string(),
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesUpdateBodyPrefixMax).nullish(),
@@ -126,6 +758,13 @@ export const externalDataSourcesPartialUpdateBodyDescriptionMax = 400
 
 export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string().optional(),
         account_id: zod.string().optional(),
         prefix: zod.string().max(externalDataSourcesPartialUpdateBodyPrefixMax).nullish(),
@@ -144,7 +783,14 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                 id: zod.uuid().describe('Schema identifier to update.'),
                 should_sync: zod.boolean().optional().describe('Whether the schema should be queryable/synced.'),
                 sync_type: zod
-                    .union([zod.enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc']), zod.literal(null)])
+                    .union([
+                        zod
+                            .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                            .describe(
+                                '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                            ),
+                        zod.literal(null),
+                    ])
                     .nullish()
                     .describe(
                         'Requested sync mode for the schema.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
@@ -182,6 +828,13 @@ export const externalDataSourcesCreateWebhookCreateBodyDescriptionMax = 400
 
 export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string(),
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesCreateWebhookCreateBodyPrefixMax).nullish(),
@@ -199,6 +852,13 @@ export const externalDataSourcesDeleteWebhookCreateBodyDescriptionMax = 400
 
 export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string(),
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyPrefixMax).nullish(),
@@ -216,6 +876,13 @@ export const externalDataSourcesRefreshSchemasCreateBodyDescriptionMax = 400
 
 export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string(),
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesRefreshSchemasCreateBodyPrefixMax).nullish(),
@@ -233,6 +900,13 @@ export const externalDataSourcesReloadCreateBodyDescriptionMax = 400
 
 export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string(),
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesReloadCreateBodyPrefixMax).nullish(),
@@ -250,6 +924,13 @@ export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyDescripti
 
 export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string().optional(),
         account_id: zod.string().optional(),
         prefix: zod.string().max(externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyPrefixMax).nullish(),
@@ -270,6 +951,13 @@ export const externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax = 40
 
 export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string(),
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax).nullish(),
@@ -281,19 +969,165 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const externalDataSourcesDatabaseSchemaCreateBodyPrefixMax = 100
-
-export const externalDataSourcesDatabaseSchemaCreateBodyDescriptionMax = 400
-
 export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
     .object({
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesDatabaseSchemaCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesDatabaseSchemaCreateBodyDescriptionMax).nullish(),
-        job_inputs: zod.unknown().nullish(),
+        source_type: zod
+            .enum([
+                'Ashby',
+                'Supabase',
+                'CustomerIO',
+                'Github',
+                'Stripe',
+                'Hubspot',
+                'Postgres',
+                'Zendesk',
+                'Snowflake',
+                'Salesforce',
+                'MySQL',
+                'MongoDB',
+                'MSSQL',
+                'Vitally',
+                'BigQuery',
+                'Chargebee',
+                'Clerk',
+                'GoogleAds',
+                'TemporalIO',
+                'DoIt',
+                'GoogleSheets',
+                'MetaAds',
+                'Klaviyo',
+                'Mailchimp',
+                'Braze',
+                'Mailjet',
+                'Redshift',
+                'Polar',
+                'RevenueCat',
+                'LinkedinAds',
+                'RedditAds',
+                'TikTokAds',
+                'BingAds',
+                'Shopify',
+                'Attio',
+                'SnapchatAds',
+                'Linear',
+                'Intercom',
+                'Amplitude',
+                'Mixpanel',
+                'Jira',
+                'ActiveCampaign',
+                'Marketo',
+                'Adjust',
+                'AppsFlyer',
+                'Freshdesk',
+                'GoogleAnalytics',
+                'Pipedrive',
+                'SendGrid',
+                'Slack',
+                'PagerDuty',
+                'Asana',
+                'Notion',
+                'Airtable',
+                'Greenhouse',
+                'BambooHR',
+                'Lever',
+                'GitLab',
+                'Datadog',
+                'Sentry',
+                'Pendo',
+                'FullStory',
+                'AmazonAds',
+                'PinterestAds',
+                'AppleSearchAds',
+                'QuickBooks',
+                'Xero',
+                'NetSuite',
+                'WooCommerce',
+                'BigCommerce',
+                'PayPal',
+                'Square',
+                'Zoom',
+                'Trello',
+                'Monday',
+                'ClickUp',
+                'Confluence',
+                'Recurly',
+                'SalesLoft',
+                'Outreach',
+                'Gong',
+                'Calendly',
+                'Typeform',
+                'Iterable',
+                'ZohoCRM',
+                'Close',
+                'Oracle',
+                'DynamoDB',
+                'Elasticsearch',
+                'Kafka',
+                'LaunchDarkly',
+                'Braintree',
+                'Recharge',
+                'HelpScout',
+                'Gorgias',
+                'Instagram',
+                'YouTubeAnalytics',
+                'FacebookPages',
+                'TwitterAds',
+                'Workday',
+                'ServiceNow',
+                'Pardot',
+                'Copper',
+                'Front',
+                'ChartMogul',
+                'Zuora',
+                'Paddle',
+                'CircleCI',
+                'CockroachDB',
+                'Firebase',
+                'AzureBlob',
+                'GoogleDrive',
+                'OneDrive',
+                'SharePoint',
+                'Box',
+                'SFTP',
+                'MicrosoftTeams',
+                'Aircall',
+                'Webflow',
+                'Okta',
+                'Auth0',
+                'Productboard',
+                'Smartsheet',
+                'Wrike',
+                'Plaid',
+                'SurveyMonkey',
+                'Eventbrite',
+                'RingCentral',
+                'Twilio',
+                'Freshsales',
+                'Shortcut',
+                'ConvertKit',
+                'Drip',
+                'CampaignMonitor',
+                'MailerLite',
+                'Omnisend',
+                'Brevo',
+                'Postmark',
+                'Granola',
+                'BuildBetter',
+                'Convex',
+                'ClickHouse',
+                'Plain',
+                'Resend',
+            ])
+            .describe(
+                '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend'
+            )
+            .describe(
+                'The source type to validate against.\n\n* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend'
+            ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Validate credentials and preview available tables from a remote database.\n\nThe request body contains source_type plus flat source-specific credential fields\n(e.g. host, port, database, user, password, schema for Postgres). The credential\nfields vary per source_type and are validated dynamically by the source registry.'
+    )
 
 /**
  * Create, Read, Update and Delete External data Sources.
@@ -304,6 +1138,13 @@ export const externalDataSourcesSourcePrefixCreateBodyDescriptionMax = 400
 
 export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
     .object({
+        created_via: zod
+            .enum(['web', 'api', 'mcp'])
+            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .optional()
+            .describe(
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
         client_secret: zod.string(),
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesSourcePrefixCreateBodyPrefixMax).nullish(),
@@ -800,22 +1641,26 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
 
 export const warehouseSavedQueryFoldersCreateBodyNameMax = 128
 
-export const WarehouseSavedQueryFoldersCreateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(warehouseSavedQueryFoldersCreateBodyNameMax)
-        .describe('Display name for the folder used to organize saved queries in the SQL editor sidebar.'),
-})
+export const WarehouseSavedQueryFoldersCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(warehouseSavedQueryFoldersCreateBodyNameMax)
+            .describe('Display name for the folder used to organize saved queries in the SQL editor sidebar.'),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 export const warehouseSavedQueryFoldersPartialUpdateBodyNameMax = 128
 
-export const WarehouseSavedQueryFoldersPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(warehouseSavedQueryFoldersPartialUpdateBodyNameMax)
-        .optional()
-        .describe('Display name for the folder used to organize saved queries in the SQL editor sidebar.'),
-})
+export const WarehouseSavedQueryFoldersPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(warehouseSavedQueryFoldersPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Display name for the folder used to organize saved queries in the SQL editor sidebar.'),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.
@@ -836,53 +1681,55 @@ export const warehouseTablesCreateBodyCredentialAccessKeyMax = 500
 
 export const warehouseTablesCreateBodyCredentialAccessSecretMax = 500
 
-export const WarehouseTablesCreateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    name: zod.string().max(warehouseTablesCreateBodyNameMax),
-    format: zod
-        .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
-        .describe(
-            '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
-        ),
-    url_pattern: zod.string().max(warehouseTablesCreateBodyUrlPatternMax),
-    credential: zod.object({
-        id: zod.uuid(),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.uuid(),
-            distinct_id: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
-            email: zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
+export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
+    .object({
+        deleted: zod.boolean().nullish(),
+        name: zod.string().max(warehouseTablesCreateBodyNameMax),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod.string().max(warehouseTablesCreateBodyUrlPatternMax),
+        credential: zod.object({
+            id: zod.uuid(),
+            created_by: zod.object({
+                id: zod.number(),
+                uuid: zod.uuid(),
+                distinct_id: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                email: zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            }),
+            created_at: zod.iso.datetime({}),
+            access_key: zod.string().max(warehouseTablesCreateBodyCredentialAccessKeyMax),
+            access_secret: zod.string().max(warehouseTablesCreateBodyCredentialAccessSecretMax),
         }),
-        created_at: zod.iso.datetime({}),
-        access_key: zod.string().max(warehouseTablesCreateBodyCredentialAccessKeyMax),
-        access_secret: zod.string().max(warehouseTablesCreateBodyCredentialAccessSecretMax),
-    }),
-    options: zod.record(zod.string(), zod.unknown()).optional(),
-})
+        options: zod.record(zod.string(), zod.unknown()).optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.
@@ -903,53 +1750,61 @@ export const warehouseTablesFileCreateBodyCredentialAccessKeyMax = 500
 
 export const warehouseTablesFileCreateBodyCredentialAccessSecretMax = 500
 
-export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    name: zod.string().max(warehouseTablesFileCreateBodyNameMax),
-    format: zod
-        .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
-        .describe(
-            '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
-        ),
-    url_pattern: zod.string().max(warehouseTablesFileCreateBodyUrlPatternMax),
-    credential: zod.object({
-        id: zod.uuid(),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.uuid(),
-            distinct_id: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax).optional(),
-            email: zod.email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
+export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
+    .object({
+        deleted: zod.boolean().nullish(),
+        name: zod.string().max(warehouseTablesFileCreateBodyNameMax),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod.string().max(warehouseTablesFileCreateBodyUrlPatternMax),
+        credential: zod.object({
+            id: zod.uuid(),
+            created_by: zod.object({
+                id: zod.number(),
+                uuid: zod.uuid(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                email: zod.email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            }),
+            created_at: zod.iso.datetime({}),
+            access_key: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessKeyMax),
+            access_secret: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessSecretMax),
         }),
-        created_at: zod.iso.datetime({}),
-        access_key: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessKeyMax),
-        access_secret: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessSecretMax),
-    }),
-    options: zod.record(zod.string(), zod.unknown()).optional(),
-})
+        options: zod.record(zod.string(), zod.unknown()).optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create, Read, Update and Delete View Columns.

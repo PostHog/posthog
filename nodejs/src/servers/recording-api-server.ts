@@ -1,13 +1,34 @@
 import { CommonConfig } from '../common/config'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
+import {
+    KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaWarpstreamProducerEnvConfig,
+} from '../ingestion/common/config'
+import { KafkaBrokerConfig } from '../ingestion/config'
+import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
+import { createProducerRegistry } from '../session-replay/recording-api/outputs/producer-registry'
+import { createOutputsRegistry } from '../session-replay/recording-api/outputs/registry'
 import { RecordingApi } from '../session-replay/recording-api/recording-api'
-import { RecordingApiConfig } from '../session-replay/recording-api/types'
+import {
+    RecordingApiConfig,
+    RecordingApiOutputsConfig,
+    type RecordingApiProducerName,
+    getDefaultRecordingApiOutputsConfig,
+} from '../session-replay/recording-api/types'
+import {
+    KafkaDefaultProducerEnvConfig,
+    getDefaultKafkaDefaultProducerEnvConfig,
+} from '../session-replay/shared/outputs/producer-config'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { logger } from '../utils/logger'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 export type RecordingApiServerConfig = BaseServerConfig &
     RecordingApiConfig &
+    KafkaBrokerConfig &
+    KafkaDefaultProducerEnvConfig &
+    KafkaWarpstreamProducerEnvConfig &
+    RecordingApiOutputsConfig &
     PostgresRouterConfig &
     Pick<
         CommonConfig,
@@ -19,9 +40,16 @@ export class RecordingApiServer implements NodeServer {
     private config: RecordingApiServerConfig
 
     private postgres?: PostgresRouter
+    private producerRegistry?: KafkaProducerRegistry<RecordingApiProducerName>
 
     constructor(config: Partial<RecordingApiServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultKafkaDefaultProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultRecordingApiOutputsConfig()),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -40,7 +68,12 @@ export class RecordingApiServer implements NodeServer {
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
 
-        const api = new RecordingApi(this.config, this.postgres!)
+        logger.info('🤔', 'Connecting to Kafka...')
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
+        logger.info('👍', 'Kafka ready')
+
+        const api = new RecordingApi(this.config, this.postgres!, outputs)
         this.lifecycle.expressApp.use('/', api.router())
         await api.start()
         this.lifecycle.services.push(api.service)
@@ -51,6 +84,9 @@ export class RecordingApiServer implements NodeServer {
             kafkaProducers: [],
             redisPools: [],
             postgres: this.postgres,
+            additionalCleanup: async () => {
+                await this.producerRegistry?.disconnectAll()
+            },
         }
     }
 }

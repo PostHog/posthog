@@ -23,7 +23,7 @@ class TestPlainSource:
 
         assert config.name.value == "Plain"
         assert config.label == "Plain"
-        assert config.releaseStatus == "beta"
+        assert config.releaseStatus == "alpha"
         assert config.featureFlag == "dwh_plain"
         assert config.iconPath == "/static/services/plain.png"
         assert len(config.fields) == 1

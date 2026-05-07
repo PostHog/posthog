@@ -28,7 +28,8 @@ from django.db.models.functions import Cast, Coalesce
 import structlog
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -39,14 +40,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
-from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team
 from posthog.permissions import APIScopePermission
-from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
-from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
@@ -64,6 +62,8 @@ from products.signals.backend.models import (
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
     get_org_member_github_logins_by_user_uuid,
+    normalized_github_logins_from_suggested_reviewer_artefacts,
+    resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
@@ -188,7 +188,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
-            self._trigger_initial_clustering(instance)
+            self._trigger_session_analysis_setup()
 
         if (
             instance.source_product == SignalSourceConfig.SourceProduct.ERROR_TRACKING
@@ -196,6 +196,17 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             and instance.enabled
         ):
             self._trigger_error_tracking_backfill()
+
+    def _trigger_session_analysis_setup(self) -> None:
+        """Upsert the per-team summarization schedule now instead of waiting for the
+        reconciler's next tick. Reconciler remains the safety net."""
+        from posthog.temporal.session_replay.summarization_sweep.schedule import a_upsert_team_schedule
+
+        try:
+            async_to_sync(a_upsert_team_schedule)(self.team_id)
+            logger.info(f"Upserted session analysis schedule for team {self.team_id}")
+        except Exception:
+            logger.exception(f"Failed to upsert session analysis schedule for team {self.team_id}")
 
     def _trigger_error_tracking_backfill(self) -> None:
         """Fire-and-forget backfill of recent error tracking issues as signals."""
@@ -214,23 +225,6 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Exception:
             logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
 
-    def _trigger_initial_clustering(self, config: SignalSourceConfig) -> None:
-        """Fire-and-forget the clustering workflow."""
-        try:
-            client = sync_connect()
-            async_to_sync(client.start_workflow)(  # type: ignore
-                "video-segment-clustering",  # type: ignore
-                ClusteringWorkflowInputs(team_id=self.team_id),  # type: ignore
-                id=clustering_workflow_id(self.team_id, config.id),
-                id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-            logger.info(f"Started initial clustering workflow for team {self.team_id}")
-        except Exception:
-            logger.exception(f"Failed to start initial clustering workflow for team {self.team_id}")
-
     def perform_update(self, serializer):
         instance = cast(SignalSourceConfig, serializer.instance)
         was_enabled = instance.enabled
@@ -243,27 +237,9 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.enabled and not was_enabled:
             if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-                self._trigger_initial_clustering(instance)
+                self._trigger_session_analysis_setup()
             else:
                 self._trigger_data_import_sync(instance)
-        elif not instance.enabled and was_enabled:
-            if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-                self._cancel_clustering_workflow(instance)
-
-    def _cancel_clustering_workflow(self, config: SignalSourceConfig) -> None:
-        """Cancel the running clustering workflow for the team, if any."""
-        workflow_id = clustering_workflow_id(self.team_id, config.id)
-        try:
-            client = sync_connect()
-            handle = client.get_workflow_handle(workflow_id)
-            async_to_sync(handle.cancel)()
-            logger.info("Cancelled clustering workflow for team %s", self.team_id)
-        except RPCError as e:
-            if e.status == RPCStatusCode.NOT_FOUND:
-                return
-            logger.exception("Failed to cancel clustering workflow for team %s", self.team_id)
-        except Exception:
-            logger.exception("Failed to cancel clustering workflow for team %s", self.team_id)
 
     # Maps source_product to ExternalDataSourceType value for data import sources
     _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {
@@ -335,8 +311,6 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema_view(
-    list=extend_schema(exclude=True),
-    retrieve=extend_schema(exclude=True),
     destroy=extend_schema(exclude=True),
 )
 class SignalReportViewSet(
@@ -472,8 +446,9 @@ class SignalReportViewSet(
                 When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
                 When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
                 When(status=SignalReport.Status.FAILED, then=Value(6)),
-                When(status=SignalReport.Status.SUPPRESSED, then=Value(7)),
-                When(status=SignalReport.Status.DELETED, then=Value(8)),
+                When(status=SignalReport.Status.RESOLVED, then=Value(7)),
+                When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
+                When(status=SignalReport.Status.DELETED, then=Value(9)),
                 default=Value(50),
                 output_field=IntegerField(),
             )
@@ -550,6 +525,7 @@ class SignalReportViewSet(
         # and checking jsonb containment on the artefact content list. This stays fresh
         # even when a user connects their GitHub account after the report was generated.
         # Never true for ready + not_actionable — there is nothing actionable to review.
+        # Failed reports are excluded too — pipelines that errored should not bubble as "needs your review".
         github_login = self._get_github_login(self.request.user)
         if not github_login:
             return queryset.annotate(is_suggested_reviewer=Value(False))
@@ -568,6 +544,7 @@ class SignalReportViewSet(
         return queryset.annotate(
             is_suggested_reviewer=Case(
                 When(self._Q_READY_NOT_ACTIONABLE, then=Value(False)),
+                When(status=SignalReport.Status.FAILED, then=Value(False)),
                 default=suggested_exists,
                 output_field=BooleanField(),
             ),
@@ -657,7 +634,59 @@ class SignalReportViewSet(
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of statuses to include. "
+                    "Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. "
+                    "Defaults to all statuses except suppressed."
+                ),
+            ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring match against report title and summary.",
+            ),
+            OpenApiParameter(
+                name="source_product",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of source products to include. Reports are kept if at least one of "
+                    "their contributing signals comes from one of these products (e.g. error_tracking, session_replay)."
+                ),
+            ),
+            OpenApiParameter(
+                name="suggested_reviewers",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers "
+                    "include any of the given users."
+                ),
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
+                    "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
+                    "priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
+                ),
+            ),
+        ],
+    )
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
@@ -747,14 +776,19 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
-        artefacts = report.artefacts.all().order_by("-created_at")
-        serializer = SignalReportArtefactSerializer(artefacts, many=True)
-        return Response(
-            {
-                "results": serializer.data,
-                "count": len(serializer.data),
-            }
+        artefacts = list(report.artefacts.all().order_by("-created_at"))
+        logins_union = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
+        login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
+        serializer = SignalReportArtefactSerializer(
+            artefacts,
+            many=True,
+            context={
+                **self.get_serializer_context(),
+                "signals_github_login_to_user_map": login_map,
+            },
         )
+        results = serializer.data
+        return Response({"results": results, "count": len(results)})
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
@@ -866,6 +900,7 @@ class SignalUserAutonomyConfigView(APIView):
     DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
     """
 
+    serializer_class = SignalUserAutonomyConfigSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "user"
@@ -883,6 +918,7 @@ class SignalUserAutonomyConfigView(APIView):
         except User.DoesNotExist:
             raise exceptions.NotFound()
 
+    @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
     def get(self, request, user_id, **kwargs):
         user = self._resolve_user(request, user_id)
         config = SignalUserAutonomyConfig.objects.filter(user=user).first()
@@ -890,6 +926,7 @@ class SignalUserAutonomyConfigView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
+    @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
     def post(self, request, user_id, **kwargs):
         from products.signals.backend.serializers import SignalUserAutonomyConfigCreateSerializer
 
@@ -902,6 +939,7 @@ class SignalUserAutonomyConfigView(APIView):
         )
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
+    @extend_schema(responses={204: None})
     def delete(self, request, user_id, **kwargs):
         user = self._resolve_user(request, user_id)
         SignalUserAutonomyConfig.objects.filter(user=user).delete()

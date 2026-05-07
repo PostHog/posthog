@@ -10,6 +10,14 @@ from products.llm_analytics.backend.models.clustering_job import ClusteringJob
 
 
 class TestClusteringJobViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Team creation auto-seeds three "Default - <level>" rows via the post_save
+        # signal on Team (see models/clustering_job.py). Clear them so each test
+        # starts from a clean slate — tests that specifically exercise the default
+        # behavior recreate the rows they need.
+        ClusteringJob.objects.filter(team=self.team).delete()
+
     def _url(self, suffix: str = "") -> str:
         base = f"/api/environments/{self.team.id}/llm_analytics/clustering_jobs/"
         return f"{base}{suffix}" if suffix else base
@@ -198,6 +206,103 @@ class TestClusteringJobViewSet(APIBaseTest):
 
         custom.refresh_from_db()
         self.assertTrue(custom.enabled)
+
+    def _cohort_filter(self, cohort_id: int | str) -> dict:
+        return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+    def test_create_with_valid_cohort_filter(self):
+        from posthog.models.cohort import Cohort
+
+        cohort = Cohort.objects.create(team=self.team, name="VIPs")
+        response = self.client.post(
+            self._url(),
+            {
+                "name": "VIP Traffic",
+                "analysis_level": "trace",
+                "event_filters": [self._cohort_filter(cohort.id)],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("missing", 999_999),
+            ("string_id_missing", "999999"),
+        ]
+    )
+    def test_create_rejects_missing_cohort_filter(self, _name, cohort_id):
+        response = self.client.post(
+            self._url(),
+            {
+                "name": "Bad Cohort",
+                "analysis_level": "trace",
+                "event_filters": [self._cohort_filter(cohort_id)],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not found or deleted", str(response.json()))
+
+    def test_create_rejects_soft_deleted_cohort_filter(self):
+        from posthog.models.cohort import Cohort
+
+        cohort = Cohort.objects.create(team=self.team, name="Stale", deleted=True)
+        response = self.client.post(
+            self._url(),
+            {
+                "name": "Stale Cohort",
+                "analysis_level": "trace",
+                "event_filters": [self._cohort_filter(cohort.id)],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not found or deleted", str(response.json()))
+
+    def test_partial_update_rejects_missing_cohort_filter(self):
+        job = self._create_job(name="Will be broken")
+        response = self.client.patch(
+            self._url(f"{job.id}/"),
+            {"event_filters": [self._cohort_filter(999_999)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        job.refresh_from_db()
+        self.assertEqual(job.event_filters, [])
+
+
+class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):
+    """Exercises the post_save signal in models/clustering_job.py that seeds the three
+    Default - <level> rows when a new Team is created."""
+
+    def test_creates_defaults_for_all_three_levels_on_team_create(self):
+        from posthog.models import Organization, Project, Team
+
+        org = Organization.objects.create(name="signal-test")
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=org)
+        team = Team.objects.create(id=project.id, project=project, organization=org)
+
+        jobs = ClusteringJob.objects.filter(team=team).order_by("analysis_level")
+        specs = {(j.name, j.analysis_level, j.enabled, tuple(j.event_filters)) for j in jobs}
+        assert specs == {
+            ("Default - evaluations", "evaluation", True, ()),
+            ("Default - generations", "generation", True, ()),
+            ("Default - traces", "trace", True, ()),
+        }
+
+    def test_no_extra_rows_on_team_update(self):
+        from posthog.models import Organization, Project, Team
+
+        org = Organization.objects.create(name="update-signal-test")
+        project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=org)
+        team = Team.objects.create(id=project.id, project=project, organization=org)
+
+        baseline = ClusteringJob.objects.filter(team=team).count()
+        team.name = "Renamed"
+        team.save()
+
+        assert ClusteringJob.objects.filter(team=team).count() == baseline
 
 
 class TestClusteringRunWithJobId(APIBaseTest):

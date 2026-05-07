@@ -299,12 +299,12 @@ To set up sandboxed agents for local development:
 
 The setup command is idempotent and handles:
 
-- Writing required env vars (`OIDC_RSA_PRIVATE_KEY`, `SANDBOX_JWT_PRIVATE_KEY`, `DEBUG`, `SANDBOX_PROVIDER`) to your `.env`
+- Writing required env vars (`OIDC_RSA_PRIVATE_KEY`, `SANDBOX_JWT_PRIVATE_KEY`, `DEBUG`, `SANDBOX_PROVIDER`, `SANDBOX_MCP_URL`) to your `.env`
 - Creating the Array OAuth application
 - Enabling the `tasks` feature flag for all teams
 - Building the agent skills bundle
 
-For advanced setup options (Modal sandboxes, local agent packages), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
+For advanced setup options (Modal sandboxes, local agent packages, MCP), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
 
 ## Questions?
 

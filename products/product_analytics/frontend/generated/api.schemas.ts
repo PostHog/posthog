@@ -26,6 +26,11 @@ export interface ColumnConfigurationApi {
     /** @maxLength 255 */
     name?: string
     filters?: unknown
+    /**
+     * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+     * @nullable
+     */
+    order_by?: string[] | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
@@ -50,6 +55,11 @@ export interface PatchedColumnConfigurationApi {
     /** @maxLength 255 */
     name?: string
     filters?: unknown
+    /**
+     * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+     * @nullable
+     */
+    order_by?: string[] | null
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
@@ -178,15 +188,16 @@ export const BreakdownTypeApi = {
 export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
 
 export const MultipleBreakdownTypeApi = {
-    Cohort: 'cohort',
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    Cohort: 'cohort',
     RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
 } as const
 
 export interface BreakdownApi {
@@ -460,6 +471,11 @@ export interface HogQLQueryModifiersApi {
      * @nullable
      */
     sessionIdPushdown?: boolean | null
+    /**
+     * Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).
+     * @nullable
+     */
+    sessionPropertyPreAggregation?: boolean | null
     sessionTableVersion?: SessionTableVersionApi | null
     sessionsV2JoinMode?: SessionsV2JoinModeApi | null
     /** @nullable */
@@ -2629,11 +2645,12 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
 
-export const AggregationPropertyTypeApi = {
+export const AggregationPropertyType1Api = {
     Event: 'event',
     Person: 'person',
+    DataWarehouse: 'data_warehouse',
 } as const
 
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
@@ -2772,8 +2789,8 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
-    /** The type of property to aggregate on (event or person). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyTypeApi | null
+    /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyType1Api | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
@@ -4591,6 +4608,7 @@ export const IntegrationKindApi = {
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
     Snapchat: 'snapchat',
+    Stripe: 'stripe',
     Intercom: 'intercom',
     Email: 'email',
     Twilio: 'twilio',
@@ -4853,6 +4871,7 @@ export const AIEventTypeApi = {
     AiMetric: '$ai_metric',
     AiFeedback: '$ai_feedback',
     AiEvaluation: '$ai_evaluation',
+    AiTag: '$ai_tag',
     AiTraceSummary: '$ai_trace_summary',
     AiGenerationSummary: '$ai_generation_summary',
     AiTraceClusters: '$ai_trace_clusters',
@@ -6064,6 +6083,12 @@ export const ExperimentStatsValidationFailureApi = {
 
 export interface ExperimentStatsBaseValidatedApi {
     /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
+    /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
@@ -6095,6 +6120,12 @@ export interface ExperimentVariantResultFrequentistApi {
      * @nullable
      */
     confidence_interval?: number[] | null
+    /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
     /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
@@ -6128,6 +6159,12 @@ export const ExperimentVariantResultBayesianApiMethod = {
 export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     chance_to_win?: number | null
+    /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
     /**
      * @minItems 2
      * @maxItems 2
@@ -7981,6 +8018,8 @@ export const MarketingAnalyticsDrillDownLevelApi = {
     Channel: 'channel',
     Source: 'source',
     Campaign: 'campaign',
+    AdGroup: 'ad_group',
+    Ad: 'ad',
     Medium: 'medium',
     Content: 'content',
     Term: 'term',
@@ -9229,6 +9268,8 @@ export const ScaleApi = {
 } as const
 
 export interface YAxisSettingsApi {
+    /** @nullable */
+    label?: string | null
     scale?: ScaleApi | null
     /** @nullable */
     showGridLines?: boolean | null
@@ -9327,6 +9368,8 @@ export interface ChartSettingsApi {
      */
     stackBars100?: boolean | null
     xAxis?: ChartAxisApi | null
+    /** @nullable */
+    xAxisLabel?: string | null
     /** @nullable */
     yAxis?: ChartAxisApi[] | null
     /**
@@ -9490,14 +9533,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
-
-export const EffectiveRestrictionLevelEnumApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
@@ -9589,7 +9624,7 @@ export interface InsightApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9707,7 +9742,7 @@ export interface PatchedInsightApi {
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
     readonly is_sample?: boolean
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9731,6 +9766,64 @@ export interface PatchedInsightApi {
     readonly alerts?: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at?: string | null
+}
+
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
 }
 
 /**
@@ -9777,6 +9870,64 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+/**
+ * Insight enriched with view-count and recent-viewer fields, used by the trending action.
+ */
+export interface TrendingInsightApi {
+    readonly id: number
+    readonly short_id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    derived_name?: string | null
+    query?: unknown | null
+    readonly dashboards: readonly number[]
+    readonly dashboard_tiles: readonly DashboardTileBasicApi[]
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    readonly last_refresh: string | null
+    readonly refreshing: boolean
+    tags?: unknown[]
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    last_modified_at?: string
+    favorited?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** @nullable */
+    readonly last_viewed_at: string | null
+    /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
+    readonly view_count: number
+    /** Up to 3 of the most recent users who viewed this insight in the time window. */
+    readonly viewers: readonly UserBasicApi[]
+    /** User who last modified this insight, or null if never modified after creation. */
+    readonly last_modified_by: UserBasicApi
+}
+
+export interface PaginatedTrendingInsightListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TrendingInsightApi[]
+}
+
 export type ColumnConfigurationsListParams = {
     /**
      * Number of results to return per page.
@@ -9804,7 +9955,47 @@ export type InsightsListParams = {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean
     format?: InsightsListFormat
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: InsightsListInsight
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string
     /**
      * Number of results to return per page.
      */
@@ -9825,7 +10016,23 @@ Whether to refresh the retrieved insights, how aggressively, and if sync or asyn
 Background calculation can be tracked using the `query_status` response field.
  */
     refresh?: InsightsListRefresh
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string
     short_id?: string
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean
 }
 
 export type InsightsListFormat = (typeof InsightsListFormat)[keyof typeof InsightsListFormat]
@@ -9833,6 +10040,19 @@ export type InsightsListFormat = (typeof InsightsListFormat)[keyof typeof Insigh
 export const InsightsListFormat = {
     Csv: 'csv',
     Json: 'json',
+} as const
+
+export type InsightsListInsight = (typeof InsightsListInsight)[keyof typeof InsightsListInsight]
+
+export const InsightsListInsight = {
+    Funnels: 'FUNNELS',
+    Json: 'JSON',
+    Lifecycle: 'LIFECYCLE',
+    Paths: 'PATHS',
+    Retention: 'RETENTION',
+    Sql: 'SQL',
+    Stickiness: 'STICKINESS',
+    Trends: 'TRENDS',
 } as const
 
 export type InsightsListRefresh = (typeof InsightsListRefresh)[keyof typeof InsightsListRefresh]
@@ -9859,6 +10079,10 @@ export const InsightsCreateFormat = {
 } as const
 
 export type InsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: InsightsRetrieveFormat
     /**
  * 
@@ -9878,6 +10102,10 @@ Whether to refresh the insight, how aggresively, and if sync or async:
 Background calculation can be tracked using the `query_status` response field.
  */
     refresh?: InsightsRetrieveRefresh
+    /**
+     * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type InsightsRetrieveFormat = (typeof InsightsRetrieveFormat)[keyof typeof InsightsRetrieveFormat]
@@ -9932,14 +10160,22 @@ export const InsightsDestroyFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieve2Params = {
-    format?: InsightsActivityRetrieve2Format
+export type InsightsActivityRetrieveParams = {
+    format?: InsightsActivityRetrieveFormat
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number
 }
 
-export type InsightsActivityRetrieve2Format =
-    (typeof InsightsActivityRetrieve2Format)[keyof typeof InsightsActivityRetrieve2Format]
+export type InsightsActivityRetrieveFormat =
+    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
 
-export const InsightsActivityRetrieve2Format = {
+export const InsightsActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -9980,14 +10216,22 @@ export const InsightsSuggestionsCreateFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieveParams = {
-    format?: InsightsActivityRetrieveFormat
+export type InsightsAllActivityRetrieveParams = {
+    format?: InsightsAllActivityRetrieveFormat
+    /**
+     * Page size. Defaults to 10.
+     */
+    limit?: number
+    /**
+     * 1-indexed page number. Defaults to 1.
+     */
+    page?: number
 }
 
-export type InsightsActivityRetrieveFormat =
-    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
+export type InsightsAllActivityRetrieveFormat =
+    (typeof InsightsAllActivityRetrieveFormat)[keyof typeof InsightsAllActivityRetrieveFormat]
 
-export const InsightsActivityRetrieveFormat = {
+export const InsightsAllActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -10040,7 +10284,19 @@ export const InsightsMyLastViewedRetrieveFormat = {
 } as const
 
 export type InsightsTrendingRetrieveParams = {
+    /**
+     * Time window in days to compute view counts over. Defaults to 7. Larger windows surface consistently popular insights; smaller windows surface what's hot right now.
+     */
+    days?: number
     format?: InsightsTrendingRetrieveFormat
+    /**
+     * Maximum number of insights to return. Defaults to 10. Capped at 100.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type InsightsTrendingRetrieveFormat =

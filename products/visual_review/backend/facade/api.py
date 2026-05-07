@@ -20,6 +20,7 @@ from uuid import UUID
 from django.contrib.auth import get_user_model
 
 from .. import logic
+from ..diff_metadata import DiffMetadata
 from . import contracts
 from .enums import ReviewDecision
 
@@ -31,6 +32,7 @@ RunNotFoundError = logic.RunNotFoundError
 ArtifactNotFoundError = logic.ArtifactNotFoundError
 GitHubIntegrationNotFoundError = logic.GitHubIntegrationNotFoundError
 GitHubCommitError = logic.GitHubCommitError
+GitHubRateLimitError = logic.GitHubRateLimitError
 PRSHAMismatchError = logic.PRSHAMismatchError
 StaleRunError = logic.StaleRunError
 BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
@@ -54,10 +56,45 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
+def _parse_diff_metadata(
+    diff_metadata_raw: dict | None,
+) -> tuple[contracts.ClusterSummary | None, bool]:
+    """Translate the compact storage shape into the verbose wire shape.
+
+    Returns `(cluster_summary, size_mismatch)`. The cluster_summary side
+    is None for legacy rows and identical-pair rows; size_mismatch
+    defaults to False everywhere it isn't explicitly recorded.
+    """
+    if not diff_metadata_raw:
+        return None, False
+    parsed = DiffMetadata.model_validate(diff_metadata_raw)
+    cluster_summary: contracts.ClusterSummary | None = None
+    if parsed.cluster_summary is not None:
+        cs = parsed.cluster_summary
+        cluster_summary = contracts.ClusterSummary(
+            items=[
+                contracts.DiffCluster(
+                    x=c.bbox[0],
+                    y=c.bbox[1],
+                    width=c.bbox[2],
+                    height=c.bbox[3],
+                    pixel_count=c.px,
+                    centroid_x=c.centroid[0],
+                    centroid_y=c.centroid[1],
+                )
+                for c in cs.items
+            ],
+            total=cs.total,
+            truncated=cs.truncated,
+        )
+    return cluster_summary, parsed.size_mismatch
+
+
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
+    cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
         identifier=snapshot.identifier,
@@ -75,7 +112,19 @@ def _to_snapshot(
         is_quarantined=snapshot.is_quarantined,
         reviewed_by=reviewed_by,
         metadata=snapshot.metadata or {},
+        ssim_score=snapshot.ssim_score,
+        change_kind=snapshot.change_kind or "",
+        cluster_summary=cluster_summary,
+        size_mismatch=size_mismatch,
     )
+
+
+def _compute_unresolved(run) -> int:
+    """Compute unresolved count from prefetched snapshots, or fall back to DB."""
+    # Use prefetched snapshots if available (detail view), skip for list views
+    if "snapshots" in getattr(run, "_prefetched_objects_cache", {}):
+        return sum(1 for s in run.snapshots.all() if logic._is_unresolved(s))
+    return 0
 
 
 def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None) -> contracts.Run:
@@ -96,6 +145,7 @@ def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = N
             new=run.new_count,
             removed=run.removed_count,
             unchanged=run.total_snapshots - run.changed_count - run.new_count - run.removed_count,
+            unresolved=_compute_unresolved(run),
             tolerated_matched=run.tolerated_match_count,
         ),
         error_message=run.error_message or None,
@@ -148,16 +198,91 @@ def update_repo(input: contracts.UpdateRepoInput, team_id: int) -> contracts.Rep
     return _to_repo(repo)
 
 
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
+    """Resolve a snapshot identifier to the content hash of its thumbnail, if any."""
+    return logic.get_thumbnail_hash_for_identifier(repo_id, identifier)
+
+
+def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
+    """Read the raw bytes for a thumbnail artifact from storage."""
+    return logic.read_thumbnail_bytes(repo_id, content_hash)
+
+
+def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
+    """Universe of identifiers with a current baseline, plus aggregates.
+
+    Backs the snapshots overview page. See `logic.get_baselines_overview` for
+    query shape and performance notes.
+    """
+    raw = logic.get_baselines_overview(repo_id)
+
+    entries: list[contracts.BaselineEntry] = []
+    for snapshot in raw.entries:
+        identifier = snapshot.identifier
+        run = snapshot.run
+        artifact = snapshot.current_artifact
+        thumbnail = artifact.thumbnail if artifact is not None else None
+        # `(run_type, identifier)` keys because the same identifier in
+        # different run types is a different baseline.
+        key = (run.run_type, identifier)
+        metadata = snapshot.metadata or {}
+        entries.append(
+            contracts.BaselineEntry(
+                identifier=identifier,
+                run_type=run.run_type,
+                browser=metadata.get("browser") if isinstance(metadata, dict) else None,
+                thumbnail_hash=thumbnail.content_hash if thumbnail is not None else None,
+                width=artifact.width if artifact is not None else None,
+                height=artifact.height if artifact is not None else None,
+                tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
+                tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
+                is_quarantined=key in raw.quarantined_ids,
+                last_run_at=run.completed_at or run.created_at,
+                baseline_change_count=raw.change_count_by_key.get(key, 0),
+                recent_drift_avg=raw.recent_drift_by_key.get(key),
+            )
+        )
+
+    totals = contracts.BaselineTotals(
+        all_snapshots=raw.totals_all,
+        recently_tolerated=raw.totals_recent,
+        frequently_tolerated=raw.totals_frequent,
+        currently_quarantined=raw.totals_quarantined,
+        by_run_type=raw.by_run_type,
+    )
+
+    return contracts.BaselineOverview(
+        entries=entries,
+        totals=totals,
+        truncated=raw.truncated,
+        generated_at=raw.generated_at,
+    )
+
+
 # --- Run API ---
 
 
-def list_runs(team_id: int, review_state: str | None = None) -> list[contracts.Run]:
-    runs = logic.list_runs_for_team(team_id, review_state=review_state)
+def list_runs(
+    team_id: int,
+    review_state: str | None = None,
+    repo_id: UUID | None = None,
+    pr_number: int | None = None,
+    commit_sha: str | None = None,
+    branch: str | None = None,
+) -> list[contracts.Run]:
+    runs = logic.list_runs_for_team(
+        team_id,
+        review_state=review_state,
+        repo_id=repo_id,
+        pr_number=pr_number,
+        commit_sha=commit_sha,
+        branch=branch,
+    )
     return [_to_run(r) for r in runs]
 
 
-def get_review_state_counts(team_id: int) -> dict[str, int]:
-    return logic.get_review_state_counts(team_id)
+def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
+    return logic.get_review_state_counts(team_id, repo_id=repo_id)
 
 
 def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.CreateRunResult:
@@ -227,7 +352,7 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
-    run = logic.get_run(run_id, team_id=team_id)
+    run = logic.get_run_with_snapshots(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
     return _to_run(run, user_basic_infos)
@@ -243,15 +368,27 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contract
     return [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
 
 
-def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.SnapshotHistoryEntry]:
-    entries = logic.get_snapshot_history(repo_id, identifier)
+def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
+    entries = logic.get_snapshot_history(repo_id, identifier, run_type)
     return [
         contracts.SnapshotHistoryEntry(
-            run_id=e["run_id"],
-            result=e["result"],
-            branch=e["branch"],
-            commit_sha=e["commit_sha"],
-            created_at=e["created_at"],
+            run_id=e.run_id,
+            snapshot_id=e.id,
+            result=e.result,
+            branch=e.run.branch,
+            commit_sha=e.run.commit_sha,
+            created_at=e.run.created_at,
+            pr_number=e.run.pr_number,
+            diff_percentage=e.diff_percentage,
+            review_state=e.review_state,
+            current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
+            ssim_score=e.ssim_score,
+            change_kind=e.change_kind or "",
+            # Read the flag directly instead of round-tripping through the
+            # full Pydantic parse — `cluster_summary` isn't on the history
+            # entry contract and we'd just be allocating cluster dataclasses
+            # to throw away. The default mirrors `DiffMetadata.size_mismatch`.
+            size_mismatch=bool((e.diff_metadata or {}).get("size_mismatch", False)),
         )
         for e in entries
     ]
@@ -286,6 +423,18 @@ def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
         logic.get_run(run_id, team_id=team_id)  # validates ownership
     run = logic.complete_run(run_id)
     return _to_run(run)
+
+
+def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:
+    result = logic.recompute_run(run_id, team_id=team_id)
+    run = logic.get_run_with_snapshots(run_id, team_id=team_id)
+    return contracts.RecomputeResult(
+        run=_to_run(run),
+        counts_changed=result["counts_changed"],
+        unresolved=result["unresolved"],
+        ci_rerun_triggered=result["ci_rerun_triggered"],
+        ci_rerun_error=result["ci_rerun_error"],
+    )
 
 
 def approve_all(
@@ -385,3 +534,7 @@ def quarantine_identifier(
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
     logic.unquarantine_identifier(repo_id=repo_id, identifier=identifier, run_type=run_type, team_id=team_id)
+
+
+def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
+    logic.expire_quarantine_entry(entry_id=entry_id, team_id=team_id)

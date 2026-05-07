@@ -137,6 +137,7 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                     return null
                 }
                 try {
+                    // nosemgrep: prefer-codegen-api
                     return (await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)) as {
                         active_provider_key: { id: string } | null
                     }

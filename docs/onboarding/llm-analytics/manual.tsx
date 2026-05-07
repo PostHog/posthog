@@ -183,7 +183,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <CodeBlock
                                                     language="ruby"
                                                     code={dedent`
-                                                        require 'posthog-ruby'
+                                                        require 'posthog'
 
                                                         posthog = PostHog::Client.new({
                                                             api_key: '<ph_project_token>',

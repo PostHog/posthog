@@ -7,7 +7,7 @@ import { HogFlow } from '~/schema/hogflow'
 import { parseJSON } from '~/utils/json-parse'
 import { captureException } from '~/utils/posthog'
 
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { logger } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
@@ -36,7 +36,7 @@ export interface BatchHogFlowRequestMessage {
 export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpBatchHogFlowRequestsConsumer'
     private cyclotronJobQueue: CyclotronJobQueue
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     private hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
 
     constructor(
@@ -47,7 +47,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
     ) {
         super(config, deps)
         this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
-        this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
+        this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
         this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(
             new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
         )

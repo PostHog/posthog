@@ -137,6 +137,15 @@ class DeliverSubscriptionResult:
 
 
 @dataclasses.dataclass
+class SubscriptionAbortInfo:
+    """Returned by `validate_subscription_for_delivery` when the workflow should abort.
+    `failed_recipient` is populated only when this run auto-disabled the sub
+    (workflow records FAILED). None means already-disabled — idempotency redispatch."""
+
+    failed_recipient: typing.Optional[RecipientResult] = None
+
+
+@dataclasses.dataclass
 class CreateDeliveryRecordInputs:
     subscription_id: int
     team_id: int
@@ -160,6 +169,7 @@ class UpdateDeliveryRecordInputs:
     exported_asset_ids: typing.Optional[list[int]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
+    change_summary: typing.Optional[str] = None
     finished: bool = False
 
 

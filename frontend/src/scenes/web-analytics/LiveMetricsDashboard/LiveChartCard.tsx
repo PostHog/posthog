@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { type ReactNode } from 'react'
 
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -19,10 +20,10 @@ export const LiveChartCard = ({
     isLoading,
     children,
     className = '',
-    contentClassName = 'h-64',
+    contentClassName = '',
 }: LiveChartCardProps): JSX.Element => {
     return (
-        <div className={`bg-bg-light rounded-lg border p-4 ${className}`}>
+        <div className={clsx('bg-bg-light rounded-lg border p-4 h-full min-h-[340px] flex flex-col', className)}>
             <div className="flex items-baseline justify-between mb-4">
                 <h3 className="text-sm font-semibold">{title}</h3>
                 {subtitle &&
@@ -35,11 +36,11 @@ export const LiveChartCard = ({
                     ))}
             </div>
             {isLoading ? (
-                <div className={`${contentClassName} flex items-center justify-center`}>
+                <div className="flex-1 flex items-center justify-center">
                     <Spinner className="text-2xl" />
                 </div>
             ) : (
-                <div className={contentClassName}>{children}</div>
+                <div className={clsx('flex-1 min-h-0', contentClassName)}>{children}</div>
             )}
         </div>
     )

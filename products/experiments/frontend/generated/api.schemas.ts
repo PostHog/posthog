@@ -162,67 +162,8 @@ export interface PatchedExperimentSavedMetricApi {
     readonly user_access_level?: string | null
 }
 
-/**
- * * `server` - Server
- * `client` - Client
- * `all` - All
- */
-export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
-
-export const EvaluationRuntimeEnumApi = {
-    Server: 'server',
-    Client: 'client',
-    All: 'all',
-} as const
-
-/**
- * * `distinct_id` - User ID (default)
- * `device_id` - Device ID
- */
-export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
-
-export const BucketingIdentifierEnumApi = {
-    DistinctId: 'distinct_id',
-    DeviceId: 'device_id',
-} as const
-
-export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
-
-export interface MinimalFeatureFlagApi {
-    readonly id: number
-    readonly team_id: number
-    name?: string
-    /** @maxLength 400 */
-    key: string
-    filters?: MinimalFeatureFlagApiFilters
-    deleted?: boolean
-    active?: boolean
-    /** @nullable */
-    ensure_experience_continuity?: boolean | null
-    /** @nullable */
-    has_encrypted_payloads?: boolean | null
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     * @nullable
-     */
-    version?: number | null
-    /** Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
-    /** Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
-    readonly evaluation_contexts: readonly string[]
-}
-
 export interface ExperimentVariantApi {
-    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
     /**
      * Human-readable variant name.
@@ -240,7 +181,7 @@ export interface ExperimentVariantApi {
 
 export interface ExperimentParametersApi {
     /**
-     * Experiment variants. If not specified, defaults to a 50/50 control/test split.
+     * Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.
      * @nullable
      */
     feature_flag_variants?: ExperimentVariantApi[] | null
@@ -488,18 +429,16 @@ export const ConclusionEnumApi = {
     Invalid: 'invalid',
 } as const
 
-/**
- * * `draft` - Draft
- * `running` - Running
- * `stopped` - Stopped
- */
 export type ExperimentStatusEnumApi = (typeof ExperimentStatusEnumApi)[keyof typeof ExperimentStatusEnumApi]
 
 export const ExperimentStatusEnumApi = {
     Draft: 'draft',
     Running: 'running',
+    Paused: 'paused',
     Stopped: 'stopped',
 } as const
+
+export type ExperimentApiFeatureFlag = { [key: string]: unknown }
 
 /**
  * Mixin for serializers to add user access control fields
@@ -523,7 +462,7 @@ export interface ExperimentApi {
     end_date?: string | null
     /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key: string
-    readonly feature_flag: MinimalFeatureFlagApi
+    readonly feature_flag: ExperimentApiFeatureFlag
     readonly holdout: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -582,7 +521,8 @@ export interface ExperimentApi {
     only_count_matured_users?: boolean
     /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
     update_feature_flag_params?: boolean
-    readonly status: ExperimentStatusEnumApi | NullEnumApi | null
+    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+    readonly status: ExperimentStatusEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -598,6 +538,8 @@ export interface PaginatedExperimentListApi {
     previous?: string | null
     results: ExperimentApi[]
 }
+
+export type PatchedExperimentApiFeatureFlag = { [key: string]: unknown }
 
 /**
  * Mixin for serializers to add user access control fields
@@ -621,7 +563,7 @@ export interface PatchedExperimentApi {
     end_date?: string | null
     /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key?: string
-    readonly feature_flag?: MinimalFeatureFlagApi
+    readonly feature_flag?: PatchedExperimentApiFeatureFlag
     readonly holdout?: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -680,7 +622,8 @@ export interface PatchedExperimentApi {
     only_count_matured_users?: boolean
     /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
     update_feature_flag_params?: boolean
-    readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
+    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+    readonly status?: ExperimentStatusEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -755,6 +698,18 @@ export type ExperimentSavedMetricsListParams = {
 
 export type ExperimentsListParams = {
     /**
+     * Filter by archived state. Defaults to non-archived experiments only.
+     */
+    archived?: boolean
+    /**
+     * Filter to experiments created by the given user ID.
+     */
+    created_by_id?: number
+    /**
+     * Filter to experiments linked to the given feature flag ID.
+     */
+    feature_flag_id?: number
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -762,4 +717,38 @@ export type ExperimentsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
+     */
+    order?: string
+    /**
+     * Free-text search applied to the experiment name (case-insensitive).
+     */
+    search?: string
+    /**
+     * Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status filtering.
+     */
+    status?: ExperimentsListStatus
+}
+
+export type ExperimentsListStatus = (typeof ExperimentsListStatus)[keyof typeof ExperimentsListStatus]
+
+export const ExperimentsListStatus = {
+    All: 'all',
+    Complete: 'complete',
+    Draft: 'draft',
+    Paused: 'paused',
+    Running: 'running',
+    Stopped: 'stopped',
+} as const
+
+export type ExperimentsTimeseriesResultsRetrieveParams = {
+    /**
+     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     */
+    fingerprint: string
+    /**
+     * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
+     */
+    metric_uuid: string
 }

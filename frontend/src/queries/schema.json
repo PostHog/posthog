@@ -10,6 +10,7 @@
                 "$ai_metric",
                 "$ai_feedback",
                 "$ai_evaluation",
+                "$ai_tag",
                 "$ai_trace_summary",
                 "$ai_generation_summary",
                 "$ai_trace_clusters",
@@ -466,6 +467,9 @@
         },
         "AnyAssistantGeneratedQuery": {
             "anyOf": [
+                {
+                    "$ref": "#/definitions/DataVisualizationNode"
+                },
                 {
                     "$ref": "#/definitions/AssistantTrendsQuery"
                 },
@@ -1056,9 +1060,34 @@
                 "column": {
                     "description": "Name of a column returned by the SQL query to map onto this axis.",
                     "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisSettings",
+                    "description": "Optional series settings. Only applies to Y-axis series."
                 }
             },
             "required": ["column"],
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisDisplaySettings": {
+            "additionalProperties": false,
+            "properties": {
+                "yAxisPosition": {
+                    "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
+                    "enum": ["left", "right"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisDisplaySettings",
+                    "description": "Display settings for a plotted Y series."
+                }
+            },
             "type": "object"
         },
         "AssistantDataVisualizationChartSettings": {
@@ -1070,6 +1099,14 @@
                         "$ref": "#/definitions/AssistantDataVisualizationGoalLine"
                     },
                     "type": "array"
+                },
+                "leftYAxisSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
+                    "description": "Settings for the left Y axis."
+                },
+                "rightYAxisSettings": {
+                    "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
+                    "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`."
                 },
                 "seriesBreakdownColumn": {
                     "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable.",
@@ -1090,6 +1127,10 @@
                 "xAxis": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxis",
                     "description": "Column used as the X axis. Typically a time bucket or categorical column."
+                },
+                "xAxisLabel": {
+                    "description": "Label rendered under the X axis.",
+                    "type": "string"
                 },
                 "yAxis": {
                     "description": "One or more numeric columns plotted as Y series.",
@@ -1180,6 +1221,33 @@
                 },
                 "transpose": {
                     "description": "Transpose rows and columns.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationYAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "description": "Label rendered beside this Y axis.",
+                    "type": "string"
+                },
+                "scale": {
+                    "description": "Scale used for this Y axis.",
+                    "enum": ["linear", "logarithmic"],
+                    "type": "string"
+                },
+                "showGridLines": {
+                    "description": "Show grid lines for this Y axis.",
+                    "type": "boolean"
+                },
+                "showTicks": {
+                    "description": "Show tick labels on this Y axis.",
+                    "type": "boolean"
+                },
+                "startAtZero": {
+                    "description": "Whether this Y axis should start at zero.",
                     "type": "boolean"
                 }
             },
@@ -1437,14 +1505,15 @@
         },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": [
-                "cohort",
                 "person",
                 "event",
                 "event_metadata",
                 "session",
                 "hogql",
-                "data_warehouse_person_property",
-                "revenue_analytics"
+                "cohort",
+                "revenue_analytics",
+                "data_warehouse",
+                "data_warehouse_person_property"
             ],
             "type": "string"
         },
@@ -1725,6 +1794,45 @@
             },
             "type": "object"
         },
+        "AssistantFunnelsGroupNode": {
+            "additionalProperties": false,
+            "description": "Defines a funnel step that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the combined step.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                            }
+                        ]
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "operator": {
+                    "const": "OR",
+                    "description": "Only `OR` is supported.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "operator", "nodes"],
+            "type": "object"
+        },
         "AssistantFunnelsMath": {
             "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
@@ -1736,6 +1844,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsGroupNode"
                 }
             ]
         },
@@ -2318,7 +2429,7 @@
                     "items": {
                         "$ref": "#/definitions/AssistantLifecycleSeriesNode"
                     },
-                    "maxLength": 1,
+                    "maxItems": 1,
                     "type": "array"
                 }
             },
@@ -2848,6 +2959,13 @@
                         "$ref": "#/definitions/AssistantRecordingsQueryPropertyFilter"
                     },
                     "type": "array"
+                },
+                "session_ids": {
+                    "description": "Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind"],
@@ -3355,7 +3473,8 @@
                 "finalize_plan",
                 "call_mcp_server",
                 "search_llm_traces",
-                "run_hog_eval_test"
+                "run_hog_eval_test",
+                "diagnose_proxy"
             ],
             "type": "string"
         },
@@ -3609,12 +3728,16 @@
                     "default": 25,
                     "description": "How many distinct values to show."
                 },
+                "breakdown_path_cleaning": {
+                    "description": "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.",
+                    "type": "boolean"
+                },
                 "breakdowns": {
                     "description": "Use this field to define breakdowns.",
                     "items": {
                         "$ref": "#/definitions/AssistantMultipleBreakdownFilter"
                     },
-                    "maxLength": 3,
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
@@ -3831,6 +3954,66 @@
             },
             "type": "object"
         },
+        "AssistantTrendsGroupNode": {
+            "additionalProperties": false,
+            "description": "Defines a series that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" as one line). Aggregation (`math*`) is read from the group, not the inner nodes — set it here. Inner-node `event` / `id` / `properties` / `name` are respected normally; per-node `properties` apply only to that node, so each event can carry its own filter.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType",
+                    "description": "Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes."
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "description": "Custom HogQL aggregation. When set, `math` must be `hogql`.",
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the combined series.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Events and actions combined into the series. Mirror the group's `math*` on each node for UI round-trip; they're ignored at execution time.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantTrendsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantTrendsActionsNode"
+                            }
+                        ]
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "operator": {
+                    "const": "OR",
+                    "description": "Only `OR` is supported.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "operator", "nodes"],
+            "type": "object"
+        },
         "AssistantTrendsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -3884,7 +4067,7 @@
                     "type": ["number", "null"]
                 },
                 "series": {
-                    "description": "Events or actions to include. Prioritize the more popular and fresh events and actions.",
+                    "description": "Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating \"Pageview OR Pageleave\" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series.",
                     "items": {
                         "anyOf": [
                             {
@@ -3892,6 +4075,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AssistantTrendsActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantTrendsGroupNode"
                             }
                         ]
                     },
@@ -4008,6 +4194,18 @@
                 "first_matching_event_for_user"
             ],
             "type": "string"
+        },
+        "BiasRisk": {
+            "additionalProperties": false,
+            "description": "Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE` handling + observed `$multiple` share above the threshold. Present on the response only when the experiment is currently at risk.",
+            "properties": {
+                "multiple_variant_percentage": {
+                    "description": "Observed share of users assigned to `$multiple`, as a percentage (0-100).",
+                    "type": "number"
+                }
+            },
+            "required": ["multiple_variant_percentage"],
+            "type": "object"
         },
         "BillingSpendResponseBreakdownType": {
             "enum": ["type", "team", "multiple"],
@@ -5440,6 +5638,9 @@
         "CachedExperimentExposureQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "bias_risk": {
+                    "$ref": "#/definitions/BiasRisk"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -10076,6 +10277,9 @@
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
                 },
+                "xAxisLabel": {
+                    "type": "string"
+                },
                 "yAxis": {
                     "items": {
                         "$ref": "#/definitions/ChartAxis"
@@ -12989,10 +13193,6 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
-        "DataWarehouseSyncInterval": {
-            "enum": ["1min", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
-            "type": "string"
-        },
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
@@ -14063,8 +14263,9 @@
                     "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
                     "type": "object"
                 },
-                "cache_age_seconds": {
-                    "type": "number"
+                "data_freshness_seconds": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
                 },
                 "deleted": {
                     "description": "Set to true to soft-delete this endpoint",
@@ -14095,10 +14296,6 @@
                             "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
-                },
-                "sync_frequency": {
-                    "$ref": "#/definitions/DataWarehouseSyncInterval",
-                    "description": "How frequently should the underlying materialized view be updated"
                 },
                 "version": {
                     "$ref": "#/definitions/integer",
@@ -16673,6 +16870,9 @@
         "ExperimentExposureQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "bias_risk": {
+                    "$ref": "#/definitions/BiasRisk"
+                },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -17292,7 +17492,7 @@
             "additionalProperties": false,
             "properties": {
                 "feature_flag_variants": {
-                    "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split.",
+                    "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
                     "items": {
                         "$ref": "#/definitions/ExperimentVariant"
                     },
@@ -17641,6 +17841,15 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17684,6 +17893,15 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17852,7 +18070,7 @@
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                    "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
                     "type": "string"
                 },
                 "name": {
@@ -17891,6 +18109,15 @@
             "additionalProperties": false,
             "properties": {
                 "chance_to_win": {
+                    "type": "number"
+                },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
                     "type": "number"
                 },
                 "credible_interval": {
@@ -17964,6 +18191,15 @@
                     "maxItems": 2,
                     "minItems": 2,
                     "type": "array"
+                },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
                 },
                 "denominator_sum": {
                     "type": "number"
@@ -18184,7 +18420,8 @@
                 "BuildBetter",
                 "Convex",
                 "ClickHouse",
-                "Plain"
+                "Plain",
+                "Resend"
             ],
             "type": "string"
         },
@@ -18460,6 +18697,7 @@
                 "sdk_doctor",
                 "pipeline_status",
                 "llm_evaluations",
+                "llm_tags",
                 "llm_datasets",
                 "llm_playground",
                 "llm_prompts",
@@ -20471,6 +20709,10 @@
                     "description": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
                     "type": "boolean"
                 },
+                "sessionPropertyPreAggregation": {
+                    "description": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+                    "type": "boolean"
+                },
                 "sessionTableVersion": {
                     "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
@@ -21569,6 +21811,7 @@
                 "google-sheets",
                 "linkedin-ads",
                 "snapchat",
+                "stripe",
                 "intercom",
                 "email",
                 "twilio",
@@ -22219,6 +22462,42 @@
             "enum": ["campaign_groups"],
             "type": "string"
         },
+        "LlmEvalReportSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "evaluation_description": {
+                    "type": "string"
+                },
+                "evaluation_id": {
+                    "type": "string"
+                },
+                "evaluation_name": {
+                    "type": "string"
+                },
+                "period_end": {
+                    "type": "string"
+                },
+                "period_start": {
+                    "type": "string"
+                },
+                "report_id": {
+                    "type": "string"
+                },
+                "report_run_id": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "evaluation_id",
+                "evaluation_name",
+                "evaluation_description",
+                "report_id",
+                "report_run_id",
+                "period_start",
+                "period_end"
+            ],
+            "type": "object"
+        },
         "LlmEvalSignalExtra": {
             "additionalProperties": false,
             "properties": {
@@ -22242,6 +22521,33 @@
                 }
             },
             "required": ["evaluation_id", "trace_id"],
+            "type": "object"
+        },
+        "LlmEvaluationReportSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LlmEvalReportSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "llm_analytics",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "evaluation_report",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
             "type": "object"
         },
         "LlmEvaluationSignalInput": {
@@ -22286,6 +22592,29 @@
             "required": ["type", "artifact_id"],
             "type": "object"
         },
+        "LogAttributeResult": {
+            "additionalProperties": false,
+            "properties": {
+                "matchedOn": {
+                    "description": "Whether this row matched the search by attribute key or by attribute value.",
+                    "enum": ["key", "value"],
+                    "type": "string"
+                },
+                "matchedValue": {
+                    "description": "Sample value that matched the search — only set when matchedOn is 'value'.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "propertyFilterType": {
+                    "description": "Either 'log_attribute' or 'log_resource_attribute'.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "propertyFilterType", "matchedOn"],
+            "type": "object"
+        },
         "LogAttributesQuery": {
             "additionalProperties": false,
             "properties": {
@@ -22317,6 +22646,10 @@
                 },
                 "search": {
                     "type": "string"
+                },
+                "searchValues": {
+                    "description": "When true, the search query also matches attribute values (not just keys).",
+                    "type": "boolean"
                 },
                 "serviceNames": {
                     "items": {
@@ -22369,7 +22702,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/LogAttributeResult"
                     },
                     "type": "array"
                 },
@@ -22937,6 +23270,10 @@
                 "ID",
                 "Campaign",
                 "Source",
+                "Ad group",
+                "Ad group ID",
+                "Ad",
+                "Ad ID",
                 "Cost",
                 "Clicks",
                 "Impressions",
@@ -22960,7 +23297,11 @@
                 "impressions",
                 "source",
                 "reported_conversion",
-                "reported_conversion_value"
+                "reported_conversion_value",
+                "ad_group_id",
+                "ad_group_name",
+                "ad_id",
+                "ad_name"
             ],
             "type": "string"
         },
@@ -23030,13 +23371,16 @@
                         "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
                     },
                     "type": "array"
+                },
+                "excludesConversionGoals": {
+                    "type": "boolean"
                 }
             },
             "required": ["columnAlias", "excludedBaseColumns"],
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign", "medium", "content", "term"],
+            "enum": ["channel", "source", "campaign", "ad_group", "ad", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -25386,15 +25730,16 @@
         },
         "MultipleBreakdownType": {
             "enum": [
-                "cohort",
                 "person",
                 "event",
                 "event_metadata",
                 "group",
                 "session",
                 "hogql",
-                "data_warehouse_person_property",
-                "revenue_analytics"
+                "cohort",
+                "revenue_analytics",
+                "data_warehouse",
+                "data_warehouse_person_property"
             ],
             "type": "string"
         },
@@ -26427,6 +26772,7 @@
                 "error_tracking_docs_viewed",
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
+                "llm_analytics_trace_viewed",
                 "llm_analytics_docs_viewed",
                 "llm_cluster_explored",
                 "llm_dataset_created",
@@ -28140,6 +28486,9 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "bias_risk": {
+                            "$ref": "#/definitions/BiasRisk"
+                        },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
                         },
@@ -30919,7 +31268,7 @@
                         },
                         "results": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/LogAttributeResult"
                             },
                             "type": "array"
                         },
@@ -32413,8 +32762,8 @@
                 },
                 "aggregationPropertyType": {
                     "default": "event",
-                    "description": "The type of property to aggregate on (event or person). Defaults to event.",
-                    "enum": ["event", "person"],
+                    "description": "The type of property to aggregate on (event, person or data_warehouse). Defaults to event.",
+                    "enum": ["event", "person", "data_warehouse"],
                     "type": "string"
                 },
                 "aggregationType": {
@@ -34917,15 +35266,15 @@
             "type": "object"
         },
         "SignalInput": {
-            "discriminator": {
-                "propertyName": "source_product"
-            },
-            "oneOf": [
+            "anyOf": [
                 {
                     "$ref": "#/definitions/SessionProblemSignalInput"
                 },
                 {
                     "$ref": "#/definitions/LlmEvaluationSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LlmEvaluationReportSignalInput"
                 },
                 {
                     "$ref": "#/definitions/ZendeskTicketSignalInput"
@@ -34945,9 +35294,7 @@
                 {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 }
-            ],
-            "required": ["source_product"],
-            "type": "object"
+            ]
         },
         "SignalReviewerUserInfo": {
             "additionalProperties": false,
@@ -34989,6 +35336,7 @@
                 "session_analysis_cluster",
                 "session_problem",
                 "evaluation",
+                "evaluation_report",
                 "issue",
                 "ticket",
                 "issue_created",
@@ -35165,6 +35513,10 @@
                     },
                     "type": "array"
                 },
+                "webhookManualOnly": {
+                    "description": "If true, the source does not support automatic webhook registration via API (e.g. Slack — the user must paste the URL into the source's app settings). Adjusts the setup UI copy to avoid promising automatic registration.",
+                    "type": "boolean"
+                },
                 "webhookSetupCaption": {
                     "type": "string"
                 }
@@ -35260,11 +35612,15 @@
                 "required": {
                     "type": "boolean"
                 },
+                "secret": {
+                    "description": "Marks this field as containing sensitive data. The value is stripped from API responses regardless of the rendering `type` (so a multi-line PEM blob can use `textarea` and still be redacted). Required: source authors must explicitly classify every field.",
+                    "type": "boolean"
+                },
                 "type": {
                     "$ref": "#/definitions/SourceFieldInputConfigType"
                 }
             },
-            "required": ["type", "name", "label", "required", "placeholder"],
+            "required": ["type", "name", "label", "required", "placeholder", "secret"],
             "type": "object"
         },
         "SourceFieldInputConfigType": {
@@ -35401,6 +35757,18 @@
         "SourceMap": {
             "additionalProperties": false,
             "properties": {
+                "ad_group_id": {
+                    "type": "string"
+                },
+                "ad_group_name": {
+                    "type": "string"
+                },
+                "ad_id": {
+                    "type": "string"
+                },
+                "ad_name": {
+                    "type": "string"
+                },
                 "campaign": {
                     "type": "string"
                 },
@@ -37662,7 +38030,8 @@
                 "used_similar_products",
                 "used_on_separate_team",
                 "new_product",
-                "sales_led"
+                "sales_led",
+                "onboarding_delegated"
             ],
             "type": "string"
         },
@@ -39825,6 +40194,9 @@
         "YAxisSettings": {
             "additionalProperties": false,
             "properties": {
+                "label": {
+                    "type": "string"
+                },
                 "scale": {
                     "enum": ["linear", "logarithmic"],
                     "type": "string"
@@ -39918,6 +40290,22 @@
                 }
             },
             "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
+        "getEffectiveExcludedColumns": {
+            "$comment": "(\n    level: MarketingAnalyticsDrillDownLevel) => Set<MarketingAnalyticsBaseColumns>",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "level": {
+                            "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel"
+                        }
+                    },
+                    "required": ["level"],
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "integer": {

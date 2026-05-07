@@ -11,6 +11,7 @@ use lifecycle::{ComponentOptions, Manager};
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -137,12 +138,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let locks = Arc::new(DashMap::new());
+    let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
         config.kafka_person_state_topic.clone(),
         fallback_pool,
         Arc::clone(&locks),
+        Arc::clone(&inflight),
     );
 
     // Connect to etcd and start coordination
@@ -155,7 +158,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));
 
-    let handler = LeaderHandoffHandler::new(Arc::clone(&cache));
+    let handler = LeaderHandoffHandler::new(
+        Arc::clone(&cache),
+        Arc::clone(&inflight),
+        personhog_leader::warming::WarmingConfig {
+            kafka: config.kafka.clone(),
+            topic: config.kafka_person_state_topic.clone(),
+            pod_name: config.pod_name.clone(),
+            writer_consumer_group: config.writer_consumer_group.clone(),
+            lookback_offsets: config.warm_lookback_offsets,
+            committed_offsets_timeout: Duration::from_secs(
+                config.warm_committed_offsets_timeout_secs,
+            ),
+            fetch_watermarks_timeout: Duration::from_secs(
+                config.warm_fetch_watermarks_timeout_secs,
+            ),
+            recv_timeout: Duration::from_secs(config.warm_recv_timeout_secs),
+            retry: personhog_leader::warming::WarmingRetryPolicy {
+                max_attempts: config.warm_retry_max_attempts,
+                initial_backoff: Duration::from_millis(config.warm_retry_initial_backoff_ms),
+                max_backoff: Duration::from_millis(config.warm_retry_max_backoff_ms),
+            },
+        },
+    );
     let pod = PodHandle::new(
         store,
         PodConfig {
@@ -192,7 +217,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         let _guard = grpc_handle.process_scope();
         if let Err(e) = Server::builder()
-            .add_service(PersonHogLeaderServer::new(service))
+            .add_service(
+                PersonHogLeaderServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
             .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
             .await
         {

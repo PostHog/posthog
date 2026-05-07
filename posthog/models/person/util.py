@@ -26,7 +26,6 @@ from posthog.models.person.sql import (
     INSERT_PERSON_SQL,
 )
 from posthog.models.signals import mutable_receiver
-from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import (
@@ -444,16 +443,16 @@ def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> lis
     return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
 
 
-def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet | list[Person]:
-    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team.pk, uuids)
+def get_persons_by_uuids(team_id: int, uuids: list[str]) -> QuerySet | list[Person]:
+    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team_id, uuids)
     orm_fn: Callable[[], QuerySet | list[Person]] = lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
-        team_id=team.pk, uuid__in=uuids
+        team_id=team_id, uuid__in=uuids
     )
     return _personhog_routed(
         "get_persons_by_uuids",
         personhog_fn,
         orm_fn,
-        team_id=team.pk,
+        team_id=team_id,
     )
 
 
@@ -666,6 +665,30 @@ def _delete_person(
 
 
 def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.get_distinct_ids_for_person(
+                GetDistinctIdsForPersonRequest(team_id=person.team_id, person_id=person.pk)
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_distinct_ids_with_version", source="personhog", client_name=get_client_name()
+            ).inc()
+            return {d.distinct_id: int(d.version or 0) for d in resp.distinct_ids}
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_distinct_ids_with_version",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_get_distinct_ids_with_version_failure", team_id=person.team_id, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_distinct_ids_with_version", source="django_orm", client_name=get_client_name()
+    ).inc()
     return {
         distinct_id: int(version or 0)
         for distinct_id, version in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)

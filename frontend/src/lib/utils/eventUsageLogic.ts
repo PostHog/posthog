@@ -451,6 +451,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             layoutZoom: number,
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
+        reportDashboardEditModeDiscardPrompt: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            action: 'shown' | 'discarded' | 'kept_editing'
+        ) => ({ dashboard, action }),
         reportDashboardRefreshed: (
             dashboardId: number,
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -591,6 +595,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             warningKey,
         }),
+        reportExperimentBiasWarningShown: (experiment: Experiment) => ({ experiment }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -598,6 +603,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 triggered_by: 'manual' | 'auto-refresh'
                 auto_refresh_enabled?: boolean
                 auto_refresh_interval?: number
+                previous_refresh_id?: string | null
+                previous_refresh_age_ms?: number | null
+                previous_refresh_state?: string | null
+                previous_refresh_triggered_by?: string | null
             }
         ) => ({
             experiment,
@@ -668,32 +677,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             dashboardId,
         }),
-        reportExperimentMetricTimeout: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId?: number | null,
-            queryId?: string | null
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-        }),
-        reportExperimentMetricOutOfMemory: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId?: number | null,
-            queryId?: string | null,
-            errorCode?: string | null,
-            errorMessage?: string | null
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            errorCode,
-            errorMessage,
-        }),
         reportExperimentMetricFinished: (
             experimentId: ExperimentIdType,
             metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
@@ -728,9 +711,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
-                error_type: 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown'
+                error_type:
+                    | 'timeout'
+                    | 'out_of_memory'
+                    | 'server_error'
+                    | 'network_error'
+                    | 'not_found'
+                    | 'authentication'
+                    | 'authorization'
+                    | 'validation_error'
+                    | 'unknown'
                 error_code: string | null
                 error_message: string | null
+                error_detail: string | null
                 status_code: number | null
             }
         ) => ({
@@ -1089,6 +1082,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             itemName,
             isAIFirst,
         }),
+        reportNavbarStarredItemsReordered: (itemCount: number, isAIFirst: boolean) => ({
+            itemCount,
+            isAIFirst,
+        }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1304,6 +1301,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard: sanitizeDashboard(dashboard),
                 layout_zoom: layoutZoom,
                 source,
+            })
+        },
+        reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
+            posthog.capture('dashboard edit mode discard prompt', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                action,
             })
         },
         reportDashboardRefreshed: async ({
@@ -1571,6 +1575,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 warning_key: warningKey,
             })
         },
+        reportExperimentBiasWarningShown: ({ experiment }) => {
+            posthog.capture('experiment bias warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
         reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
             posthog.capture('experiment metrics refreshed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1578,6 +1587,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 triggered_by: context?.triggered_by || 'manual',
                 auto_refresh_enabled: context?.auto_refresh_enabled,
                 auto_refresh_interval: context?.auto_refresh_interval,
+                previous_refresh_id: context?.previous_refresh_id ?? null,
+                previous_refresh_age_ms: context?.previous_refresh_age_ms ?? null,
+                previous_refresh_state: context?.previous_refresh_state ?? null,
+                previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
             })
         },
         reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {
@@ -1689,26 +1702,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_name: experiment.name,
                 experiment_id: experiment.id,
                 dashboard_id: dashboardId,
-            })
-        },
-        reportExperimentMetricTimeout: ({ experimentId, metric, teamId, queryId }) => {
-            posthog.capture('experiment metric timeout', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
-                metric,
-            })
-        },
-        reportExperimentMetricOutOfMemory: ({ experimentId, metric, teamId, queryId, errorCode, errorMessage }) => {
-            posthog.capture('experiment metric out of memory', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                error_code: errorCode,
-                error_message: errorMessage,
-                ...getEventPropertiesForMetric(metric),
-                metric,
             })
         },
         reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId, context }) => {
@@ -2482,6 +2475,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('navbar starred item clicked', {
                 item_type: itemType,
                 item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
+        },
+        reportNavbarStarredItemsReordered: ({ itemCount, isAIFirst }) => {
+            posthog.capture('navbar starred items reordered', {
+                item_count: itemCount,
                 is_ai_first: isAIFirst,
             })
         },

@@ -22,6 +22,36 @@ from products.data_warehouse.backend.s3 import aget_s3_client
 WAREHOUSE_WEBHOOK_FLAG = "warehouse-source-webhooks"
 
 
+def is_webhook_feature_flag_enabled(team_id: int) -> bool:
+    from posthog.models import Team
+
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            WAREHOUSE_WEBHOOK_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        return bool(enabled)
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
 class WebhookSourceManager:
     _inputs: SourceInputs
     _logger: FilteringBoundLogger
@@ -36,7 +66,7 @@ class WebhookSourceManager:
     def _strip_s3_protocol(self, s3_path: str) -> str:
         return s3_path.replace("s3://", "")
 
-    async def webhook_enabled(self) -> bool:
+    async def webhook_enabled(self, skip_initial_sync_complete_check: bool = False) -> bool:
         from posthog.models.hog_functions.hog_function import HogFunction
 
         from products.data_warehouse.backend.models import ExternalDataSchema
@@ -50,7 +80,14 @@ class WebhookSourceManager:
             id=self._inputs.schema_id, team_id=self._inputs.team_id
         )
 
-        if not schema.is_webhook or not schema.initial_sync_complete or self._inputs.reset_pipeline:
+        if (
+            not schema.is_webhook
+            or (skip_initial_sync_complete_check is not True and not schema.initial_sync_complete)
+            or self._inputs.reset_pipeline
+        ):
+            await self._logger.adebug(
+                f"webhook_enabled=False. schema.is_webhook={schema.is_webhook}. schema.initial_sync_complete={schema.initial_sync_complete}. self._inputs.reset_pipeline={self._inputs.reset_pipeline}"
+            )
             return False
 
         has_webhook_function = await database_sync_to_async_pool(

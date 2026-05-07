@@ -1,1 +1,1 @@
-0242_warpstream_person_distinct_id_overrides_kafka_engine
+0250_property_values_lowercase_text_index

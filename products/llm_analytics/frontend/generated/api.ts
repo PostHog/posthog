@@ -18,11 +18,15 @@ import type {
     DatasetItemsListParams,
     DatasetsListParams,
     EvaluationApi,
+    EvaluationConfigApi,
+    EvaluationConfigSetActiveKeyRequestApi,
     EvaluationReportApi,
     EvaluationRunRequestApi,
+    EvaluationRunsCreate200,
     EvaluationSummaryRequestApi,
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
+    LLMModelsListResponseApi,
     LLMPromptApi,
     LLMPromptDuplicateApi,
     LLMPromptPublicApi,
@@ -35,14 +39,19 @@ import type {
     LLMSkillFileCreateApi,
     LLMSkillFileRenameApi,
     LLMSkillResolveResponseApi,
+    LlmAnalyticsClusteringConfigRetrieve200,
+    LlmAnalyticsClusteringConfigSetEventFiltersCreate200,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
+    LlmAnalyticsModelsRetrieveParams,
+    LlmAnalyticsProviderKeyValidationsCreate200,
     LlmAnalyticsProviderKeysListParams,
     LlmAnalyticsReviewQueueItemsListParams,
     LlmAnalyticsReviewQueuesListParams,
     LlmAnalyticsScoreDefinitionsListParams,
     LlmAnalyticsTraceReviewsListParams,
+    LlmAnalyticsTranslateCreate200,
     LlmPromptsListParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
@@ -63,6 +72,7 @@ import type {
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
+    PaginatedTaggerListApi,
     PaginatedTraceReviewListApi,
     PatchedClusteringJobApi,
     PatchedDatasetApi,
@@ -84,15 +94,20 @@ import type {
     ScoreDefinitionCreateApi,
     ScoreDefinitionNewVersionApi,
     SentimentBatchResponseApi,
+    SentimentGenerationsRequestApi,
+    SentimentGenerationsResponseApi,
     SentimentRequestApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
+    TaggerApi,
+    TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
     TraceReviewApi,
     TraceReviewCreateApi,
+    TranslateRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -126,8 +141,8 @@ export const evaluationRunsCreate = async (
     projectId: string,
     evaluationRunRequestApi: EvaluationRunRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getEvaluationRunsCreateUrl(projectId), {
+): Promise<EvaluationRunsCreate200> => {
+    return apiMutator<EvaluationRunsCreate200>(getEvaluationRunsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -271,8 +286,11 @@ export const getLlmAnalyticsClusteringConfigRetrieveUrl = (projectId: string) =>
     return `/api/environments/${projectId}/llm_analytics/clustering_config/`
 }
 
-export const llmAnalyticsClusteringConfigRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsClusteringConfigRetrieveUrl(projectId), {
+export const llmAnalyticsClusteringConfigRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LlmAnalyticsClusteringConfigRetrieve200> => {
+    return apiMutator<LlmAnalyticsClusteringConfigRetrieve200>(getLlmAnalyticsClusteringConfigRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -288,11 +306,14 @@ export const getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl = (projectI
 export const llmAnalyticsClusteringConfigSetEventFiltersCreate = async (
     projectId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
+): Promise<LlmAnalyticsClusteringConfigSetEventFiltersCreate200> => {
+    return apiMutator<LlmAnalyticsClusteringConfigSetEventFiltersCreate200>(
+        getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 /**
@@ -456,8 +477,11 @@ export const getLlmAnalyticsEvaluationConfigRetrieveUrl = (projectId: string) =>
     return `/api/environments/${projectId}/llm_analytics/evaluation_config/`
 }
 
-export const llmAnalyticsEvaluationConfigRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsEvaluationConfigRetrieveUrl(projectId), {
+export const llmAnalyticsEvaluationConfigRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EvaluationConfigApi> => {
+    return apiMutator<EvaluationConfigApi>(getLlmAnalyticsEvaluationConfigRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -472,11 +496,14 @@ export const getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl = (projectId: 
 
 export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
     projectId: string,
+    evaluationConfigSetActiveKeyRequestApi: EvaluationConfigSetActiveKeyRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId), {
+): Promise<EvaluationConfigApi> => {
+    return apiMutator<EvaluationConfigApi>(getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationConfigSetActiveKeyRequestApi),
     })
 }
 
@@ -703,12 +730,28 @@ export const llmAnalyticsEvaluationSummaryCreate = async (
 /**
  * List available models for a provider.
  */
-export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/llm_analytics/models/`
+export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params: LlmAnalyticsModelsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/models/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/models/`
 }
 
-export const llmAnalyticsModelsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsModelsRetrieveUrl(projectId), {
+export const llmAnalyticsModelsRetrieve = async (
+    projectId: string,
+    params: LlmAnalyticsModelsRetrieveParams,
+    options?: RequestInit
+): Promise<LLMModelsListResponseApi> => {
+    return apiMutator<LLMModelsListResponseApi>(getLlmAnalyticsModelsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -724,11 +767,14 @@ export const getLlmAnalyticsProviderKeyValidationsCreateUrl = (projectId: string
 export const llmAnalyticsProviderKeyValidationsCreate = async (
     projectId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsProviderKeyValidationsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
+): Promise<LlmAnalyticsProviderKeyValidationsCreate200> => {
+    return apiMutator<LlmAnalyticsProviderKeyValidationsCreate200>(
+        getLlmAnalyticsProviderKeyValidationsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getLlmAnalyticsProviderKeysListUrl = (projectId: string, params?: LlmAnalyticsProviderKeysListParams) => {
@@ -1218,6 +1264,32 @@ export const llmAnalyticsSentimentCreate = async (
 }
 
 /**
+ * Fetch the recent $ai_generation events for the sentiment tab.
+
+Backed by `_SENTIMENT_GENERATIONS_SQL` reading `posthog.ai_events` through
+`execute_with_ai_events_fallback`, so heavy `input` values survive the
+post-cutover strip on `events.properties.$ai_input`. Frontend callers
+pass the same `HogQLFilters` payload they previously passed to
+`api.query({kind: HogQLQuery, filters: ...})`.
+ */
+export const getLlmAnalyticsSentimentGenerationsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/sentiment/generations/`
+}
+
+export const llmAnalyticsSentimentGenerationsCreate = async (
+    projectId: string,
+    sentimentGenerationsRequestApi: SentimentGenerationsRequestApi,
+    options?: RequestInit
+): Promise<SentimentGenerationsResponseApi> => {
+    return apiMutator<SentimentGenerationsResponseApi>(getLlmAnalyticsSentimentGenerationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentimentGenerationsRequestApi),
+    })
+}
+
+/**
  * 
 Generate an AI-powered summary of an LLM trace or event.
 
@@ -1441,10 +1513,16 @@ export const getLlmAnalyticsTranslateCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/translate/`
 }
 
-export const llmAnalyticsTranslateCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsTranslateCreateUrl(projectId), {
+export const llmAnalyticsTranslateCreate = async (
+    projectId: string,
+    translateRequestApi: TranslateRequestApi,
+    options?: RequestInit
+): Promise<LlmAnalyticsTranslateCreate200> => {
+    return apiMutator<LlmAnalyticsTranslateCreate200>(getLlmAnalyticsTranslateCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(translateRequestApi),
     })
 }
 
@@ -1870,6 +1948,70 @@ export const llmSkillsResolveNameRetrieve = async (
     return apiMutator<LLMSkillResolveResponseApi>(getLlmSkillsResolveNameRetrieveUrl(projectId, skillName, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTaggersListUrl = (projectId: string, params?: TaggersListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/taggers/?${stringifiedParams}`
+        : `/api/environments/${projectId}/taggers/`
+}
+
+export const taggersList = async (
+    projectId: string,
+    params?: TaggersListParams,
+    options?: RequestInit
+): Promise<PaginatedTaggerListApi> => {
+    return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaggersCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/taggers/`
+}
+
+export const taggersCreate = async (
+    projectId: string,
+    taggerApi: NonReadonly<TaggerApi>,
+    options?: RequestInit
+): Promise<TaggerApi> => {
+    return apiMutator<TaggerApi>(getTaggersCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taggerApi),
+    })
+}
+
+/**
+ * Test Hog tagger code against sample events without saving.
+ */
+export const getTaggersTestHogCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/taggers/test_hog/`
+}
+
+export const taggersTestHogCreate = async (
+    projectId: string,
+    taggerApi: NonReadonly<TaggerApi>,
+    options?: RequestInit
+): Promise<TaggerApi> => {
+    return apiMutator<TaggerApi>(getTaggersTestHogCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taggerApi),
     })
 }
 

@@ -505,7 +505,7 @@ describe('Experiments', { concurrent: false }, () => {
             // Try to get metric results for draft experiment
             await expect(
                 getResultsTool.handler(context, {
-                    experimentId: experiment.id,
+                    id: experiment.id,
                     refresh: false,
                 })
             ).rejects.toThrow(/has not started yet/)
@@ -545,7 +545,7 @@ describe('Experiments', { concurrent: false }, () => {
             // Test with refresh=true (will still fail for draft, but tests parameter handling)
             await expect(
                 getResultsTool.handler(context, {
-                    experimentId: experiment.id,
+                    id: experiment.id,
                     refresh: true,
                 })
             ).rejects.toThrow(/has not started yet/)
@@ -733,7 +733,7 @@ describe('Experiments', { concurrent: false }, () => {
             // Test get metric results
             await expect(
                 getResultsTool.handler(context, {
-                    experimentId: invalidId,
+                    id: invalidId,
                     refresh: false,
                 })
             ).rejects.toThrow()

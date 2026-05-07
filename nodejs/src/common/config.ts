@@ -112,7 +112,14 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
+    CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
+    /**
+     * When true, every Kafka consumer in this service uses KafkaConsumerV2; otherwise the
+     * legacy KafkaConsumer (v1) is used. Used by `createKafkaConsumer()` in
+     * `src/kafka/consumer/index.ts`. Will be removed once v1 is deleted.
+     */
+    CONSUMER_USE_V2: boolean
 
     // Kafka
     KAFKA_HOSTS: string
@@ -161,6 +168,9 @@ export type CommonConfig = BaseServerConfig & {
 
     // Shared between ingestion and CDP (used by hog transformer in both)
     CDP_HOG_WATCHER_SAMPLE_RATE: number
+
+    // Event loop yield helper (yieldEventLoopIfNeeded)
+    EVENT_LOOP_YIELD_THRESHOLD_MS: number
 }
 
 export type ExternalRequestConfig = Pick<
@@ -268,7 +278,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
+        CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
+        CONSUMER_USE_V2: false,
 
         // Kafka
         KAFKA_HOSTS: 'kafka:9092',
@@ -323,6 +335,9 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Shared between ingestion and CDP
         CDP_HOG_WATCHER_SAMPLE_RATE: 0,
+
+        // Event loop yield helper
+        EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,

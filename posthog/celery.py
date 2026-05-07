@@ -1,11 +1,13 @@
 import os
 import time
+import errno
 
 from django.dispatch import receiver
 
 import structlog
 from celery import Celery
 from celery.signals import (
+    celeryd_init,
     setup_logging,
     task_failure,
     task_postrun,
@@ -13,10 +15,19 @@ from celery.signals import (
     task_retry,
     task_success,
     worker_process_init,
+    worker_process_shutdown,
 )
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Histogram, start_http_server
+
+# When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
+# prometheus_client uses file-backed storage so all prefork children's
+# metrics are aggregated into a single /metrics endpoint.  Without it,
+# only the one child that binds port 8001 is visible to Prometheus.
+_PROMETHEUS_MULTIPROC_DIR = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+if _PROMETHEUS_MULTIPROC_DIR:
+    os.makedirs(_PROMETHEUS_MULTIPROC_DIR, exist_ok=True)
 
 logger = structlog.get_logger(__name__)
 
@@ -133,16 +144,54 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
         structlog.contextvars.bind_contextvars(task_name=task.name)
 
 
+@celeryd_init.connect
+def on_celeryd_init(**kwargs) -> None:
+    """Clean stale prometheus multiproc files from a previous run."""
+    if not _PROMETHEUS_MULTIPROC_DIR:
+        return
+    logger.info("prometheus_multiproc_cleanup_start", directory=_PROMETHEUS_MULTIPROC_DIR)
+    removed = 0
+    try:
+        for entry in os.scandir(_PROMETHEUS_MULTIPROC_DIR):
+            if entry.is_file(follow_symlinks=False) and entry.name.endswith(".db"):
+                os.unlink(entry.path)
+                removed += 1
+    except OSError as e:
+        logger.warning("prometheus_multiproc_cleanup_failed", error=str(e))
+    logger.info("prometheus_multiproc_cleanup_done", removed=removed)
+
+
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
     from posthoganalytics import setup
-    from prometheus_client import start_http_server
 
     setup()  # makes sure things like exception autocapture are initialised
-    start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
+
+    port = int(os.getenv("CELERY_METRICS_PORT", "8001"))
+    try:
+        if _PROMETHEUS_MULTIPROC_DIR:
+            from prometheus_client import CollectorRegistry, multiprocess
+
+            registry = CollectorRegistry()
+            multiprocess.MultiProcessCollector(registry)
+            start_http_server(port, registry=registry)
+        else:
+            start_http_server(port)
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            logger.warning("metrics_server_start_failed", port=port, error=str(exc))
 
     # Initialize metrics that need to survive pod restarts
     _initialize_worker_metrics()
+
+
+@worker_process_shutdown.connect
+def on_worker_process_shutdown(**kwargs) -> None:
+    """Remove metric files for this child so recycled workers don't leak stale data."""
+    if _PROMETHEUS_MULTIPROC_DIR:
+        from prometheus_client import multiprocess
+
+        multiprocess.mark_process_dead(os.getpid())
 
 
 # Set up clickhouse query instrumentation

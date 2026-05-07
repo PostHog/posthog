@@ -1,47 +1,19 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "account_id": {
-            "type": "string"
-        },
-        "client_secret": {
-            "type": "string"
-        },
-        "description": {
-            "anyOf": [
-                {
-                    "maxLength": 400,
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ]
-        },
-        "job_inputs": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
-        "prefix": {
-            "anyOf": [
-                {
-                    "maxLength": 100,
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ]
+        "payload": {
+            "additionalProperties": {},
+            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
         },
         "source_type": {
             "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
             "type": "string"
         }
     },
-    "required": ["client_secret", "account_id", "source_type"],
+    "required": ["source_type", "payload"],
     "type": "object"
 }

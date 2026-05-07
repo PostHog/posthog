@@ -12,6 +12,8 @@
     "statusCode": 200,
     "path": "/api/users",
     "executionRegion": "sfo1",
+    "invocationId": "01KPVBPVC87N00DCM26QSNN140",
+    "instanceId": "1GQNa0uAPkg0",
     "environment": "production",
     "traceId": "1b02cd14bb8642fd092bc23f54c7ffcd",
     "spanId": "f24e8631bd11faa7",
