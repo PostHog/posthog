@@ -150,6 +150,35 @@ describe('KeyedRateLimiterService', () => {
         ])
     })
 
+    it('BUG: sustained traffic at exactly refillRate cannot recover from a -1 overdraft', async () => {
+        // The Lua bucket clamps stored `pool` to -1 on overdraft AND advances `ts` to `now`
+        // on every call. Sustained traffic at >= cost/refillRate therefore zeros out each
+        // fractional refill before it accrues, wedging the bucket at -1 indefinitely.
+        const limiter = buildLimiter('test-stuck-at-minus-one', { bucketSize: 100, refillRate: 1 })
+        await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+        // Overdraft by 1: true balance -1.
+        const drained = await limiter.rateLimitMany([{ id: 'team-1', cost: 101 }])
+        expect(drained[0][1]).toEqual({ tokens: -1, isRateLimited: true })
+
+        // 300s at exactly the refill rate (1 call/s, cost=1, refill=1/s). The buggy bucket
+        // stays pinned at exactly -1 the whole time — every call zeros out the fractional
+        // refill it just earned via the clamp + ts-reset, so the negative balance never moves.
+        for (let i = 0; i < 300; i++) {
+            advanceTime(1000)
+            const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
+            expect(res[0][1]).toEqual({ tokens: -1, isRateLimited: true })
+        }
+
+        // The actual signal: once traffic stops, the same key recovers given enough wall
+        // time. So the wedge above is specifically caused by sustained traffic resetting
+        // `ts` against the -1 sentinel, not by the bucket math being unrecoverable.
+        advanceTime(200_000)
+        const afterIdle = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
+        expect(afterIdle[0][1].isRateLimited).toBe(false)
+        expect(afterIdle[0][1].tokens).toBeGreaterThan(0)
+    })
+
     it('honours per-call bucketSize and refillRate overrides', async () => {
         const limiter = buildLimiter('test-per-call', { bucketSize: 100, refillRate: 10 })
         await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
