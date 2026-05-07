@@ -538,15 +538,14 @@ def get_sandbox_github_token(
                 )
             return get_github_token(github_integration_id)
         if github_integration_id is None:
-            # No team fallback — let the integration's raise propagate with its specific message.
-            token = user_github_integration.get_usable_user_access_token()
-            if token is None:
+            no_team_token: str | None = user_github_integration.get_usable_user_access_token()
+            if no_team_token is None:
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
-            return token
+            return no_team_token
         try:
-            token = user_github_integration.get_usable_user_access_token()
+            token: str | None = user_github_integration.get_usable_user_access_token()
         except ReauthorizationRequired:
             token = None
         if token is not None:
