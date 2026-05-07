@@ -1016,9 +1016,6 @@ jobs:
                       echo "::endgroup::"
                   done
 
-    # OpenAPI type generation.
-    # This job only needs Django boot and Node codegen; migration replay stays
-    # in check-migrations above.
     check-openapi-types:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
