@@ -697,7 +697,7 @@ describe('LogsRateLimiterService', () => {
                 // configured rate is 1KB/s so ~half should be dropped.
                 const messages: any[] = []
                 for (let i = 0; i < 120; i++) {
-                    const seconds = 60 + Math.floor(i / 2)
+                    const seconds = 0 + Math.floor(i / 2)
                     const ts = new Date(
                         `2024-01-01T00:0${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}Z`
                     ).toISOString()
