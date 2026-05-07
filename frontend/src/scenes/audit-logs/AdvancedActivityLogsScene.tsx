@@ -9,6 +9,7 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -29,6 +30,7 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
     const { activeTab, view, canViewOrganization, isOrganizationView } = useValues(advancedActivityLogsLogic)
     const { setActiveTab, setView } = useActions(advancedActivityLogsLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
 
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
     const includesOrgLevelLogs = currentTeam?.receive_org_level_activity_logs
@@ -93,7 +95,7 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                     forceIcon: <IconNotification />,
                 }}
             />
-            <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
+            <PayGateMini feature={AvailableFeature.AUDIT_LOGS} overrideShouldShowGate={user?.is_impersonated}>
                 <LemonTabs
                     activeKey={isOrganizationView ? 'logs' : activeTab}
                     onChange={(key) => setActiveTab(key as 'logs' | 'exports')}

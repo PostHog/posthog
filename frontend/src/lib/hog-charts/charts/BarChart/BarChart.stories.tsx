@@ -3,7 +3,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BarChart, ReferenceLine, ValueLabels } from 'lib/hog-charts'
 import type { BarChartConfig, Series } from 'lib/hog-charts'
 
-import { Stage, useReactiveTheme } from '../story-helpers'
+import { Stage, useReactiveTheme } from '../../story-helpers'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
