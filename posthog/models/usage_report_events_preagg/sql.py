@@ -1,10 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import (
-    CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG,
-    CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG_WS,
-    kafka_engine,
-)
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
@@ -13,17 +9,14 @@ USAGE_REPORT_EVENTS_PREAGG_TABLE = "usage_report_events_preagg"
 SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE = f"sharded_{USAGE_REPORT_EVENTS_PREAGG_TABLE}"
 WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE = f"writable_{USAGE_REPORT_EVENTS_PREAGG_TABLE}"
 USAGE_REPORT_EVENTS_PREAGG_MV = f"{USAGE_REPORT_EVENTS_PREAGG_TABLE}_mv"
-USAGE_REPORT_EVENTS_PREAGG_WS_MV = f"{USAGE_REPORT_EVENTS_PREAGG_TABLE}_ws_mv"
 
-# Dedicated Kafka engine tables. We do NOT reuse `kafka_events_json` /
-# `kafka_events_json_ws` (the main events ingestion path) — every MV attached
-# to a Kafka engine table shares its consumer offsets, so a slow or broken
-# aggregate MV would back-pressure the main events pipeline. By creating our
-# own Kafka tables with their own consumer groups (mirroring the WarpStream
-# pattern in posthog/models/event/sql.py), this aggregate has an independent
-# consumer and an independent failure domain.
+# Dedicated Kafka engine table. We do NOT reuse `kafka_events_json_ws` (the
+# main events ingestion path) — every MV attached to a Kafka engine table
+# shares its consumer offsets, so a slow or broken aggregate MV would
+# back-pressure the main events pipeline. By creating our own Kafka table
+# with its own consumer group, this aggregate has an independent consumer
+# and an independent failure domain.
 KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE = "kafka_usage_report_events_preagg"
-KAFKA_USAGE_REPORT_EVENTS_PREAGG_WS_TABLE = "kafka_usage_report_events_preagg_ws"
 
 USAGE_REPORT_EVENTS_PREAGG_TTL_DAYS = 14
 
@@ -94,21 +87,10 @@ CREATE TABLE IF NOT EXISTS {KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE}
 (
     {_KAFKA_USAGE_REPORT_EVENTS_PREAGG_COLUMNS}
 )
-ENGINE = {kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG)}
-SETTINGS kafka_skip_broken_messages = 100
-"""
-
-
-def KAFKA_USAGE_REPORT_EVENTS_PREAGG_WS_TABLE_SQL() -> str:
-    return f"""
-CREATE TABLE IF NOT EXISTS {KAFKA_USAGE_REPORT_EVENTS_PREAGG_WS_TABLE}
-(
-    {_KAFKA_USAGE_REPORT_EVENTS_PREAGG_COLUMNS}
-)
 ENGINE = {
         kafka_engine(
             topic=KAFKA_EVENTS_JSON,
-            group=CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG_WS,
+            group=CONSUMER_GROUP_USAGE_REPORT_EVENTS_PREAGG,
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         )
     }
@@ -116,9 +98,12 @@ SETTINGS kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_
 """
 
 
-# Read `$lib` from the JSON `properties` blob — the slim Kafka tables don't
-# project it as a top-level column.
-_USAGE_REPORT_EVENTS_PREAGG_MV_SELECT_TEMPLATE = """
+def USAGE_REPORT_EVENTS_PREAGG_MV_SQL() -> str:
+    # Reads `$lib` from the JSON `properties` blob — the slim Kafka table
+    # doesn't project it as a top-level column.
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {USAGE_REPORT_EVENTS_PREAGG_MV}
+TO {WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE}
 AS SELECT
     toDate(timestamp) AS date,
     team_id,
@@ -127,22 +112,6 @@ AS SELECT
     event,
     uniqExactState((cityHash64(distinct_id), cityHash64(toString(uuid)))) AS distinct_events_unique,
     sumState(toUInt64(1)) AS event_count
-FROM {kafka_table}
+FROM {KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE}
 GROUP BY date, team_id, person_mode, lib, event
-"""
-
-
-def USAGE_REPORT_EVENTS_PREAGG_MV_SQL() -> str:
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {USAGE_REPORT_EVENTS_PREAGG_MV}
-TO {WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE}
-{_USAGE_REPORT_EVENTS_PREAGG_MV_SELECT_TEMPLATE.format(kafka_table=KAFKA_USAGE_REPORT_EVENTS_PREAGG_TABLE)}
-"""
-
-
-def USAGE_REPORT_EVENTS_PREAGG_WS_MV_SQL() -> str:
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {USAGE_REPORT_EVENTS_PREAGG_WS_MV}
-TO {WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE}
-{_USAGE_REPORT_EVENTS_PREAGG_MV_SELECT_TEMPLATE.format(kafka_table=KAFKA_USAGE_REPORT_EVENTS_PREAGG_WS_TABLE)}
 """
