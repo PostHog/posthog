@@ -83,9 +83,9 @@ function MetricIndicators({ value }: { value: OfflineMetricValue }): JSX.Element
     ) : null
 
     const traceIndicator =
-        value.traceId && value.targetEventId ? (
-            <Tooltip title={<div className="font-mono text-xs">{value.traceId}</div>}>
-                <Link to={urls.llmAnalyticsTrace(value.traceId)} className="text-muted">
+        value.targetType === 'trace_id' && value.targetId ? (
+            <Tooltip title={<div className="font-mono text-xs">{value.targetId}</div>}>
+                <Link to={urls.llmAnalyticsTrace(value.targetId)} className="text-muted">
                     <IconExternal className="size-3" />
                 </Link>
             </Tooltip>

@@ -56,7 +56,8 @@ type RawOfflineExperimentMetricRow = [
     ai_output: HogQLPrimitive,
     ai_expected: HogQLPrimitive,
     last_seen_at: HogQLPrimitive,
-    target_event_id: HogQLPrimitive,
+    target_id: HogQLPrimitive,
+    target_type: HogQLPrimitive,
 ]
 
 export interface OfflineEvaluationsLogicProps {
@@ -87,7 +88,8 @@ export interface OfflineMetricValue {
     resultType: string | null
     reasoning: string | null
     traceId: string | null
-    targetEventId: string | null
+    targetId: string | null
+    targetType: string | null
 }
 
 export interface OfflineExperimentItem {
@@ -261,7 +263,8 @@ export function mapOfflineExperimentItems(rows: RawOfflineExperimentMetricRow[])
         const output = asString(row[15])
         const expected = asString(row[16])
         const rowLastSeenAt = asString(row[17])
-        const targetEventId = asString(row[18])
+        const targetId = asString(row[18])
+        const targetType = asString(row[19])
 
         const existing = itemsById.get(itemId)
         const currentItem: OfflineExperimentItem = existing
@@ -311,7 +314,8 @@ export function mapOfflineExperimentItems(rows: RawOfflineExperimentMetricRow[])
                 resultType: asString(row[9]),
                 reasoning: asString(row[10]),
                 traceId,
-                targetEventId,
+                targetId,
+                targetType,
             }
         }
 
