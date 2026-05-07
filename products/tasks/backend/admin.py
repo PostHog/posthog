@@ -72,9 +72,6 @@ class CodeInviteAdmin(admin.ModelAdmin):
     autocomplete_fields = ("created_by",)
     inlines = []
 
-    def get_readonly_fields(self, request, obj=None):
-        return ("id", "redemption_count", "created_at")
-
     def get_fieldsets(self, request, obj=None):
         if obj:
             return (
