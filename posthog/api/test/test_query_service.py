@@ -8,7 +8,6 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
-    DataVisualizationNode,
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
     DatabaseSchemaPostHogTable,
@@ -17,6 +16,7 @@ from posthog.schema import (
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
     DatabaseSerializedFieldType,
+    DataVisualizationNode,
     HogLanguage,
     HogQLAutocomplete,
     HogQLAutocompleteResponse,
@@ -40,9 +40,7 @@ class TestQueryService(APIBaseTest):
     def test_data_visualization_node_surfaces_hogql_resolution_error_without_value_error_context(
         self, mock_get_query_runner_or_none: MagicMock
     ):
-        query = DataVisualizationNode(
-            source=HogQLQuery(query="SELECT properties FROM events JOIN persons ON 1 = 1")
-        )
+        query = DataVisualizationNode(source=HogQLQuery(query="SELECT properties FROM events JOIN persons ON 1 = 1"))
         runner = MagicMock()
         runner.run.side_effect = ResolutionError("Ambiguous query. Found multiple sources for field: properties")
         mock_get_query_runner_or_none.side_effect = [None, runner]

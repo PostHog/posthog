@@ -51,9 +51,7 @@ def lookup_field_by_name(
         return scope.aliases[name]
     else:
         named_tables = [
-            (table_alias, table)
-            for table_alias, table in scope.tables.items()
-            if table.has_child(name, context)
+            (table_alias, table) for table_alias, table in scope.tables.items() if table.has_child(name, context)
         ]
         anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name, context)]
         tables_with_field = [table for _, table in named_tables] + anonymous_tables
@@ -61,9 +59,7 @@ def lookup_field_by_name(
         if len(tables_with_field) > 1:
             field_sources = [
                 _table_source_name(table, context, alias=table_alias) for table_alias, table in named_tables
-            ] + [
-                _anonymous_table_source_name(table, index) for index, table in enumerate(anonymous_tables, start=1)
-            ]
+            ] + [_anonymous_table_source_name(table, index) for index, table in enumerate(anonymous_tables, start=1)]
             raise _ambiguous_field_resolution_error(name, field_sources)
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name, context)
@@ -75,13 +71,9 @@ def lookup_field_by_name(
 
 
 def _ambiguous_field_resolution_error(name: str, field_sources: list[str]) -> ResolutionError:
-    if len(field_sources) == 0:
-        return ResolutionError(f"Ambiguous query. Found multiple sources for field: {name}")
-
     source_names = ", ".join(f"{source}.{name}" for source in field_sources)
     return ResolutionError(
-        f"Ambiguous query. Found multiple sources for field: {name} ({source_names}). "
-        "Use a qualified field name."
+        f"Ambiguous query. Found multiple sources for field: {name} ({source_names}). Use a qualified field name."
     )
 
 
@@ -89,11 +81,14 @@ def _table_source_name(table: ast.TableOrSelectType, context: HogQLContext, *, a
     if alias:
         return alias
 
-    if isinstance(table, ast.TableAliasType | ast.ColumnAliasedTableType | ast.SelectViewType):
-        return table.alias
-    if isinstance(table, ast.CTETableAliasType):
-        return table.alias
-    if isinstance(table, ast.SelectQueryAliasType):
+    if isinstance(
+        table,
+        ast.TableAliasType
+        | ast.ColumnAliasedTableType
+        | ast.SelectViewType
+        | ast.CTETableAliasType
+        | ast.SelectQueryAliasType,
+    ):
         return table.alias
     if isinstance(table, ast.CTETableType):
         return table.name
