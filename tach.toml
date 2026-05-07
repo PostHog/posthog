@@ -566,7 +566,12 @@ from = [
 path = "products.business_knowledge"
 depends_on = ["posthog"]
 layer = "modules"
-interfaces = [
-    "products.business_knowledge.backend.facade",
-    "products.business_knowledge.backend.presentation.views",
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.business_knowledge",
 ]
