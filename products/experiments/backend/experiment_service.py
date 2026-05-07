@@ -145,8 +145,17 @@ class ExperimentService:
                 raise ValidationError(
                     "Feature flag must have at least 2 variants (control and at least one test variant)"
                 )
-            if "control" not in [variant["key"] for variant in variants]:
-                raise ValidationError("Feature flag variants must contain a control variant")
+            keys = [variant["key"] for variant in variants]
+            if "control" not in keys:
+                # Surface the keys we did receive so LLM callers can self-correct without a
+                # second roundtrip. Capitalized 'Control' is auto-normalized in
+                # ExperimentParametersField.to_internal_value, so anything reaching this
+                # branch genuinely lacks a baseline variant.
+                raise ValidationError(
+                    "Feature flag variants must contain a variant with key 'control' "
+                    f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
+                    "'key' to 'control'."
+                )
 
     @staticmethod
     def validate_experiment_exposure_criteria(exposure_criteria: dict | None) -> None:

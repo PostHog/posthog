@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.db import DatabaseError, models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
@@ -131,6 +132,17 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
+
+    def clean(self) -> None:
+        """Reject encrypted payloads on non-remote-config flags.
+
+        Django does not invoke clean() from save(), so this fires only from
+        admin and explicit full_clean() callers. The HTTP path is gated by
+        FeatureFlagSerializer._validate_encrypted_payloads_require_remote_config.
+        """
+        super().clean()
+        if self.has_encrypted_payloads and not self.is_remote_configuration:
+            raise ValidationError("Encrypted payloads require the flag to be a remote configuration.")
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["FeatureFlag"]:

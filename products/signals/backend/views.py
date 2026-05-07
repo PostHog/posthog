@@ -446,8 +446,9 @@ class SignalReportViewSet(
                 When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
                 When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
                 When(status=SignalReport.Status.FAILED, then=Value(6)),
-                When(status=SignalReport.Status.SUPPRESSED, then=Value(7)),
-                When(status=SignalReport.Status.DELETED, then=Value(8)),
+                When(status=SignalReport.Status.RESOLVED, then=Value(7)),
+                When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
+                When(status=SignalReport.Status.DELETED, then=Value(9)),
                 default=Value(50),
                 output_field=IntegerField(),
             )

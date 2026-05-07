@@ -113,7 +113,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         }
         const allowed = new Set(seriesKeys)
         return series.map((s) =>
-            allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, fromValueLabels: true } }
+            allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, valueLabel: false } }
         )
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [series, seriesKeysSignature])
