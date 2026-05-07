@@ -1,10 +1,31 @@
+import math
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models import OrganizationMembership, Team
+from django.utils import timezone
+
+from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
+
+from posthog.clickhouse.client.execute import KillSwitchLevel
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import Organization
 
-from products.web_analytics.backend.temporal.weekly_digest.activities import _send_digest_for_user, _send_test_digest
+from products.web_analytics.backend.temporal.weekly_digest.activities import (
+    _get_org_id_batches,
+    _run_wa_digest_batch,
+    _send_digest_for_user,
+    _send_test_digest,
+)
+from products.web_analytics.backend.temporal.weekly_digest.types import (
+    WA_DIGEST_EMAIL_UNAVAILABLE_TYPE,
+    DigestBatchInput,
+    DigestOutcome,
+    OrgDigestCounts,
+    WAWeeklyDigestInput,
+)
 
 
 def _make_team_digest(team, visitors=10):
@@ -52,14 +73,14 @@ class _DigestTestBase(APIBaseTest):
 
 class TestSendDigestForUser(_DigestTestBase):
     def test_sends_email_with_default_notification_settings(self):
-        sent = _send_digest_for_user(
+        outcome = _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
             team_digest_data={self.team.id: _make_team_digest(self.team)},
             date_suffix="2025-15",
         )
-        assert sent is True
+        assert outcome == DigestOutcome.SENT
         self.mock_email_class.assert_called_once()
         kwargs = self.mock_email_class.call_args.kwargs
         assert kwargs["subject"] == f"Web analytics weekly digest for {self.organization.name}"
@@ -70,20 +91,20 @@ class TestSendDigestForUser(_DigestTestBase):
     def test_skips_when_org_level_opt_out_and_not_test(self):
         self.user.partial_notification_settings = {"web_analytics_weekly_digest": False}
         self.user.save()
-        sent = _send_digest_for_user(
+        outcome = _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
             team_digest_data={self.team.id: _make_team_digest(self.team)},
             date_suffix="2025-15",
         )
-        assert sent is False
+        assert outcome == DigestOutcome.SKIPPED_OPTOUT
         self.mock_email_class.assert_not_called()
 
     def test_sends_anyway_when_org_level_opt_out_but_test_true(self):
         self.user.partial_notification_settings = {"web_analytics_weekly_digest": False}
         self.user.save()
-        sent = _send_digest_for_user(
+        outcome = _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
@@ -91,12 +112,12 @@ class TestSendDigestForUser(_DigestTestBase):
             date_suffix="2025-15",
             test=True,
         )
-        assert sent is True
+        assert outcome == DigestOutcome.SENT
         kwargs = self.mock_email_class.call_args.kwargs
         assert "_test_" in kwargs["campaign_key"]
 
-    def test_returns_false_when_team_digest_data_is_empty(self):
-        sent = _send_digest_for_user(
+    def test_returns_no_data_when_team_digest_data_is_empty(self):
+        outcome = _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
@@ -104,11 +125,11 @@ class TestSendDigestForUser(_DigestTestBase):
             date_suffix="2025-15",
             test=True,
         )
-        assert sent is False
+        assert outcome == DigestOutcome.SKIPPED_NO_DATA
         self.mock_email_class.assert_not_called()
 
     def test_dry_run_does_not_send(self):
-        sent = _send_digest_for_user(
+        outcome = _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
@@ -116,8 +137,19 @@ class TestSendDigestForUser(_DigestTestBase):
             date_suffix="2025-15",
             dry_run=True,
         )
-        assert sent is True
+        assert outcome == DigestOutcome.DRY_RUN
         self.mock_email_class.assert_not_called()
+
+    def test_returns_failed_when_email_send_raises(self):
+        self.mock_message.send.side_effect = RuntimeError("smtp blew up")
+        outcome = _send_digest_for_user(
+            user=self.user,
+            org=self.organization,
+            membership=self.organization_membership,
+            team_digest_data={self.team.id: _make_team_digest(self.team)},
+            date_suffix="2025-15",
+        )
+        assert outcome == DigestOutcome.FAILED
 
     def test_test_mode_bypasses_per_team_opt_out(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
@@ -125,7 +157,7 @@ class TestSendDigestForUser(_DigestTestBase):
             "web_analytics_weekly_digest_project_enabled": {str(self.team.id): True},
         }
         self.user.save()
-        sent = _send_digest_for_user(
+        outcome = _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
@@ -136,7 +168,7 @@ class TestSendDigestForUser(_DigestTestBase):
             date_suffix="2025-15",
             test=True,
         )
-        assert sent is True
+        assert outcome == DigestOutcome.SENT
         sections = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"]
         assert {s["team"].id for s in sections} == {self.team.id, team_b.id}
 
@@ -146,7 +178,7 @@ class TestSendDigestForUser(_DigestTestBase):
             "web_analytics_weekly_digest_project_enabled": {str(self.team.id): True},
         }
         self.user.save()
-        sent = _send_digest_for_user(
+        outcome = _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
@@ -156,7 +188,7 @@ class TestSendDigestForUser(_DigestTestBase):
             },
             date_suffix="2025-15",
         )
-        assert sent is True
+        assert outcome == DigestOutcome.SENT
         ctx = self.mock_email_class.call_args.kwargs["template_context"]
         assert [s["team"].id for s in ctx["project_sections"]] == [self.team.id]
         assert team_b.name in ctx["disabled_project_names"]
@@ -164,7 +196,7 @@ class TestSendDigestForUser(_DigestTestBase):
     def test_sections_sorted_by_visitors_descending(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
         team_c = Team.objects.create(organization=self.organization, name="Team C")
-        sent = _send_digest_for_user(
+        outcome = _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
@@ -176,7 +208,7 @@ class TestSendDigestForUser(_DigestTestBase):
             date_suffix="2025-15",
             test=True,
         )
-        assert sent is True
+        assert outcome == DigestOutcome.SENT
         sections = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"]
         assert [s["team"].id for s in sections] == [team_b.id, team_c.id, self.team.id]
 
@@ -280,3 +312,195 @@ class TestSendTestDigestFullUserMode(_DigestTestBase):
         with self.assertRaises(ValueError):
             _send_test_digest(email="nobody@example.com")
         self.mock_email_class.assert_not_called()
+
+
+class TestGetOrgIdBatches(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.flag_patcher = patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self.flag_patcher.start()
+        self.kill_switch_patcher = patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.get_kill_switch_level",
+        )
+        self.mock_kill_switch = self.kill_switch_patcher.start()
+        self.mock_kill_switch.return_value = KillSwitchLevel.OFF
+        self.email_available_patcher = patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.is_email_available",
+            return_value=True,
+        )
+        self.mock_email_available = self.email_available_patcher.start()
+        self.close_conn_patcher = patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.close_old_connections"
+        )
+        self.close_conn_patcher.start()
+
+    def tearDown(self):
+        self.close_conn_patcher.stop()
+        self.email_available_patcher.stop()
+        self.kill_switch_patcher.stop()
+        self.flag_patcher.stop()
+        super().tearDown()
+
+    def test_returns_empty_list_when_kill_switch_active(self):
+        self.mock_kill_switch.return_value = KillSwitchLevel.LIGHT
+        batches = _get_org_id_batches(WAWeeklyDigestInput())
+        assert batches == []
+
+    def test_raises_when_email_unavailable(self):
+        self.mock_email_available.return_value = False
+        with self.assertRaises(ApplicationError) as ctx:
+            _get_org_id_batches(WAWeeklyDigestInput())
+        assert ctx.exception.type == WA_DIGEST_EMAIL_UNAVAILABLE_TYPE
+        assert ctx.exception.non_retryable is True
+
+    def test_kill_switch_short_circuits_before_email_check(self):
+        self.mock_kill_switch.return_value = KillSwitchLevel.LIGHT
+        self.mock_email_available.return_value = False
+        batches = _get_org_id_batches(WAWeeklyDigestInput())
+        assert batches == []
+
+    def test_active_since_filter_excludes_orgs_with_only_dormant_members(self):
+        self.user.last_login = timezone.now()
+        self.user.save()
+
+        dormant_org = Organization.objects.create(name="Dormant org")
+        dormant_user = User.objects.create_user(email="dormant@example.com", password="x", first_name="Dormant")
+        dormant_user.last_login = timezone.now() - timedelta(days=200)
+        dormant_user.save()
+        OrganizationMembership.objects.create(
+            organization=dormant_org,
+            user=dormant_user,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        batches = _get_org_id_batches(WAWeeklyDigestInput(active_since_days=30, batch_size=100))
+        all_org_ids = {oid for batch in batches for oid in batch}
+        assert str(self.organization.id) in all_org_ids
+        assert str(dormant_org.id) not in all_org_ids
+
+    def test_admin_org_ids_override_bypasses_filters(self):
+        override = ["1111", "2222", "3333"]
+        batches = _get_org_id_batches(WAWeeklyDigestInput(org_ids=override, batch_size=2, active_since_days=1))
+        flat = [oid for batch in batches for oid in batch]
+        assert flat == override
+        assert [len(b) for b in batches] == [2, 1]
+
+    @parameterized.expand(
+        [
+            ("ten_percent", 0.1),
+            ("fifty_percent", 0.5),
+        ]
+    )
+    def test_rollout_filter_is_deterministic(self, _name, percentage):
+        org_ids = [f"org-{i:04d}" for i in range(100)]
+        first = _get_org_id_batches(WAWeeklyDigestInput(org_ids=org_ids, rollout_percentage=percentage, batch_size=10))
+        second = _get_org_id_batches(WAWeeklyDigestInput(org_ids=org_ids, rollout_percentage=percentage, batch_size=10))
+        first_flat = [oid for batch in first for oid in batch]
+        second_flat = [oid for batch in second for oid in batch]
+        assert first_flat == second_flat
+        assert len(first_flat) == math.ceil(100 * percentage)
+
+
+class TestRunWaDigestBatch(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.close_conn_patcher = patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.close_old_connections"
+        )
+        self.close_conn_patcher.start()
+
+    def tearDown(self):
+        self.close_conn_patcher.stop()
+        super().tearDown()
+
+    def test_aggregates_per_org_results(self):
+        results_by_org = {
+            "1": OrgDigestCounts(
+                sent=2,
+                skipped_optout=1,
+                team_count=3,
+                build_duration=0.4,
+                send_duration=0.2,
+            ),
+            "2": OrgDigestCounts(
+                skipped_no_data=5,
+                failed=1,
+                team_count=1,
+                build_duration=0.1,
+                send_duration=0.05,
+            ),
+            "3": OrgDigestCounts(skipped_reason="no_teams"),
+        }
+
+        with patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities._build_and_send_for_org",
+            side_effect=lambda org_id, dry_run: results_by_org[org_id],
+        ):
+            totals = _run_wa_digest_batch(DigestBatchInput(org_ids=["1", "2", "3"]))
+
+        assert totals.batch_size == 3
+        assert totals.orgs_processed == 2
+        assert totals.orgs_skipped == 1
+        assert totals.orgs_failed == 0
+        assert totals.emails_sent == 2
+        assert totals.emails_skipped_optout == 1
+        assert totals.emails_skipped_no_data == 5
+        assert totals.emails_failed == 1
+
+    def test_isolates_per_org_failures(self):
+        def fake_build_and_send(org_id, dry_run):
+            if org_id == "2":
+                raise RuntimeError("clickhouse exploded for org 2")
+            return OrgDigestCounts(sent=1, team_count=1)
+
+        with patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities._build_and_send_for_org",
+            side_effect=fake_build_and_send,
+        ):
+            totals = _run_wa_digest_batch(DigestBatchInput(org_ids=["1", "2", "3"]))
+
+        assert totals.orgs_processed == 2
+        assert totals.orgs_failed == 1
+        assert totals.emails_sent == 2
+
+    def test_failure_rate_excludes_skipped_orgs(self):
+        with patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities._build_and_send_for_org",
+            side_effect=lambda org_id, dry_run: OrgDigestCounts(skipped_reason="no_teams"),
+        ):
+            totals = _run_wa_digest_batch(DigestBatchInput(org_ids=["1", "2", "3"]))
+
+        assert totals.orgs_skipped == 3
+        assert totals.orgs_failed == 0
+        assert totals.failure_rate == 0.0
+
+    def test_aggregates_email_attribution_via_real_build_and_send(self):
+        opted_out = User.objects.create_user(email="opted-out@example.com", password="x", first_name="Out")
+        opted_out.partial_notification_settings = {"web_analytics_weekly_digest": False}
+        opted_out.save()
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=opted_out,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        with (
+            patch(
+                "products.web_analytics.backend.temporal.weekly_digest.activities.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
+                side_effect=lambda team: _make_team_digest(team),
+            ),
+            patch("products.web_analytics.backend.temporal.weekly_digest.activities.EmailMessage") as mock_email_class,
+        ):
+            mock_email_class.return_value = MagicMock()
+            totals = _run_wa_digest_batch(DigestBatchInput(org_ids=[str(self.organization.id)]))
+
+        assert totals.orgs_processed == 1
+        assert totals.emails_sent == 1
+        assert totals.emails_skipped_optout == 1
