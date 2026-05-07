@@ -84,8 +84,8 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const [localValue, setLocalValue] = useState<string | null>(null)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
-    // Tick every second only while the cooldown is active so the countdown updates; idle otherwise (kea state changes drive rerenders).
-    usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 0)
+    // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
+    usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 60_000)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])

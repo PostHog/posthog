@@ -27,8 +27,7 @@ export function usePeriodicRerender(milliseconds: number): void {
             }
         }
 
-        // Pass 0 (or negative) to opt out of the interval entirely — useful for callers that only need to tick under specific conditions.
-        if (isVisible && milliseconds > 0) {
+        if (isVisible) {
             startInterval()
         } else {
             stopInterval()
