@@ -854,22 +854,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = TaskRun.objects.select_related(
         "task", "task__created_by", "task__github_integration", "task__github_user_integration"
     ).all()
-    posthog_feature_flag = {
-        "tasks": [
-            "list",
-            "retrieve",
-            "create",
-            "update",
-            "partial_update",
-            "set_output",
-            "append_log",
-            "relay_message",
-            "session_logs",
-            "command",
-            "stream",
-            "resume_in_cloud",
-        ]
-    }
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
 
