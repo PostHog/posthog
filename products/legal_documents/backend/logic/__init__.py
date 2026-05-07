@@ -34,9 +34,10 @@ logger = structlog.get_logger(__name__)
 # Addon types that entitle an organization to a BAA.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
 
-# PostHog-side CC on every signing envelope. Lives here rather than on the
-# PandaDoc client so the client stays generic and reusable.
-POSTHOG_SIGNING_CC_EMAIL = "sales@posthog.com"
+# PostHog-side mailbox used both as the CC recipient on every signing envelope
+# and as the document owner. PandaDoc sends the signing email on behalf of the
+# owner, so this is the From address the signer sees.
+POSTHOG_SIGNING_EMAIL = "privacy@posthog.com"
 
 
 def _pandadoc_template_id_for(document_type: str) -> str:
@@ -239,7 +240,7 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
             name=f"PostHog {document.document_type} — {document.company_name}",
             recipients=[
                 pandadoc_client.PandaDocRecipient(
-                    email=POSTHOG_SIGNING_CC_EMAIL, role=pandadoc_client.PandaDocRole.POSTHOG
+                    email=POSTHOG_SIGNING_EMAIL, role=pandadoc_client.PandaDocRole.POSTHOG
                 ),
                 pandadoc_client.PandaDocRecipient(
                     email=document.representative_email, role=pandadoc_client.PandaDocRole.CLIENT
@@ -254,6 +255,7 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
                 "organization_id": str(document.organization_id),
                 "document_type": document.document_type,
             },
+            owner_email=POSTHOG_SIGNING_EMAIL,
         )
         set_pandadoc_document_id(document, created.id)
         return created.id
