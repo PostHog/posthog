@@ -119,4 +119,97 @@ export class KeyedRateLimiterService {
             ]
         })
     }
+
+    /**
+     * Coalesced variant of `rateLimitMany`: behaves identically from the caller's
+     * point of view (parallel `[id, KeyedRateLimit][]` array, same input order),
+     * but internally collapses duplicate ids into one Redis call each.
+     *
+     *   `rateLimitMany`    — N inputs → N pipelined Redis calls (per-call state
+     *                        threading via the lua script's stored pool).
+     *   `rateLimitGrouped` — N inputs across M unique ids → M pipelined Redis
+     *                        calls. Per-input decisions are computed client-side
+     *                        from each id's `tokensBefore`: requests are allowed
+     *                        in input order until the running cost would exceed
+     *                        the pre-batch budget; subsequent over-budget
+     *                        requests are denied without consuming budget. For
+     *                        uniform cost (the typical CDP case), the per-input
+     *                        decisions match `rateLimitMany` exactly.
+     *
+     * Use `rateLimitGrouped` when the input naturally has many duplicates of
+     * the same id (CDP events for a hog function, log lines for a team) — the
+     * Redis-call reduction is proportional to the duplication ratio.
+     *
+     * Always uses the V3 token-bucket script (HMGET + multi-field HSET +
+     * conditional EXPIRE refresh). `rateLimitMany` keeps V2 for now; once
+     * we're happy with V3 in production, the two methods can converge.
+     *
+     * Other request params (bucketSize / refillRate / ttlSeconds) are taken
+     * from the first request seen for each id; callers should keep those
+     * consistent per id (it's the same logical bucket).
+     */
+    public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
+        if (requests.length === 0) {
+            return []
+        }
+
+        // Coalesce — first request seen per id keeps its bucket params; subsequent
+        // requests for the same id contribute their cost to the summed total.
+        const grouped = new Map<string, KeyedRateLimitRequest>()
+        for (const req of requests) {
+            const existing = grouped.get(req.id)
+            if (existing) {
+                existing.cost += req.cost
+            } else {
+                grouped.set(req.id, { ...req })
+            }
+        }
+
+        const items = [...grouped.values()]
+        const bucketSizes = items.map((req) => {
+            const bucketSize = req.bucketSize ?? this.config.bucketSize
+            if (bucketSize == null) {
+                throw new Error(`KeyedRateLimiterService(${this.config.name}): missing bucketSize for ${req.id}`)
+            }
+            return bucketSize
+        })
+
+        const res = await this.redis.usePipeline(
+            { name: `keyed-rate-limiter-grouped:${this.config.name}`, failOpen: true },
+            (pipeline) => {
+                items.forEach((req) => {
+                    pipeline.checkRateLimitV3(...this.rateLimitArgs(req))
+                })
+            }
+        )
+
+        // Pre-batch budget per id (`tokensBefore` from the lua) — used to fan
+        // out per-input decisions below. On Redis failure we fail open, so each
+        // id's budget defaults to its full bucket size.
+        const budgetById = new Map<string, number>()
+        items.forEach((req, index) => {
+            if (res) {
+                const [tokenRes] = getRedisPipelineResults(res, index, 1)
+                const tokensBefore = tokenRes[1]?.[0]
+                budgetById.set(req.id, tokensBefore != null ? Number(tokensBefore) : bucketSizes[index])
+            } else {
+                budgetById.set(req.id, bucketSizes[index])
+            }
+        })
+
+        // Fan out: walk the original input order, deducting from each id's
+        // remaining budget. A request that doesn't fit is denied without
+        // consuming budget — subsequent smaller requests for the same id may
+        // still fit. For uniform-cost batches this is identical to the
+        // pipelined per-call lua behavior.
+        return requests.map((req) => {
+            const remaining = budgetById.get(req.id) ?? 0
+            if (remaining >= req.cost) {
+                const next = remaining - req.cost
+                budgetById.set(req.id, next)
+                return [req.id, { tokens: next, isRateLimited: next <= 0 }]
+            }
+            return [req.id, { tokens: -1, isRateLimited: true }]
+        })
+    }
 }

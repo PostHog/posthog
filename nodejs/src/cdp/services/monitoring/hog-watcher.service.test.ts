@@ -622,22 +622,22 @@ describe('HogWatcher', () => {
         })
     })
 
-    // The mirror Valkey path runs observeResults with useMulti=true (one
-    // multi-key V3 script call instead of N pipelined V2 calls). Behavior
-    // must match — these tests exercise the same observe → token-deduct →
-    // state-transition flow to lock that contract in.
-    describe('useMulti equivalence (mirror path)', () => {
-        let multiWatcher: HogWatcherService
+    // The mirror Valkey path runs observeResults with useV3=true (V3 lua
+    // pipelined per-bucket). Behavior must match V2 — these tests exercise
+    // the same observe → token-deduct → state-transition flow to lock that
+    // contract in.
+    describe('useV3 equivalence (mirror path)', () => {
+        let v3Watcher: HogWatcherService
 
         beforeEach(() => {
-            multiWatcher = new HogWatcherService(hub.teamManager, { ...watcherConfig, useMulti: true }, redis, redis)
+            v3Watcher = new HogWatcherService(hub.teamManager, { ...watcherConfig, useV3: true }, redis, redis)
         })
 
         it('deducts tokens identically to the V2 pipelined path', async () => {
             const results = Array(10).fill(createResult({ duration: 1000, kind: 'hog' }))
 
-            await multiWatcher.observeResults(results)
-            const state = await multiWatcher.getPersistedState(hogFunctionId)
+            await v3Watcher.observeResults(results)
+            const state = await v3Watcher.getPersistedState(hogFunctionId)
 
             // Reset and run the same input through the default (V2) watcher.
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
@@ -648,21 +648,21 @@ describe('HogWatcher', () => {
         })
 
         it('triggers state changes via the same threshold logic', async () => {
-            await multiWatcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
-            const state = await multiWatcher.getPersistedState(hogFunctionId)
+            await v3Watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
+            const state = await v3Watcher.getPersistedState(hogFunctionId)
             // Heavy-cost flow should drive the bucket below the disabled threshold.
             expect(state.state).toBe(HogWatcherState.disabled)
         })
 
-        it('handles batches with multiple distinct function ids in one script call', async () => {
+        it('handles batches with multiple distinct function ids', async () => {
             const otherId = 'hog-function-id-2'
-            await multiWatcher.observeResults([
+            await v3Watcher.observeResults([
                 createResult({ id: hogFunctionId, duration: 1000, kind: 'hog' }),
                 createResult({ id: otherId, duration: 1000, kind: 'hog' }),
             ])
 
-            const stateA = await multiWatcher.getPersistedState(hogFunctionId)
-            const stateB = await multiWatcher.getPersistedState(otherId)
+            const stateA = await v3Watcher.getPersistedState(hogFunctionId)
+            const stateB = await v3Watcher.getPersistedState(otherId)
 
             expect(stateA.tokens).toBeLessThan(watcherConfig.bucketSize)
             expect(stateB.tokens).toBeLessThan(watcherConfig.bucketSize)

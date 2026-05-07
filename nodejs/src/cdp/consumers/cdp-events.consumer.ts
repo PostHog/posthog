@@ -55,15 +55,15 @@ export class CdpEventsConsumer<
         }
         this.hogRateLimiter = new HogRateLimiterService(rateLimiterConfig, this.redis)
         this.hogRateLimiterMirror = this.valkeyShadow
-            ? new HogRateLimiterService(rateLimiterConfig, this.valkeyShadow.writer)
+            ? new HogRateLimiterService({ ...rateLimiterConfig, useV3: true }, this.valkeyShadow.writer)
             : null
     }
 
     /**
-     * Coalesce duplicate ids (sum costs) and dispatch one multi-key V3 call.
-     * A batch of N events for M unique functions becomes 1 evalsha call total
-     * (vs N pipelined calls on the primary path). Returns undefined when the
-     * mirror is unconfigured so mirrorCall short-circuits.
+     * Coalesce duplicate ids (sum costs) before dispatching to the mirror, so a
+     * batch of N events for M unique functions makes M pipelined evalsha calls
+     * instead of N. Returns undefined when the mirror is unconfigured so
+     * mirrorCall short-circuits.
      */
     private mirrorRateLimitMany(rateLimitInputs: [string, number][]): Promise<unknown> | undefined {
         if (!this.hogRateLimiterMirror) {
@@ -73,7 +73,7 @@ export class CdpEventsConsumer<
         for (const [id, cost] of rateLimitInputs) {
             coalesced.set(id, (coalesced.get(id) ?? 0) + cost)
         }
-        return this.hogRateLimiterMirror.rateLimitManyMulti([...coalesced.entries()])
+        return this.hogRateLimiterMirror.rateLimitMany([...coalesced.entries()])
     }
 
     public async processBatch(
