@@ -1,7 +1,8 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api, { ApiConfig } from 'lib/api'
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
