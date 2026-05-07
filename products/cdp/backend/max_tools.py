@@ -5,6 +5,7 @@ from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any, Literal, Optional, Union
 
+import structlog
 from asgiref.sync import sync_to_async
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -46,6 +47,8 @@ from products.cdp.backend.prompts import (
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
+
+logger = structlog.get_logger(__name__)
 
 
 class CreateHogTransformationFunctionArgs(BaseModel):
@@ -363,13 +366,27 @@ _DANGEROUS_CREATE_TYPES: frozenset[HogFunctionType] = frozenset(
     }
 )
 
+
 # Recipe payload + event property catalog shared with the MCP cdp-functions-create tool. Single
 # source of truth — edit the markdown, not this constant. See `description_appendix_file` in
-# products/cdp/mcp/cdp_functions.yaml for the MCP-side consumer, which hard-fails on a missing
-# file; we match that here so a build mistake doesn't silently degrade the tool description.
-_INSIGHT_ALERT_DESTINATION_RECIPE = (
-    Path(__file__).resolve().parent.parent / "recipes" / "insight_alert_destination.md"
-).read_text(encoding="utf-8")
+# products/cdp/mcp/cdp_functions.yaml for the MCP-side consumer.
+#
+# We deliberately fall back to an empty string on FileNotFoundError instead of letting the read
+# raise: this module also defines CreateHogTransformationFunctionTool / CreateHogFunctionFiltersTool
+# / CreateHogFunctionInputsTool, and a missing recipe shouldn't take those down with it. The
+# logger.error is the operator-visible signal that the recipe is missing — symmetry with the
+# MCP-side build-time hard-fail isn't appropriate here because this read happens at worker import
+# time, not at build time.
+def _load_insight_alert_recipe() -> str:
+    path = Path(__file__).resolve().parent.parent / "recipes" / "insight_alert_destination.md"
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.exception("hog_function_recipe_missing", path=str(path))
+        return ""
+
+
+_INSIGHT_ALERT_DESTINATION_RECIPE = _load_insight_alert_recipe()
 
 _UPSERT_HOG_FUNCTION_PRELUDE = dedent(
     """
