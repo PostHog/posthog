@@ -827,15 +827,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     })
                 )
                 const dropDuplicateOfCurrentSelection = (item: TaxonomicDefinitionTypes): boolean => {
-                    if (!hasRecentContext(item) && !hasPinnedContext(item)) {
+                    let sourceGroupType: TaxonomicFilterGroupType | undefined
+                    let itemValue: string | number | null | undefined
+                    if (hasRecentContext(item)) {
+                        sourceGroupType = item._recentContext.sourceGroupType
+                        // Recent context's sourceValue is the canonical key the user picked
+                        // (event name for events, action id for actions); item.id may be a
+                        // UUID from the underlying definition and would not match.
+                        itemValue = item._recentContext.sourceValue
+                    } else if (hasPinnedContext(item)) {
+                        sourceGroupType = item._pinnedContext.sourceGroupType
+                        // PinnedItemContext doesn't carry sourceValue; fall back to id/name.
+                        itemValue = 'id' in item ? item.id : 'name' in item ? item.name : undefined
+                    } else {
                         return true
                     }
-                    const sourceGroupType = hasRecentContext(item)
-                        ? item._recentContext.sourceGroupType
-                        : hasPinnedContext(item)
-                          ? item._pinnedContext.sourceGroupType
-                          : undefined
-                    const itemValue = 'id' in item ? item.id : 'name' in item ? item.name : undefined
                     return !currentSelectionKeys.has(`${sourceGroupType}:${itemValue ?? ''}`)
                 }
                 const recentPrefix =
