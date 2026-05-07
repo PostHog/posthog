@@ -22,5 +22,5 @@ def filter_ids_for_rollout(ids: list[T], rollout_percentage: float) -> list[T]:
         return ids
 
     target_count = max(1, math.ceil(len(ids) * rollout_percentage))
-    ranked = sorted(ids, key=lambda x: (_rollout_rank(x), x))  # type: ignore[arg-type, return-value]
+    ranked = sorted(ids, key=lambda x: (_rollout_rank(x), str(x)))
     return ranked[:target_count]
