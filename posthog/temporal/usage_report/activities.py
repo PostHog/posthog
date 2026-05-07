@@ -146,13 +146,17 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
         # out across the thread pool. `thread_sensitive=False` opts out of
         # the shared-thread default so the PUTs run concurrently — boto3
         # releases the GIL during the network call, so they genuinely
-        # overlap on the wire.
+        # overlap on the wire. Using `asyncio.TaskGroup` (over
+        # `asyncio.gather`) means a single failed upload doesn't cancel
+        # in-flight peer uploads mid-PUT; the group waits for every
+        # started task to finish or fail before re-raising, so Temporal
+        # retries from a clean state.
         def write_chunk(key: str, batch: list[Any]) -> None:
             write_jsonl_chunk_gzip(key, iter_chunk_lines(batch, instance_metadata))
 
-        await asyncio.gather(
-            *(sync_to_async(write_chunk, thread_sensitive=False)(chunk_keys[index], batch) for index, batch in batches)
-        )
+        async with asyncio.TaskGroup() as tg:
+            for index, batch in batches:
+                tg.create_task(sync_to_async(write_chunk, thread_sensitive=False)(chunk_keys[index], batch))
 
         manifest = build_manifest(
             inputs.ctx,
