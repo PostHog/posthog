@@ -29,7 +29,7 @@ export function MenuFilterHeader({ title, onBack, className, showTabHint = true 
         >
             <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="icon-sm"
                 aria-label="Back"
                 onClick={onBack}
@@ -40,7 +40,7 @@ export function MenuFilterHeader({ title, onBack, className, showTabHint = true 
             </Button>
             <span className="flex-1 truncate">{title}</span>
 
-            <div className="flex items-center gap-2 text-xs">
+            <div className="items-center gap-2 text-xs hidden @[720px]/main-content-container:flex">
                 {showTabHint && (
                     <>
                         <Kbd>Tab</Kbd>{' '}

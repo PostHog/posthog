@@ -41,7 +41,7 @@
         "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
-        "start-vite": "pnpm build:products && concurrently -n VITE,TOOLBAR -c green,magenta \"vite --host 0.0.0.0\" \"pnpm watch:toolbar\"",
+        "start-vite": "pnpm build:products && concurrently -n VITE,TOOLBAR,TAILWIND -c green,magenta,blue \"vite --host 0.0.0.0\" \"pnpm watch:toolbar\" \"pnpm watch:tailwind\"",
         "watch:toolbar": "node ./bin/build-toolbar.mjs --dev",
         "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/@posthog/rrweb-types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path './src/scenes/session-recordings/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json",

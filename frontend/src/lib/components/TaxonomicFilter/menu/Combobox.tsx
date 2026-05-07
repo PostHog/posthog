@@ -35,7 +35,18 @@ const FUSE_OPTIONS = {
 
 /** Categories filtered out of the chip row when drillTo === 'all'. */
 const HIDDEN_FROM_CHIPS: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    // `SuggestedFilters` from taxonomicFilterLogic is a tiny set of
+    // primary-property promotions for the *currently-selected event* +
+    // autocapture text/selector. It's empty for almost every flow that
+    // doesn't have an event-in-context, and even when populated it
+    // duplicates what shows up under Event properties. Hide entirely;
+    // our own `Suggested` chip (Recent ∪ Pinned) covers what users
+    // actually want.
     TaxonomicFilterGroupType.SuggestedFilters,
+    // RecentFilters / PinnedFilters surface via the dropdown menu
+    // (Recent / Pinned entries with chevrons), DataWarehouse + HogQL
+    // expression have their own dedicated panels — none of them belong
+    // in the in-combobox chip row.
     TaxonomicFilterGroupType.RecentFilters,
     TaxonomicFilterGroupType.PinnedFilters,
     TaxonomicFilterGroupType.DataWarehouse,
@@ -46,6 +57,8 @@ export interface MenuFilterComboboxProps {
     drillTo: DrillCategory
     /** Pre-resolved entries for `drillTo='recent' | 'pinned'`. Skips fetching. */
     drillItems?: MenuFilterEntry[]
+    /** Pre-resolved entries for the `'suggested'` chip / drill — Recent ∪ Pinned across groups. Always passed; used whenever the active scope is `'suggested'` regardless of `drillTo`. */
+    suggestedItems?: MenuFilterEntry[]
     placeholder?: string
     onCommit: CommitFn
     onBack: () => void
@@ -58,6 +71,7 @@ export interface MenuFilterComboboxProps {
 export function MenuFilterCombobox({
     drillTo,
     drillItems,
+    suggestedItems,
     placeholder,
     onCommit,
     onBack,
@@ -80,7 +94,12 @@ export function MenuFilterCombobox({
         return drillTo
     })
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
-    const [highlightedEntry, setHighlightedEntry] = useState<MenuFilterEntry | null>(null)
+    // Seed the highlight with the committed selection so the preview
+    // pane shows the right definition before any row hovers fire. Once
+    // the list mounts, `autoHighlight="always"` + the reordered
+    // `filtered` (selected entry promoted to index 0) keeps the
+    // highlight on the same row.
+    const [highlightedEntry, setHighlightedEntry] = useState<MenuFilterEntry | null>(selectedEntry ?? null)
     const inputRef = useRef<HTMLInputElement | null>(null)
 
     // Stable DOM id for the selected row — must mirror `Row`'s `stableId`
@@ -142,16 +161,21 @@ export function MenuFilterCombobox({
         if (scope === 'all') {
             return visibleChipGroups
         }
-        if (scope === 'recent' || scope === 'pinned') {
-            return [] // items come from `drillItems`
+        if (scope === 'recent' || scope === 'pinned' || scope === 'suggested') {
+            return [] // items come from `drillItems` / `suggestedItems`
         }
         const g = groups.find((gr) => gr.type === scope)
         return g ? [g] : []
     }, [showChips, activeChip, drillTo, groups, visibleChipGroups])
 
     // Indexed entries — flat list across all visible groups (or
-    // pre-resolved `drillItems` for recent/pinned).
+    // pre-resolved `drillItems` for recent/pinned, or pre-merged
+    // `suggestedItems` for the Suggested chip / drill).
     const indexed = useMemo<MenuFilterEntry[]>(() => {
+        const scope = showChips ? activeChip : drillTo
+        if (scope === 'suggested' && suggestedItems) {
+            return suggestedItems
+        }
         if (drillItems) {
             return drillItems
         }
@@ -167,17 +191,55 @@ export function MenuFilterCombobox({
                 })
             }
         }
+        // Make sure the committed selection is reachable from the list
+        // even when the remote endpoint paginated past it (limit=100,
+        // alphabetical ordering — long-tail custom events get cut off
+        // and the user can't see what they previously picked). Prepend
+        // it if missing so it's clickable, scroll-able, and feeds the
+        // preview pane. Skip when the active chip filters it out
+        // (showing it under the wrong category would lie to the user).
+        if (selectedEntry) {
+            const fitsScope =
+                scope === 'all' ||
+                scope === selectedEntry.group.type ||
+                scope === 'recent' ||
+                scope === 'pinned' ||
+                scope === 'suggested'
+            if (fitsScope) {
+                const selectedValue = selectedEntry.group.getValue?.(selectedEntry.item) ?? selectedEntry.name
+                const present = merged.some(
+                    (e) =>
+                        e.group.type === selectedEntry.group.type &&
+                        (e.group.getValue?.(e.item) ?? e.name) === selectedValue
+                )
+                if (!present) {
+                    merged.unshift(selectedEntry)
+                }
+            }
+        }
         return merged
-    }, [drillItems, targetGroups, itemsByType])
+    }, [drillItems, suggestedItems, targetGroups, itemsByType, selectedEntry, showChips, activeChip, drillTo])
 
     const filtered = useMemo<MenuFilterEntry[]>(() => {
         const q = searchQuery.trim()
-        if (!q) {
-            return indexed
+        const base = q ? new FuseClass(indexed, FUSE_OPTIONS as any).search(q).map((r) => r.item) : indexed
+        // Promote the committed selection to index 0 so base-ui's
+        // `autoHighlight="always"` lands on it the moment the list
+        // mounts — keyboard nav starts on the selected row, the
+        // preview pane shows the right definition, and `Enter` re-commits
+        // without forcing the user to scroll. Skip when the user has
+        // typed a search query — relevance order should win there.
+        if (!q && selectedRowId) {
+            const idx = base.findIndex(
+                (e) =>
+                    `menu-filter-row-${e.group.type}-${String(e.group.getValue?.(e.item) ?? e.name)}` === selectedRowId
+            )
+            if (idx > 0) {
+                return [base[idx], ...base.slice(0, idx), ...base.slice(idx + 1)]
+            }
         }
-        const fuse = new FuseClass(indexed, FUSE_OPTIONS as any)
-        return fuse.search(q).map((r) => r.item)
-    }, [indexed, searchQuery])
+        return base
+    }, [indexed, searchQuery, selectedRowId])
 
     // Active-chip-aware placeholder. When the user has narrowed to a
     // specific category, use that group's `searchPlaceholder` so the
@@ -187,7 +249,7 @@ export function MenuFilterCombobox({
         if (activeChip === 'all') {
             return placeholder ?? 'Search…'
         }
-        if (activeChip === 'recent' || activeChip === 'pinned') {
+        if (activeChip === 'recent' || activeChip === 'pinned' || activeChip === 'suggested') {
             return placeholder ?? 'Search…'
         }
         const group = groups.find((g) => g.type === activeChip)
@@ -242,7 +304,9 @@ export function MenuFilterCombobox({
               ? 'Recent'
               : drillTo === 'pinned'
                 ? 'Pinned'
-                : (groups.find((g) => g.type === drillTo)?.name ?? 'Filter'))
+                : drillTo === 'suggested'
+                  ? 'Suggested'
+                  : (groups.find((g) => g.type === drillTo)?.name ?? 'Filter'))
 
     const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         if (e.key === 'Escape') {
@@ -265,7 +329,11 @@ export function MenuFilterCombobox({
         }
         if (e.key === 'Tab' && showChips && visibleChipGroups.length > 0) {
             // Cycle chips while focus stays on input. Wraps both directions.
-            const ordered: DrillCategory[] = ['all', ...visibleChipGroups.map((g) => g.type)]
+            const ordered: DrillCategory[] = [
+                'all',
+                ...(suggestedItems && suggestedItems.length > 0 ? (['suggested'] as const) : []),
+                ...visibleChipGroups.map((g) => g.type),
+            ]
             const idx = ordered.indexOf(activeChip)
             const dir = e.shiftKey ? -1 : 1
             const next = ordered[(idx + dir + ordered.length) % ordered.length]
@@ -332,6 +400,20 @@ export function MenuFilterCombobox({
                                         inputRef.current?.focus()
                                     }}
                                 />
+                                {/* `Suggested` chip = Recent ∪ Pinned across
+                                    groups. Only render when there's something
+                                    to surface — empty Suggested just adds
+                                    visual noise. */}
+                                {suggestedItems && suggestedItems.length > 0 && (
+                                    <ChipButton
+                                        label="Suggested"
+                                        active={activeChip === 'suggested'}
+                                        onSelect={() => {
+                                            setActiveChip('suggested')
+                                            inputRef.current?.focus()
+                                        }}
+                                    />
+                                )}
                                 {visibleChipGroups.map((g) => (
                                     <ChipButton
                                         key={g.type}

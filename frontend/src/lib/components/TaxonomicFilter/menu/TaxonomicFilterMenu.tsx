@@ -185,6 +185,29 @@ export function TaxonomicFilterMenu({
         () => mapShortcutItems(pinnedFilterItems as ShortcutItem[], groups),
         [pinnedFilterItems, groups]
     )
+    /*
+     * Suggested = Recent ∪ Pinned across all groups, mirroring the
+     * legacy popover's "Suggested step" view. Recent comes first
+     * (chronologically more relevant to the user); pinned fills in
+     * the curated picks. Dedup on `(group.type, value)` so a pinned
+     * entry that's also recent only shows once. Each entry keeps its
+     * source `group` reference so the row's category label still
+     * reads "Events", "Actions", etc. (not "Suggested filters").
+     */
+    const suggestedEntries = useMemo<MenuFilterEntry[]>(() => {
+        const seen = new Set<string>()
+        const out: MenuFilterEntry[] = []
+        for (const entry of [...recentEntries, ...pinnedEntries]) {
+            const value = entry.group.getValue?.(entry.item) ?? entry.name
+            const key = `${entry.group.type}::${String(value)}`
+            if (seen.has(key)) {
+                continue
+            }
+            seen.add(key)
+            out.push(entry)
+        }
+        return out
+    }, [recentEntries, pinnedEntries])
 
     const hasDwh = groups.some((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)
     const hasHogql = groups.some((g) => g.type === TaxonomicFilterGroupType.HogQLExpression)
@@ -245,6 +268,42 @@ export function TaxonomicFilterMenu({
     // doesn't forward refs, so we walk the click target's ancestors
     // looking for `[data-slot="popover-content"]` instead.
     const triggerWrapRef = useRef<HTMLSpanElement | null>(null)
+
+    /*
+     * Mount the popover inside the global `main-content-container`
+     * layout host (defined in `Navigation.tsx`) instead of the default
+     * `document.body` portal. CSS container queries
+     * (`@container/main-content-container`) walk DOM ancestors only —
+     * a portal to body breaks that chain, so chip-row hints and panel
+     * widths that key off `@[720px]/main-content-container` fail to
+     * resolve. Mounting inside the container restores ancestry and
+     * the same Tailwind classes work inside the popover content.
+     *
+     * Resolved synchronously via a lazy `useState` initializer so the
+     * value is available on the first render — base-ui's Portal reads
+     * `container` once at mount time, and a `useEffect`-set ref
+     * arrives one render too late, leaving the popover at `<body>`.
+     */
+    const [popoverContainer, setPopoverContainer] = useState<HTMLElement | null>(() =>
+        typeof document !== 'undefined'
+            ? (document.querySelector('.main-content-container') as HTMLElement | null)
+            : null
+    )
+    useEffect(() => {
+        // Tab-aware scenes can mount before the container element
+        // exists (the layout shell renders top-down). Re-poll once on
+        // mount so we still catch it after a brief delay.
+        if (popoverContainer) {
+            return undefined
+        }
+        const id = window.setTimeout(() => {
+            const found = document.querySelector('.main-content-container') as HTMLElement | null
+            if (found) {
+                setPopoverContainer(found)
+            }
+        }, 0)
+        return () => window.clearTimeout(id)
+    }, [popoverContainer])
 
     useEffect(() => {
         if (!popoverOpen) {
@@ -345,7 +404,10 @@ export function TaxonomicFilterMenu({
                     align="start"
                     side="bottom"
                     sideOffset={4}
-                    className={cn('p-0 gap-0 overflow-hidden flex flex-col w-[720px] h-[400px]')}
+                    container={popoverContainer}
+                    className={cn(
+                        'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)] @[720px]/main-content-container:w-[720px] h-[400px]'
+                    )}
                 >
                     {state.kind === 'combobox' && (
                         <MenuFilterCombobox
@@ -355,8 +417,14 @@ export function TaxonomicFilterMenu({
                                     ? recentEntries
                                     : state.drillTo === 'pinned'
                                       ? pinnedEntries
-                                      : undefined
+                                      : state.drillTo === 'suggested'
+                                        ? suggestedEntries
+                                        : undefined
                             }
+                            // Always pass `suggestedItems` so the chip
+                            // works in 'all' mode too (without forcing a
+                            // drill via the dropdown menu).
+                            suggestedItems={suggestedEntries}
                             placeholder={placeholder ?? inputProps.placeholder}
                             // Only override the default "Choose filter"
                             // header when on the All chip — drilled views

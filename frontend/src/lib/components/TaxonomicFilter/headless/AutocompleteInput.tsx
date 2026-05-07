@@ -33,6 +33,7 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import FuseClass from 'fuse.js'
 import { useActions, useValues } from 'kea'
+import { ChevronLeftIcon } from 'lucide-react'
 import {
     createContext,
     ReactElement,
@@ -46,8 +47,7 @@ import {
     useState,
 } from 'react'
 
-import { ChevronLeftIcon } from 'lucide-react'
-
+import { IconChevronRight } from '@posthog/icons'
 import {
     Button,
     ButtonGroup,
@@ -83,7 +83,6 @@ import {
     TaxonomicFilterValue,
 } from '../types'
 import { useTaxonomicFilterContext } from './context'
-import { IconChevronRight } from '@posthog/icons'
 
 export type TaxonomicAutocompleteCategoryMode = 'all' | TaxonomicFilterGroupType
 
@@ -235,9 +234,7 @@ const Ctx = createContext<AutocompleteCtx | null>(null)
 function useAutocompleteCtx(): AutocompleteCtx {
     const ctx = useContext(Ctx)
     if (!ctx) {
-        throw new Error(
-            'TaxonomicAutocomplete sub-components must be used inside <TaxonomicAutocomplete.Root>.'
-        )
+        throw new Error('TaxonomicAutocomplete sub-components must be used inside <TaxonomicAutocomplete.Root>.')
     }
     return ctx
 }
@@ -344,9 +341,7 @@ export function Root({
     const [pendingTitle, setPendingTitle] = useState<ReactNode | null>(null)
     const [configuredTypes, setConfiguredTypes] = useState<Set<TaxonomicFilterGroupType>>(() => new Set())
     const [detailsTypes, setDetailsTypes] = useState<Set<TaxonomicFilterGroupType>>(() => new Set())
-    const [dropdownManagedTypes, setDropdownManagedTypes] = useState<Set<TaxonomicFilterGroupType>>(
-        () => new Set()
-    )
+    const [dropdownManagedTypes, setDropdownManagedTypes] = useState<Set<TaxonomicFilterGroupType>>(() => new Set())
     const [hasMenuTrigger, setHasMenuTrigger] = useState(false)
     const triggerRef = useRef<HTMLElement | null>(null)
     const seededRef = useRef(false)
@@ -912,10 +907,7 @@ function Content({ children, className }: TaxonomicAutocompleteContentProps): JS
     return (
         // Hard height pins the surface so view-stack swaps don't reflow.
         <PopoverContent
-            className={cn(
-                'p-0 gap-0 w-(--anchor-width) min-w-[320px] h-[400px] overflow-hidden',
-                className
-            )}
+            className={cn('p-0 gap-0 w-(--anchor-width) min-w-[320px] h-[400px] overflow-hidden', className)}
         >
             <Autocomplete.Root
                 items={ctx.items}
@@ -925,9 +917,7 @@ function Content({ children, className }: TaxonomicAutocompleteContentProps): JS
                 autoHighlight="always"
                 openOnInputClick={false}
                 itemToStringValue={(entry: IndexedItem) => entry.name}
-                onItemHighlighted={(entry) =>
-                    ctx.setHighlightedEntry((entry as IndexedItem | undefined) ?? null)
-                }
+                onItemHighlighted={(entry) => ctx.setHighlightedEntry((entry as IndexedItem | undefined) ?? null)}
             >
                 {/* Wrapper owns: Esc-as-back in sub-view, Tab loop in
                     sub-view (covers Header back button + form fields), and
@@ -947,10 +937,7 @@ function Content({ children, className }: TaxonomicAutocompleteContentProps): JS
                         }
                         if (
                             inSubView &&
-                            (e.key === 'ArrowUp' ||
-                                e.key === 'ArrowDown' ||
-                                e.key === 'Home' ||
-                                e.key === 'End')
+                            (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Home' || e.key === 'End')
                         ) {
                             e.stopPropagation()
                             return
@@ -1069,10 +1056,7 @@ function List({ className, children }: TaxonomicAutocompleteListProps): JSX.Elem
             // root div as an unknown DOM attribute.
             className="flex-1 min-h-0"
         >
-            <Autocomplete.List
-                data-quill
-                className={cn('p-2 scroll-b-3 scroll-t-2', ctx.listClassName, className)}
-            >
+            <Autocomplete.List data-quill className={cn('p-2 scroll-b-3 scroll-t-2', ctx.listClassName, className)}>
                 {children ?? (
                     <>
                         <Empty />
@@ -1267,14 +1251,7 @@ export function useTaxonomicAutocompleteCategories(): TaxonomicAutocompleteCateg
             needsMoreSearchCharacters: ctx.needsMoreByType[group.type],
         }))
         return [all, ...groupCats]
-    }, [
-        ctx.category,
-        ctx.visibleGroups,
-        ctx.setCategory,
-        ctx.itemsByType,
-        ctx.loadingByType,
-        ctx.needsMoreByType,
-    ])
+    }, [ctx.category, ctx.visibleGroups, ctx.setCategory, ctx.itemsByType, ctx.loadingByType, ctx.needsMoreByType])
 }
 
 /** Read raw Root state from any descendant (open/setOpen, selected, search, …). */
@@ -1385,10 +1362,7 @@ function Header({ rootTitle, subTitle, className }: TaxonomicAutocompleteHeaderP
     }
     return (
         <div
-            className={cn(
-                'flex items-center gap-2 px-3 py-2 border-b text-sm font-semibold',
-                className
-            )}
+            className={cn('flex items-center gap-2 px-3 py-2 border-b text-sm font-semibold', className)}
             data-state={isSub ? 'sub' : 'root'}
         >
             {isSub && (
@@ -1678,12 +1652,15 @@ export function useTaxonomicAutocompleteItemDetails(
         // and other groups whose `getValue` reads `id` (not `name`) would
         // otherwise short-circuit to `null` and break pin/unpin from the
         // pinned drill.
-        const value =
-            group.getValue?.(item) ?? (hasPinnedContext(item) ? item._pinnedContext.value : null) ?? null
+        const value = group.getValue?.(item) ?? (hasPinnedContext(item) ? item._pinnedContext.value : null) ?? null
         const definitionType = PROPERTY_GROUP_TYPE_TO_DEFINITION_TYPE[group.type]
-        const propertyType = definitionType ? describeProperty(name, definitionType) ?? undefined : undefined
+        const propertyType = definitionType ? (describeProperty(name, definitionType) ?? undefined) : undefined
         const example = def?.examples?.[0] != null ? String(def.examples[0]) : undefined
-        const groupLabel = group.name.toUpperCase()
+        // `group.name` is optional on synthetic groups (e.g. the
+        // `ActionFilterRow` trigger-only group constructed from a
+        // committed filter). Fall back to the type so the label still
+        // renders something sensible instead of throwing.
+        const groupLabel = (group.name ?? String(group.type ?? '')).toUpperCase()
         const isPinnable = value != null && !CURATION_META_GROUP_TYPES.has(group.type)
         // Prefer taxonomy core description (canonical events/props), fall
         // back to the item's own description (Actions, custom events, DWH
@@ -1856,19 +1833,19 @@ export function useTaxonomicAutocompleteShortcutItems(): {
         }
 
         const pinned: TaxonomicAutocompleteEntry[] = (
-            pinnedFilterItems as Array<TaxonomicDefinitionTypes & { _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType } }>
+            pinnedFilterItems as Array<
+                TaxonomicDefinitionTypes & { _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType } }
+            >
         )
             .map((item) => buildEntry(item, item._pinnedContext?.sourceGroupType))
             .filter((e): e is TaxonomicAutocompleteEntry => e != null)
 
         const suggestedGroup = findGroup(TaxonomicFilterGroupType.SuggestedFilters)
-        const suggestedOptions =
-            ((suggestedGroup as { options?: Array<{ name: string; group: TaxonomicFilterGroupType }> } | undefined)
-                ?.options ?? []) as Array<{ name: string; group: TaxonomicFilterGroupType }>
+        const suggestedOptions = ((
+            suggestedGroup as { options?: Array<{ name: string; group: TaxonomicFilterGroupType }> } | undefined
+        )?.options ?? []) as Array<{ name: string; group: TaxonomicFilterGroupType }>
         const suggested: TaxonomicAutocompleteEntry[] = suggestedOptions
-            .map((opt) =>
-                buildEntry({ name: opt.name } as unknown as TaxonomicDefinitionTypes, opt.group)
-            )
+            .map((opt) => buildEntry({ name: opt.name } as unknown as TaxonomicDefinitionTypes, opt.group))
             .filter((e): e is TaxonomicAutocompleteEntry => e != null)
 
         return { pinned, suggested }
@@ -1957,10 +1934,8 @@ function MenuTrigger({
 
     const dwhGroup = groups.find((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)
     const hogqlGroup = groups.find((g) => g.type === TaxonomicFilterGroupType.HogQLExpression)
-    const showDwhShortcut =
-        shortcutGroups.includes(TaxonomicFilterGroupType.DataWarehouse) && !!dwhGroup
-    const showHogqlShortcut =
-        shortcutGroups.includes(TaxonomicFilterGroupType.HogQLExpression) && !!hogqlGroup
+    const showDwhShortcut = shortcutGroups.includes(TaxonomicFilterGroupType.DataWarehouse) && !!dwhGroup
+    const showHogqlShortcut = shortcutGroups.includes(TaxonomicFilterGroupType.HogQLExpression) && !!hogqlGroup
 
     return (
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
