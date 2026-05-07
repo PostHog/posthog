@@ -23,7 +23,7 @@ const meta: Meta<typeof BulkUpdateTagsButton> = {
             // Reserve enough viewport for the popover (placement: 'bottom-end') to render
             // entirely within the snapshot. The popover content is ~320px wide and ~360px tall.
             return (
-                <div className="flex justify-end p-4" style={{ minHeight: 480, minWidth: 420 }}>
+                <div className="flex items-start justify-end p-4" style={{ minHeight: 480, minWidth: 420 }}>
                     <Story />
                 </div>
             )
