@@ -60,7 +60,6 @@ Examples:
 Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
-NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
 ### Rules
 
@@ -76,7 +75,7 @@ Pushes trigger CI, which burns runner credits. Refrain from pushing unless expli
 
 This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
 
-- Never mention internal-only systems, private incidents, customer data, private Slack threads, unreleased roadmap details, or security-sensitive implementation details.
+- Never mention internal-only systems, private incidents, customer data, private Slack threads, unreleased roadmap details, or security-sensitive implementation details. This includes sensitive data shared in an agent session — never surface it in a PR description or comments.
 - Use product-facing and code-facing context that a public OSS contributor could understand from this repository alone.
 - If context is sensitive, summarize it at a high level without naming internal tools, accounts, or people.
 - Avoid citing private operational scale or incident metrics (for example, exact affected team counts, internal row-volume anecdotes, or customer-specific performance numbers) unless that data is already public and linkable.
