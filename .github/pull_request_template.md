@@ -30,6 +30,20 @@
 
 <!-- Add the `skip-inkeep-docs` label if this PR should not trigger an automatic docs update from the Inkeep agent. -->
 
+<!-- PR title format (conventional commits): <type>(<scope>): <description>
+     Both type and scope are required — agents skip them often, do not.
+     Type: feat (new functionality) | fix (bug fix) | chore (everything else: docs, tests, config, CI, refactors).
+     Scope: the area touched (e.g. insights, cohorts, devex, ci, llma for LLM analytics).
+     Description: lowercase, no trailing period, under 72 chars, imperative mood.
+     Public OSS repo — no internal customer names, private incidents, or operational metrics.
+     ✅ feat(insights): add retention graph export
+     ✅ chore(ci): bump node to 24
+     ✅ fix(cohorts): handle empty cohort in query builder
+     ❌ Add retention export                — missing type and scope
+     ❌ feat: Add retention export.         — capitalized, trailing period, no scope
+     ❌ fix: patches issue from acme-co     — references internal customer
+-->
+
 ## 🤖 Agent context
 
 <!-- Fill this section if an agent co-authored or authored this PR. Remove it for fully human-authored PRs. -->
