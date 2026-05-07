@@ -3267,6 +3267,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # Widths and heights are preserved; positions are repacked in the new order
         self.assertEqual(tile2.layouts["sm"], {"x": 0, "y": 0, "w": 12, "h": 8})
         self.assertEqual(tile1.layouts["sm"], {"x": 0, "y": 8, "w": 12, "h": 8})
+        # xs is the 1-column mobile grid; w must always be 1 regardless of sm width
+        self.assertEqual(tile1.layouts["xs"]["w"], 1)
+        self.assertEqual(tile2.layouts["xs"]["w"], 1)
 
     def test_reorder_tiles_preserve_packs_mixed_widths(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
@@ -3346,6 +3349,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tile2.refresh_from_db()
         self.assertEqual(tile1.layouts["sm"], expected_first)
         self.assertEqual(tile2.layouts["sm"], expected_second)
+        self.assertEqual(tile1.layouts["xs"]["w"], 1)
+        self.assertEqual(tile2.layouts["xs"]["w"], 1)
 
     def test_reorder_tiles_invalid_layout_returns_400(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")

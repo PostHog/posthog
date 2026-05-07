@@ -164,18 +164,21 @@ DEFAULT_REORDER_TILE_WIDTH = 6
 DEFAULT_REORDER_TILE_HEIGHT = 5
 
 
-def _existing_sm_size(tile: DashboardTile) -> tuple[Optional[int], Optional[int]]:
+def _existing_sm_size(tile: DashboardTile, default_w: int, default_h: int) -> tuple[int, int]:
     sm = (tile.layouts or {}).get("sm") if isinstance(tile.layouts, dict) else None
     if not isinstance(sm, dict):
-        return None, None
+        return default_w, default_h
     w, h = sm.get("w"), sm.get("h")
-    return (w if isinstance(w, int) else None, h if isinstance(h, int) else None)
+    return (
+        w if isinstance(w, int) and w > 0 else default_w,
+        h if isinstance(h, int) and h > 0 else default_h,
+    )
 
 
 def _apply_reorder_layout(
     tile_order: list[int],
     tile_map: dict[int, DashboardTile],
-    layout_mode: str,
+    layout_mode: ReorderLayout,
 ) -> None:
     """Repack tiles. ``preserve`` keeps each tile's existing w/h and reuses the lowest-segment
     greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h."""
@@ -206,9 +209,9 @@ def _apply_reorder_layout(
     xs_y = 0
     for tile_id in tile_order:
         tile = tile_map[tile_id]
-        existing_w, existing_h = _existing_sm_size(tile)
-        w = max(1, min(existing_w or DEFAULT_REORDER_TILE_WIDTH, DASHBOARD_GRID_COLUMN_COUNT))
-        h = max(1, existing_h or DEFAULT_REORDER_TILE_HEIGHT)
+        existing_w, existing_h = _existing_sm_size(tile, DEFAULT_REORDER_TILE_WIDTH, DEFAULT_REORDER_TILE_HEIGHT)
+        w = max(1, min(existing_w, DASHBOARD_GRID_COLUMN_COUNT))
+        h = max(1, existing_h)
 
         best_x = 0
         best_y = max(column_heights[0:w])
@@ -1631,7 +1634,7 @@ class DashboardsViewSet(
         serializer = ReorderTilesRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         tile_order: list[int] = serializer.validated_data["tile_order"]
-        layout_mode: str = serializer.validated_data["layout"]
+        layout_mode = ReorderLayout(serializer.validated_data["layout"])
 
         if len(tile_order) != len(set(tile_order)):
             return Response(
