@@ -135,7 +135,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -200,14 +200,14 @@ export interface EvaluationApi {
     readonly status_reason: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
-  * `llm_judge` - LLM as a judge
-  * `hog` - Hog */
+* `llm_judge` - LLM as a judge
+* `hog` - Hog */
     evaluation_type: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
     evaluation_config?: EvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
-  * `boolean` - Boolean (Pass/Fail) */
+* `boolean` - Boolean (Pass/Fail) */
     output_type: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: EvaluationApiOutputConfig
@@ -272,14 +272,14 @@ export interface PatchedEvaluationApi {
     readonly status_reason?: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
-  * `llm_judge` - LLM as a judge
-  * `hog` - Hog */
+* `llm_judge` - LLM as a judge
+* `hog` - Hog */
     evaluation_type?: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
-  * `boolean` - Boolean (Pass/Fail) */
+* `boolean` - Boolean (Pass/Fail) */
     output_type?: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: PatchedEvaluationApiOutputConfig
@@ -463,14 +463,14 @@ export interface ClusteringRunRequestApi {
     max_samples?: number
     /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
 
-  * `none` - none
-  * `l2` - l2 */
+* `none` - none
+* `l2` - l2 */
     embedding_normalization?: EmbeddingNormalizationEnumApi
     /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
 
-  * `none` - none
-  * `umap` - umap
-  * `pca` - pca */
+* `none` - none
+* `umap` - umap
+* `pca` - pca */
     dimensionality_reduction_method?: DimensionalityReductionMethodEnumApi
     /**
      * Target dimensions for dimensionality reduction (ignored if method is 'none')
@@ -480,8 +480,8 @@ export interface ClusteringRunRequestApi {
     dimensionality_reduction_ndims?: number
     /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
 
-  * `hdbscan` - hdbscan
-  * `kmeans` - kmeans */
+* `hdbscan` - hdbscan
+* `kmeans` - kmeans */
     clustering_method?: ClusteringMethodEnumApi
     /**
      * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
@@ -514,9 +514,9 @@ export interface ClusteringRunRequestApi {
     run_label?: string
     /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
 
-  * `umap` - umap
-  * `pca` - pca
-  * `tsne` - tsne */
+* `umap` - umap
+* `pca` - pca
+* `tsne` - tsne */
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
     event_filters?: ClusteringRunRequestApiEventFiltersItem[]
@@ -614,8 +614,8 @@ export interface EvaluationReportApi {
     evaluation: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
-  * `scheduled` - Scheduled
-  * `every_n` - Every N */
+* `scheduled` - Scheduled
+* `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -686,8 +686,8 @@ export interface PatchedEvaluationReportApi {
     evaluation?: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
-  * `scheduled` - Scheduled
-  * `every_n` - Every N */
+* `scheduled` - Scheduled
+* `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -773,10 +773,10 @@ export interface EvaluationReportRunApi {
     readonly period_end: string
     /** 'pending', 'delivered', or 'failed'.
 
-  * `pending` - Pending
-  * `delivered` - Delivered
-  * `partial_failure` - Partial Failure
-  * `failed` - Failed */
+* `pending` - Pending
+* `delivered` - Delivered
+* `partial_failure` - Partial Failure
+* `failed` - Failed */
     readonly delivery_status: DeliveryStatusEnumApi
     /** List of delivery error messages if delivery failed. */
     readonly delivery_errors: unknown
@@ -815,10 +815,10 @@ export interface EvaluationSummaryRequestApi {
     evaluation_id: string
     /** Filter type to apply ('all', 'pass', 'fail', or 'na')
 
-  * `all` - all
-  * `pass` - pass
-  * `fail` - fail
-  * `na` - na */
+* `all` - all
+* `pass` - pass
+* `fail` - fail
+* `na` - na */
     filter?: FilterEnumApi
     /**
      * Optional: specific generation IDs to include in summary (max 250)
@@ -1048,8 +1048,8 @@ export interface CategoricalScoreDefinitionConfigApi {
     options: CategoricalScoreOptionApi[]
     /** Whether reviewers can select one option or multiple options. Defaults to `single`.
 
-  * `single` - single
-  * `multiple` - multiple */
+* `single` - single
+* `multiple` - multiple */
     selection_mode?: SelectionModeEnumApi
     /**
      * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
@@ -1140,9 +1140,9 @@ export interface ScoreDefinitionCreateApi {
     description?: string | null
     /** Scorer kind. This cannot be changed after creation.
 
-  * `categorical` - categorical
-  * `numeric` - numeric
-  * `boolean` - boolean */
+* `categorical` - categorical
+* `numeric` - numeric
+* `boolean` - boolean */
     kind: ExperimentMetricKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
@@ -1196,8 +1196,8 @@ export interface SentimentRequestApi {
     ids: string[]
     /** Whether the IDs are 'trace' IDs or 'generation' IDs.
 
-  * `trace` - trace
-  * `generation` - generation */
+* `trace` - trace
+* `generation` - generation */
     analysis_level?: SentimentRequestAnalysisLevelEnumApi
     /** If true, bypass cache and reclassify. */
     force_refresh?: boolean
@@ -1279,13 +1279,13 @@ export const DetailModeValueEnumApi = {
 export interface SummarizeRequestApi {
     /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
 
-  * `trace` - trace
-  * `event` - event */
+* `trace` - trace
+* `event` - event */
     summarize_type?: SummarizeTypeEnumApi
     /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
-  * `minimal` - minimal
-  * `detailed` - detailed */
+* `minimal` - minimal
+* `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
@@ -1350,8 +1350,8 @@ export interface BatchCheckRequestApi {
     trace_ids: string[]
     /** Summary detail level to check for
 
-  * `minimal` - minimal
-  * `detailed` - detailed */
+* `minimal` - minimal
+* `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /**
      * LLM model used for cached summaries
@@ -1411,10 +1411,10 @@ export interface TextReprOptionsApi {
 export interface TextReprRequestApi {
     /** Type of LLM event to stringify
 
-  * `$ai_generation` - $ai_generation
-  * `$ai_span` - $ai_span
-  * `$ai_embedding` - $ai_embedding
-  * `$ai_trace` - $ai_trace */
+* `$ai_generation` - $ai_generation
+* `$ai_span` - $ai_span
+* `$ai_embedding` - $ai_embedding
+* `$ai_trace` - $ai_trace */
     event_type: EventTypeEnumApi
     /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
     data: unknown
@@ -2051,7 +2051,10 @@ export interface TaggerModelConfigurationApi {
     provider: LLMProviderEnumApi
     /** @maxLength 100 */
     model: string
-    /** @nullable */
+    /**
+     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+     * @nullable
+     */
     provider_key_id?: string | null
     /** @nullable */
     readonly provider_key_name: string | null
@@ -2064,7 +2067,7 @@ export interface TaggerApi {
     description?: string
     enabled?: boolean
     tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration (varies by tagger_type) */
+    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
     tagger_config: unknown
     /** Conditions that scope when the tagger runs */
     conditions?: TaggerConditionApi[]
@@ -2082,6 +2085,65 @@ export interface PaginatedTaggerListApi {
     /** @nullable */
     previous?: string | null
     results: TaggerApi[]
+}
+
+export interface TestHogTaggerTagApi {
+    /**
+     * Tag identifier to allow in Hog test results.
+     * @maxLength 100
+     */
+    name: string
+    /**
+     * Optional description for the tag.
+     * @maxLength 500
+     */
+    description?: string
+}
+
+export interface TestHogTaggerRequestApi {
+    /**
+     * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
+     * @minLength 1
+     */
+    source: string
+    /**
+     * Number of recent $ai_generation events to test against (1-10, default 5).
+     * @minimum 1
+     * @maximum 10
+     */
+    sample_count?: number
+    /** Optional tag whitelist. Returned tags outside this list are filtered out. */
+    tags?: TestHogTaggerTagApi[]
+}
+
+export interface TestHogTaggerResultItemApi {
+    /** UUID of the sampled $ai_generation event. */
+    event_uuid: string
+    /**
+     * Trace ID if available.
+     * @nullable
+     */
+    trace_id?: string | null
+    /** First 200 characters of the generation input. */
+    input_preview: string
+    /** First 200 characters of the generation output. */
+    output_preview: string
+    /** Tag names returned by the Hog code. */
+    tags: string[]
+    /** Text written to stdout by the Hog code. */
+    reasoning: string
+    /**
+     * Error message if the Hog code failed.
+     * @nullable
+     */
+    error?: string | null
+}
+
+export interface TestHogTaggerResponseApi {
+    /** Per-event Hog tagger test results. */
+    results: TestHogTaggerResultItemApi[]
+    /** Optional message, for example when no recent AI events were found. */
+    message?: string
 }
 
 export interface DatasetItemApi {

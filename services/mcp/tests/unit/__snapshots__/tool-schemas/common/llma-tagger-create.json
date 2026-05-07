@@ -1,0 +1,114 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "conditions": {
+            "description": "Conditions that scope when the tagger runs",
+            "items": {
+                "properties": {
+                    "id": {
+                        "description": "Stable identifier for this condition",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "properties": {
+                        "description": "Property filters that scope when this condition fires",
+                        "items": {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "rollout_percentage": {
+                        "default": 100,
+                        "description": "Percentage of matching events to apply this condition to",
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "number"
+                    }
+                },
+                "required": ["id"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "deleted": {
+            "type": "boolean"
+        },
+        "description": {
+            "type": "string"
+        },
+        "enabled": {
+            "type": "boolean"
+        },
+        "model_configuration": {
+            "anyOf": [
+                {
+                    "description": "Nested serializer for model configuration.",
+                    "properties": {
+                        "model": {
+                            "maxLength": 100,
+                            "type": "string"
+                        },
+                        "provider": {
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI",
+                            "enum": [
+                                "openai",
+                                "anthropic",
+                                "gemini",
+                                "openrouter",
+                                "fireworks",
+                                "azure_openai",
+                                "together_ai"
+                            ],
+                            "type": "string"
+                        },
+                        "provider_key_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned."
+                        },
+                        "provider_key_name": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["provider", "model"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "name": {
+            "maxLength": 400,
+            "type": "string"
+        },
+        "tagger_config": {
+            "description": "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
+        },
+        "tagger_type": {
+            "default": "llm",
+            "description": "* `llm` - LLM\n* `hog` - Hog",
+            "enum": ["llm", "hog"],
+            "type": "string"
+        }
+    },
+    "required": ["name", "tagger_config"],
+    "type": "object"
+}

@@ -76,6 +76,9 @@ import {
     LlmSkillsNamePartialUpdateParams,
     LlmSkillsNameRetrieveParams,
     LlmSkillsNameRetrieveQueryParams,
+    TaggersCreateBody,
+    TaggersListQueryParams,
+    TaggersTestHogCreateBody,
 } from '@/generated/llm_analytics/api'
 import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -1463,6 +1466,107 @@ const llmaSummarizationCreate = (): ToolBase<typeof LlmaSummarizationCreateSchem
     },
 })
 
+const LlmaTaggerCreateSchema = TaggersCreateBody
+
+const llmaTaggerCreate = (): ToolBase<typeof LlmaTaggerCreateSchema, WithPostHogUrl<Schemas.Tagger>> => ({
+    name: 'llma-tagger-create',
+    schema: LlmaTaggerCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaTaggerCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.tagger_type !== undefined) {
+            body['tagger_type'] = params.tagger_type
+        }
+        if (params.tagger_config !== undefined) {
+            body['tagger_config'] = params.tagger_config
+        }
+        if (params.conditions !== undefined) {
+            body['conditions'] = params.conditions
+        }
+        if (params.model_configuration !== undefined) {
+            body['model_configuration'] = params.model_configuration
+        }
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        const result = await context.api.request<Schemas.Tagger>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/taggers/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/llm-analytics/tags/${result.id}`)
+    },
+})
+
+const LlmaTaggerListSchema = TaggersListQueryParams
+
+const llmaTaggerList = (): ToolBase<typeof LlmaTaggerListSchema, WithPostHogUrl<Schemas.PaginatedTaggerList>> => ({
+    name: 'llma-tagger-list',
+    schema: LlmaTaggerListSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaTaggerListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTaggerList>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/taggers/`,
+            query: {
+                enabled: params.enabled,
+                id__in: params.id__in,
+                limit: params.limit,
+                offset: params.offset,
+                order_by: params.order_by,
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/llm-analytics/tags/${item.id}`)
+                    )
+                ),
+            },
+            '/llm-analytics'
+        )
+    },
+})
+
+const LlmaTaggerTestHogSchema = TaggersTestHogCreateBody
+
+const llmaTaggerTestHog = (): ToolBase<typeof LlmaTaggerTestHogSchema, Schemas.TestHogTaggerResponse> => ({
+    name: 'llma-tagger-test-hog',
+    schema: LlmaTaggerTestHogSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaTaggerTestHogSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        if (params.sample_count !== undefined) {
+            body['sample_count'] = params.sample_count
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.TestHogTaggerResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/taggers/test_hog/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LlmaTraceReviewCreateSchema = LlmAnalyticsTraceReviewsCreateBody
 
 const llmaTraceReviewCreate = (): ToolBase<
@@ -1653,6 +1757,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-skill-list': llmaSkillList,
     'llma-skill-update': llmaSkillUpdate,
     'llma-summarization-create': llmaSummarizationCreate,
+    'llma-tagger-create': llmaTaggerCreate,
+    'llma-tagger-list': llmaTaggerList,
+    'llma-tagger-test-hog': llmaTaggerTestHog,
     'llma-trace-review-create': llmaTraceReviewCreate,
     'llma-trace-review-delete': llmaTraceReviewDelete,
     'llma-trace-review-get': llmaTraceReviewGet,

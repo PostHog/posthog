@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 
 from django.db import transaction
@@ -6,6 +7,7 @@ from django.db.models import Q, QuerySet
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -14,13 +16,25 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.cdp.validation import compile_hog
+from posthog.clickhouse.query_tagging import (
+    Feature as QueryFeature,
+    Product,
+    tag_queries,
+)
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
+from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
+from posthog.temporal.llm_analytics.run_tagger import run_hog_tagger
 
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
@@ -81,7 +95,14 @@ class TaggerModelConfigurationSerializer(serializers.Serializer):
 
     provider = serializers.ChoiceField(choices=LLMProvider.choices)
     model = serializers.CharField(max_length=100)
-    provider_key_id = serializers.UUIDField(required=False, allow_null=True)
+    provider_key_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key "
+            "ID returned by PostHog, or omit/null when no provider key should be pinned."
+        ),
+    )
     provider_key_name = serializers.SerializerMethodField(read_only=True)
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
@@ -101,7 +122,12 @@ class TaggerModelConfigurationSerializer(serializers.Serializer):
 class TaggerSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     model_configuration = TaggerModelConfigurationSerializer(required=False, allow_null=True)
-    tagger_config = serializers.JSONField(help_text="Tagger configuration (varies by tagger_type)")
+    tagger_config = serializers.JSONField(
+        help_text=(
+            "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. "
+            "For tagger_type 'hog': {source, tags?}."
+        )
+    )
     tagger_type = serializers.ChoiceField(choices=TaggerType.choices, default=TaggerType.LLM)
     conditions = TaggerConditionSerializer(
         many=True, required=False, default=list, help_text="Conditions that scope when the tagger runs"
@@ -254,6 +280,57 @@ class TaggerFilter(django_filters.FilterSet):
         return queryset
 
 
+class TestHogTaggerTagSerializer(serializers.Serializer):
+    # Enforce the same {name, description?} shape as TagDefinitionSerializer so a payload
+    # like {"tags": [{}]} is rejected with a 400 instead of blowing up on KeyError downstream.
+    name = serializers.CharField(max_length=100, help_text="Tag identifier to allow in Hog test results.")
+    description = serializers.CharField(
+        max_length=500,
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Optional description for the tag.",
+    )
+
+
+class TestHogTaggerRequestSerializer(serializers.Serializer):
+    source = serializers.CharField(
+        required=True,
+        min_length=1,
+        help_text="Hog source code to test. Return a tag name string, a list of tag name strings, or null.",
+    )  # type: ignore[assignment]
+    sample_count = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=10,
+        help_text="Number of recent $ai_generation events to test against (1-10, default 5).",
+    )
+    tags = TestHogTaggerTagSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Optional tag whitelist. Returned tags outside this list are filtered out.",
+    )
+
+
+class TestHogTaggerResultItemSerializer(serializers.Serializer):
+    event_uuid = serializers.CharField(help_text="UUID of the sampled $ai_generation event.")
+    trace_id = serializers.CharField(allow_null=True, required=False, help_text="Trace ID if available.")
+    input_preview = serializers.CharField(help_text="First 200 characters of the generation input.")
+    output_preview = serializers.CharField(help_text="First 200 characters of the generation output.")
+    tags = serializers.ListField(child=serializers.CharField(), help_text="Tag names returned by the Hog code.")
+    reasoning = serializers.CharField(allow_blank=True, help_text="Text written to stdout by the Hog code.")
+    error = serializers.CharField(allow_null=True, required=False, help_text="Error message if the Hog code failed.")
+
+
+class TestHogTaggerResponseSerializer(serializers.Serializer):
+    results = TestHogTaggerResultItemSerializer(many=True, help_text="Per-event Hog tagger test results.")
+    message = serializers.CharField(
+        required=False, help_text="Optional message, for example when no recent AI events were found."
+    )
+
+
 class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "tagger"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -361,31 +438,12 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return super().partial_update(request, *args, **kwargs)
 
-    @action(detail=False, methods=["post"], url_path="test_hog")
+    @extend_schema(request=TestHogTaggerRequestSerializer, responses=TestHogTaggerResponseSerializer)
+    @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["tagger:read"])
     @llma_track_latency("llma_taggers_test_hog")
     @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_test_hog", method="POST")
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog tagger code against sample events without saving."""
-        import json
-
-        from posthog.hogql import ast
-        from posthog.hogql.query import execute_hogql_query
-
-        from posthog.cdp.validation import compile_hog
-        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-        from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
-        from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
-
-        # The Hog tagger workflow ships in the next PR of the stack. Surface a clean 503
-        # if /test_hog is hit before that PR is deployed, instead of a 500 from ImportError.
-        try:
-            from posthog.temporal.llm_analytics.run_tagger import run_hog_tagger
-        except ImportError:
-            return Response(
-                {"error": "Hog tagger runtime is not yet deployed in this environment."},
-                status=503,
-            )
-
         test_serializer = TestHogTaggerRequestSerializer(data=request.data)
         if not test_serializer.is_valid():
             return Response({"error": test_serializer.errors}, status=400)
@@ -438,7 +496,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
             limit=ast.Constant(value=sample_count),
         )
 
-        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+        tag_queries(product=Product.LLM_ANALYTICS, feature=QueryFeature.QUERY)
         response = execute_hogql_query(query=query, team=team, limit_context=None)
 
         if not response.results:
@@ -480,16 +538,3 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
             )
 
         return Response({"results": results})
-
-
-class TestHogTaggerTagSerializer(serializers.Serializer):
-    # Enforce the same {name, description?} shape as TagDefinitionSerializer so a payload
-    # like {"tags": [{}]} is rejected with a 400 instead of blowing up on KeyError downstream.
-    name = serializers.CharField(max_length=100)
-    description = serializers.CharField(max_length=500, required=False, default="", allow_blank=True)
-
-
-class TestHogTaggerRequestSerializer(serializers.Serializer):
-    source = serializers.CharField(required=True, min_length=1)  # type: ignore[assignment]
-    sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
-    tags = TestHogTaggerTagSerializer(many=True, required=False, default=list)
