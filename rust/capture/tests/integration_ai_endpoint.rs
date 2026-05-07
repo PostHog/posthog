@@ -176,8 +176,8 @@ fn setup_ai_test_router() -> Router {
         None,
         quota_limiter,
         TokenDropper::default(),
-        None,
-        None, // errortracking_event_restriction_service // event_restriction_service
+        None, // event_restriction_service
+        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -1636,8 +1636,8 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,
         quota_limiter,
         TokenDropper::default(),
-        None,
-        None, // errortracking_event_restriction_service // event_restriction_service
+        None, // event_restriction_service
+        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -2548,8 +2548,8 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,
         quota_limiter,
         token_dropper,
-        None,
-        None,  // errortracking_event_restriction_service  // event_restriction_service
+        None,  // event_restriction_service
+        None,  // errortracking_event_restriction_service
         false, // metrics
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -2755,8 +2755,8 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,
         quota_limiter,
         TokenDropper::default(),
-        None,
-        None, // errortracking_event_restriction_service // event_restriction_service
+        None, // event_restriction_service
+        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -2907,8 +2907,8 @@ fn setup_ai_test_router_with_overflow_limiter(
         None,
         quota_limiter,
         TokenDropper::default(),
-        None,
-        None, // errortracking_event_restriction_service // event_restriction_service
+        None, // event_restriction_service
+        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
