@@ -3301,7 +3301,7 @@ snapshots:
     mcp-apps-error-tracking--chained-exceptions--light:
         hash: v1.k794b7964.389fb139ebca1a46d52bbde8fb206d19fca821f4246fbaeeec5cb6abac1edbe0.Tdry9M03t4ByyoywuZ8Ji3HdpO458gYKGWeSXtbvCBM
     mcp-apps-error-tracking--error-details--light:
-        hash: v1.k794b7964.15370fe6ee63046e8dde963d24a7cb1dc72d3f33ee3c063b99e7ab44bc4f527e.K95H1vX5WL6oT6pwRoUHaGotlgHnqcXZesFxjqoahqY
+        hash: v1.k794b7964.74f9d68f76de7bb2b9a8fe2c9e9eb1d0e168e36ec968ea31db600fee9ceb9c5e.g8P9K2bwwae_R1V-A3RPR6mAzlfgAIvg97NX470Cz4M
     mcp-apps-error-tracking--list--light:
         hash: v1.k794b7964.9aa5264a8942447254a8133097d32ff170bb770882f7c9e6986e9e8002ec2bfd.032Gz3ampq0eCejp_vtf7TYyket4mu5-jhhZWYeU-s4
     mcp-apps-error-tracking--python-stack-trace--light:

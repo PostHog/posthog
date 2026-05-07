@@ -63,6 +63,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
+    ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSettingsViewSet,
@@ -1002,6 +1003,13 @@ environments_router.register(
     r"error_tracking/issues",
     ErrorTrackingIssueViewSet,
     "environment_error_tracking_issue",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/query",
+    ErrorTrackingQueryViewSet,
+    "environment_error_tracking_query",
     ["team_id"],
 )
 
