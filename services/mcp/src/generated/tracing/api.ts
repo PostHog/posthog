@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -39,6 +39,94 @@ export const TracingSpansAttributesRetrieveQueryParams = /* @__PURE__ */ zod.obj
         .optional()
         .describe('Pagination offset (default: 0).'),
     search: zod.string().min(1).optional().describe('Search filter for attribute names.'),
+})
+
+export const TracingSpansBubbleUpCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const tracingSpansBubbleUpCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansBubbleUpCreateBodyQueryOneRootSpansDefault = true
+
+export const TracingSpansBubbleUpCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for "now".'),
+                })
+                .optional()
+                .describe('Overall query date range.'),
+            serviceNames: zod.array(zod.string()).optional(),
+            statusCodes: zod.array(zod.number()).optional(),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
+                            ),
+                        type: zod
+                            .enum(['span', 'span_attribute', 'span_resource_attribute'])
+                            .describe(
+                                '* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
+                            )
+                            .describe(
+                                '"span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .nullish()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                            ),
+                    })
+                )
+                .default(tracingSpansBubbleUpCreateBodyQueryOneFilterGroupDefault),
+            rootSpans: zod.boolean().default(tracingSpansBubbleUpCreateBodyQueryOneRootSpansDefault),
+            region: zod
+                .object({
+                    time_from: zod.string().describe('ISO 8601 start of brushed time range (inclusive).'),
+                    time_to: zod.string().describe('ISO 8601 end of brushed time range (exclusive).'),
+                    duration_min_nano: zod.number().describe('Minimum duration in nanoseconds (inclusive).'),
+                    duration_max_nano: zod.number().describe('Maximum duration in nanoseconds (exclusive).'),
+                })
+                .describe('Brushed subset to compare against the baseline.'),
+        })
+        .describe('Bubble-up query parameters.'),
 })
 
 export const TracingSpansQueryCreateParams = /* @__PURE__ */ zod.object({
@@ -164,6 +252,118 @@ export const TracingSpansServiceNamesRetrieveParams = /* @__PURE__ */ zod.object
 export const TracingSpansServiceNamesRetrieveQueryParams = /* @__PURE__ */ zod.object({
     dateRange: zod.string().min(1).optional().describe('JSON-encoded date range, e.g. \'{"date_from": "-1h"}\'.'),
     search: zod.string().min(1).optional().describe('Search filter for service names.'),
+})
+
+export const TracingSpansSparklineCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansSparklineCreateBodyQueryOneLimitDefault = 100
+export const tracingSpansSparklineCreateBodyQueryOneRootSpansDefault = true
+
+export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for "now".'),
+                })
+                .optional()
+                .describe('Date range for the query. Defaults to last hour.'),
+            serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
+            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            orderBy: zod
+                .enum(['latest', 'earliest'])
+                .describe('* `latest` - latest\n* `earliest` - earliest')
+                .optional()
+                .describe(
+                    'Order results by timestamp. Defaults to latest.\n\n* `latest` - latest\n* `earliest` - earliest'
+                ),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").'
+                            ),
+                        type: zod
+                            .enum(['span', 'span_attribute', 'span_resource_attribute'])
+                            .describe(
+                                '* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
+                            )
+                            .describe(
+                                '"span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .nullish()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.'
+                            ),
+                    })
+                )
+                .default(tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault)
+                .describe('Property filters for the query.'),
+            traceId: zod.string().optional().describe('Filter to a specific trace ID (hex string).'),
+            limit: zod
+                .number()
+                .default(tracingSpansSparklineCreateBodyQueryOneLimitDefault)
+                .describe('Max results (1-1000). Defaults to 100.'),
+            after: zod.string().optional().describe('Pagination cursor from previous response.'),
+            rootSpans: zod
+                .boolean()
+                .default(tracingSpansSparklineCreateBodyQueryOneRootSpansDefault)
+                .describe('Filter to root spans only. Defaults to true.'),
+            prefetchSpans: zod.number().optional().describe('Number of child spans to prefetch per trace (1-100).'),
+            sparklineBreakdownBy: zod
+                .enum(['service', 'latency_log2', 'service_and_latency_log2'])
+                .describe(
+                    '* `service` - service\n* `latency_log2` - latency_log2\n* `service_and_latency_log2` - service_and_latency_log2'
+                )
+                .optional()
+                .describe(
+                    'Chart aggregation: volume by service, latency heatmap, or both dimensions.\n\n* `service` - service\n* `latency_log2` - latency_log2\n* `service_and_latency_log2` - service_and_latency_log2'
+                ),
+            heatmapIncludeQuantiles: zod
+                .boolean()
+                .optional()
+                .describe('Include p50/p95/p99 per heatmap cell (latency breakdown only).'),
+        })
+        .describe('The tracing spans query to execute.'),
 })
 
 export const tracingSpansTraceCreatePathTraceIdRegExp = new RegExp('^[a-zA-Z0-9]+$')
