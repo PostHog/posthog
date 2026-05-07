@@ -4,6 +4,7 @@ import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
 import {
     costContextFromProperties,
     costContextFromTrace,
+    formatAiErrorForDisplay,
     formatLLMEventTitle,
     getSessionID,
     getSessionStartTimestamp,
@@ -2158,6 +2159,33 @@ describe('LLM Analytics utils', () => {
         it('returns raw string when stringified value parses to a non-object scalar', () => {
             // partial-json may parse `"hello"` to the string "hello" — that's not a structured arg payload, fall back.
             expect(parseToolArgumentsForDisplay('"hello"')).toEqual({ kind: 'raw', value: '"hello"' })
+        })
+    })
+
+    describe('formatAiErrorForDisplay', () => {
+        it.each<[string, unknown, string]>([
+            ['string passes through', 'rate limit exceeded', 'rate limit exceeded'],
+            ['empty string falls back to Unknown error', '', 'Unknown error'],
+            ['null falls back to Unknown error', null, 'Unknown error'],
+            ['undefined falls back to Unknown error', undefined, 'Unknown error'],
+            [
+                'plain object is JSON-stringified',
+                { message: 'boom', name: 'Error' },
+                '{"message":"boom","name":"Error"}',
+            ],
+            ['array is JSON-stringified', ['a', 'b'], '["a","b"]'],
+            ['number is JSON-stringified', 500, '500'],
+            ['boolean is JSON-stringified', true, 'true'],
+        ])('%s', (_, input, expected) => {
+            expect(formatAiErrorForDisplay(input)).toBe(expected)
+        })
+
+        it('falls back to String() when JSON.stringify throws (e.g. circular refs)', () => {
+            const circular: Record<string, unknown> = {}
+            circular.self = circular
+            // JSON.stringify throws on circular refs; helper should fall back to String() and not throw.
+            expect(() => formatAiErrorForDisplay(circular)).not.toThrow()
+            expect(formatAiErrorForDisplay(circular)).toBe('[object Object]')
         })
     })
 })

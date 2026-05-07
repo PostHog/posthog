@@ -3473,7 +3473,8 @@
                 "finalize_plan",
                 "call_mcp_server",
                 "search_llm_traces",
-                "run_hog_eval_test"
+                "run_hog_eval_test",
+                "diagnose_proxy"
             ],
             "type": "string"
         },
