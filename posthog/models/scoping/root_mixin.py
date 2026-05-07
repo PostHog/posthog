@@ -45,7 +45,11 @@ class TeamScopedRootMixin(RootTeamMixin):
     a per-model decision.
     """
 
-    objects = TeamScopedManager()
+    # Override of `RootTeamMixin.objects` (RootTeamManager) — mypy can't
+    # infer that the parent's narrower manager is intentionally being
+    # widened, so the assignment looks incompatible. The override is the
+    # whole point of this mixin.
+    objects = TeamScopedManager()  # type: ignore[assignment]
 
     class Meta:
         abstract = True

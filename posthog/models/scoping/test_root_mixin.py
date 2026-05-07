@@ -61,7 +61,7 @@ class TestFailClosedIntrospection(SimpleTestCase):
     """
 
     @staticmethod
-    def _has_team_scoped_manager(model: type) -> bool:
+    def _has_team_scoped_manager(model: type[models.Model]) -> bool:
         return any(isinstance(m, TeamScopedManager) for m in model._meta.managers)
 
     def test_product_team_model_is_detected(self) -> None:
