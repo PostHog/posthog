@@ -19,7 +19,7 @@ or duplicate occurrences. This skill picks the most useful one.
 
 | Tool                                     | Purpose                                               |
 | ---------------------------------------- | ----------------------------------------------------- |
-| `posthog:error-tracking-issues-retrieve` | Get issue details (fingerprint, status, volume)       |
+| `posthog:query-error-tracking-issue`     | Get issue details (fingerprint, status, volume)       |
 | `posthog:execute-sql`                    | Query exception events to find linked sessions        |
 | `posthog:query-session-recordings-list`  | Fetch recording metadata for candidate sessions       |
 | `posthog:session-recording-get`          | Get full details for the selected recording           |
@@ -32,9 +32,9 @@ or duplicate occurrences. This skill picks the most useful one.
 Fetch the error tracking issue to understand what you're looking for:
 
 ```json
-posthog:error-tracking-issues-retrieve
+posthog:query-error-tracking-issue
 {
-  "id": "<issue_id>"
+  "issueId": "<issue_id>"
 }
 ```
 

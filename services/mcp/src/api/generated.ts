@@ -16691,6 +16691,24 @@ export namespace Schemas {
       success: boolean;
     }
 
+    /**
+     * * `last_seen` - last_seen
+    * `first_seen` - first_seen
+    * `occurrences` - occurrences
+    * `users` - users
+    * `sessions` - sessions
+     */
+    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
+
+
+    export const ErrorTrackingIssueOrderByEnum = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
+      Sessions: 'sessions',
+    } as const;
+
     export interface ErrorTrackingIssueQueryRequest {
       /** Error tracking issue ID. */
       issueId: string;
@@ -16749,24 +16767,6 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    /**
-     * * `last_seen` - last_seen
-    * `first_seen` - first_seen
-    * `occurrences` - occurrences
-    * `users` - users
-    * `sessions` - sessions
-     */
-    export type ErrorTrackingIssuesListQueryRequestOrderByEnum = typeof ErrorTrackingIssuesListQueryRequestOrderByEnum[keyof typeof ErrorTrackingIssuesListQueryRequestOrderByEnum];
-
-
-    export const ErrorTrackingIssuesListQueryRequestOrderByEnum = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-    } as const;
-
     export interface ErrorTrackingIssuesListQueryRequest {
       /** Date range for issue aggregates. Defaults to the last 7 days. */
       dateRange?: ErrorTrackingDateRange;
@@ -16797,7 +16797,7 @@ export namespace Schemas {
     * `occurrences` - occurrences
     * `users` - users
     * `sessions` - sessions */
-      orderBy?: ErrorTrackingIssuesListQueryRequestOrderByEnum;
+      orderBy?: ErrorTrackingIssueOrderByEnum;
       /** Sort direction. Defaults to DESC.
 
     * `ASC` - ASC
@@ -23955,10 +23955,10 @@ export namespace Schemas {
      * * `latest` - latest
     * `earliest` - earliest
      */
-    export type OrderBy5f0Enum = typeof OrderBy5f0Enum[keyof typeof OrderBy5f0Enum];
+    export type OrderByEnum = typeof OrderByEnum[keyof typeof OrderByEnum];
 
 
-    export const OrderBy5f0Enum = {
+    export const OrderByEnum = {
       Latest: 'latest',
       Earliest: 'earliest',
     } as const;
@@ -39456,7 +39456,7 @@ export namespace Schemas {
 
     * `latest` - latest
     * `earliest` - earliest */
-      orderBy?: OrderBy5f0Enum;
+      orderBy?: OrderByEnum;
       /** Full-text search term to filter log bodies. */
       searchTerm?: string;
       /** Property filters for the query. */
@@ -39706,7 +39706,7 @@ export namespace Schemas {
 
     * `latest` - latest
     * `earliest` - earliest */
-      orderBy?: OrderBy5f0Enum;
+      orderBy?: OrderByEnum;
       /** Property filters for the query. */
       filterGroup?: _SpanPropertyFilter[];
       /** Filter to a specific trace ID (hex string). */

@@ -1205,10 +1205,10 @@ export interface ErrorTrackingAssigneeApi {
  * `users` - users
  * `sessions` - sessions
  */
-export type ErrorTrackingIssuesListQueryRequestOrderByEnumApi =
-    (typeof ErrorTrackingIssuesListQueryRequestOrderByEnumApi)[keyof typeof ErrorTrackingIssuesListQueryRequestOrderByEnumApi]
+export type ErrorTrackingIssueOrderByEnumApi =
+    (typeof ErrorTrackingIssueOrderByEnumApi)[keyof typeof ErrorTrackingIssueOrderByEnumApi]
 
-export const ErrorTrackingIssuesListQueryRequestOrderByEnumApi = {
+export const ErrorTrackingIssueOrderByEnumApi = {
     LastSeen: 'last_seen',
     FirstSeen: 'first_seen',
     Occurrences: 'occurrences',
@@ -1246,7 +1246,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
 * `occurrences` - occurrences
 * `users` - users
 * `sessions` - sessions */
-    orderBy?: ErrorTrackingIssuesListQueryRequestOrderByEnumApi
+    orderBy?: ErrorTrackingIssueOrderByEnumApi
     /** Sort direction. Defaults to DESC.
 
 * `ASC` - ASC

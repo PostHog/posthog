@@ -24,9 +24,9 @@ export interface _TracingDateRangeApi {
  * * `latest` - latest
  * `earliest` - earliest
  */
-export type OrderBy5f0EnumApi = (typeof OrderBy5f0EnumApi)[keyof typeof OrderBy5f0EnumApi]
+export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
 
-export const OrderBy5f0EnumApi = {
+export const OrderByEnumApi = {
     Latest: 'latest',
     Earliest: 'earliest',
 } as const
@@ -110,7 +110,7 @@ export interface _TracingQueryBodyApi {
 
 * `latest` - latest
 * `earliest` - earliest */
-    orderBy?: OrderBy5f0EnumApi
+    orderBy?: OrderByEnumApi
     /** Property filters for the query. */
     filterGroup?: _SpanPropertyFilterApi[]
     /** Filter to a specific trace ID (hex string). */
