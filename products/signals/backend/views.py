@@ -348,6 +348,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
+        qs = self._apply_signal_report_repository_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
@@ -429,6 +430,31 @@ class SignalReportViewSet(
                 ).extra(
                     where=[reviewer_where],
                     params=reviewer_json_filters,
+                )
+            )
+        )
+
+    def _apply_signal_report_repository_filter(self, queryset):
+        repository_filter = self.request.query_params.get("repository")
+        if not repository_filter:
+            return queryset
+
+        # Repos are matched case-insensitively against the `repository` field of the
+        # latest `repo_selection` artefact's JSON content (e.g. `{"repository": "owner/repo", ...}`).
+        repositories = [s.strip().lower() for s in repository_filter.split(",") if s.strip()]
+        if not repositories:
+            return queryset
+
+        repo_where_clause = "LOWER(content::jsonb->>'repository') = ANY(%s)"
+        return queryset.filter(
+            Exists(
+                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+                SignalReportArtefact.objects.filter(
+                    report_id=OuterRef("id"),
+                    type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                ).extra(
+                    where=[repo_where_clause],
+                    params=[repositories],
                 )
             )
         )
@@ -672,6 +698,17 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers "
                     "include any of the given users."
+                ),
+            ),
+            OpenApiParameter(
+                name="repository",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of repositories in `owner/repo` form. Reports are kept if their "
+                    "selected repository (from the `repo_selection` artefact) matches any of the given "
+                    "repositories. Matching is case-insensitive."
                 ),
             ),
             OpenApiParameter(

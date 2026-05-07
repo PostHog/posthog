@@ -535,6 +535,73 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == []
 
+    # --- repository filter ---
+
+    def _repo_selection_artefact(self, report: SignalReport, *, repository: str | None) -> SignalReportArtefact:
+        return SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=json.dumps({"repository": repository, "reason": "test"}),
+        )
+
+    def test_repository_filter_keeps_only_matching_repo(self):
+        report_a = self._create_report(title="A")
+        report_b = self._create_report(title="B")
+        self._repo_selection_artefact(report_a, repository="posthog/posthog")
+        self._repo_selection_artefact(report_b, repository="posthog/posthog-js")
+
+        response = self.client.get(self._list_url(repository="posthog/posthog"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(report_a.id) in ids
+        assert str(report_b.id) not in ids
+
+    def test_repository_filter_accepts_multiple_repos(self):
+        report_a = self._create_report(title="A")
+        report_b = self._create_report(title="B")
+        report_c = self._create_report(title="C")
+        self._repo_selection_artefact(report_a, repository="posthog/posthog")
+        self._repo_selection_artefact(report_b, repository="posthog/posthog-js")
+        self._repo_selection_artefact(report_c, repository="posthog/other")
+
+        response = self.client.get(
+            self._list_url(repository="posthog/posthog,posthog/posthog-js"),
+        )
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert {str(report_a.id), str(report_b.id)}.issubset(ids)
+        assert str(report_c.id) not in ids
+
+    def test_repository_filter_is_case_insensitive(self):
+        report = self._create_report(title="A")
+        self._repo_selection_artefact(report, repository="posthog/posthog")
+
+        response = self.client.get(self._list_url(repository="PostHog/PostHog"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(report.id) in ids
+
+    def test_repository_filter_excludes_reports_without_repo_selection_artefact(self):
+        report_with_repo = self._create_report(title="A")
+        report_without_repo = self._create_report(title="B")
+        self._repo_selection_artefact(report_with_repo, repository="posthog/posthog")
+
+        response = self.client.get(self._list_url(repository="posthog/posthog"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(report_with_repo.id) in ids
+        assert str(report_without_repo.id) not in ids
+
+    def test_repository_filter_empty_returns_all(self):
+        report = self._create_report(title="A")
+        self._repo_selection_artefact(report, repository="posthog/posthog")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(report.id) in ids
+
     # --- legacy choice removal ---
 
     def test_actionability_null_for_legacy_choice_artefact(self):
