@@ -93,8 +93,8 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
         if uuid_str.is_empty() {
             return Err(Error::MissingEventUuid);
         }
-        let uuid = Uuid::parse_str(uuid_str)
-            .map_err(|_| Error::InvalidEventUuid(uuid_str.to_owned()))?;
+        let uuid =
+            Uuid::parse_str(uuid_str).map_err(|_| Error::InvalidEventUuid(uuid_str.to_owned()))?;
         if !seen.insert(uuid) {
             return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
         }

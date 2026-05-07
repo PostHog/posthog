@@ -59,17 +59,6 @@ pub(super) const DETAIL_PERSON_PROCESSING_DISABLED: &str = "person_processing_di
 pub(super) const DETAIL_EVENT_RESTRICTION_DROP: &str = "event_restriction_drop";
 
 // ---------------------------------------------------------------------------
-// Payload size limits
-// ---------------------------------------------------------------------------
-
-/// Maximum compressed (wire) body size the v1 endpoint will accept.
-pub(super) const CAPTURE_V1_MAX_COMPRESSED_BODY_BYTES: usize = 10 * 1024 * 1024; // 10MB
-
-/// Maximum decompressed body size (5x compressed limit per RFC).
-pub(crate) const CAPTURE_V1_MAX_DECOMPRESSED_BODY_BYTES: usize =
-    CAPTURE_V1_MAX_COMPRESSED_BODY_BYTES * 5; // 50MB
-
-// ---------------------------------------------------------------------------
 // Validation limits
 // ---------------------------------------------------------------------------
 

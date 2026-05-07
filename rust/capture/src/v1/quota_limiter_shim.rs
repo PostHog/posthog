@@ -221,6 +221,8 @@ mod tests {
                 pyroscope_sample_rate: 100,
             },
             capture_v1_sinks: String::new(),
+            capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
+            capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
         }
     }
 

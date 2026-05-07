@@ -3,7 +3,6 @@ use axum::extract::{MatchedPath, Query as AxumQuery, State};
 use axum::http::{header, HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 
-use super::constants::*;
 use super::query::Query;
 use super::response::Response;
 use super::types::Batch;
@@ -30,7 +29,7 @@ pub async fn handle_request(
 
     let raw_bytes = v1::util::extract_body_with_timeout(
         body,
-        CAPTURE_V1_MAX_COMPRESSED_BODY_BYTES,
+        state.capture_v1_max_compressed_body_bytes,
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
         &context.path,
@@ -44,7 +43,7 @@ pub async fn handle_request(
     let payload = v1::util::decompress_payload(
         context.content_encoding.as_deref(),
         raw_bytes,
-        CAPTURE_V1_MAX_DECOMPRESSED_BODY_BYTES,
+        state.capture_v1_max_decompressed_body_bytes,
         state.body_read_chunk_size_kb,
     )
     .await
