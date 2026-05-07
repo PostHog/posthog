@@ -24,9 +24,9 @@ import { RecipientTokensService } from '../services/messaging/recipient-tokens.s
 import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { mirrorCall } from '../utils/mirror-call'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation } from '../utils/invocation-utils'
+import { mirrorCall } from '../utils/mirror-call'
 import { getTransformationFunctions } from './transformation-functions'
 
 export interface HogTransformerConfig {
