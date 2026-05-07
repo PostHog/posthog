@@ -101,7 +101,6 @@ import {
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
-    DataWarehouseProvisioningStatus,
     DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -211,6 +210,7 @@ import {
 } from '~/types'
 
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
@@ -5571,7 +5571,7 @@ const api = {
                 .create(options as any)
         },
 
-        async warehouseStatus(options?: ApiMethodOptions): Promise<DataWarehouseProvisioningStatus> {
+        async warehouseStatus(options?: ApiMethodOptions): Promise<WarehouseStatusResponseApi> {
             return await new ApiRequest().dataWarehouse().withAction('warehouse_status').get(options)
         },
 
@@ -5586,7 +5586,7 @@ const api = {
         async resetPassword(): Promise<{ username: string; password: string }> {
             return await new ApiRequest()
                 .dataWarehouse()
-                .withAction('reset_password')
+                .withAction('reset-password')
                 .create({} as any)
         },
     },

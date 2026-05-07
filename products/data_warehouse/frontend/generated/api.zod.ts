@@ -51,8 +51,20 @@ export const WarehouseSavedQueryDraftsPartialUpdateBody = /* @__PURE__ */ zod.ob
 /**
  * Start provisioning a managed warehouse for this team.
  */
+export const dataWarehouseProvisionCreateBodyDatabaseNameMin = 3
+export const dataWarehouseProvisionCreateBodyDatabaseNameMax = 63
+
+export const dataWarehouseProvisionCreateBodyDatabaseNameRegExp = new RegExp('^[a-z](?:[a-z0-9-]{1,61}[a-z0-9])$')
+
 export const DataWarehouseProvisionCreateBody = /* @__PURE__ */ zod.object({
-    database_name: zod.string().describe('Name for the new database'),
+    database_name: zod
+        .string()
+        .min(dataWarehouseProvisionCreateBodyDatabaseNameMin)
+        .max(dataWarehouseProvisionCreateBodyDatabaseNameMax)
+        .regex(dataWarehouseProvisionCreateBodyDatabaseNameRegExp)
+        .describe(
+            'DNS-safe name for the new database. Must be 3-63 characters, start with a lowercase letter, end with a lowercase letter or number, and contain only lowercase letters, numbers, or hyphens.'
+        ),
 })
 
 export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({

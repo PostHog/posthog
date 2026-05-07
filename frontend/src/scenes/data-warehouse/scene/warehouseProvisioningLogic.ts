@@ -1,16 +1,36 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataWarehouseProvisioningStatus } from '~/types'
+import {
+    dataWarehouseCheckDatabaseNameRetrieve,
+    dataWarehouseDeprovisionCreate,
+    dataWarehouseProvisionCreate,
+    dataWarehouseResetPasswordCreate,
+    dataWarehouseWarehouseStatusRetrieve,
+} from 'products/data_warehouse/frontend/generated/api'
+import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import type { warehouseProvisioningLogicType } from './warehouseProvisioningLogicType'
 
+export const MANAGED_WAREHOUSE_DATABASE_NAME_REGEX = /^[a-z](?:[a-z0-9-]{1,61}[a-z0-9])$/
+
+export function isValidManagedWarehouseDatabaseName(name: string): boolean {
+    return MANAGED_WAREHOUSE_DATABASE_NAME_REGEX.test(name)
+}
+
 const databaseNameStorageKey = (teamId: number | null): string =>
     `warehouse-provisioning-database-name-${teamId ?? 'unknown'}`
+
+const currentProjectId = (): string => {
+    const teamId = teamLogic.values.currentTeamId
+    if (!teamId) {
+        throw new Error('Current project is unavailable')
+    }
+    return String(teamId)
+}
 
 export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'warehouseProvisioningLogic']),
@@ -35,11 +55,11 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
 
     loaders({
         warehouseStatus: [
-            null as DataWarehouseProvisioningStatus | null,
+            null as WarehouseStatusResponseApi | null,
             {
                 loadWarehouseStatus: async () => {
                     try {
-                        return await api.dataWarehouse.warehouseStatus()
+                        return await dataWarehouseWarehouseStatusRetrieve(currentProjectId())
                     } catch (e: any) {
                         if (e.status === 404) {
                             return null
@@ -137,7 +157,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 return status.state === 'pending' || status.state === 'provisioning' || status.state === 'deleting'
             },
         ],
-        isValidDatabaseName: [(s) => [s.databaseName], (name): boolean => /^[a-z][a-z0-9_-]{2,62}$/.test(name)],
+        isValidDatabaseName: [(s) => [s.databaseName], (name): boolean => isValidManagedWarehouseDatabaseName(name)],
         retryDatabaseName: [
             (s) => [s.databaseName, s.lastRequestedDatabaseName],
             (databaseName, lastRequestedDatabaseName): string => databaseName || lastRequestedDatabaseName || '',
@@ -156,7 +176,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 if (debounceTimer) {
                     clearTimeout(debounceTimer)
                 }
-                if (/^[a-z][a-z0-9_-]{2,62}$/.test(name)) {
+                if (isValidManagedWarehouseDatabaseName(name)) {
                     actions.setDatabaseNameChecking(true)
                     debounceTimer = setTimeout(() => {
                         actions.checkDatabaseName(name)
@@ -166,7 +186,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
 
             checkDatabaseName: async ({ name }) => {
                 try {
-                    const result = await api.dataWarehouse.checkDatabaseName(name)
+                    const result = await dataWarehouseCheckDatabaseNameRetrieve(currentProjectId(), { name })
                     if (values.databaseName === name) {
                         actions.setDatabaseNameAvailable(result.available)
                     }
@@ -180,7 +200,9 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 actions.setLastRequestedDatabaseName(databaseName)
                 window.localStorage.setItem(databaseNameStorageKey(teamLogic.values.currentTeamId), databaseName)
                 try {
-                    const result = await api.dataWarehouse.provisionWarehouse(databaseName)
+                    const result = await dataWarehouseProvisionCreate(currentProjectId(), {
+                        database_name: databaseName,
+                    })
                     if (result.password) {
                         actions.setInitialPassword(result.password)
                     }
@@ -195,7 +217,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
 
             resetPassword: async () => {
                 try {
-                    const result = await api.dataWarehouse.resetPassword()
+                    const result = await dataWarehouseResetPasswordCreate(currentProjectId())
                     if (result.password) {
                         actions.setInitialPassword(result.password)
                     }
@@ -209,7 +231,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             deprovisionWarehouse: async () => {
                 window.localStorage.removeItem(databaseNameStorageKey(teamLogic.values.currentTeamId))
                 try {
-                    await api.dataWarehouse.deprovisionWarehouse()
+                    await dataWarehouseDeprovisionCreate(currentProjectId())
                     lemonToast.success('Warehouse deprovisioning started')
                     actions.loadWarehouseStatus()
                     actions.pollStatus()

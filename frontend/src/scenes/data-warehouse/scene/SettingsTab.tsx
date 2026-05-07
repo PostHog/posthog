@@ -11,11 +11,14 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { DataWarehouseProvisioningConnection, DataWarehouseProvisioningState } from '~/types'
+import type {
+    WarehouseStatusConnectionApi,
+    WarehouseStatusResponseApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
+import { isValidManagedWarehouseDatabaseName, warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 
-function stateToTagType(state: DataWarehouseProvisioningState): 'success' | 'warning' | 'danger' | 'default' {
+function stateToTagType(state: WarehouseStatusResponseApi['state']): 'success' | 'warning' | 'danger' | 'default' {
     switch (state) {
         case 'ready':
             return 'success'
@@ -31,7 +34,7 @@ function stateToTagType(state: DataWarehouseProvisioningState): 'success' | 'war
     }
 }
 
-function ConnectionDetails({ connection }: { connection: DataWarehouseProvisioningConnection }): JSX.Element {
+function ConnectionDetails({ connection }: { connection: WarehouseStatusConnectionApi }): JSX.Element {
     const { host, port, database, username } = connection
     const psqlCmd = `psql "host=${host} port=${port} dbname=${database} user=${username} sslmode=require"`
 
@@ -97,7 +100,7 @@ export function SettingsTab(): JSX.Element {
     const isReady = warehouseStatus?.state === 'ready'
     const isFailed = warehouseStatus?.state === 'failed'
     const showProvisionForm = !hasWarehouse || isFailed
-    const canRetryProvision = !!retryDatabaseName && /^[a-z][a-z0-9_-]{2,62}$/.test(retryDatabaseName)
+    const canRetryProvision = !!retryDatabaseName && isValidManagedWarehouseDatabaseName(retryDatabaseName)
 
     return (
         <div className="mt-4 space-y-4 max-w-160">
@@ -166,8 +169,8 @@ export function SettingsTab(): JSX.Element {
                             )}
                         {databaseName && !isValidDatabaseName && (
                             <p className="text-danger text-xs mt-1">
-                                Must be 3-63 characters, start with a lowercase letter, and contain only lowercase
-                                letters, numbers, hyphens, or underscores.
+                                Must be 3-63 characters, start with a lowercase letter, end with a lowercase letter or
+                                number, and contain only lowercase letters, numbers, or hyphens.
                             </p>
                         )}
                         {(!databaseName ||

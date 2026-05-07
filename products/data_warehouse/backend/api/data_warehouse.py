@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
@@ -43,6 +44,12 @@ from ee.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+MANAGED_WAREHOUSE_DATABASE_NAME_REGEX = re.compile(r"^[a-z](?:[a-z0-9-]{1,61}[a-z0-9])$")
+
+
+def _is_valid_managed_warehouse_database_name(database_name: str) -> bool:
+    return bool(MANAGED_WAREHOUSE_DATABASE_NAME_REGEX.fullmatch(database_name))
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -885,17 +892,39 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             body = {"error": resp.text[:500]}
         return Response(body, status=resp.status_code)
 
+    def _public_managed_warehouse_host(self, database_name: str) -> str | None:
+        host_suffix = getattr(django_settings, "DUCKGRES_PG_HOST_SUFFIX", None)
+        if host_suffix:
+            return f"{database_name}.{host_suffix.lstrip('.')}"
+
+        return getattr(django_settings, "DUCKGRES_PG_URL", None)
+
     @extend_schema(
         request=inline_serializer(
             "ProvisionWarehouseRequest",
-            fields={"database_name": serializers.CharField(help_text="Name for the new database")},
+            fields={
+                "database_name": serializers.RegexField(
+                    regex=MANAGED_WAREHOUSE_DATABASE_NAME_REGEX,
+                    min_length=3,
+                    max_length=63,
+                    help_text=(
+                        "DNS-safe name for the new database. Must be 3-63 characters, start with a lowercase "
+                        "letter, end with a lowercase letter or number, and contain only lowercase letters, "
+                        "numbers, or hyphens."
+                    ),
+                )
+            },
         ),
         responses={
-            200: inline_serializer(
+            202: inline_serializer(
                 "ProvisionWarehouseResponse",
                 fields={
-                    "status": serializers.CharField(),
-                    "team": serializers.CharField(),
+                    "status": serializers.CharField(help_text="Provisioning request status from duckgres."),
+                    "org": serializers.CharField(help_text="Duckgres organization identifier."),
+                    "username": serializers.CharField(help_text="Initial warehouse username."),
+                    "password": serializers.CharField(
+                        help_text="Initial warehouse password. Returned once and not stored in plaintext."
+                    ),
                 },
             )
         },
@@ -906,6 +935,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         database_name = request.data.get("database_name")
         if not database_name:
             return Response({"error": "database_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(database_name, str) or not _is_valid_managed_warehouse_database_name(database_name):
+            return Response(
+                {
+                    "error": (
+                        "database_name must be 3-63 characters, start with a lowercase letter, end with a "
+                        "lowercase letter or number, and contain only lowercase letters, numbers, or hyphens"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return self._provisioning_request(
             "POST",
             "/provision",
@@ -917,11 +956,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         responses={
-            200: inline_serializer(
+            202: inline_serializer(
                 "DeprovisionWarehouseResponse",
                 fields={
-                    "status": serializers.CharField(),
-                    "team": serializers.CharField(),
+                    "status": serializers.CharField(help_text="Deprovisioning request status from duckgres."),
+                    "org": serializers.CharField(help_text="Duckgres organization identifier."),
                 },
             )
         },
@@ -936,13 +975,34 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: inline_serializer(
                 "WarehouseStatusResponse",
                 fields={
-                    "team_name": serializers.CharField(),
-                    "state": serializers.ChoiceField(
-                        choices=["pending", "provisioning", "ready", "failed", "deleting", "deleted"]
+                    "org_id": serializers.CharField(help_text="Duckgres organization identifier."),
+                    "state": serializers.CharField(help_text="Overall managed warehouse provisioning state."),
+                    "status_message": serializers.CharField(
+                        allow_blank=True, help_text="Human-readable provisioning status message."
                     ),
-                    "status_message": serializers.CharField(),
-                    "ready_at": serializers.DateTimeField(allow_null=True),
-                    "failed_at": serializers.DateTimeField(allow_null=True),
+                    "s3_state": serializers.CharField(help_text="Object storage provisioning state."),
+                    "metadata_store_state": serializers.CharField(
+                        help_text="DuckLake metadata store provisioning state."
+                    ),
+                    "identity_state": serializers.CharField(help_text="Warehouse identity and IAM provisioning state."),
+                    "secrets_state": serializers.CharField(help_text="Warehouse secret provisioning state."),
+                    "ready_at": serializers.DateTimeField(
+                        allow_null=True, required=False, help_text="Timestamp when provisioning completed."
+                    ),
+                    "failed_at": serializers.DateTimeField(
+                        allow_null=True, required=False, help_text="Timestamp when provisioning failed."
+                    ),
+                    "connection": inline_serializer(
+                        "WarehouseStatusConnection",
+                        fields={
+                            "host": serializers.CharField(help_text="Public DNS hostname for PostgreSQL clients."),
+                            "port": serializers.IntegerField(help_text="Public PostgreSQL port."),
+                            "database": serializers.CharField(help_text="Database name to use in client connections."),
+                            "username": serializers.CharField(help_text="Username to use in client connections."),
+                        },
+                        required=False,
+                        allow_null=True,
+                    ),
                 },
             )
         },
@@ -951,12 +1011,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse."""
         resp = self._provisioning_request("GET", "/warehouse/status")
-        # Override connection host/port with the public-facing duckgres PG endpoint
+        # Override connection host/port with the customer-facing duckgres PG endpoint.
         if resp.status_code == 200 and isinstance(resp.data, dict) and resp.data.get("connection"):
-            pg_url = getattr(django_settings, "DUCKGRES_PG_URL", None)
+            public_host = self._public_managed_warehouse_host(resp.data["connection"]["database"])
             pg_port = getattr(django_settings, "DUCKGRES_PG_PORT", 5432)
-            if pg_url:
-                resp.data["connection"]["host"] = pg_url
+            if public_host:
+                resp.data["connection"]["host"] = public_host
                 resp.data["connection"]["port"] = pg_port
         return resp
 
@@ -980,7 +1040,18 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         parameters=[
             inline_serializer(
                 "CheckDatabaseNameRequest",
-                fields={"name": serializers.CharField(help_text="Database name to check")},
+                fields={
+                    "name": serializers.RegexField(
+                        regex=MANAGED_WAREHOUSE_DATABASE_NAME_REGEX,
+                        min_length=3,
+                        max_length=63,
+                        help_text=(
+                            "DNS-safe database name to check. Must be 3-63 characters, start with a lowercase "
+                            "letter, end with a lowercase letter or number, and contain only lowercase letters, "
+                            "numbers, or hyphens."
+                        ),
+                    )
+                },
             )
         ],
         responses={
@@ -999,5 +1070,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         name = request.query_params.get("name")
         if not name:
             return Response({"error": "name query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not _is_valid_managed_warehouse_database_name(name):
+            return Response(
+                {
+                    "error": (
+                        "name must be 3-63 characters, start with a lowercase letter, end with a lowercase letter "
+                        "or number, and contain only lowercase letters, numbers, or hyphens"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         return self._provisioning_request("GET", "database-name/check", params={"name": name}, timeout=10)

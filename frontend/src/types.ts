@@ -7032,28 +7032,6 @@ export interface DataWarehouseActivityRecord {
     origin?: DataWarehouseSavedQueryOrigin | null
 }
 
-export type DataWarehouseProvisioningState = 'pending' | 'provisioning' | 'ready' | 'failed' | 'deleting' | 'deleted'
-
-export interface DataWarehouseProvisioningConnection {
-    host: string
-    port: number
-    database: string
-    username: string
-}
-
-export interface DataWarehouseProvisioningStatus {
-    org_id: string
-    state: DataWarehouseProvisioningState
-    status_message: string
-    s3_state: DataWarehouseProvisioningState
-    metadata_store_state: DataWarehouseProvisioningState
-    identity_state: DataWarehouseProvisioningState
-    secrets_state: DataWarehouseProvisioningState
-    ready_at: string | null
-    failed_at: string | null
-    connection: DataWarehouseProvisioningConnection | null
-}
-
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
 export type HeatmapStatus = 'processing' | 'completed' | 'failed'
 

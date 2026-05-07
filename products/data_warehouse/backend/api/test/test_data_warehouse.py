@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -16,6 +17,16 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
+
+
+class MockProvisioningResponse:
+    def __init__(self, status_code: int, body: dict[str, object]) -> None:
+        self.status_code = status_code
+        self.body = body
+        self.text = str(body)
+
+    def json(self) -> dict[str, object]:
+        return self.body
 
 
 class TestDataWarehouseAPI(APIBaseTest):
@@ -584,6 +595,113 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         response = self.client.get(f"{endpoint}?cutoff_days=invalid")
         self.assertEqual(response.status_code, 400)
+
+    @patch("products.data_warehouse.backend.api.data_warehouse._internal_requests.request")
+    def test_check_database_name_rejects_dns_unsafe_name(self, mock_request):
+        response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/check-database-name/?name=my_db")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("hyphens", response.json()["error"])
+        mock_request.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.data_warehouse._internal_requests.request")
+    def test_provision_rejects_dns_unsafe_database_name(self, mock_request):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/data_warehouse/provision/",
+            data={"database_name": "my_db"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("hyphens", response.json()["error"])
+        mock_request.assert_not_called()
+
+    @override_settings(DUCKGRES_API_URL="http://duckgres-api", DUCKGRES_INTERNAL_SECRET="secret")
+    @patch("products.data_warehouse.backend.api.data_warehouse.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.data_warehouse.backend.api.data_warehouse._internal_requests.request")
+    def test_provision_returns_initial_credentials(self, mock_request, _mock_feature_enabled):
+        mock_request.return_value = MockProvisioningResponse(
+            202,
+            {
+                "status": "provisioning started",
+                "org": str(self.team.id),
+                "username": "root",
+                "password": "initial-password",
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/data_warehouse/provision/",
+            data={"database_name": "my-warehouse"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(
+            response.json(),
+            {
+                "status": "provisioning started",
+                "org": str(self.team.id),
+                "username": "root",
+                "password": "initial-password",
+            },
+        )
+
+    @override_settings(DUCKGRES_API_URL="http://duckgres-api", DUCKGRES_INTERNAL_SECRET="secret")
+    @patch("products.data_warehouse.backend.api.data_warehouse.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.data_warehouse.backend.api.data_warehouse._internal_requests.request")
+    def test_reset_password_proxies_to_hyphenated_duckgres_path(self, mock_request, _mock_feature_enabled):
+        mock_request.return_value = MockProvisioningResponse(
+            200,
+            {
+                "username": "root",
+                "password": "new-password",
+            },
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/data_warehouse/reset-password/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["password"], "new-password")
+        self.assertEqual(
+            mock_request.call_args.args[1],
+            f"http://duckgres-api/api/v1/orgs/{self.team.id}/reset-password",
+        )
+
+    @override_settings(
+        DUCKGRES_API_URL="http://duckgres-api",
+        DUCKGRES_INTERNAL_SECRET="secret",
+        DUCKGRES_PG_HOST_SUFFIX="dw.us.postwh.com",
+    )
+    @patch("products.data_warehouse.backend.api.data_warehouse.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.data_warehouse.backend.api.data_warehouse._internal_requests.request")
+    def test_warehouse_status_uses_managed_hostname(self, mock_request, _mock_feature_enabled):
+        mock_request.return_value = MockProvisioningResponse(
+            200,
+            {
+                "org_id": str(self.team.id),
+                "state": "ready",
+                "status_message": "",
+                "s3_state": "ready",
+                "metadata_store_state": "ready",
+                "identity_state": "ready",
+                "secrets_state": "ready",
+                "ready_at": None,
+                "failed_at": None,
+                "connection": {
+                    "host": "internal.duckgres",
+                    "port": 5432,
+                    "database": "my-warehouse",
+                    "username": "root",
+                },
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["connection"]["host"], "my-warehouse.dw.us.postwh.com")
+        self.assertEqual(response.json()["connection"]["port"], 5432)
 
     def test_data_ops_dashboard_creates_dashboard_on_first_call(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"

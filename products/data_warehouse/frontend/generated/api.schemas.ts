@@ -105,18 +105,31 @@ export interface CheckDatabaseNameResponseApi {
 }
 
 export interface DeprovisionWarehouseResponseApi {
+    /** Deprovisioning request status from duckgres. */
     status: string
-    team: string
+    /** Duckgres organization identifier. */
+    org: string
 }
 
 export interface ProvisionWarehouseRequestApi {
-    /** Name for the new database */
+    /**
+     * DNS-safe name for the new database. Must be 3-63 characters, start with a lowercase letter, end with a lowercase letter or number, and contain only lowercase letters, numbers, or hyphens.
+     * @minLength 3
+     * @maxLength 63
+     * @pattern ^[a-z](?:[a-z0-9-]{1,61}[a-z0-9])$
+     */
     database_name: string
 }
 
 export interface ProvisionWarehouseResponseApi {
+    /** Provisioning request status from duckgres. */
     status: string
-    team: string
+    /** Duckgres organization identifier. */
+    org: string
+    /** Initial warehouse username. */
+    username: string
+    /** Initial warehouse password. Returned once and not stored in plaintext. */
+    password: string
 }
 
 export interface ResetPasswordResponseApi {
@@ -124,34 +137,43 @@ export interface ResetPasswordResponseApi {
     password: string
 }
 
-/**
- * * `pending` - pending
- * `provisioning` - provisioning
- * `ready` - ready
- * `failed` - failed
- * `deleting` - deleting
- * `deleted` - deleted
- */
-export type WarehouseStatusResponseStateEnumApi =
-    (typeof WarehouseStatusResponseStateEnumApi)[keyof typeof WarehouseStatusResponseStateEnumApi]
-
-export const WarehouseStatusResponseStateEnumApi = {
-    Pending: 'pending',
-    Provisioning: 'provisioning',
-    Ready: 'ready',
-    Failed: 'failed',
-    Deleting: 'deleting',
-    Deleted: 'deleted',
-} as const
+export interface WarehouseStatusConnectionApi {
+    /** Public DNS hostname for PostgreSQL clients. */
+    host: string
+    /** Public PostgreSQL port. */
+    port: number
+    /** Database name to use in client connections. */
+    database: string
+    /** Username to use in client connections. */
+    username: string
+}
 
 export interface WarehouseStatusResponseApi {
-    team_name: string
-    state: WarehouseStatusResponseStateEnumApi
+    /** Duckgres organization identifier. */
+    org_id: string
+    /** Overall managed warehouse provisioning state. */
+    state: string
+    /** Human-readable provisioning status message. */
     status_message: string
-    /** @nullable */
-    ready_at: string | null
-    /** @nullable */
-    failed_at: string | null
+    /** Object storage provisioning state. */
+    s3_state: string
+    /** DuckLake metadata store provisioning state. */
+    metadata_store_state: string
+    /** Warehouse identity and IAM provisioning state. */
+    identity_state: string
+    /** Warehouse secret provisioning state. */
+    secrets_state: string
+    /**
+     * Timestamp when provisioning completed.
+     * @nullable
+     */
+    ready_at?: string | null
+    /**
+     * Timestamp when provisioning failed.
+     * @nullable
+     */
+    failed_at?: string | null
+    connection?: WarehouseStatusConnectionApi | null
 }
 
 /**
@@ -1920,8 +1942,10 @@ export type DataModelingJobsListParams = {
 
 export type DataWarehouseCheckDatabaseNameRetrieveParams = {
     /**
-     * Database name to check
-     * @minLength 1
+     * DNS-safe database name to check. Must be 3-63 characters, start with a lowercase letter, end with a lowercase letter or number, and contain only lowercase letters, numbers, or hyphens.
+     * @minLength 3
+     * @maxLength 63
+     * @pattern ^[a-z](?:[a-z0-9-]{1,61}[a-z0-9])$
      */
     name: string
 }
