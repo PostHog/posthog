@@ -217,22 +217,35 @@ describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPip
                 expect(ttl).toBeLessThanOrEqual(600)
             })
         } else {
-            // v3 only refreshes ~1% of subsequent calls; we just verify the TTL is
-            // set on creation and that the key isn't unset across a burst of hits.
-            it('sets TTL on creation and keeps it positive across calls (v3)', async () => {
+            // v3 sets TTL on creation, then only refreshes when the remaining TTL
+            // drops below expiry/2. Verify both halves deterministically.
+            it('sets TTL on creation (v3)', async () => {
                 await tick(1000, 5, 100, 10, 60)
-                const initialTtl = await redis.useClient(
-                    { name: 'ttl-check' },
-                    async (client) => await client.ttl(key)
-                )
+                const initialTtl = await redis.useClient({ name: 'ttl-check' }, async (client) => await client.ttl(key))
                 expect(initialTtl).toBeGreaterThan(0)
                 expect(initialTtl).toBeLessThanOrEqual(60)
+            })
 
-                for (let i = 0; i < 10; i++) {
-                    await tick(1001 + i, 1, 100, 10, 60)
-                }
-                const laterTtl = await redis.useClient({ name: 'ttl-check' }, async (client) => await client.ttl(key))
-                expect(laterTtl).toBeGreaterThan(0)
+            it('does NOT refresh TTL on a call while remaining TTL is above expiry/2 (v3)', async () => {
+                await tick(1000, 1, 100, 10, 60)
+                // Force PTTL to ~50s — well above the 30s threshold (expiry/2).
+                await redis.useClient({ name: 'pexpire' }, async (client) => await client.pexpire(key, 50_000))
+                await tick(1001, 1, 100, 10, 60)
+                const ttl = await redis.useClient({ name: 'pttl-check' }, async (client) => await client.pttl(key))
+                // TTL should still be ~50s, not refreshed back to 60s.
+                expect(ttl).toBeGreaterThan(0)
+                expect(ttl).toBeLessThanOrEqual(50_000)
+            })
+
+            it('refreshes TTL on a call once remaining TTL drops below expiry/2 (v3)', async () => {
+                await tick(1000, 1, 100, 10, 60)
+                // Force PTTL to ~10s — well below the 30s threshold.
+                await redis.useClient({ name: 'pexpire' }, async (client) => await client.pexpire(key, 10_000))
+                await tick(1001, 1, 100, 10, 60)
+                const ttl = await redis.useClient({ name: 'pttl-check' }, async (client) => await client.pttl(key))
+                // Refresh fired — TTL should be back near 60s.
+                expect(ttl).toBeGreaterThan(30_000)
+                expect(ttl).toBeLessThanOrEqual(60_000)
             })
         }
     })
