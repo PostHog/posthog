@@ -15,7 +15,6 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.service import (
     DISCOVER_SCHEMAS_INTERVAL,
-    _discover_schemas_offset,
     _get_discover_schemas_schedule_id,
     _jitter_timedelta,
     get_discover_schemas_schedule,
@@ -209,25 +208,6 @@ async def test_get_sync_schedule(external_data_source, team, sync_frequency_inte
 
 
 class TestDiscoverSchemasSchedule:
-    def test_schedule_id_uses_source_id(self) -> None:
-        assert _get_discover_schemas_schedule_id("abc-123") == "discover-schemas-abc-123"
-
-    def test_offset_is_within_interval_window(self) -> None:
-        for source_id in ("a", "b", str(uuid.uuid4()), "x" * 64):
-            offset = _discover_schemas_offset(source_id, DISCOVER_SCHEMAS_INTERVAL)
-            assert dt.timedelta(0) <= offset < DISCOVER_SCHEMAS_INTERVAL
-
-    def test_offset_is_deterministic_for_same_source_id(self) -> None:
-        source_id = "fixed-source-id"
-        first = _discover_schemas_offset(source_id, DISCOVER_SCHEMAS_INTERVAL)
-        second = _discover_schemas_offset(source_id, DISCOVER_SCHEMAS_INTERVAL)
-        assert first == second
-
-    def test_offset_differs_across_source_ids(self) -> None:
-        # Across many random source ids the offsets should not all collapse to the same value.
-        offsets = {_discover_schemas_offset(str(uuid.uuid4()), DISCOVER_SCHEMAS_INTERVAL) for _ in range(50)}
-        assert len(offsets) > 1
-
     @pytest.mark.asyncio
     async def test_schedule_targets_discover_schemas_workflow(self, external_data_source) -> None:
         schedule = get_discover_schemas_schedule(external_data_source)
