@@ -2,6 +2,8 @@
 
 Generated 2026-05-07. Source of truth: `products/*/product.yaml` (owner field) cross-referenced with the team list at https://posthog.com/teams.
 
+Saved insight (stacked bar of MCP tools + skills per team): [/insights/xftwxwIH](/insights/xftwxwIH).
+
 ## Methodology
 
 - Team list pulled from https://posthog.com/teams (50 teams).
