@@ -281,16 +281,24 @@ impl EventRestrictionService {
     async fn refresh_from_repository(&self, repository: &dyn EventRestrictionsRepository) -> bool {
         match RestrictionManager::from_repository(repository, &self.pipelines).await {
             Ok(new_manager) => {
+                // Count per-pipeline before handing the manager off to update().
+                let counts: Vec<(Pipeline, usize, usize)> = self
+                    .pipelines
+                    .iter()
+                    .map(|pipeline| {
+                        let by_token = new_manager.restrictions.get(pipeline);
+                        let restriction_count: usize = by_token
+                            .map(|m| m.values().map(|v| v.len()).sum())
+                            .unwrap_or(0);
+                        let token_count: usize = by_token.map(|m| m.len()).unwrap_or(0);
+                        (*pipeline, restriction_count, token_count)
+                    })
+                    .collect();
+
                 let now = self.update(new_manager).await;
 
-                let guard = self.manager.read().await;
-                for pipeline in &self.pipelines {
+                for (pipeline, restriction_count, token_count) in counts {
                     let pipeline_str = pipeline.as_str();
-                    let by_token = guard.restrictions.get(pipeline);
-                    let restriction_count: usize = by_token
-                        .map(|m| m.values().map(|v| v.len()).sum())
-                        .unwrap_or(0);
-                    let token_count: usize = by_token.map(|m| m.len()).unwrap_or(0);
 
                     gauge!(
                         "capture_event_restrictions_last_refresh_timestamp",
