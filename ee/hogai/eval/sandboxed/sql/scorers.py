@@ -14,9 +14,9 @@ placeholder is dropped: the sandboxed run doesn't surface a schema dump
 to scorers, and the judge has the user prompt + reference SQL to anchor
 on without it.
 
-The shared judge plumbing (``_JudgedScorer``, ``_parser_for``,
-``_extract_last_successful_input``, ``_user_prompt``, alignment constants,
-``_JUDGE_MODEL``) is cross-imported from ``product_analytics/scorers.py``.
+The shared judge plumbing (``JudgedScorer``, ``parser_for``,
+``user_prompt``, alignment constants, ``JUDGE_MODEL``) is cross-imported
+from ``product_analytics/scorers.py``.
 That's a layering smell — they're general-purpose helpers tied to a
 domain folder by accident — but with only this one new consumer, the
 fix-up belongs in a follow-up refactor when a third general-purpose eval
@@ -30,12 +30,12 @@ from typing import Any
 from braintrust import Score
 
 from ee.hogai.eval.sandboxed.product_analytics.scorers import (
-    _JUDGE_MODEL,
     GRADED_ALIGNMENT_CHOICE_SCORES,
     GRADED_ALIGNMENT_RUBRIC,
-    _JudgedScorer,
-    _parser_for,
-    _user_prompt,
+    JUDGE_MODEL,
+    JudgedScorer,
+    parser_for,
+    user_prompt,
 )
 
 QUERY_SQL_TOOL_NAME = "execute-sql"
@@ -49,7 +49,7 @@ def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, st
     should short-circuit in that case rather than count it as an incorrect
     answer.
     """
-    parser = _parser_for(output)
+    parser = parser_for(output)
     if parser is None:
         return None
 
@@ -124,7 +124,7 @@ Ignore:
 """.strip()
 
 
-class SQLSchemaAlignment(_JudgedScorer):
+class SQLSchemaAlignment(JudgedScorer):
     """Graded score: how well does the actual HogQL query match the expected one?
 
     Semantic comparison rather than strict text equality — multiple correct
@@ -148,7 +148,7 @@ class SQLSchemaAlignment(_JudgedScorer):
                 metadata={"reason": "No expected.sql_query provided"},
             )
         return {
-            "output": {"sql_query": actual, "prompt": _user_prompt(output)},
+            "output": {"sql_query": actual, "prompt": user_prompt(output)},
             "expected": {"sql_query": expected_query},
         }
 
@@ -157,7 +157,7 @@ class SQLSchemaAlignment(_JudgedScorer):
             name="sql_schema_alignment",
             prompt_template=SQL_SCHEMA_ALIGNMENT_PROMPT + "\n\n" + GRADED_ALIGNMENT_RUBRIC,
             choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
@@ -216,7 +216,7 @@ Final assistant message:
 """.strip()
 
 
-class SQLResultMessageAlignment(_JudgedScorer):
+class SQLResultMessageAlignment(JudgedScorer):
     """Graded score: did the final message answer the user from the SQL result?"""
 
     def _prepare(self, output, expected) -> dict[str, Any] | Score:  # noqa: ARG002
@@ -228,7 +228,7 @@ class SQLResultMessageAlignment(_JudgedScorer):
                 metadata={"reason": "Agent never ran execute-sql successfully"},
             )
 
-        parser = _parser_for(output)
+        parser = parser_for(output)
         final_message = parser.get_final_agent_message() if parser is not None else None
         if not isinstance(final_message, str) or not final_message.strip():
             return Score(
@@ -239,7 +239,7 @@ class SQLResultMessageAlignment(_JudgedScorer):
 
         return {
             "output": {
-                "prompt": _user_prompt(output),
+                "prompt": user_prompt(output),
                 "sql_query": executed["query"],
                 "sql_result": _truncate_result_for_judge(executed["result"]),
                 "final_message": final_message,
@@ -252,7 +252,7 @@ class SQLResultMessageAlignment(_JudgedScorer):
             name="sql_result_message_alignment",
             prompt_template=SQL_RESULT_MESSAGE_ALIGNMENT_PROMPT + "\n\n" + SQL_RESULT_MESSAGE_ALIGNMENT_RUBRIC,
             choice_scores=GRADED_ALIGNMENT_CHOICE_SCORES,
-            model=_JUDGE_MODEL,
+            model=JUDGE_MODEL,
             max_completion_tokens=512,
             **kwargs,
         )
