@@ -1,8 +1,8 @@
 /**
- * Regression test: shared dashboards must render in a fully unauthenticated browser context.
- * Added after a fix that skipped "always-401" API calls in shared/exported views had to be
- * reverted — the skip broke the shared dashboard render path. A logged-out goto of
- * /shared/{token} reliably reproduces that class of regression.
+ * Regression test: shared insights must render in a fully unauthenticated browser context.
+ * Sibling to shared-dashboard-unauthenticated.spec.ts and shared-notebook-unauthenticated.spec.ts —
+ * covers the ExporterInsightScene path directly so a regression in insight sharing isn't
+ * masked behind dashboard tile rendering.
  */
 import { expect, Page } from '@playwright/test'
 
@@ -12,27 +12,19 @@ import { PlaywrightSetup } from '../utils/playwright-setup'
 import { expectNoTeamScopedApiLeaks, openUnauthenticatedSharedPage } from '../utils/sharedViewExpectations'
 import { test } from '../utils/workspace-test-base'
 
-async function createSharedDashboard(
+async function createSharedInsight(
     page: Page,
     playwrightSetup: PlaywrightSetup,
     orgName: string
-): Promise<{ sharingData: SharingConfigurationType; dashboardName: string; insightName: string }> {
+): Promise<{ sharingData: SharingConfigurationType; insightName: string }> {
     const workspace = await playwrightSetup.createWorkspace(orgName)
     const authHeaders = {
         Authorization: `Bearer ${workspace.personal_api_key}`,
         'Content-Type': 'application/json',
     }
 
-    const dashboardName = 'Logged-out dashboard render'
-    const dashboardResponse = await page.request.post(`/api/projects/${workspace.team_id}/dashboards/`, {
-        headers: authHeaders,
-        data: { name: dashboardName },
-    })
-    expect(dashboardResponse.ok()).toBe(true)
-    const dashboardData = await dashboardResponse.json()
-
-    const insightName = 'Trends pageview tile'
-    const insightPayload: { name: string; query: InsightVizNode<TrendsQuery>; dashboards: number[] } = {
+    const insightName = 'Logged-out insight render'
+    const insightPayload: { name: string; query: InsightVizNode<TrendsQuery> } = {
         name: insightName,
         query: {
             kind: NodeKind.InsightVizNode,
@@ -42,7 +34,6 @@ async function createSharedDashboard(
                 dateRange: { date_from: '2024-10-04', date_to: '2024-11-03', explicitDate: true },
             },
         },
-        dashboards: [dashboardData.id],
     }
 
     const insightResponse = await page.request.post(`/api/projects/${workspace.team_id}/insights/`, {
@@ -50,9 +41,10 @@ async function createSharedDashboard(
         data: insightPayload,
     })
     expect(insightResponse.ok()).toBe(true)
+    const insightData = await insightResponse.json()
 
     const sharingResponse = await page.request.patch(
-        `/api/projects/${workspace.team_id}/dashboards/${dashboardData.id}/sharing`,
+        `/api/projects/${workspace.team_id}/insights/${insightData.id}/sharing`,
         {
             headers: authHeaders,
             data: { enabled: true },
@@ -63,15 +55,15 @@ async function createSharedDashboard(
     expect(sharingData.access_token).toBeTruthy()
     expect(sharingData.enabled).toBe(true)
 
-    return { sharingData, dashboardName, insightName }
+    return { sharingData, insightName }
 }
 
-test.describe('Shared dashboard (unauthenticated)', () => {
+test.describe('Shared insight (unauthenticated)', () => {
     test('renders successfully in a logged-out browser context', async ({ browser, page, playwrightSetup }) => {
-        const { sharingData, dashboardName, insightName } = await createSharedDashboard(
+        const { sharingData, insightName } = await createSharedInsight(
             page,
             playwrightSetup,
-            'Unauth Shared Dashboard Test Org'
+            'Unauth Shared Insight Test Org'
         )
 
         const unauthContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
@@ -81,9 +73,8 @@ test.describe('Shared dashboard (unauthenticated)', () => {
             await unauthPage.goto(`/shared/${sharingData.access_token}`)
 
             await expect(unauthPage.locator('body.ExporterBody')).toBeVisible()
-            await expect(unauthPage.locator(`text=${dashboardName}`)).toBeVisible({ timeout: 30000 })
             await expect(unauthPage.locator(`text=${insightName}`)).toBeVisible({ timeout: 30000 })
-            await expect(unauthPage.locator('[data-attr="insights-graph"]').first()).toBeVisible({ timeout: 30000 })
+            await expect(unauthPage.locator('[data-attr="insights-graph"]')).toBeVisible({ timeout: 30000 })
 
             expectNoTeamScopedApiLeaks(failedApiResponses)
         } finally {
