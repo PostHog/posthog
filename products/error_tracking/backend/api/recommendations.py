@@ -201,17 +201,12 @@ class ErrorTrackingRecommendationViewSet(
     @action(detail=True, methods=["post"])
     def refresh(self, request: Request, *args, **kwargs) -> Response:
         recommendation = self.get_object()
-        rec = RECOMMENDATIONS_BY_TYPE.get(recommendation.type)
-        if not rec:
+        if recommendation.type not in RECOMMENDATIONS_BY_TYPE:
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
         force = request.query_params.get("force", "true").lower() != "false"
-        if force:
-            now = timezone.now()
-            recommendation.meta = rec.compute(self.team)
-            recommendation.computed_at = now
-            recommendation.status = ErrorTrackingRecommendation.Status.READY
-            recommendation.status_changed_at = now
-            recommendation.save(update_fields=["meta", "computed_at", "status", "status_changed_at", "updated_at"])
+        if force and _claim_for_compute(recommendation.id, timezone.now()):
+            compute_error_tracking_recommendation.delay(str(recommendation.id))
+            recommendation.refresh_from_db()
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
