@@ -124,6 +124,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.get(`/api/environments/${teamId}/evaluations/`)
                 actions.loadEvaluationsSuccess(response.results)
             } catch (error) {
@@ -139,6 +140,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.create(`/api/environments/${teamId}/evaluations/`, evaluation)
                 actions.createEvaluationSuccess(response)
 
@@ -160,6 +162,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.update(`/api/environments/${teamId}/evaluations/${id}/`, evaluation)
                 actions.updateEvaluationSuccess(id, response)
             } catch (error) {
@@ -173,6 +176,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 if (!teamId) {
                     return
                 }
+                // nosemgrep: prefer-codegen-api
                 await api.update(`/api/environments/${teamId}/evaluations/${id}/`, { deleted: true })
                 actions.deleteEvaluationSuccess(id)
             } catch (error) {
@@ -203,6 +207,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.create(`/api/environments/${teamId}/evaluations/`, duplicate)
                 actions.duplicateEvaluationSuccess(response)
             } catch (error) {
@@ -222,6 +227,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             }
 
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.update(`/api/environments/${teamId}/evaluations/${id}/`, {
                     enabled: !evaluation.enabled,
                 })

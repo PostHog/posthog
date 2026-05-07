@@ -284,6 +284,14 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     // layouts (vertical bars). The horizontal aggregated layout has categorical labels.
     const showAnnotations = !inSharedMode && !isAggregated
     const annotationsDates = currentPeriodResult?.days ?? []
+    // In compare-against-previous grouped layouts each band holds two bars (previous, current).
+    // Anchor each period's annotations on its matching bar so they line up with what they describe.
+    const currentSeriesKey = isGrouped ? series.find((s) => s.meta?.compare_label === 'current')?.key : undefined
+    const previousSeriesKey = isGrouped ? series.find((s) => s.meta?.compare_label === 'previous')?.key : undefined
+    const previousPeriodResult = isGrouped
+        ? indexedResults?.find((r: IndexedTrendResult) => r.compare_label === 'previous')
+        : undefined
+    const annotationsPreviousDates = previousPeriodResult?.days
 
     return (
         <BarChart<TrendsSeriesMeta>
@@ -310,7 +318,15 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
                 />
             )}
             {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
-            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
+            {showAnnotations && (
+                <AnnotationsLayer
+                    insightNumericId={insight.id || 'new'}
+                    dates={annotationsDates}
+                    seriesKey={currentSeriesKey}
+                    previousDates={annotationsPreviousDates}
+                    previousSeriesKey={previousSeriesKey}
+                />
+            )}
         </BarChart>
     )
 }

@@ -216,6 +216,7 @@
         "marked": "^17.0.4",
         "md5": "^2.3.0",
         "mdast-util-find-and-replace": "^3.0.2",
+        "mermaid": "^11.4.1",
         "monaco-editor": "^0.55.1",
         "monaco-vim": "^0.4.4",
         "motion": "^12.26.1",

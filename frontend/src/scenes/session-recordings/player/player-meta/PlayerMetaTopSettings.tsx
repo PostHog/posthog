@@ -2,20 +2,46 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import { IconBottomPanel, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { SettingsBar, SettingsButton, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
+import {
+    SettingsBar,
+    SettingsButton,
+    SettingsMenu,
+    SettingsToggle,
+} from 'scenes/session-recordings/components/PanelSettings'
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
 import {
+    ModesWithInteractions,
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
+
+function PlayerControlsLayoutToggle(): JSX.Element {
+    const { playerControlsOverlay } = useValues(sessionRecordingPlayerLogic)
+    const { setPlayerControlsOverlay } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <SettingsToggle
+            title={
+                playerControlsOverlay
+                    ? 'Player controls float over the recording and only show on hover. Click to pin them below the recording instead.'
+                    : 'Player controls are pinned below the recording. Click to make them float over the recording on hover instead.'
+            }
+            label={playerControlsOverlay ? 'Floating controls' : 'Pinned controls'}
+            icon={<IconBottomPanel />}
+            active={!playerControlsOverlay}
+            onClick={() => setPlayerControlsOverlay(!playerControlsOverlay)}
+            data-attr="toggle-player-controls-overlay"
+        />
+    )
+}
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -128,11 +154,13 @@ function TTLWarning(): JSX.Element | null {
 
 export function PlayerMetaTopSettings(): JSX.Element {
     const {
-        logicProps: { withSidebar },
+        logicProps: { withSidebar, mode },
         hoverModeIsEnabled,
         showPlayerChrome,
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
+
+    const showControlsLayoutToggle = !!mode && ModesWithInteractions.includes(mode)
 
     return (
         <div
@@ -151,6 +179,7 @@ export function PlayerMetaTopSettings(): JSX.Element {
                 <div className="flex w-full justify-between items-center gap-0.5">
                     <div className="flex flex-row gap-0.5 h-full items-center">
                         <SetPlaybackSpeed />
+                        {showControlsLayoutToggle && <PlayerControlsLayoutToggle />}
                     </div>
 
                     <div>

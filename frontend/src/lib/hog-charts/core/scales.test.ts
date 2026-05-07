@@ -100,6 +100,42 @@ describe('hog-charts scales', () => {
             expect(domainMax).toBeLessThan(100)
         })
 
+        it.each([
+            {
+                description: 'clips baseline to 0 when an overlay dips below 0 but primary data is non-negative',
+                primaryData: [0, 0, 5000, 14500],
+                overlayData: [-1000, 4000, 7000, 10000],
+                expectedMin: 0,
+                expectMaxAtLeast: undefined as number | undefined,
+            },
+            {
+                description: 'preserves negative axis when primary data has genuine negatives',
+                primaryData: [-50, 0, 100],
+                overlayData: [-10, 50, 110],
+                expectedMin: 'negative' as const,
+                expectMaxAtLeast: undefined,
+            },
+            {
+                description: 'lets overlay extend max even when baseline is clipped to 0',
+                primaryData: [0, 50, 100],
+                overlayData: [200, 250, 300],
+                expectedMin: 0,
+                expectMaxAtLeast: 300,
+            },
+        ])('$description', ({ primaryData, overlayData, expectedMin, expectMaxAtLeast }) => {
+            const main = makeSeries({ key: 'main', data: primaryData })
+            const trendline = makeSeries({ key: 'trend', data: overlayData, overlay: true })
+            const [domainMin, domainMax] = createYScale([main, trendline], dimensions).domain()
+            if (expectedMin === 'negative') {
+                expect(domainMin).toBeLessThan(0)
+            } else {
+                expect(domainMin).toBe(expectedMin)
+            }
+            if (expectMaxAtLeast !== undefined) {
+                expect(domainMax).toBeGreaterThanOrEqual(expectMaxAtLeast)
+            }
+        })
+
         it('maps the output range from plotTop + plotHeight down to plotTop', () => {
             const series = [makeSeries({ key: 's1', data: [0, 100] })]
             const scale = createYScale(series, dimensions)
@@ -418,12 +454,12 @@ describe('hog-charts scales', () => {
     describe('yTickCountForHeight', () => {
         it.each([
             { plotHeight: 0, expected: 2 },
-            { plotHeight: 80, expected: 2 },
-            { plotHeight: 160, expected: 2 },
-            { plotHeight: 240, expected: 3 },
-            { plotHeight: 480, expected: 6 },
-            { plotHeight: 640, expected: 8 },
-            { plotHeight: 1600, expected: 8 },
+            { plotHeight: 50, expected: 2 },
+            { plotHeight: 100, expected: 2 },
+            { plotHeight: 200, expected: 4 },
+            { plotHeight: 400, expected: 8 },
+            { plotHeight: 550, expected: 11 },
+            { plotHeight: 1600, expected: 11 },
         ])('plotHeight $plotHeight → $expected ticks', ({ plotHeight, expected }) => {
             expect(yTickCountForHeight(plotHeight)).toBe(expected)
         })
