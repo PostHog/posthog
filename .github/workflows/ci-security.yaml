@@ -193,6 +193,44 @@ jobs:
                     --exclude ./services/ \
                     .
 
+    # Devex / hygiene rules — surfaces "not yet ideal" code as a tracked list
+    # without blocking master, plus a regression guard for rules that have
+    # graduated from WARNING to ERROR severity. See `.semgrep/devex-rules/README.md`
+    # for the graduation flow.
+    semgrep-devex:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        container:
+            image: semgrep/semgrep
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v6
+
+            # Pass 1: print all WARNING-severity findings as a tracked backlog.
+            # No --error — this step does not fail CI.
+            - name: Tracked warnings (informational)
+              run: |
+                  semgrep \
+                    --config ".semgrep/devex-rules/" \
+                    --severity=WARNING \
+                    --metrics=off \
+                    --verbose \
+                    common/ ee/ posthog/ products/
+
+            # Pass 2: enforce graduated rules. Any ERROR-severity finding fails
+            # the job — once a rule's backlog hits zero and its severity flips
+            # to ERROR, regressions are blocked.
+            - name: Graduated errors (blocking)
+              run: |
+                  semgrep \
+                    --config ".semgrep/devex-rules/" \
+                    --severity=ERROR \
+                    --error \
+                    --metrics=off \
+                    --verbose \
+                    common/ ee/ posthog/ products/
+
     semgrep-test-rules:
         runs-on: ubuntu-latest
         timeout-minutes: 5

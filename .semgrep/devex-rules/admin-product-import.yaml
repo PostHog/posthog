@@ -1,0 +1,41 @@
+rules:
+    - id: admin-product-import
+      patterns:
+          - pattern: from products.$PRODUCT.$X import $Y
+      message: |
+          Product admin imported from the central admin registry.
+
+          Per-product admin is the default — admin classes for product
+          models belong in `products/<name>/backend/admin.py`, not in
+          `posthog/admin/`. Each `from products.<name>.…` line in
+          `posthog/admin/` is a product whose admin is still managed
+          centrally and could be moved out.
+
+          Migration steps in the `move-admins-to-product` skill
+          (`.agents/skills/move-admins-to-product/SKILL.md`):
+
+          1. Move the admin class file to `products/<name>/backend/admin.py`.
+          2. Add an `ADMIN_REGISTRATIONS = ((Model, AdminClass), …)` tuple
+             at the bottom of that file.
+          3. Add `products.<name>.backend` to
+             `_PRODUCTS_WITH_DYNAMIC_ADMIN` in `posthog/admin/__init__.py`.
+          4. Drop the central `from products.<name>.…` import + the
+             matching `admin.site.register(...)` line.
+
+          This is a warning, not a hard fail — the existing entries are
+          tracked here so the list of "not yet ideal" admins shrinks as
+          products migrate.
+      languages: [python]
+      severity: WARNING
+      paths:
+          include:
+              - 'posthog/admin/**'
+          exclude:
+              - 'posthog/admin/test_*.py'
+              - 'posthog/admin/**/test_*.py'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit
+          technology:
+              - django
