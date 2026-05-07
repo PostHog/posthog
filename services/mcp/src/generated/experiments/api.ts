@@ -209,7 +209,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         .union([
                             zod.array(
                                 zod.object({
-                                    key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
+                                    key: zod
+                                        .string()
+                                        .describe(
+                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
+                                        ),
                                     name: zod
                                         .union([zod.string(), zod.null()])
                                         .default(
@@ -234,7 +238,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .default(experimentsCreateBodyParametersOneFeatureFlagVariantsDefault)
-                        .describe('Experiment variants. If not specified, defaults to a 50/50 control/test split.'),
+                        .describe(
+                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
+                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
                         .default(experimentsCreateBodyParametersOneMinimumDetectableEffectDefault)
@@ -1891,7 +1897,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         .union([
                             zod.array(
                                 zod.object({
-                                    key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
+                                    key: zod
+                                        .string()
+                                        .describe(
+                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
+                                        ),
                                     name: zod
                                         .union([zod.string(), zod.null()])
                                         .default(
@@ -1916,7 +1926,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .default(experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsDefault)
-                        .describe('Experiment variants. If not specified, defaults to a 50/50 control/test split.'),
+                        .describe(
+                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
+                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
                         .default(experimentsPartialUpdateBodyParametersOneMinimumDetectableEffectDefault)
@@ -3624,7 +3636,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                         .union([
                             zod.array(
                                 zod.object({
-                                    key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
+                                    key: zod
+                                        .string()
+                                        .describe(
+                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
+                                        ),
                                     name: zod
                                         .union([zod.string(), zod.null()])
                                         .default(
@@ -3649,7 +3665,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                             zod.null(),
                         ])
                         .default(experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsDefault)
-                        .describe('Experiment variants. If not specified, defaults to a 50/50 control/test split.'),
+                        .describe(
+                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
+                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
                         .default(experimentsDuplicateCreateBodyParametersOneMinimumDetectableEffectDefault)

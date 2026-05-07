@@ -159,7 +159,7 @@ export interface PatchedExperimentSavedMetricApi {
 }
 
 export interface ExperimentVariantApi {
-    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
     /** Human-readable variant name. */
     name?: string | null
@@ -169,7 +169,7 @@ export interface ExperimentVariantApi {
 }
 
 export interface ExperimentParametersApi {
-    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+    /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
     feature_flag_variants?: ExperimentVariantApi[] | null
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number | null

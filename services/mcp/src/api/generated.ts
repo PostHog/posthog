@@ -13886,7 +13886,7 @@ export namespace Schemas {
     }
 
     export interface ExperimentVariant {
-      /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+      /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
       key: string;
       /** Human-readable variant name. */
       name?: string | null;
@@ -13896,7 +13896,7 @@ export namespace Schemas {
     }
 
     export interface ExperimentParameters {
-      /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+      /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
       feature_flag_variants?: ExperimentVariant[] | null;
       /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
       minimum_detectable_effect?: number | null;
@@ -21368,6 +21368,7 @@ export namespace Schemas {
     * `in_progress` - In Progress
     * `pending_input` - Pending Input
     * `ready` - Ready
+    * `resolved` - Resolved
     * `failed` - Failed
     * `deleted` - Deleted
     * `suppressed` - Suppressed
@@ -21381,6 +21382,7 @@ export namespace Schemas {
       InProgress: 'in_progress',
       PendingInput: 'pending_input',
       Ready: 'ready',
+      Resolved: 'resolved',
       Failed: 'failed',
       Deleted: 'deleted',
       Suppressed: 'suppressed',
