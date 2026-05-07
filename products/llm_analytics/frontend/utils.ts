@@ -221,6 +221,25 @@ export function formatTokens(tokens: number): string {
     return tokens.toFixed(0)
 }
 
+// SDKs may send `$ai_error` as a string, an object (e.g. a serialized Error
+// with `{ message, name }`), or any other shape. Coerce to a short string so
+// list-cell renderers don't blow up with "Objects are not valid as a React
+// child" (React error #31). Mirrors the ingestion-side coercion in
+// nodejs/src/ingestion/ai/errors/index.ts.
+export function formatAiErrorForDisplay(value: unknown): string {
+    if (typeof value === 'string') {
+        return value
+    }
+    if (value == null) {
+        return ''
+    }
+    try {
+        return JSON.stringify(value)
+    } catch {
+        return String(value)
+    }
+}
+
 export function formatErrorRate(errorRate: number): string {
     const percentage = errorRate * 100
     if (percentage === 0) {

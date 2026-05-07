@@ -25,6 +25,7 @@ import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import {
+    formatAiErrorForDisplay,
     formatLLMCost,
     formatLLMLatency,
     formatLLMUsage,
@@ -367,9 +368,10 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         ? row.events.find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
         : false
     if (errorEventFound) {
+        const errorText = formatAiErrorForDisplay(errorEventFound.properties?.$ai_error)
         return (
             <LemonTag type="danger" className="font-mono max-w-50 truncate">
-                {errorEventFound.properties?.$ai_error || 'Unknown error'}
+                {errorText || 'Unknown error'}
             </LemonTag>
         )
     }
