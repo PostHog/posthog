@@ -46828,6 +46828,10 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
+     * Comma-separated list of repositories in `owner/repo` form. Reports are kept if their selected repository (from the `repo_selection` artefact) matches any of the given repositories. Matching is case-insensitive.
+     */
+    repository?: string;
+    /**
      * Case-insensitive substring match against report title and summary.
      */
     search?: string;

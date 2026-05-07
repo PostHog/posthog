@@ -25,6 +25,12 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
         ),
+    repository: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated list of repositories in `owner/repo` form. Reports are kept if their selected repository (from the `repo_selection` artefact) matches any of the given repositories. Matching is case-insensitive.'
+        ),
     search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
     source_product: zod
         .string()

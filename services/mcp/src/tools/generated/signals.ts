@@ -28,6 +28,7 @@ const inboxReportsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
+                repository: params.repository,
                 search: params.search,
                 source_product: params.source_product,
                 status: params.status,
