@@ -6,7 +6,7 @@ from typing import Optional
 import structlog
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CDP_INTERNAL_EVENTS
 
 logger = structlog.get_logger(__name__)
@@ -65,7 +65,7 @@ def produce_internal_event(team_id: int, event: InternalEventEvent, person: Opti
     kafka_topic = KAFKA_CDP_INTERNAL_EVENTS
 
     try:
-        producer = KafkaProducer()
+        producer = get_producer(topic=kafka_topic)
         producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
     except Exception as e:
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)

@@ -285,7 +285,7 @@ class UserDashboardPermissions:
     @cached_property
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
         return (
-            self.dashboard.restriction_level
+            Dashboard.RestrictionLevel(self.dashboard.restriction_level)
             if cast(Organization, self.p.current_organization).is_feature_available(
                 AvailableFeature.ADVANCED_PERMISSIONS
             )

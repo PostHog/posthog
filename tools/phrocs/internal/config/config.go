@@ -9,6 +9,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CapabilityGroupKey is the reserved key under ProcConfig.Groups that carries
+// the capability dimension inferred from ProcConfig.Capability
+const CapabilityGroupKey = "capability"
+
 // Mirrors a single entry under mprocs.yaml's "procs" key
 type ProcConfig struct {
 	Shell        string            `yaml:"shell"`
@@ -78,7 +82,30 @@ func Load(path string) (*Config, error) {
 	if cfg.MouseScrollSpeed == 0 {
 		cfg.MouseScrollSpeed = 3
 	}
+	inferGroupFromCapability(&cfg)
 	return &cfg, nil
+}
+
+// inferGroupFromCapability copies each proc's "capability:" field into
+// "groups:" map, so the TUI's grouping dimension cycle ("g" key) picks
+// it up alongside user-declared dimensions.
+// An explicit Groups[CapabilityGroupKey] in YAML takes precedence.
+func inferGroupFromCapability(cfg *Config) {
+	for name, pc := range cfg.Procs {
+		if pc.Capability == "" {
+			// Procs without a capability fall under "Ungrouped"
+			continue
+		}
+		if _, ok := pc.Groups[CapabilityGroupKey]; ok {
+			// Any explicit entry is respected, setting to "" leads to "Ungrouped"
+			continue
+		}
+		if pc.Groups == nil {
+			pc.Groups = make(map[string]string)
+		}
+		pc.Groups[CapabilityGroupKey] = pc.Capability
+		cfg.Procs[name] = pc
+	}
 }
 
 // Intent is a minimal representation of an intent from intent-map.yaml.
@@ -122,24 +149,29 @@ func LoadIntentMap() (*IntentMapConfig, error) {
 	return &IntentMapConfig{Intents: intents}, nil
 }
 
-// findIntentMapPath walks up from the working directory looking for
-// devenv/intent-map.yaml. Falls back to the cwd-relative path.
-func findIntentMapPath() (string, error) {
+// findFileUpward walks up from the working directory looking for relPath.
+// Returns the absolute path if found, or an error if the filesystem root
+// is reached without a match.
+func findFileUpward(relPath string) (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("get working directory: %w", err)
 	}
 	for {
-		candidate := filepath.Join(dir, "devenv", "intent-map.yaml")
+		candidate := filepath.Join(dir, relPath)
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return filepath.Join("devenv", "intent-map.yaml"), nil
+			return "", fmt.Errorf("%s not found", relPath)
 		}
 		dir = parent
 	}
+}
+
+func findIntentMapPath() (string, error) {
+	return findFileUpward(filepath.Join("devenv", "intent-map.yaml"))
 }
 
 // PosthogConfig represents the _posthog section embedded in generated mprocs configs.
@@ -162,6 +194,17 @@ func LoadPosthogConfig(configPath string) (*PosthogConfig, error) {
 		return nil, err
 	}
 	return wrapper.Posthog, nil
+}
+
+// LoadRegistry finds and parses the full process registry (bin/mprocs.yaml)
+// by walking up from the working directory. Returns nil (no error) if the
+// registry cannot be found.
+func LoadRegistry() (*Config, error) {
+	path, err := findFileUpward(filepath.Join("bin", "mprocs.yaml"))
+	if err != nil {
+		return nil, nil
+	}
+	return Load(path)
 }
 
 // OrderedNames returns process names in a stable, predictable order.

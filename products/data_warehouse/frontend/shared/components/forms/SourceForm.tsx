@@ -25,30 +25,80 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
-import { SSH_FIELD, sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import {
+    SSH_FIELD,
+    type SourceWizardLogicProps,
+    sourceWizardLogic,
+} from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
-import { parseConnectionString } from './parseConnectionString'
+import { parseConnectionStringForSource } from './parsers'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
     showPrefix?: boolean
     showDescription?: boolean
+    showAccessMethodSelector?: boolean
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
+    sourceWizardLogicProps?: SourceWizardLogicProps
 }
 
-const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
-    Postgres: 5432,
-    Redshift: 5439,
+export function SourceAccessMethodSelector({
+    value,
+    onChange,
+}: {
+    value: 'warehouse' | 'direct'
+    onChange: (value: 'warehouse' | 'direct') => void
+}): JSX.Element {
+    return (
+        <LemonField.Pure label="How should PostHog query this source?">
+            <LemonRadio
+                data-attr="postgres-access-method"
+                value={value}
+                onChange={(newValue) => onChange(newValue as 'warehouse' | 'direct')}
+                options={[
+                    {
+                        value: 'warehouse',
+                        label: (
+                            <div>
+                                <div>Sync to warehouse</div>
+                                <div className="text-xs text-secondary">
+                                    Sync selected tables into PostHog-managed storage for querying.
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 'direct',
+                        label: (
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span>Query directly</span>
+                                    <LemonTag type="warning" size="small">
+                                        BETA
+                                    </LemonTag>
+                                </div>
+                                <div className="text-xs text-secondary">
+                                    Run queries live against this Postgres connection. Data from this source can&apos;t
+                                    be joined with PostHog data.
+                                </div>
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+        </LemonField.Pure>
+    )
 }
 
 export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfig,
     lastValue?: any,
-    isUpdateMode?: boolean
+    isUpdateMode?: boolean,
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
 ): JSX.Element => {
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
@@ -68,30 +118,22 @@ export const sourceFieldToElement = (
                             type="text"
                             onChange={(updatedConnectionString) => {
                                 onChange(updatedConnectionString)
-                                const { host, port, database, user, password, isValid } =
-                                    parseConnectionString(updatedConnectionString)
+                                const { isValid, fields } = parseConnectionStringForSource(
+                                    sourceConfig.name,
+                                    updatedConnectionString
+                                )
 
                                 if (isValid) {
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'database'],
-                                        database || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'host'],
-                                        host || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'user'],
-                                        user || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'port'],
-                                        port || CONNECTION_STRING_DEFAULT_PORT[sourceConfig.name]
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'password'],
-                                        password || ''
-                                    )
+                                    for (const { path, value } of fields) {
+                                        if (setSourceConnectionDetailsValue) {
+                                            setSourceConnectionDetailsValue(['payload', ...path], value)
+                                        } else {
+                                            sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                                ['payload', ...path],
+                                                value
+                                            )
+                                        }
+                                    }
                                 }
                             }}
                         />
@@ -115,7 +157,13 @@ export const sourceFieldToElement = (
                             {isEnabled && (
                                 <Group name={field.name}>
                                     {field.fields.map((field) =>
-                                        sourceFieldToElement(field, sourceConfig, lastValue?.[field.name])
+                                        sourceFieldToElement(
+                                            field,
+                                            sourceConfig,
+                                            lastValue?.[field.name],
+                                            isUpdateMode,
+                                            setSourceConnectionDetailsValue
+                                        )
                                     )}
                                 </Group>
                             )}
@@ -133,7 +181,13 @@ export const sourceFieldToElement = (
             field.options
                 .find((n) => n.value === (value ?? field.defaultValue))
                 ?.fields?.map((optionField) =>
-                    sourceFieldToElement(optionField, sourceConfig, lastValue?.[optionField.name])
+                    sourceFieldToElement(
+                        optionField,
+                        sourceConfig,
+                        lastValue?.[optionField.name],
+                        isUpdateMode,
+                        setSourceConnectionDetailsValue
+                    )
                 )
 
         return (
@@ -215,7 +269,8 @@ export const sourceFieldToElement = (
             { ...SSH_FIELD, name: field.name, label: field.label },
             sourceConfig,
             lastValue,
-            isUpdateMode
+            isUpdateMode,
+            setSourceConnectionDetailsValue
         )
     }
 
@@ -569,7 +624,12 @@ function CDCConfigSection(): JSX.Element {
 
 export default function SourceFormContainer(props: SourceFormProps): JSX.Element {
     return (
-        <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" enableFormOnSubmit>
+        <Form
+            logic={sourceWizardLogic}
+            props={props.sourceWizardLogicProps}
+            formKey="sourceConnectionDetails"
+            enableFormOnSubmit
+        >
             <SourceFormComponent {...props} />
         </Form>
     )
@@ -579,22 +639,24 @@ export function SourceFormComponent({
     sourceConfig,
     showPrefix = true,
     showDescription,
+    showAccessMethodSelector = true,
     jobInputs,
     initialAccessMethod,
     setSourceConfigValue,
+    sourceWizardLogicProps,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const setSourceConnectionDetailsValue = sourceWizardLogicProps
+        ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
+        : undefined
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
     const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
         initialAccessMethod ?? 'warehouse'
     )
-    const isPostgresDirectQuery =
-        sourceConfig.name === 'Postgres' &&
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-        selectedAccessMethod === 'direct'
+    const isPostgresDirectQuery = sourceConfig.name === 'Postgres' && selectedAccessMethod === 'direct'
 
     useEffect(() => {
         if (initialAccessMethod) {
@@ -618,48 +680,22 @@ export function SourceFormComponent({
 
     return (
         <div className="space-y-4 ph-no-capture">
-            {!isUpdateMode &&
-                sourceConfig.name === 'Postgres' &&
-                featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
-                    <LemonField name="access_method" label="How should PostHog query this source?">
+            {!isUpdateMode && sourceConfig.name === 'Postgres' && showAccessMethodSelector && (
+                <>
+                    <LemonField name="access_method">
                         {({ value, onChange }) => (
-                            <LemonRadio
-                                data-attr="postgres-access-method"
+                            <SourceAccessMethodSelector
                                 value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
-                                onChange={(newValue) => {
-                                    const nextValue = newValue as 'warehouse' | 'direct'
+                                onChange={(nextValue) => {
                                     setSelectedAccessMethod(nextValue)
                                     onChange(nextValue)
                                 }}
-                                options={[
-                                    {
-                                        value: 'warehouse',
-                                        label: (
-                                            <div>
-                                                <div>Sync to warehouse</div>
-                                                <div className="text-xs text-secondary">
-                                                    Sync selected tables into PostHog-managed storage for querying.
-                                                </div>
-                                            </div>
-                                        ),
-                                    },
-                                    {
-                                        value: 'direct',
-                                        label: (
-                                            <div>
-                                                <div>Query directly</div>
-                                                <div className="text-xs text-secondary">
-                                                    Run queries live against this Postgres connection. Data from this
-                                                    source can&apos;t be joined with PostHog data.
-                                                </div>
-                                            </div>
-                                        ),
-                                    },
-                                ]}
                             />
                         )}
                     </LemonField>
-                )}
+                    <LemonDivider />
+                </>
+            )}
             {isPostgresDirectQuery && (
                 <LemonField
                     name="prefix"
@@ -709,7 +745,15 @@ export function SourceFormComponent({
             <Group name="payload">
                 {availableSources[sourceConfig.name].fields
                     .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
-                    .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode))}
+                    .map((field) =>
+                        sourceFieldToElement(
+                            field,
+                            sourceConfig,
+                            jobInputs?.[field.name],
+                            isUpdateMode,
+                            setSourceConnectionDetailsValue
+                        )
+                    )}
             </Group>
             {!isUpdateMode &&
                 sourceConfig.name === 'Postgres' &&
@@ -735,10 +779,9 @@ export function SourceFormComponent({
                                     : 'Prefix cannot consist of only underscores'
                         }
 
-                        const displayValue = value ? value.trim().replace(/^_+|_+$/g, '') : ''
-                        const tableName = displayValue
-                            ? `${sourceConfig.name.toLowerCase()}.${displayValue}.table_name`
-                            : `${sourceConfig.name.toLowerCase()}.table_name`
+                        const cleanedPrefix = value ? value.trim() : ''
+                        const sourceType = sourceConfig.name.toLowerCase()
+                        const tableName = `${cleanedPrefix}${sourceType}_table_name`.toLowerCase()
                         return (
                             <>
                                 <LemonInput

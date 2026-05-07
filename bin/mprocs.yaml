@@ -32,6 +32,7 @@ procs:
         groups:
             layer: pinned
             tech: pinned
+            capability: pinned
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
@@ -150,6 +151,17 @@ procs:
             layer: Processing
             tech: Python
 
+    webhook-s3-sink:
+        shell: |-
+            uv sync --active && \
+            bin/wait-for-docker && \
+            python manage.py run_webhook_s3_sink --consumer-group dwh-webhook-sink-dev --health-port 8091
+        capability: warehouse_webhook_sink
+        ready_pattern: 'webhook_s3_sink_starting'
+        groups:
+            layer: Processing
+            tech: Python
+
     stripe-mock:
         shell: 'bin/start-stripe-mock'
         capability: stripe_mock
@@ -232,6 +244,14 @@ procs:
         groups:
             layer: Product services
             tech: Rust
+
+    flags-consumer:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service flags-consumer
+        # POC skeleton — opt-in until the CDC consumer logic lands
+        autostart: false
+        ready_pattern: 'listening on *'
 
     hypercache-server:
         shell: |-
@@ -322,6 +342,22 @@ procs:
             layer: Product services
             tech: Rust
 
+    personhog-etcd-init:
+        shell: |-
+            bin/wait-for-docker && \
+            docker exec posthog-etcd-1 etcdctl put /personhog/config/total_partitions 4 && \
+            echo 'etcd init complete'
+        capability: personhog
+        ready_pattern: 'etcd init complete'
+        autostart: true
+
+    personhog-router-leader:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-router-leader
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
+
     personhog-leader:
         shell: |-
             bin/wait-for-docker && \
@@ -331,6 +367,13 @@ procs:
         groups:
             layer: Product services
             tech: Rust
+
+    personhog-writer:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service personhog-writer
+        capability: personhog
+        ready_pattern: 'Metrics server listening on *'
 
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
@@ -417,6 +460,12 @@ procs:
             tech: Migrations
         # no capability - optional migration
 
+    migrate-flags-read-store:
+        shell: 'bin/wait-for-docker && bin/migrate --scope=flags-read-store'
+        autostart: false
+        ready_pattern: 'All migrations completed successfully'
+        # no capability - optional migration
+
     generate-demo-data:
         shell: |-
             bin/wait-for-docker && \
@@ -471,9 +520,9 @@ procs:
     warehouse-sources-load:
         shell: |-
             bin/wait-for-docker && \
-            python manage.py run_warehouse_sources_load --health-port 8090 --batch-size 100 --consumer-group warehouse-sources-load-dev
+            python manage.py run_warehouse_sources_load
         autostart: false
-        ready_pattern: 'health_server_started'
+        ready_pattern: 'batch_consumer_started'
         groups:
             layer: Tools
             tech: Python
@@ -482,6 +531,9 @@ procs:
 group_order:
     layer: [Application, Processing, Ingestion pipeline, Infrastructure, Product services, Tools]
     tech: [Python, Frontend, Node, Rust, Docker, Migrations, Other]
+    # `capability` is inferred: each proc's `capability:` is copied into
+    # Groups["capability"] at load time. Display order falls back to the order
+    # capabilities first appear across procs.
 
 mouse_scroll_speed: 1
 scrollback: 10000

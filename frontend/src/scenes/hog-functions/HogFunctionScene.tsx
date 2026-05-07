@@ -239,7 +239,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                             {
                                 key: Scene.HogFunction,
                                 name: 'Alerts',
-                                path: urls.settings('environment-error-tracking', 'error-tracking-alerting'),
+                                path: urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
                             },
                             finalCrumb,
                         ]

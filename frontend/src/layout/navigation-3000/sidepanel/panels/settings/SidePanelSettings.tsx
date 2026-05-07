@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { IconArrowLeft, IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useOpenAi } from 'scenes/max/useOpenAi'
 import { Settings } from 'scenes/settings/Settings'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
@@ -13,7 +14,6 @@ import { urls } from 'scenes/urls'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
-import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
 
@@ -58,43 +58,41 @@ export const SidePanelSettings = (): JSX.Element => {
         (selectedSectionId === 'environment-max' || selectedSectionId === ('project-max' as typeof selectedSectionId))
 
     return (
-        <div className="flex flex-col overflow-hidden flex-1">
-            <SidePanelContentContainer>
-                <SidePanelPaneHeader
-                    title={
-                        <>
-                            {cameFromMax && (
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconArrowLeft />}
-                                    onClick={() => {
-                                        setPreviousTab(null)
-                                        openAi()
-                                    }}
-                                    tooltip="Back to PostHog AI"
-                                    tooltipPlacement="bottom-end"
-                                />
-                            )}
-                            Settings
-                        </>
-                    }
-                >
-                    <LemonButton
-                        size="small"
-                        to={urls.settings(
-                            effectiveSettings.sectionId ?? effectiveSettings.settingLevelId,
-                            effectiveSettings.settingId
+        <div className="flex flex-col overflow-hidden">
+            <SidePanelPaneHeader
+                title={
+                    <>
+                        {cameFromMax && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconArrowLeft />}
+                                onClick={() => {
+                                    setPreviousTab(null)
+                                    openAi()
+                                }}
+                                tooltip="Back to PostHog AI"
+                                tooltipPlacement="bottom-end"
+                            />
                         )}
-                        onClick={() => closeSidePanel()}
-                        sideIcon={<IconExternal />}
-                    >
-                        All settings
-                    </LemonButton>
-                </SidePanelPaneHeader>
-                <div className="flex-1 p-3 pt-0 overflow-y-auto" ref={scrollContainerRef}>
-                    <Settings hideSections {...settingsLogicProps} />
-                </div>
-            </SidePanelContentContainer>
+                        {`${capitalizeFirstLetter(selectedLevel)} settings`}
+                    </>
+                }
+            >
+                <LemonButton
+                    size="small"
+                    to={urls.settings(
+                        effectiveSettings.sectionId ?? effectiveSettings.settingLevelId,
+                        effectiveSettings.settingId
+                    )}
+                    onClick={() => closeSidePanel()}
+                    sideIcon={<IconExternal />}
+                >
+                    All settings
+                </LemonButton>
+            </SidePanelPaneHeader>
+            <div className="flex-1 p-3 overflow-y-auto" ref={scrollContainerRef}>
+                <Settings hideSections {...settingsLogicProps} />
+            </div>
         </div>
     )
 }

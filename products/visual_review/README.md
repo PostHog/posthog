@@ -45,11 +45,12 @@ CI captures screenshots, runs `vr submit`
        │
        ▼
 Backend completes the run
-  - fetch baseline YAML from GitHub (source of truth)
+  - fetch baseline YAML from GitHub (branch + merge-base for healing)
   - classify each snapshot against baseline (unchanged/changed/new)
+  - tolerated hash cache: skip diffing for known sub-threshold pairs
   - detect removals: baseline identifiers missing from RunSnapshot rows
   - verify uploads, create artifact records, link to snapshots
-  - queue async diff (Celery) for changed snapshots
+  - two-tier diff (Celery): pixel diff → SSIM for tall-page dilution
   - post GitHub Check (pass/fail)
        │
        ▼
@@ -102,30 +103,38 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 ### Commands
 
-**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Without `--auto-approve`, exits 1 if unapproved changes are detected (gating). With `--auto-approve`, approves everything, writes the signed baseline, and exits 0.
+**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (won't block, won't prompt for approval). Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
 
-**`vr verify`** — local baseline check without API.
+**`vr verify`** — local baseline check without API. Hashes PNGs in a directory and compares against `snapshots.yml`. No backend involvement.
 
-**`vr run create`** — creates an empty pending run, outputs the run ID to stdout. Call once before shards.
+**`vr run create`** — creates an empty pending run, outputs the run ID to stdout. Call once before shards. Default `--purpose review`; pass `--purpose observe` on master to make the run tracking-only (non-approvable, no PR comment).
 
 **`vr run upload`** — per-shard: hashes PNGs in a directory, sends identifiers + hashes via `add-snapshots`, uploads missing artifacts.
 
-**`vr run complete`** — triggers completion (classification, removal detection, diffs). Same exit code semantics as `vr submit`: exits 1 on unapproved changes, 0 if clean or `--auto-approve` is set.
+**`vr run complete`** — triggers completion (classification, removal detection, diffs). On `review` runs: exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set. On `observe` runs: always exits 0 (non-gating).
+
+### Run purposes
+
+- **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
+- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". Use on master pushes where there's no PR to approve.
 
 ## Current state
 
 Working end to end: CI upload → async diff → GitHub Check → web review → approve → baseline commit → clean re-run. Multi-repo per team, snapshot change history across runs, run supersession, GitHub commit status checks on transitions.
 
+**Tolerated hashes** — when the two-tier diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
+Future runs skip diffing entirely for cached pairs.
+Developers can also manually tolerate a snapshot from the UI.
+
+**Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
+Quarantined snapshots are still captured and diffed but excluded from gating.
+
 **Known gaps:**
 
-- `complete_run` silently skips missing uploads instead of validating they arrived
-- Approval doesn't validate that submitted identifiers belong to the run or that hashes match
 - Frontend error toast swallows structured error codes (`sha_mismatch`, `stale_run`) instead of showing tailored messages
-
-These are correctness gaps, not architecture problems. The core model is sound.
 
 **Not yet built:**
 
-- Multiple viewports or themes per snapshot (can be encoded in identifiers)
 - Retention / cleanup of old runs and artifacts
+- Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

@@ -71,7 +71,7 @@ class ExportedAsset(models.Model):
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
 
     # Content related fields
-    export_format = models.CharField(max_length=100, choices=ExportFormat.choices)
+    export_format = models.CharField(max_length=100, choices=ExportFormat)
     content = models.BinaryField(null=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     # DateTime after the created_at after which this asset should be deleted
@@ -91,6 +91,9 @@ class ExportedAsset(models.Model):
     exception_type = models.CharField(max_length=255, null=True, blank=True)
     # Classification of the failure, see failure_handler.py for details
     failure_type = models.CharField(max_length=255, null=True, blank=True)
+    # If truthy, this asset was created by an internal/system process rather than a user.
+    # Excluded from the per-team user-export quota in posthog/api/exports.py.
+    is_system = models.BooleanField(null=True, default=False)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)
@@ -136,7 +139,8 @@ class ExportedAsset(models.Model):
         elif self.dashboard and self.dashboard.name is not None:
             filename = f"{filename}-{slugify(self.dashboard.name)}"
         elif self.insight:
-            filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
+            insight_name = self.insight.name or self.insight.derived_name or "insight"
+            filename = f"{filename}-{slugify(insight_name)}"
 
         timestamp = self.created_at.strftime("%Y-%m-%d-%H%M%S") if self.created_at else ""
         if timestamp:

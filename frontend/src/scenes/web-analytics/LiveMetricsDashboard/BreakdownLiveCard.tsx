@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useMemo } from 'react'
+import React, { ReactNode, useMemo } from 'react'
 
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
@@ -11,7 +11,7 @@ interface BreakdownItem {
 }
 
 interface BreakdownLiveCardProps<T extends BreakdownItem> {
-    title: string
+    title: ReactNode
     data: T[]
     getKey: (item: T) => string
     getLabel: (item: T) => string
@@ -68,7 +68,7 @@ const BreakdownLiveCardInner = <T extends BreakdownItem>({
     return (
         <div className="bg-bg-light rounded-lg border border-border p-4 h-full min-h-[340px] flex flex-col">
             <div className="mb-4">
-                <h3 className="text-sm font-semibold text-default">{title}</h3>
+                {typeof title === 'string' ? <h3 className="text-sm font-semibold text-default">{title}</h3> : title}
             </div>
 
             {isLoading ? (

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import LiteralString, Optional
+from typing import Optional
 
 from django.core.cache import cache
 
@@ -231,7 +231,7 @@ class SessionReplayEvents:
     def get_metadata_query(
         recording_start_time: Optional[datetime] = None,
         format: Optional[str] = None,
-    ) -> LiteralString:
+    ) -> str:
         """
         Helper function to build a query for session metadata, to be able to use
         both in production and locally (for example, when testing session summary)

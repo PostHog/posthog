@@ -285,6 +285,19 @@ export const GenerationEvent = (): JSX.Element => {
                                 </p>
                             </td>
                         </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_stop_reason</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> The reason the model stopped generating tokens
+                                    <br />
+                                    Example: <code>end_turn</code>, <code>stop</code>, <code>max_tokens</code>,{' '}
+                                    <code>tool_use</code>
+                                </p>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>

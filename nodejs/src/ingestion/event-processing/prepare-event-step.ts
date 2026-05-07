@@ -7,6 +7,7 @@ import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
+import { stripBloatProperties } from './strip-bloat-properties'
 
 export type PrepareEventStepInput = {
     normalizedEvent: PluginEvent
@@ -39,6 +40,8 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(): 
         if (properties['$ip'] && input.team.anonymize_ips) {
             delete properties['$ip']
         }
+
+        stripBloatProperties(properties)
 
         const timestamp = parseEventTimestamp(normalizedEvent, invalidTimestampCallback)
 

@@ -84,14 +84,14 @@ jobs:
                   echo "$pr_title_escaped" >> $GITHUB_ENV
                   echo "EOF" >> $GITHUB_ENV
             - name: Capture PR age to PostHog
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-pr-stats'
                   properties: '{"prAgeInSeconds": ${{ env.pr_age }}, "isRevert": ${{env.is_revert}}, "prTitle": ${{ env.pr_title_escaped }}, "prNumber": "${{ github.event.pull_request.number}}"  }'
             - name: Capture PR age to DevEx PostHog
               continue-on-error: true
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN}}
                   event: 'posthog-ci-pr-stats'

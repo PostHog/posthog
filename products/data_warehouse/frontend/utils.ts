@@ -1,10 +1,14 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
+import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 import {
     DataModelingSyncInterval,
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
     ExternalDataSourceSyncSchema,
     HogFunctionTemplateType,
 } from '~/types'
@@ -12,6 +16,28 @@ import {
 export type SyncInterval = DataWarehouseSyncInterval | DataModelingSyncInterval
 
 export const DATAWAREHOUSE_EDITOR_ITEM_ID = 'new-SQL'
+
+export const buildSelectAllQuery = (tableName: string, limitOffsetClause?: string | null): string => {
+    const limitClause = limitOffsetClause ? ` ${limitOffsetClause}` : ''
+    return `SELECT * FROM ${escapeDottedHogQLIdentifier(tableName)}${limitClause}`
+}
+
+export const buildTableQueryUrl = (
+    tableName: string,
+    connectionId?: string | null,
+    limitOffsetClause: string | null = 'LIMIT 100'
+): string => {
+    const hashParams = new URLSearchParams()
+    hashParams.set('q', buildSelectAllQuery(tableName, limitOffsetClause))
+
+    if (connectionId) {
+        hashParams.set('c', connectionId)
+    }
+
+    const hashString = hashParams.toString()
+
+    return `${urls.sqlEditor()}${hashString ? `#${hashString}` : ''}`
+}
 
 export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): DataVisualizationNode => {
     return {
@@ -141,12 +167,27 @@ export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['
     cdc: 'CDC',
 }
 
-export const StatusTagSetting: Record<ExternalDataJobStatus, LemonTagType> = {
+export const SyncFrequencyLabelMap: Record<DataWarehouseSyncInterval, string> = {
+    '1min': '1 min',
+    '5min': '5 mins',
+    '15min': '15 mins',
+    '30min': '30 mins',
+    '1hour': '1 hour',
+    '6hour': '6 hours',
+    '12hour': '12 hours',
+    '24hour': 'Daily',
+    '7day': 'Weekly',
+    '30day': 'Monthly',
+}
+
+export const StatusTagSetting: Record<ExternalDataJobStatus | ExternalDataSchemaStatus, LemonTagType> = {
     [ExternalDataJobStatus.Running]: 'primary',
     [ExternalDataJobStatus.Completed]: 'success',
     [ExternalDataJobStatus.Failed]: 'danger',
     [ExternalDataJobStatus.BillingLimits]: 'danger',
     [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
+    [ExternalDataSchemaStatus.Paused]: 'warning',
+    [ExternalDataSchemaStatus.Cancelled]: 'warning',
 }
 
 /**

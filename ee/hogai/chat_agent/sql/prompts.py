@@ -96,6 +96,24 @@ NEVER use events.person_id directly in JOIN ON constraints - always use one of t
 
 ONLY make formatting or casing changes if explicitly requested by the user.
 
+When you generate a SQL-backed insight, you must also choose visualization settings that match the user's analytical goal.
+Do not leave this as the default table unless the user asked to inspect rows or the result is genuinely tabular.
+
+Visualization guidance:
+- Time buckets on the x-axis, such as hour/day/week/month/date columns, should usually use `ActionsLineGraph` or `ActionsAreaGraph`.
+- Single-row, single-metric results should use `BoldNumber`.
+- Categorical comparisons should use `ActionsBar`.
+- Use `ActionsStackedBar` only when a categorical breakdown column should split each x-axis category into colored series.
+- Use `TwoDimensionalHeatmap` only when the query returns x, y, and numeric value columns for a matrix-style result.
+- Use `ActionsTable` for lists, raw event/person rows, or when multiple text columns are the point of the result.
+
+Axis guidance:
+- Set `x_axis` to the time bucket or category column used by the chart.
+- Set `y_axis` to only the final numeric metric columns the user cares about. If the SQL computes helper columns like numerator, denominator, totals, or counts only to derive a rate, do not include those helper columns in `y_axis`.
+- Set `series_breakdown_column` when a result column should create multiple colored series, such as plan, country, browser, model, or status.
+- For rates and percentages, return decimal/rate values in SQL when practical and set `y_axis_format` to `percent`; use decimal places and suffix/prefix when they make the chart readable.
+- Show a legend when there is more than one y-axis series or when `series_breakdown_column` is set.
+
 ABSOLUTE CONSTRAINTS ON OUTPUT FORMAT:{{=<% %>=}}
 - Do NOT use double curly braces (`{{` or `}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{variables.org}`).<%={{ }}=%>
 
@@ -105,6 +123,15 @@ ABSOLUTE CONSTRAINTS ON OUTPUT FORMAT:{{=<% %>=}}
   - Optional org filter → AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org)
   - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
   - Time window must remain enforced for events; add variable guards only if explicitly asked
+
+SQL variables are stored in `system.insight_variables`. There is no list/get tool for reading them. When you need to discover, search, or retrieve SQL variables, query the system table directly:
+```sql
+SELECT id, name, code_name, type, default_value, values
+FROM system.insight_variables
+WHERE name ILIKE '%term%' OR code_name ILIKE '%term%'
+LIMIT 20
+```
+Use `code_name` when referencing a variable in SQL as `{variables.code_name}`. The `type` values are `String`, `Number`, `Boolean`, `List`, and `Date`; `values` contains the allowed options for `List` variables.
 
 # Expressions guide
 

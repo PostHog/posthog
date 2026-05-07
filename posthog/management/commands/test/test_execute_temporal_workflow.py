@@ -13,7 +13,7 @@ from products.web_analytics.backend.temporal.weekly_digest.types import SendTest
         ("wa-weekly-digest", [], WAWeeklyDigestInput),
         (
             "wa-weekly-digest-test",
-            ['{"team_id": 1, "email": "you@example.com", "force": true}'],
+            ['{"team_id": 1, "email": "you@example.com"}'],
             SendTestDigestInput,
         ),
     ],
@@ -40,4 +40,4 @@ def test_execute_temporal_workflow_supports_wa_digest_workflows(workflow_name, i
     if workflow_name == "wa-weekly-digest":
         assert execute_call.args[1] == WAWeeklyDigestInput(dry_run=False)
     if workflow_name == "wa-weekly-digest-test":
-        assert execute_call.args[1] == SendTestDigestInput(team_id=1, email="you@example.com", force=True)
+        assert execute_call.args[1] == SendTestDigestInput(team_id=1, email="you@example.com")

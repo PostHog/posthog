@@ -23,7 +23,7 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
         matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
         matrix.is_complete = True
 
-        matrix.clusters = [
+        matrix.clusters = [  # ty: ignore[invalid-assignment]
             SimpleNamespace(
                 people=[
                     SimpleNamespace(
@@ -84,7 +84,7 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
         matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
         matrix.is_complete = True
 
-        matrix.clusters = [
+        matrix.clusters = [  # ty: ignore[invalid-assignment]
             SimpleNamespace(
                 people=[
                     SimpleNamespace(

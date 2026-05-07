@@ -34,8 +34,8 @@ const runningExperiment: ExperimentData = {
     created_at: '2025-10-28T09:00:00Z',
     parameters: {
         feature_flag_variants: [
-            { key: 'control', name: 'Current flow', rollout_percentage: 50 },
-            { key: 'test', name: 'Simplified flow', rollout_percentage: 50 },
+            { key: 'control', name: 'Current flow', split_percent: 50 },
+            { key: 'test', name: 'Simplified flow', split_percent: 50 },
         ],
     },
     metrics: [{ kind: 'primary', event: 'user_activated', math: 'total' }],
@@ -53,9 +53,9 @@ const completedExperiment: ExperimentData = {
     created_at: '2025-08-28T09:00:00Z',
     parameters: {
         feature_flag_variants: [
-            { key: 'control', name: 'Get started', rollout_percentage: 34 },
-            { key: 'test-a', name: 'Start free trial', rollout_percentage: 33 },
-            { key: 'test-b', name: 'Try it now', rollout_percentage: 33 },
+            { key: 'control', name: 'Get started', split_percent: 34 },
+            { key: 'test-a', name: 'Start free trial', split_percent: 33 },
+            { key: 'test-b', name: 'Try it now', split_percent: 33 },
         ],
     },
     conclusion: 'significant',
@@ -71,8 +71,8 @@ const draftExperiment: ExperimentData = {
     created_at: '2025-12-01T09:00:00Z',
     parameters: {
         feature_flag_variants: [
-            { key: 'control', rollout_percentage: 50 },
-            { key: 'test', rollout_percentage: 50 },
+            { key: 'control', split_percent: 50 },
+            { key: 'test', split_percent: 50 },
         ],
     },
 }

@@ -20,8 +20,8 @@ class OrganizationResourceAccess(models.Model):
         INSIGHTS = "insights", "insights"
         DASHBOARDS = "dashboards", "dashboards"
 
-    resource = models.CharField(max_length=32, choices=Resources.choices)
-    access_level = models.PositiveSmallIntegerField(default=AccessLevel.CAN_ALWAYS_EDIT, choices=AccessLevel.choices)
+    resource = models.CharField(max_length=32, choices=Resources)
+    access_level = models.PositiveSmallIntegerField(default=AccessLevel.CAN_ALWAYS_EDIT, choices=AccessLevel)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="resource_access")
     created_by = models.ForeignKey(
         "posthog.User",

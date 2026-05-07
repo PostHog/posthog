@@ -155,7 +155,7 @@ class TestSummarizeAndSaveActivity:
         ):
             mock_load.return_value = "text repr"
             mock_summarize.return_value = mock_summary
-            mock_embedder_class.return_value._embed_document.side_effect = Exception("Kafka down")
+            mock_embedder_class.return_value.embed_document.side_effect = Exception("Kafka down")
 
             result = await summarize_and_save_activity(input_data)
 

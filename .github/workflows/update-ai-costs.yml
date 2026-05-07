@@ -29,7 +29,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -80,15 +80,25 @@ jobs:
                     echo "Closed stale PR #$existing_pr and deleted branch"
                   fi
 
-            - name: Ensure branch exists
+            - name: Reset branch to checked-out SHA
+              # Force-reset the branch to the SHA this job was pinned to so each run is
+              # independent of any unmerged commits from prior runs. Using `github.sha`
+              # (instead of looking up master's current tip) guarantees the branch tip
+              # matches workspace HEAD — otherwise a merge to master during the run could
+              # leave ghcommit-action with a parent mismatch and the same
+              # "Expected branch to point to X but it did not" failure mode.
               if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  TARGET_SHA: ${{ github.sha }}
               run: |
-                  if ! gh api repos/${{ github.repository }}/git/ref/heads/chore/llma-update-ai-costs 2>/dev/null; then
-                    master_sha=$(gh api repos/${{ github.repository }}/git/ref/heads/master --jq '.object.sha')
-                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/llma-update-ai-costs -f sha="$master_sha"
-                    echo "Created branch from master at $master_sha"
+                  if gh api repos/${{ github.repository }}/git/ref/heads/chore/llma-update-ai-costs >/dev/null 2>&1; then
+                    gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/chore/llma-update-ai-costs \
+                      -f sha="$TARGET_SHA" -F force=true
+                    echo "Force-reset branch to $TARGET_SHA (superseding any prior unmerged commits)"
+                  else
+                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/llma-update-ai-costs -f sha="$TARGET_SHA"
+                    echo "Created branch at $TARGET_SHA"
                   fi
 
             - name: Commit via GitHub API (signed)
@@ -128,12 +138,13 @@ jobs:
                       --base master \
                       --head chore/llma-update-ai-costs \
                       --label "automated" --label "llm-analytics" \
-                      --reviewer "PostHog/team-llm-analytics"
+                      --reviewer "PostHog/team-llm-analytics" \
+                      --reviewer "PostHog/team-llm-gateway"
                   fi
 
             - name: Alert Slack on failure
               if: failure()
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}

@@ -27,6 +27,7 @@ class TestIsUserQueryErrorType(TestCase):
             ("ClickHouseQueryTimeOut", True),
             ("ClickHouseQueryMemoryLimitExceeded", True),
             ("CHQueryErrorInvalidJoinOnExpression", True),
+            ("CHQueryErrorUnknownTable", True),
             ("ExcelColumnLimitExceeded", True),
             # Non-user errors - should return False
             ("TimeoutError", False),
@@ -57,6 +58,7 @@ class TestClassifyFailureType(TestCase):
             ("ClickHouseQueryTimeOut", FAILURE_TYPE_USER),
             ("ClickHouseQueryMemoryLimitExceeded", FAILURE_TYPE_USER),
             ("CHQueryErrorInvalidJoinOnExpression", FAILURE_TYPE_USER),
+            ("CHQueryErrorUnknownTable", FAILURE_TYPE_USER),
             ("ExcelColumnLimitExceeded", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
             ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),

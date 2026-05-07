@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any, Optional
 
+from django.db.models import Q
+
 import structlog
 
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
@@ -607,7 +609,10 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
     if template_key in DASHBOARD_TEMPLATES:
         return DASHBOARD_TEMPLATES[template_key](dashboard)
 
-    template = DashboardTemplate.objects.filter(template_name=template_key).first()
+    template = DashboardTemplate.objects.filter(
+        Q(team_id=dashboard.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL),
+        template_name=template_key,
+    ).first()
     if not template:
         original_template = DashboardTemplate.original_template()
         if template_key == original_template.template_name:

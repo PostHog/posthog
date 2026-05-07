@@ -44,14 +44,21 @@ import snappy from 'snappy'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '../shared/crypto'
 import { DynamoDBKeyStore, MemoryKeyStore } from '../shared/keystore'
 import { MemoryCachedKeyStore } from '../shared/keystore/cache'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '../shared/outputs'
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from './types'
+
+const mockOutputs = {
+    queueMessages: jest.fn().mockResolvedValue(undefined),
+    produce: jest.fn().mockResolvedValue(undefined),
+} as unknown as IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
 
 // Localstack configuration
 const LOCALSTACK_ENDPOINT = 'http://localhost:4566'
@@ -775,7 +782,7 @@ describe('Recording API encryption integration', () => {
                 decryptor
             )
 
-            const recordingApi = new RecordingApi({} as RecordingApiConfig, {} as PostgresRouter)
+            const recordingApi = new RecordingApi({} as RecordingApiConfig, {} as PostgresRouter, mockOutputs)
             await recordingApi.start(recordingService)
 
             app = express()

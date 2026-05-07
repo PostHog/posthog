@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { LogsViewApi, LogsViewApiFilters } from 'products/logs/frontend/generated/api.schemas'
+import { DEFAULT_ACTIVE_TAB, logsSceneLogic } from 'products/logs/frontend/logsSceneLogic'
 
 import type { logsViewsLogicType } from './logsViewsLogicType'
 
@@ -26,7 +27,12 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
 
     connect((props: LogsViewsLogicProps) => ({
         values: [teamLogic, ['currentTeamId']],
-        actions: [logsViewerFiltersLogic({ id: props.id }), ['setFilters']],
+        actions: [
+            logsViewerFiltersLogic({ id: props.id }),
+            ['setFilters'],
+            logsSceneLogic({ tabId: props.id }),
+            ['setActiveTab'],
+        ],
     })),
 
     actions({
@@ -39,10 +45,12 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
             [] as LogsView[],
             {
                 loadViews: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`${logsViewsUrl(values.currentTeamId)}/`)
                     return response.results
                 },
                 createView: async ({ name, filters }: { name: string; filters: LogsViewApiFilters }) => {
+                    // nosemgrep: prefer-codegen-api
                     const created: LogsView = await api.create(`${logsViewsUrl(values.currentTeamId)}/`, {
                         name,
                         filters,
@@ -63,6 +71,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
     listeners(({ actions, values }) => ({
         deleteView: async ({ shortId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.delete(`${logsViewsUrl(values.currentTeamId)}/${shortId}/`)
                 lemonToast.success('View deleted')
             } catch {
@@ -72,6 +81,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
         },
         loadView: ({ view }) => {
             actions.setFilters(view.filters || {})
+            actions.setActiveTab(DEFAULT_ACTIVE_TAB)
         },
         createViewFailure: () => {
             lemonToast.error('Failed to save view')

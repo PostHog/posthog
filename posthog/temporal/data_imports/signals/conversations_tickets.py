@@ -138,7 +138,12 @@ def _truncate_to_budget(lines: list[str], budget: int) -> list[str]:
 
 
 def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
-    return {field: record[field] for field in EXTRA_FIELDS if field in record}
+    extra: dict[str, Any] = {field: record[field] for field in EXTRA_FIELDS if field in record}
+    # Image URLs are publicly fetchable — surface them so the research agent can inspect them directly
+    image_attachments = record.get("image_attachments") or []
+    if image_attachments:
+        extra["images"] = image_attachments
+    return extra
 
 
 CONVERSATIONS_TICKETS_CONFIG = SignalSourceTableConfig(

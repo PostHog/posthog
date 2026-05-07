@@ -18,6 +18,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -37,6 +38,7 @@ import { SignupInsights } from './components/Insights/SignupInsights'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
+import { customerAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 
 export const scene: SceneExport = {
     component: CustomerAnalyticsScene,
@@ -44,7 +46,15 @@ export const scene: SceneExport = {
     productKey: ProductKey.CUSTOMER_ANALYTICS,
 }
 
-export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+export function CustomerAnalyticsScene(props: { tabId?: string }): JSX.Element {
+    return (
+        <FeaturePreviewSceneGate config={customerAnalyticsFeaturePreviewGate}>
+            <CustomerAnalyticsSceneContent {...props} />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)

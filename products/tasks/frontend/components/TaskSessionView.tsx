@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -56,7 +56,55 @@ interface TaskSessionViewProps {
     streamEntries: LogEntry[]
     isPolling: boolean
     isStreaming: boolean
+    initialPrompt?: string | null
     run: TaskRun | null
+}
+
+export function filterDuplicateInitialPromptEntry(entries: LogEntry[], initialPrompt?: string | null): LogEntry[] {
+    const normalizedPrompt = initialPrompt?.trim()
+    if (!normalizedPrompt || entries.length === 0) {
+        return entries
+    }
+
+    const [firstEntry, ...restEntries] = entries
+    if (
+        firstEntry.type !== 'user' ||
+        firstEntry.message?.trim() !== normalizedPrompt ||
+        (firstEntry.attachments?.length ?? 0) > 0
+    ) {
+        return entries
+    }
+
+    return restEntries
+}
+
+export function mergeDuplicateUserPromptEntries(entries: LogEntry[]): LogEntry[] {
+    return entries.reduce<LogEntry[]>((mergedEntries, entry) => {
+        const previousEntry = mergedEntries[mergedEntries.length - 1]
+
+        if (
+            previousEntry?.type === 'user' &&
+            entry.type === 'user' &&
+            previousEntry.message?.trim() === entry.message?.trim()
+        ) {
+            const previousHasAttachments = Boolean(previousEntry.attachments?.length)
+            const currentHasAttachments = Boolean(entry.attachments?.length)
+
+            if (!previousHasAttachments && currentHasAttachments) {
+                mergedEntries[mergedEntries.length - 1] = entry
+            } else if (previousHasAttachments && currentHasAttachments) {
+                mergedEntries[mergedEntries.length - 1] = {
+                    ...previousEntry,
+                    attachments: [...(previousEntry.attachments ?? []), ...(entry.attachments ?? [])],
+                }
+            }
+
+            return mergedEntries
+        }
+
+        mergedEntries.push(entry)
+        return mergedEntries
+    }, [])
 }
 
 function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
@@ -92,6 +140,15 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                         <CollapsibleContent gradientColor="--bg-3000">
                             <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
                         </CollapsibleContent>
+                        {entry.attachments && entry.attachments.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap justify-end gap-2">
+                                {entry.attachments.map((attachment) => (
+                                    <LemonTag key={attachment.id} type="completion" size="small">
+                                        {attachment.label}
+                                    </LemonTag>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             )
@@ -146,11 +203,15 @@ export function TaskSessionView({
     streamEntries,
     isPolling,
     isStreaming,
+    initialPrompt,
     run,
 }: TaskSessionViewProps): JSX.Element {
     const parsedLogs = useMemo(() => parseLogs(logs), [logs])
     // Use stream entries when available (real-time), otherwise fall back to parsed S3 logs
-    const entries = streamEntries.length > 0 ? streamEntries : parsedLogs
+    const entries = useMemo(() => {
+        const sourceEntries = streamEntries.length > 0 ? streamEntries : parsedLogs
+        return filterDuplicateInitialPromptEntry(mergeDuplicateUserPromptEntries(sourceEntries), initialPrompt)
+    }, [initialPrompt, parsedLogs, streamEntries])
 
     const handleCopyLogs = (): void => {
         navigator.clipboard.writeText(logs).then(

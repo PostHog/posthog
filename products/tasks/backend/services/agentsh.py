@@ -1,3 +1,4 @@
+import shlex
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -159,6 +160,11 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
                 "decision": "allow",
             },
             {
+                "name": "deny-cloud-metadata",
+                "cidrs": ["169.254.169.254/32", "fd00:ec2::254/128"],
+                "decision": "deny",
+            },
+            {
                 "name": "allow-domains",
                 "domains": merged_domains,
                 "ports": allowed_ports,
@@ -246,13 +252,13 @@ def build_audit_query_command(since_ns: int = 0, limit: int = 50) -> str:
         where_parts.append(f"ts_unix_ns > {since_ns}")
     where_parts.append("(type LIKE 'net%' OR (effective_decision IS NOT NULL AND domain IS NOT NULL))")
     where_clause = " AND ".join(where_parts)
-    return (
-        f"sqlite3 -json {AGENTSH_AUDIT_DB} "
-        f'"SELECT ts_unix_ns, type, domain, remote, effective_decision, policy_rule '
+    query = (
+        "SELECT ts_unix_ns, type, domain, remote, effective_decision, policy_rule "
         f"FROM events "
         f"WHERE {where_clause} "
-        f"ORDER BY ts_unix_ns DESC LIMIT {limit};" + ' 2>/dev/null || echo "[]"'
+        f"ORDER BY ts_unix_ns DESC LIMIT {limit};"
     )
+    return f"sqlite3 -json {shlex.quote(AGENTSH_AUDIT_DB)} {shlex.quote(query)} 2>/dev/null || echo '[]'"
 
 
 def build_exec_prefix() -> str:

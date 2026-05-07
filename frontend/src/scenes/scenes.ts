@@ -122,16 +122,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Comments allow you to provide context and discussions on various elements in PostHog.',
         iconType: 'comment',
     },
-    [Scene.CustomerAnalytics]: {
-        projectBased: true,
-        name: 'Customer analytics',
-        settingsSection: 'environment-customer-analytics',
-    },
+    [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
         activityScope: ActivityScope.DASHBOARD,
         iconType: 'dashboard',
-        settingsSection: 'environment-product-analytics',
     },
     [Scene.Dashboards]: {
         projectBased: true,
@@ -139,7 +134,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         description: 'Create and manage your dashboards',
         iconType: 'dashboard',
-        settingsSection: 'environment-product-analytics',
     },
     [Scene.DataManagement]: {
         projectBased: true,
@@ -188,28 +182,24 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Experiment',
         activityScope: ActivityScope.EXPERIMENT,
         iconType: 'experiment',
-        settingsSection: 'environment-experiments',
     },
     [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
         name: '',
         activityScope: ActivityScope.EXPERIMENT,
-        settingsSection: 'environment-experiments',
     },
     [Scene.ExperimentsSharedMetrics]: {
         projectBased: true,
         name: 'Shared metrics',
         activityScope: ActivityScope.EXPERIMENT,
-        settingsSection: 'environment-experiments',
     },
     [Scene.Experiments]: {
         projectBased: true,
         name: 'Experiments',
         activityScope: ActivityScope.EXPERIMENT,
         description:
-            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
+            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
         iconType: 'experiment',
-        settingsSection: 'environment-experiments',
     },
     [Scene.Activity]: {
         projectBased: true,
@@ -232,7 +222,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
-        settingsSection: 'environment-feature-flags',
     },
     [Scene.FeatureFlags]: {
         projectBased: true,
@@ -240,7 +229,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once.',
         activityScope: ActivityScope.FEATURE_FLAG,
-        settingsSection: 'environment-feature-flags',
     },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
     [Scene.Group]: {
@@ -254,7 +242,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Heatmaps',
         iconType: 'heatmap',
         description: 'Heatmaps are a way to visualize user behavior on your website.',
-        settingsSection: 'environment-heatmaps',
     },
     [Scene.Inbox]: {
         projectBased: true,
@@ -265,26 +252,22 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Heatmap',
         iconType: 'heatmap',
-        settingsSection: 'environment-heatmaps',
     },
     [Scene.HeatmapNew]: {
         projectBased: true,
         name: 'New heatmap',
         iconType: 'heatmap',
-        settingsSection: 'environment-heatmaps',
     },
     [Scene.HeatmapRecording]: {
         projectBased: true,
         name: 'Heatmap recording',
         iconType: 'heatmap',
-        settingsSection: 'environment-heatmaps',
     },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
         activityScope: ActivityScope.INSIGHT,
-        settingsSection: 'environment-product-analytics',
     },
     [Scene.InsightQuickStart]: {
         projectBased: true,
@@ -292,6 +275,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Choose the type of insight you want to create',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.StripeConfirmInstall]: { name: 'Confirm Stripe install', projectBased: true },
     [Scene.IngestionWarnings]: {
         projectBased: true,
         name: 'Event ingestion warnings',
@@ -313,13 +297,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
     [Scene.EmailMFAVerify]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
-    [Scene.Max]: {
-        projectBased: true,
-        name: 'Max',
-        layout: 'app-raw-no-header',
-        hideProjectNotice: true,
-        settingsSection: 'environment-max',
-    },
+    [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
     [Scene.Models]: {
         projectBased: true,
         name: 'Models',
@@ -381,7 +359,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.PERSON,
         iconType: 'persons',
     },
-    [Scene.AccountSocialConnected]: {
+    [Scene.AccountConnected]: {
         name: 'Account connected',
         layout: 'plain',
         projectBased: false,
@@ -424,25 +402,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'File playback',
         activityScope: ActivityScope.REPLAY,
-        settingsSection: 'environment-replay',
     },
     [Scene.ReplayPlaylist]: {
         projectBased: true,
         name: 'Replay playlist',
         activityScope: ActivityScope.REPLAY,
-        settingsSection: 'environment-replay',
     },
     [Scene.ReplaySettings]: {
         projectBased: true,
         name: 'Settings',
         activityScope: ActivityScope.REPLAY,
-        settingsSection: 'environment-replay',
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
         name: 'Replay recording',
         activityScope: ActivityScope.REPLAY,
-        settingsSection: 'environment-replay',
     },
     [Scene.Replay]: {
         projectBased: true,
@@ -452,7 +426,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'session_replay',
         description:
             'Replay recordings of user sessions to understand how users interact with your product or website.',
-        settingsSection: 'environment-replay',
     },
     [Scene.ReplayKiosk]: {
         projectBased: true,
@@ -460,18 +433,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         layout: 'plain',
         hideProjectNotice: true,
-        settingsSection: 'environment-replay',
     },
     [Scene.ResourceTransfer]: {
         projectBased: true,
         name: 'Copy to project',
         layout: 'app-container',
     },
+    [Scene.DashboardTemplateCopy]: {
+        projectBased: true,
+        name: 'Copy template to project',
+        layout: 'app-container',
+    },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
         name: 'Revenue analytics',
         layout: 'app-container',
-        settingsSection: 'environment-revenue-analytics',
     },
     [Scene.MarketingAnalytics]: {
         projectBased: true,
@@ -480,7 +456,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
         iconType: 'marketing_analytics',
-        settingsSection: 'environment-marketing-analytics',
+    },
+    [Scene.MarketingAnalyticsSettings]: {
+        projectBased: true,
+        name: 'Marketing settings',
+        description: 'Configure marketing analytics integrations and data sources.',
+        iconType: 'marketing_settings',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -488,7 +469,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Track, analyze, and experiment with user behavior.',
         activityScope: ActivityScope.INSIGHT,
         iconType: 'product_analytics',
-        settingsSection: 'environment-product-analytics',
     },
     [Scene.Health]: {
         projectBased: true,
@@ -542,19 +522,16 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
-        settingsSection: 'environment-surveys',
         layout: 'app-raw-no-header',
     },
     [Scene.SurveyFormBuilder]: {
         projectBased: true,
         name: 'Create form',
-        settingsSection: 'environment-surveys',
     },
     [Scene.Survey]: {
         projectBased: true,
         name: 'Survey',
         activityScope: ActivityScope.SURVEY,
-        settingsSection: 'environment-surveys',
     },
     [Scene.Surveys]: {
         projectBased: true,
@@ -562,7 +539,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.SURVEY,
         description: 'Create surveys to collect feedback from your users',
         iconType: 'survey',
-        settingsSection: 'environment-surveys',
     },
     [Scene.ProductTours]: {
         projectBased: true,
@@ -585,37 +561,25 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
-    [Scene.WebAnalyticsMarketing]: {
-        projectBased: true,
-        name: 'Marketing settings',
-        layout: 'app-container',
-        description: 'Analyze your marketing analytics data to understand your marketing performance.',
-        iconType: 'marketing_settings',
-        settingsSection: 'environment-web-analytics',
-    },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
         name: 'Page reports',
         layout: 'app-container',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.WebAnalyticsWebVitals]: {
         projectBased: true,
         name: 'Web vitals',
         layout: 'app-container',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.WebAnalyticsHealth]: {
         projectBased: true,
         name: 'Health',
         layout: 'app-container',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.WebAnalyticsLive]: {
         projectBased: true,
         name: 'Live',
         layout: 'app-container',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.WebAnalytics]: {
         projectBased: true,
@@ -623,7 +587,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         description: 'Analyze your web analytics data to understand website performance and user behavior.',
         iconType: 'web_analytics',
-        settingsSection: 'environment-web-analytics',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     [Scene.OrganizationDeactivated]: {
@@ -664,7 +627,7 @@ const redirectPipeline = (id: string, fallbackUrl: string): string => {
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 // NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
-export const forwardedRedirectQueryParams: string[] = ['invite_modal']
+export const forwardedRedirectQueryParams: string[] = ['modal']
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
@@ -761,12 +724,16 @@ export const redirects: Record<
     '/max': (_params, searchParams, hashParams) => combineUrl(urls.ai(), searchParams, hashParams).url,
     '/max/history': (_params, searchParams, hashParams) => combineUrl(urls.aiHistory(), searchParams, hashParams).url,
 
+    // Redirect old path-based /configuration URLs to query param format
+    '/functions/:id/configuration': ({ id }) => urls.hogFunction(id, 'configuration'),
+
     ...productRedirects,
 }
 
 export const routes: Record<string, [Scene | string, string]> = {
     [urls.newTab()]: [Scene.NewTab, 'newTab'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
+    [urls.dashboardTemplateCopyToProject(':sourceTemplateId')]: [Scene.DashboardTemplateCopy, 'dashboardTemplateCopy'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
     [urls.dashboardButtonTile(':id', ':buttonTileId')]: [Scene.Dashboard, 'dashboardButtonTile'],
@@ -794,7 +761,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
-    [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
     [urls.coreEvents()]: [Scene.DataManagement, 'coreEvents'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
@@ -890,7 +856,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
-    [urls.accountSocialConnected()]: [Scene.AccountSocialConnected, 'accountSocialConnected'],
+    [urls.accountConnected(':kind')]: [Scene.AccountConnected, 'accountConnected'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
@@ -910,6 +876,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
+    [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
 

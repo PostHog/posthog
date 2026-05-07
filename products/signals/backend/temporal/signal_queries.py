@@ -39,36 +39,35 @@ def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
 # Shared query builders
 # ---------------------------------------------------------------------------
 
-# The innermost dedup subquery, shared by every query that reads signal rows.
-# Uses argMax(…, inserted_at) GROUP BY document_id to collapse ReplacingMergeTree
-# duplicates deterministically, regardless of background merge state.
-_DEDUPED_SIGNALS_SUBQUERY = """
-    SELECT
-        document_id,
-        argMax(content, inserted_at) as content,
-        argMax(metadata, inserted_at) as metadata,
-        argMax(timestamp, inserted_at) as timestamp
-    FROM document_embeddings
-    WHERE model_name = {model_name}
-      AND product = 'signals'
-      AND document_type = 'signal'
-    GROUP BY document_id
-"""
 
-# Same as above but also deduplicates the embedding column (needed for vector search).
-_DEDUPED_SIGNALS_WITH_EMBEDDING_SUBQUERY = """
-    SELECT
-        document_id,
-        argMax(content, inserted_at) as content,
-        argMax(metadata, inserted_at) as metadata,
-        argMax(embedding, inserted_at) as embedding,
-        argMax(timestamp, inserted_at) as timestamp
-    FROM document_embeddings
-    WHERE model_name = {model_name}
-      AND product = 'signals'
-      AND document_type = 'signal'
-    GROUP BY document_id
-"""
+def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: str | None = None) -> str:
+    """Build the shared signal dedup subquery with an optional extra document_embeddings filter."""
+    selected_columns = [
+        "document_id",
+        "argMax(content, inserted_at) as content",
+        "argMax(metadata, inserted_at) as metadata",
+    ]
+    if include_embedding:
+        selected_columns.append("argMax(embedding, inserted_at) as embedding")
+    selected_columns.append("argMax(timestamp, inserted_at) as timestamp")
+    selected_columns_sql = ",\n            ".join(selected_columns)
+
+    extra_where_clause = f"\n      AND {extra_where}" if extra_where else ""
+
+    return f"""
+        SELECT
+            {selected_columns_sql}
+        FROM document_embeddings
+        WHERE model_name = {{model_name}}
+          AND product = 'signals'
+          AND document_type = 'signal'{extra_where_clause}
+        GROUP BY document_id
+    """
+
+
+# Backwards-compatible aliases for callers that import the shared query constants directly.
+_DEDUPED_SIGNALS_SUBQUERY = _deduped_signals_subquery()
+_DEDUPED_SIGNALS_WITH_EMBEDDING_SUBQUERY = _deduped_signals_subquery(include_embedding=True)
 
 
 def _signals_for_report_query(*, include_deleted: bool = False, limit: int | None = None) -> str:
@@ -88,7 +87,7 @@ def _signals_for_report_query(*, include_deleted: bool = False, limit: int | Non
             content,
             metadata,
             timestamp
-        FROM ({_DEDUPED_SIGNALS_SUBQUERY})
+        FROM ({_deduped_signals_subquery()})
         WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
         ORDER BY timestamp ASC{limit_clause}
     """
@@ -193,7 +192,7 @@ async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInpu
                     content,
                     metadata,
                     timestamp
-                FROM ({_DEDUPED_SIGNALS_SUBQUERY})
+                FROM ({_deduped_signals_subquery()})
                 WHERE content != ''
                   AND timestamp >= now() - INTERVAL 1 MONTH
                   AND NOT JSONExtractBool(metadata, 'deleted')
@@ -269,7 +268,7 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
                 JSONExtractString(metadata, 'source_product') as source_product,
                 JSONExtractString(metadata, 'source_type') as source_type,
                 cosineDistance(embedding, {{embedding}}) as distance
-            FROM ({_DEDUPED_SIGNALS_WITH_EMBEDDING_SUBQUERY})
+            FROM ({_deduped_signals_subquery(include_embedding=True)})
             WHERE JSONExtractString(metadata, 'report_id') != ''
               AND timestamp >= now() - INTERVAL 1 MONTH
               AND NOT JSONExtractBool(metadata, 'deleted')
@@ -468,7 +467,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
 
 def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
     """Fetch all signals for a report from ClickHouse, including full metadata. Synchronous."""
-    tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
         query_type="SignalsDebugFetchForReport",
         query=_signals_for_report_query(),
@@ -515,7 +514,7 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
                 JSONExtractBool(metadata, 'deleted') as is_deleted,
                 JSONExtractString(metadata, 'source_product') as source_product,
                 timestamp
-            FROM ({_DEDUPED_SIGNALS_SUBQUERY})
+            FROM ({_deduped_signals_subquery()})
             ORDER BY timestamp DESC
         )
         WHERE NOT is_deleted
@@ -524,7 +523,7 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
         LIMIT 300
     """
 
-    tag_queries(product=Product.SIGNALS, feature=Feature.USAGE_REPORT)
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
         query_type="SignalsFilterBySourceProduct",
         query=ch_query,
@@ -536,3 +535,46 @@ def fetch_report_ids_for_source_products(team: Team, source_products: list[str])
     )
 
     return {row[0] for row in (result.results or []) if row[0]}
+
+
+# ---------------------------------------------------------------------------
+# fetch_source_products_for_reports — synchronous, for the serializer list view
+# ---------------------------------------------------------------------------
+
+
+def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict[str, list[str]]:
+    """Return a mapping of report_id -> distinct source_products for those reports.
+
+    Only includes non-deleted signals. Source products are returned in sorted order.
+    """
+    if not report_ids:
+        return {}
+
+    ch_query = f"""
+        SELECT report_id, arraySort(groupUniqArray(source_product)) as source_products
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                JSONExtractString(metadata, 'source_product') as source_product
+            FROM ({_deduped_signals_subquery()})
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+          AND report_id IN ({{report_ids}})
+          AND source_product != ''
+        GROUP BY report_id
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFetchSourceProductsForReports",
+        query=ch_query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in report_ids]),
+        },
+    )
+
+    return {row[0]: row[1] for row in (result.results or []) if row[0]}

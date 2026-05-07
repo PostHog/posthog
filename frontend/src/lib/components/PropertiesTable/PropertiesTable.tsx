@@ -56,7 +56,20 @@ function EditTextValueComponent({
     initialValue: any
     onChange: (newValue: any) => void
 }): JSX.Element {
-    const [value, setValue] = useState(initialValue)
+    const isText =
+        typeof initialValue === 'string' || typeof initialValue === 'number' || typeof initialValue === 'bigint'
+    const [value, setValue] = useState(isText ? String(initialValue) : '')
+
+    const save = (raw: string): void => {
+        if (typeof initialValue === 'number' && raw.trim() !== '') {
+            const asNumber = Number(raw)
+            if (Number.isFinite(asNumber)) {
+                onChange(asNumber)
+                return
+            }
+        }
+        onChange(raw)
+    }
 
     return (
         <LemonInput
@@ -64,7 +77,7 @@ function EditTextValueComponent({
             value={value}
             onChange={setValue}
             onBlur={() => onChange(initialValue)}
-            onPressEnter={() => onChange(value)}
+            onPressEnter={() => save(value)}
             autoComplete="off"
             autoCapitalize="off"
             size="xsmall"
@@ -146,6 +159,10 @@ function ValueDisplay({
                                     label: 'null',
                                     onClick: () => handleValueChange(null),
                                     status: 'danger',
+                                },
+                                {
+                                    label: 'Type as text…',
+                                    onClick: () => setEditing(true),
                                 },
                             ]}
                         >

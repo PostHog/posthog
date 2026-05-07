@@ -20,6 +20,8 @@ from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
 
+from products.legal_documents.backend.admin import LegalDocumentInline
+
 # Registry of models to count for bulk-delete report.
 # Format: (model_import_path, filter_field, display_name)
 # This mirrors delete_bulky_postgres_data() in posthog/models/team/util.py
@@ -78,7 +80,12 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
     # Must first get cohort_ids from default db, then count CohortPeople by cohort_id
     try:
         cohort_ids = list(Cohort.objects.filter(team_id__in=team_ids).values_list("id", flat=True))
-        cohort_people_count = CohortPeople.objects.filter(cohort_id__in=cohort_ids).count() if cohort_ids else 0
+        cohort_people_count = (
+            # nosemgrep: no-direct-persons-db-orm
+            CohortPeople.objects.filter(cohort_id__in=cohort_ids).count()
+            if cohort_ids
+            else 0  # nosemgrep: no-direct-persons-db-orm
+        )  # nosemgrep: no-direct-persons-db-orm
         results.append(
             {
                 "name": "Cohort People",
@@ -150,7 +157,14 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_platform",
         "members_can_invite",
     ]
-    inlines = [ProjectInline, TeamInline, OrganizationMemberInline, OrganizationInviteInline, OrganizationDomainInline]
+    inlines = [
+        ProjectInline,
+        TeamInline,
+        OrganizationMemberInline,
+        OrganizationInviteInline,
+        OrganizationDomainInline,
+        LegalDocumentInline,
+    ]
     readonly_fields = [
         "id",
         "created_at",

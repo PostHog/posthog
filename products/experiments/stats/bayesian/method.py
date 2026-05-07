@@ -165,7 +165,7 @@ class BayesianMethod:
         Returns:
             Dict with summary information
         """
-        summary = {
+        summary: dict[str, Any] = {
             "preferred_variation": result.preferred_variation,
             "chance_to_win": result.chance_to_win,
             "confidence_in_decision": result.confidence_in_decision,

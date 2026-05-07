@@ -50,25 +50,26 @@ You typically run phrocs via `hogli start` rather than directly.
 
 ## Keybindings
 
-| Key    | Action                                                    |
-| ------ | --------------------------------------------------------- |
-| `tab`  | Swap focus sidebar/output                                 |
-| `↓/j`  | Next process (sidebar) / scroll down (output)             |
-| `↑/k`  | Previous process (sidebar) / scroll up (output)           |
-| `pgdn` | Scroll output down                                        |
-| `pgup` | Scroll output up                                          |
-| `home` | Jump to top of output                                     |
-| `end`  | Jump to bottom of output                                  |
-| `r`    | Restart selected process                                  |
-| `s`    | Stop selected process                                     |
-| `c`    | Enter copy mode                                           |
-| `i`    | Show process info in pager                                |
-| `o`    | Sort processes by <name/CPU/RAM/status>                   |
-| `g`    | Cycle process grouping (from config `groups` field)       |
-| `/`    | Enter search mode (then `enter` to switch to filter mode) |
-| `esc`  | Exit copy, search, and filter modes                       |
-| `?`    | Toggle full help                                          |
-| `q`    | Quit                                                      |
+| Key    | Action                                                  |
+| ------ | ------------------------------------------------------- |
+| `tab`  | Swap focus sidebar/output                               |
+| `↓/j`  | Next process (sidebar) / scroll down (output)           |
+| `↑/k`  | Previous process (sidebar) / scroll up (output)         |
+| `pgdn` | Scroll output down                                      |
+| `pgup` | Scroll output up                                        |
+| `home` | Jump to top of output                                   |
+| `end`  | Jump to bottom of output                                |
+| `r`    | Restart selected process                                |
+| `s`    | Stop selected process                                   |
+| `c`    | Enter copy mode                                         |
+| `i`    | Show process info in pager                              |
+| `o`    | Sort processes by <name/CPU/RAM/status>                 |
+| `g`    | Cycle process grouping (from config `groups` field)     |
+| `a`    | Toggle show all registry processes                      |
+| `/`    | Enter search mode (then `tab` to switch to filter mode) |
+| `esc`  | Exit copy, search, and filter modes                     |
+| `?`    | Toggle full help                                        |
+| `q`    | Quit                                                    |
 
 Mouse clicks switch focus; mouse wheel scrolls the output pane.
 
@@ -81,8 +82,8 @@ Press `esc` to exit without copying.
 ### Search and filter modes
 
 Press `/` to enter search mode, type a query, then use `↓`/`↑` to jump between matches.
-Press `enter` to switch to **filter mode**, which hides all non-matching lines and shows a count of matches in the footer.
-Press `tab` in filter mode to return to search mode (the query is preserved).
+Press `tab` to switch to **filter mode**, which hides all non-matching lines and shows a count of matches in the footer.
+Press `tab` again in filter mode to return to search mode (the query is preserved).
 Press `esc` to exit and clear the query.
 
 Queries support multiple space-separated tokens — all must match for a line to be included:
@@ -121,6 +122,16 @@ See `bin/mprocs.yaml` for the config format.
 
 Processes without a matching group appear under Ungrouped.
 The reserved value `pinned` places a process at the top without a header.
+
+### Show all processes
+
+Press `a` to toggle visibility of all processes from the full registry (`bin/mprocs.yaml`),
+not just those in your current intent config.
+
+Processes not in your intent config appear dimmed with a `·` status icon. They are config-only placeholders that consume no resources until started. Once started (`s`), it behaves like any other process (logs, restart, stop, info).
+
+This is useful for getting a big-picture overview of the full dev environment
+or temporarily starting a process without changing your intent config.
 
 ## Debug logging
 

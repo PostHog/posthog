@@ -10,7 +10,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.caching.calculate_results import calculate_cache_key
-from posthog.caching.utils import active_teams
+from posthog.caching.utils import active_teams, is_team_active
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models.insight import Insight, InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
@@ -70,6 +70,11 @@ ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO UPDATE SET
 
 # Helps do large-scale re-calculations efficiently by loading some data only once
 class LazyLoader:
+    def __init__(self) -> None:
+        # Per-instance memo. A plain dict is used instead of functools.lru_cache on a
+        # bound method because lru_cache retains self and prevents GC of the instance.
+        self._is_team_active_cache: dict[int, bool] = {}
+
     @cached_property
     def active_teams(self):
         return active_teams()
@@ -80,6 +85,14 @@ class LazyLoader:
             last_viewed_at__gte=now() - VERY_RECENTLY_VIEWED_THRESHOLD
         ).distinct("insight_id")
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
+
+    def is_team_active(self, team_id: int) -> bool:
+        cached = self._is_team_active_cache.get(team_id)
+        if cached is not None:
+            return cached
+        result = is_team_active(team_id)
+        self._is_team_active_cache[team_id] = result
+        return result
 
 
 def insight_can_be_cached(insight: Optional[Insight]) -> bool:
@@ -198,7 +211,7 @@ def calculate_target_age(team: Team, target: Union[DashboardTile, Insight], lazy
 
 
 def calculate_target_age_insight(team: Team, insight: Insight, lazy_loader: LazyLoader) -> TargetCacheAge:
-    if team.pk not in lazy_loader.active_teams:
+    if not lazy_loader.is_team_active(team.pk):
         return TargetCacheAge.NO_CACHING
 
     if insight.deleted or not insight_can_be_cached(insight):
@@ -216,7 +229,7 @@ def calculate_target_age_insight(team: Team, insight: Insight, lazy_loader: Lazy
 def calculate_target_age_dashboard_tile(
     team: Team, dashboard_tile: DashboardTile, lazy_loader: LazyLoader
 ) -> TargetCacheAge:
-    if team.pk not in lazy_loader.active_teams:
+    if not lazy_loader.is_team_active(team.pk):
         return TargetCacheAge.NO_CACHING
 
     if dashboard_tile.deleted or dashboard_tile.dashboard.deleted:

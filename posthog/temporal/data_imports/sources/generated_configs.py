@@ -50,6 +50,18 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 
 
 @config.config
+class HubspotCustomPropertiesConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+    contacts_properties: str | None = None
+    companies_properties: str | None = None
+    deals_properties: str | None = None
+    tickets_properties: str | None = None
+    quotes_properties: str | None = None
+    emails_properties: str | None = None
+    meetings_properties: str | None = None
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     selection: Literal["password", "keypair"] = "password"
@@ -220,6 +232,19 @@ class ClerkSourceConfig(config.Config):
 
 
 @config.config
+class ClickHouseSourceConfig(config.Config):
+    host: str
+    database: str
+    user: str
+    port: int = config.value(converter=int)
+    connection_string: str | None = None
+    password: str | None = None
+    secure: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    verify: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
 class ClickUpSourceConfig(config.Config):
     pass
 
@@ -257,7 +282,8 @@ class CopperSourceConfig(config.Config):
 
 @config.config
 class CustomerIOSourceConfig(config.Config):
-    pass
+    app_api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -379,18 +405,6 @@ class HelpScoutSourceConfig(config.Config):
 
 
 @config.config
-class HubspotCustomPropertiesConfig(config.Config):
-    contacts_properties: str | None = None
-    companies_properties: str | None = None
-    deals_properties: str | None = None
-    tickets_properties: str | None = None
-    quotes_properties: str | None = None
-    emails_properties: str | None = None
-    meetings_properties: str | None = None
-    enabled: bool = config.value(converter=config.str_to_bool, default=False)
-
-
-@config.config
 class HubspotSourceConfig(config.Config):
     hubspot_integration_id: int = config.value(converter=config.str_to_int)
     custom_properties: HubspotCustomPropertiesConfig | None = None
@@ -455,6 +469,7 @@ class MSSQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -513,6 +528,7 @@ class MySQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -554,7 +570,7 @@ class OutreachSourceConfig(config.Config):
 
 @config.config
 class PaddleSourceConfig(config.Config):
-    pass
+    paddle_api_key: str
 
 
 @config.config
@@ -594,6 +610,11 @@ class PlaidSourceConfig(config.Config):
 
 
 @config.config
+class PlainSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class PolarSourceConfig(config.Config):
     pass
 
@@ -604,9 +625,9 @@ class PostgresSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -651,6 +672,11 @@ class RedshiftSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class ResendSourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
@@ -737,6 +763,7 @@ class SnowflakeSourceConfig(config.Config):
     warehouse: str
     auth_type: SnowflakeAuthTypeConfig
     schema: str
+    connection_string: str | None = None
     role: str | None = None
 
 
@@ -896,6 +923,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
         ExternalDataSourceType.CIRCLECI: CircleCISourceConfig,
         ExternalDataSourceType.CLERK: ClerkSourceConfig,
+        ExternalDataSourceType.CLICKHOUSE: ClickHouseSourceConfig,
         ExternalDataSourceType.CLICKUP: ClickUpSourceConfig,
         ExternalDataSourceType.CLOSE: CloseSourceConfig,
         ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
@@ -964,6 +992,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
         ExternalDataSourceType.PLAID: PlaidSourceConfig,
+        ExternalDataSourceType.PLAIN: PlainSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,
@@ -973,6 +1002,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.RECURLY: RecurlySourceConfig,
         ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
+        ExternalDataSourceType.RESEND: ResendSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.RINGCENTRAL: RingCentralSourceConfig,
         ExternalDataSourceType.SFTP: SFTPSourceConfig,

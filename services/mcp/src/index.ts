@@ -1,14 +1,18 @@
+import { getPostHogClient } from '@/lib/analytics'
 import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
-import { ErrorCode } from '@/lib/errors'
+import {
+    buildInsufficientScopeChallenge,
+    ErrorCode,
+    findPostHogPermissionError,
+    formatPermissionErrorMessage,
+} from '@/lib/errors'
 import { RequestLogger, withLogging } from '@/lib/logging'
+import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash, sanitizeHeaderValue } from '@/lib/utils'
+import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
-import RAW_LANDING_HTML from './static/landing.html'
-
-const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
@@ -68,7 +72,7 @@ function getRegionFromRequest(request: Request): CloudRegion | null {
 const onThenErrorHandler = async (response: Response): Promise<Response> => {
     if (!response.ok) {
         const body = await response.clone().text()
-        const errorResponse = generateErrorResponse(body)
+        const errorResponse = generateErrorResponseFromMessage(body)
         if (errorResponse) {
             return errorResponse
         }
@@ -77,11 +81,56 @@ const onThenErrorHandler = async (response: Response): Promise<Response> => {
     return response
 }
 
-const onCatchErrorHandler = async (error: Error): Promise<Response> => {
-    return generateErrorResponse(error.message) || new Response('Internal server error', { status: 500 })
+const onCatchErrorHandler = async (
+    error: Error,
+    log: RequestLogger,
+    ctx: ExecutionContext<RequestProperties>
+): Promise<Response> => {
+    const permissionError = findPostHogPermissionError(error)
+    if (permissionError) {
+        return new Response(formatPermissionErrorMessage(permissionError), {
+            status: 403,
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'WWW-Authenticate': buildInsufficientScopeChallenge(permissionError),
+            },
+        })
+    }
+
+    const knownErrorResponse = generateErrorResponseFromMessage(error.message)
+    if (knownErrorResponse) {
+        return knownErrorResponse
+    }
+
+    // Unrecognized error → opaque 500 to the client. Surface the underlying
+    // error in the wide log and PostHog so we can debug without scraping CF
+    // request traces.
+    log.extend({
+        errorName: error?.name,
+        errorMessage: error?.message,
+        errorStack: error?.stack,
+    })
+
+    try {
+        const client = getPostHogClient()
+        const distinctId = ctx.props?.userHash
+        client.captureException(error, distinctId, {
+            team: 'posthog_ai',
+            source: 'mcp_request_handler',
+            mcp_transport: ctx.props?.transport,
+            mcp_version: ctx.props?.version,
+            has_organization_id: !!ctx.props?.organizationId,
+            has_project_id: !!ctx.props?.projectId,
+        })
+        ctx.waitUntil(client.flush())
+    } catch {
+        // Never let observability break the request.
+    }
+
+    return new Response('Internal server error', { status: 500 })
 }
 
-const generateErrorResponse = (message: string): Response | null => {
+const generateErrorResponseFromMessage = (message: string): Response | null => {
     if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
         return new Response('OAuth token is inactive', { status: 401 })
     } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
@@ -101,15 +150,24 @@ const handleRequest = async (
     log.extend({ route: url.pathname })
 
     if (url.pathname === '/') {
-        return new Response(PARSED_LANDING_HTML, {
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-        })
+        return Response.redirect(MCP_DOCS_URL, 302)
     }
 
     // OpenAI ChatGPT App Directory domain verification
     if (url.pathname === '/.well-known/openai-apps-challenge') {
         return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
             headers: { 'content-type': 'text/plain' },
+        })
+    }
+
+    // Health endpoint for uptime probes and load-balancer checks.
+    // Public and unauthenticated so external monitors can hit it without a token.
+    if (url.pathname === '/health' || url.pathname === '/healthz') {
+        return new Response(JSON.stringify({ status: 'ok' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store',
+            },
         })
     }
 
@@ -133,13 +191,26 @@ const handleRequest = async (
         return Response.redirect(redirectTo, redirect.status)
     }
 
+    // The legacy SSE transport (`/sse`) is deprecated in favor of `/mcp`
+    // (Streamable HTTP). Permanently redirect `/sse*` to the equivalent `/mcp*`.
+    // We tag the redirect Location with `_deprecated=sse` so the followup
+    // request on /mcp carries the marker — that lets us correlate
+    // success/failure on /mcp back to clients that came in via the deprecated
+    // path, even after the protocol-level handoff.
+    if (url.pathname === '/sse' || url.pathname.startsWith('/sse/')) {
+        const target = getPublicUrl(request)
+        target.pathname = '/mcp' + url.pathname.slice('/sse'.length)
+        target.searchParams.set('_deprecated', 'sse')
+        log.extend({ deprecation: 'sse', redirectTo: target.toString() })
+        return Response.redirect(target.toString(), 308)
+    }
+
     // OAuth Protected Resource Metadata (RFC 9728)
     // This endpoint tells MCP clients where to authenticate to get tokens.
     //
     // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
     // between the host and the path. For example:
     // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
-    // - Resource: https://mcp.posthog.com/sse → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/sse
     //
     // OAuth flow for MCP:
     // 1. Client connects to MCP server without a token
@@ -185,7 +256,6 @@ const handleRequest = async (
         // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
         // between the host and the resource path:
         // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
-        // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
         const metadataUrl = getPublicUrl(request)
         metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
         metadataUrl.search = ''
@@ -220,6 +290,23 @@ const handleRequest = async (
     const rawUserAgent = request.headers.get('User-Agent') || undefined
     const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
 
+    // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
+    // Tasks sandbox, or an AI-tool plugin that auto-installs the MCP) when the
+    // wrapped MCP client's name is too generic to distinguish (e.g. both direct
+    // and sandboxed Claude Code send `claude-code`). Query-param fallback for
+    // clients that only let the user customize the URL, not headers.
+    const mcpConsumer = sanitizeHeaderValue(
+        request.headers.get('x-posthog-mcp-consumer') || url.searchParams.get('consumer') || undefined
+    )
+
+    // Extract MCP `clientInfo` eagerly from the JSON-RPC initialize message in the
+    // request body (streamable-http only). The framework's async
+    // `getInitializeRequest()` relies on Durable Object storage which is only
+    // written after `onStart`/`init()` runs, so on the first connect `init()` has
+    // no client info to read. Parsing the body here gives `init()` the values
+    // synchronously via `RequestProperties`.
+    const clientInfo = await extractClientInfoFromBody(request)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
@@ -227,6 +314,10 @@ const handleRequest = async (
         organizationId,
         projectId,
         clientUserAgent,
+        mcpConsumer,
+        mcpClientName: clientInfo.clientName,
+        mcpClientVersion: clientInfo.clientVersion,
+        mcpProtocolVersion: clientInfo.protocolVersion,
         requestStartTime: Date.now(),
     })
 
@@ -249,21 +340,38 @@ const handleRequest = async (
     const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
-    const extraContextProps = { features, tools, region: regionParam, version, readOnly }
+    // Explicit selection between tool-based and CLI-based MCP. Falls back to the
+    // flag + client-detection logic in `MCP.init()` when unset. See `parseMcpMode`.
+    const mode = parseMcpMode(request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))
+
+    const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
+    if (mcpConsumer) {
+        log.extend({ mcpConsumer })
+    }
+    if (clientInfo.clientName) {
+        log.extend({ mcpClientName: clientInfo.clientName })
+    }
+
+    // Marker set by the /sse → /mcp redirect handler above. Lets us correlate
+    // success/failure on this /mcp request back to clients that originated on
+    // the deprecated /sse path — both in worker logs and in the `mcp init`
+    // analytics event (via `RequestProperties.viaSseRedirect`).
+    const viaSseRedirect = url.searchParams.get('_deprecated') === 'sse'
+    if (viaSseRedirect) {
+        log.extend({ via: 'sse_redirect' })
+        Object.assign(ctx.props, { viaSseRedirect: true })
+    }
 
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
         Object.assign(ctx.props, { transport: 'streamable-http' })
         server = MCP.serve('/mcp').fetch(request, env, ctx)
-    } else if (url.pathname.startsWith('/sse')) {
-        Object.assign(ctx.props, { transport: 'sse' })
-        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 
     if (server !== null) {
-        return server.then(onThenErrorHandler).catch(onCatchErrorHandler)
+        return server.then(onThenErrorHandler).catch((error: Error) => onCatchErrorHandler(error, log, ctx))
     }
 
     log.extend({ error: 'route_not_found' })

@@ -213,7 +213,7 @@ export const RecordingsPlayListNoPinnedRecordings: Story = {
 }
 
 export const RecordingsPlayListWithPinnedRecordings: Story = {
-    parameters: { pageUrl: sceneUrl(urls.replayPlaylist('1234567')) },
+    parameters: { pageUrl: sceneUrl(urls.replayPlaylist('1234567')), testOptions: { snapshotBrowsers: [] } },
 }
 
 export const SecondRecordingInList: Story = {

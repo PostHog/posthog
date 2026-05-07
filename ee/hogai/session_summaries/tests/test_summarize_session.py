@@ -5,60 +5,20 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from temporalio.client import WorkflowExecutionStatus
-
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session_stream
 
 from ee.hogai.session_summaries.session.input_data import EXTRA_SUMMARY_EVENT_FIELDS, get_session_events
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
-from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     generate_single_session_summary_prompt,
     get_session_data_from_db,
 )
-from ee.hogai.session_summaries.utils import serialize_to_sse_event
-from ee.hogai.utils.asgi import SyncIterableToAsync
 
 pytestmark = pytest.mark.django_db
 
 
 class TestSummarizeSession:
-    def test_execute_summarize_session_stream_success(
-        self, mock_user: MagicMock, mock_team: MagicMock, mock_valid_llm_yaml_response: str, mock_session_id: str
-    ):
-        """
-        Basic test to ensure the operations are called in the correct order.
-        Most of the mocked functions are tested in other test modules.
-        """
-        # Mock DB/LLM dependencies
-        with (
-            patch(
-                "posthog.temporal.session_replay.session_summary.summarize_session._start_single_session_summary_workflow_stream"
-            ) as mock_workflow,
-            patch("posthog.temporal.session_replay.session_summary.summarize_session.asyncio.run") as mock_asyncio_run,
-        ):
-            # Mock workflow handle
-            mock_handle = MagicMock()
-            mock_workflow.return_value = mock_handle
-            mock_desc = MagicMock()
-            mock_desc.status = WorkflowExecutionStatus.COMPLETED
-            mock_asyncio_run.side_effect = [mock_handle, (mock_desc, mock_valid_llm_yaml_response)]
-            # Get the generator (stream simulation)
-            empty_context = ExtraSummaryContext()
-            result_generator = execute_summarize_session_stream(
-                session_id=mock_session_id, user=mock_user, team=mock_team, extra_summary_context=empty_context
-            )
-            # Get all results from generator (consume the stream fully)
-            results = list(result_generator)
-            # Verify all mocks were called correctly
-            assert len(results) == 1
-            assert results[0] == serialize_to_sse_event(
-                event_label="session-summary-stream",
-                event_data=mock_valid_llm_yaml_response,
-            )
-
     @pytest.mark.asyncio
     async def test_prepare_data_no_metadata(self, mock_team: MagicMock, mock_session_id: str):
         with (
@@ -104,68 +64,6 @@ class TestSummarizeSession:
                         page=0,
                         limit=3000,
                     )
-
-    @pytest.mark.asyncio
-    async def test_stream_recording_summary_asgi(
-        self,
-        mock_user: MagicMock,
-        mock_team: MagicMock,
-        mock_loaded_llm_json_response: dict[str, Any],
-        mock_session_id: str,
-    ):
-        """Test the ASGI streaming path."""
-        ready_summary = serialize_to_sse_event(
-            event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
-        )
-        with (
-            patch("ee.hogai.session_summaries.session.stream.SERVER_GATEWAY_INTERFACE", "ASGI"),
-            patch(
-                "ee.hogai.session_summaries.session.stream.execute_summarize_session_stream",
-                return_value=iter([ready_summary]),
-            ) as mock_execute,
-        ):
-            async_gen = stream_recording_summary(session_id=mock_session_id, user=mock_user, team=mock_team)
-            assert isinstance(async_gen, SyncIterableToAsync)
-            results = [chunk async for chunk in async_gen]
-            assert len(results) == 1
-            assert results[0] == ready_summary
-            mock_execute.assert_called_once_with(
-                session_id=mock_session_id,
-                user=mock_user,
-                team=mock_team,
-                extra_summary_context=None,
-                local_reads_prod=False,
-            )
-
-    def test_stream_recording_summary_wsgi(
-        self,
-        mock_user: MagicMock,
-        mock_team: MagicMock,
-        mock_loaded_llm_json_response: dict[str, Any],
-        mock_session_id: str,
-    ):
-        """Test the WSGI (non-ASGI) streaming path."""
-        ready_summary = serialize_to_sse_event(
-            event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
-        )
-        with (
-            patch("ee.hogai.session_summaries.session.stream.SERVER_GATEWAY_INTERFACE", "WSGI"),
-            patch(
-                "ee.hogai.session_summaries.session.stream.execute_summarize_session_stream",
-                return_value=iter([ready_summary]),
-            ) as mock_execute,
-        ):
-            result_gen = stream_recording_summary(session_id=mock_session_id, user=mock_user, team=mock_team)
-            results = list(result_gen)  # type: ignore[arg-type]
-            assert len(results) == 1
-            assert results[0] == ready_summary
-            mock_execute.assert_called_once_with(
-                session_id=mock_session_id,
-                user=mock_user,
-                team=mock_team,
-                extra_summary_context=None,
-                local_reads_prod=False,
-            )
 
     @staticmethod
     def _make_events_json_serializable(events: list[tuple[Any, ...]]) -> list[list[Any]]:

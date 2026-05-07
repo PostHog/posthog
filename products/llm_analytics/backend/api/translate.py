@@ -9,6 +9,8 @@ import time
 from typing import cast
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -72,6 +74,7 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 "AI data processing must be approved by your organization before using translation"
             )
 
+    @extend_schema(request=TranslateRequestSerializer, responses={200: OpenApiTypes.OBJECT})
     @llma_track_latency("llma_translate")
     @monitor(feature=None, endpoint="llma_translate", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:

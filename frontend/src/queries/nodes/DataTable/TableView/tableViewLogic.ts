@@ -6,12 +6,14 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
 import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
 import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActorsQuery, EventsQuery, GroupsQuery } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { ActorsQuery, EventsQuery, GroupsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
@@ -27,6 +29,22 @@ export interface TableViewLogicProps {
     setQuery: (query: TableViewSupportedQueryType) => void
 }
 
+interface EventSyntheticMarker {
+    key: 'event'
+    value: EventsQuery['event']
+    operator: PropertyOperator.Exact
+    type: undefined
+}
+
+interface EventsSyntheticMarker {
+    key: 'events'
+    value: EventsQuery['events']
+    operator: PropertyOperator.In
+    type: undefined
+}
+
+type TableViewSavedFilter = AnyPropertyFilter | EventSyntheticMarker | EventsSyntheticMarker
+
 function getViewData(
     props: TableViewLogicProps,
     name?: string,
@@ -39,17 +57,20 @@ function getViewData(
             ...(visibility && { visibility }),
             columns: props.query.select,
             filters: props.query.properties,
+            order_by: props.query.orderBy ?? [],
         }
     }
-    const event = {
+    const event: EventSyntheticMarker = {
         key: 'event',
         value: props.query.event,
         operator: PropertyOperator.Exact,
+        type: undefined,
     }
-    const events = {
+    const events: EventsSyntheticMarker = {
         key: 'events',
         value: props.query.events,
         operator: PropertyOperator.In,
+        type: undefined,
     }
     return {
         context_key: props.contextKey,
@@ -57,37 +78,56 @@ function getViewData(
         ...(visibility && { visibility }),
         columns: props.query.select,
         filters: [...(props.query.properties || []), event, events],
+        order_by: props.query.orderBy ?? [],
     }
+}
+
+function isInitialPersonEventsQuery(query: TableViewSupportedQueryType): boolean {
+    if (!isEventsQuery(query)) {
+        return false
+    }
+    const defaultColumns = defaultDataTableColumns(NodeKind.EventsQuery)
+    return equal(query.select, defaultColumns) && !query.properties?.length && !query.event && !query.events?.length
 }
 
 function getQueryFromView(
     query: TableViewSupportedQueryType,
     view: ColumnConfigurationApi
 ): TableViewSupportedQueryType {
+    const orderByOverride = view.order_by != null ? { orderBy: view.order_by } : {}
+
     if (!isEventsQuery(query)) {
         return {
             ...query,
             select: view.columns || [],
             properties: view.filters || [],
+            ...orderByOverride,
         } as TableViewSupportedQueryType
     }
 
-    const rawFilters = (view.filters || []) as AnyPropertyFilter[]
-    const properties = rawFilters.filter((filter) => filter.key !== 'event' && filter.key !== 'events')
-    const event = rawFilters.find((filter) => filter.key === 'event')?.value
-    const events = rawFilters.find((filter) => filter.key === 'events')?.value
+    const rawFilters = (view.filters || []) as TableViewSavedFilter[]
+    const isEventMarker = (f: TableViewSavedFilter): f is EventSyntheticMarker =>
+        f.key === 'event' && f.type === undefined
+    const isEventsMarker = (f: TableViewSavedFilter): f is EventsSyntheticMarker =>
+        f.key === 'events' && f.type === undefined
+    const properties = rawFilters.filter((f): f is AnyPropertyFilter => !isEventMarker(f) && !isEventsMarker(f))
+    const event = rawFilters.find(isEventMarker)?.value
+    const events = rawFilters.find(isEventsMarker)?.value
     return {
         ...query,
         select: view.columns || [],
         properties,
         event,
         events,
+        ...orderByOverride,
     } as EventsQuery
 }
 
 export const tableViewLogic = kea<tableViewLogicType>([
     props({} as TableViewLogicProps),
-    key((props) => props.contextKey),
+    // Include the team id so a team switch yields a fresh logic instance
+    // rather than reusing one whose storageKey is frozen to the old team.
+    key((props) => `${getCurrentTeamId()}.${props.contextKey}`),
     path(['queries', 'nodes', 'DataTable', 'TableView', 'tableViewLogic']),
     connect({
         values: [userLogic, ['user']],
@@ -144,10 +184,14 @@ export const tableViewLogic = kea<tableViewLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         currentView: [
             null as ColumnConfigurationApi | null,
-            { persist: true },
+            {
+                persist: true,
+                // Scope by team so views don't leak across projects (e.g. after impersonation).
+                storageKey: `queries.nodes.DataTable.TableView.tableViewLogic.${getCurrentTeamId()}.${props.contextKey}.currentView`,
+            },
             {
                 setCurrentView: (_, { view }) => view,
                 applyView: (_, { view }) => view,
@@ -181,7 +225,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 saveCurrentAsViewSuccess: () => false,
             },
         ],
-    }),
+    })),
 
     selectors(() => ({
         hasUnsavedChanges: [
@@ -300,7 +344,10 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 }
                 break
             case PERSON_EVENTS_CONTEXT_KEY:
-                actions.applyView(values.currentView)
+                if (isInitialPersonEventsQuery(props.query)) {
+                    actions.applyView(values.currentView)
+                }
+                break
         }
     }),
 ])

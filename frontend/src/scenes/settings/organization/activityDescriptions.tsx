@@ -304,3 +304,37 @@ export function organizationDomainActivityDescriber(
 
     return defaultDescriber(logItem, asNotification, domainName)
 }
+
+export function legalDocumentActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    const detail = logItem.detail as {
+        name?: string | null
+        context?: { document_type?: string; company_name?: string }
+    }
+    const documentType = detail.context?.document_type || 'document'
+    const companyName = detail.context?.company_name || detail.name || 'company'
+    const article = documentType === 'BAA' || documentType === 'DPA' ? 'a' : 'the'
+
+    if (logItem.activity === 'created') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> generated {article}{' '}
+                    <strong>{documentType}</strong> for <strong>{companyName}</strong>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'deleted') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted {article}{' '}
+                    <strong>{documentType}</strong> for <strong>{companyName}</strong>
+                </>
+            ),
+        }
+    }
+
+    return defaultDescriber(logItem, asNotification, `${documentType} for ${companyName}`)
+}

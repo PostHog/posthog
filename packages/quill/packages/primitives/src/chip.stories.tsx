@@ -25,6 +25,15 @@ export const WithClose: Story = {
     ),
 }
 
+export const WithCloseLeading: Story = {
+    render: () => (
+        <Chip>
+            <ChipClose onClick={() => alert('removed')} />
+            Removable
+        </Chip>
+    ),
+}
+
 export const WithIcon: Story = {
     render: () => (
         <Chip>
@@ -41,20 +50,6 @@ export const WithIconAndClose: Story = {
             Tagged
             <ChipClose onClick={() => alert('removed')} />
         </Chip>
-    ),
-}
-
-export const Variants: Story = {
-    render: () => (
-        <div className="flex flex-wrap gap-2">
-            <Chip variant="primary">Primary</Chip>
-            <Chip variant="outline">Outline</Chip>
-            <Chip>Default</Chip>
-            <Chip variant="destructive">
-                Destructive
-                <ChipClose />
-            </Chip>
-        </div>
     ),
 }
 

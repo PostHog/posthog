@@ -8,12 +8,14 @@ from .evaluation_runs import EvaluationRunViewSet
 from .evaluation_summary import LLMEvaluationSummaryViewSet
 from .evaluations import EvaluationViewSet
 from .models import LLMModelsViewSet
+from .offline_evaluations import LLMAnalyticsOfflineEvaluationsViewSet
 from .provider_keys import LLMProviderKeyValidationViewSet, LLMProviderKeyViewSet
 from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
 from .review_queues import ReviewQueueItemViewSet, ReviewQueueViewSet
 from .score_definitions import ScoreDefinitionViewSet
 from .sentiment import LLMAnalyticsSentimentViewSet
 from .summarization import LLMAnalyticsSummarizationViewSet
+from .taggers import TaggerViewSet
 from .text_repr import LLMAnalyticsTextReprViewSet
 from .trace_reviews import TraceReviewViewSet
 from .translate import LLMAnalyticsTranslateViewSet
@@ -41,5 +43,7 @@ __all__ = [
     "ReviewQueueItemViewSet",
     "ScoreDefinitionViewSet",
     "LLMAnalyticsSentimentViewSet",
+    "LLMAnalyticsOfflineEvaluationsViewSet",
+    "TaggerViewSet",
     "TraceReviewViewSet",
 ]

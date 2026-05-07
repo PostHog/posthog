@@ -15,8 +15,8 @@ logger = structlog.get_logger(__name__)
 def _resolve_name(installation: MCPServerInstallation) -> str:
     if installation.display_name:
         return installation.display_name
-    if installation.server and installation.server.name:
-        return installation.server.name
+    if installation.template and installation.template.name:
+        return installation.template.name
     return installation.url
 
 
@@ -40,7 +40,7 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
     try:
         installations = MCPServerInstallation.objects.filter(
             team_id=team_id, user_id=user_id, is_enabled=True
-        ).select_related("server")
+        ).select_related("template")
     except Exception as e:
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
         return []

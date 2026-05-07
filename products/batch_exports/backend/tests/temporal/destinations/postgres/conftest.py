@@ -5,6 +5,10 @@ from django.conf import settings
 import psycopg
 import pytest_asyncio
 
+from posthog.models import Integration
+
+from products.batch_exports.backend.tests.temporal.destinations.postgres.utils import make_integration
+
 
 @pytest.fixture
 def postgres_config():
@@ -81,3 +85,17 @@ async def postgres_batch_export(ateam, table_name, postgres_config, interval, ex
     yield batch_export
 
     await adelete_batch_export(batch_export, temporal_client)
+
+
+@pytest_asyncio.fixture
+async def integration(request, ateam, postgres_config) -> Integration | None:
+    try:
+        use_integration = request.param
+    except Exception:
+        return None
+
+    if not use_integration:
+        return None
+
+    integration = await make_integration(ateam.pk, postgres_config)
+    return integration

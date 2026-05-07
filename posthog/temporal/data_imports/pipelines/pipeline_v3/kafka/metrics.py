@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 MESSAGES_PROCESSED_TOTAL = Counter(
     "warehouse_consumer_messages_processed_total",
@@ -41,4 +41,11 @@ BATCH_SIZE = Histogram(
     "warehouse_consumer_batch_size",
     "Number of messages in each consumed batch",
     buckets=(1, 5, 10, 25, 50, 100, 250, 500, 1000),
+)
+
+BATCH_UTILIZATION = Gauge(
+    "warehouse_consumer_batch_utilization",
+    "Ratio of messages returned per consume call to configured batch size (0.0-1.0). Leading signal for autoscaling — sustained high values mean the consumer is saturating.",
+    labelnames=["group_id"],
+    multiprocess_mode="liveall",
 )
