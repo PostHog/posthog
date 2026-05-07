@@ -780,7 +780,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             log_notebook_activity(
                 activity="updated",
                 notebook=notebook,
-                organization_id=user.current_organization_id,
+                organization_id=cast(UUIDT, user.current_organization_id),
                 team_id=notebook.team_id,
                 user=user,
                 was_impersonated=is_impersonated_session(request),
@@ -794,7 +794,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         log_notebook_activity(
             activity=f"save_rejected_{result.status}",  # save_rejected_conflict | save_rejected_stale
             notebook=notebook,
-            organization_id=user.current_organization_id,
+            organization_id=cast(UUIDT, user.current_organization_id),
             team_id=notebook.team_id,
             user=user,
             was_impersonated=is_impersonated_session(request),
