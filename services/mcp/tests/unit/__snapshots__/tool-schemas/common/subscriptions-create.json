@@ -66,6 +66,10 @@
             "description": "Set to true to soft-delete. Subscriptions cannot be hard-deleted.",
             "type": "boolean"
         },
+        "enabled": {
+            "description": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
+            "type": "boolean"
+        },
         "frequency": {
             "description": "How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
             "enum": ["daily", "weekly", "monthly", "yearly"],

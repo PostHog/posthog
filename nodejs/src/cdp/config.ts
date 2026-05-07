@@ -61,6 +61,9 @@ export type CdpConfig = {
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
+    // Reuses CDP_REDIS_PASSWORD; falls back to the writer when host is unset.
+    CDP_REDIS_READER_HOST: string
+    CDP_REDIS_READER_PORT: number
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
@@ -154,6 +157,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6379,
         CDP_REDIS_PASSWORD: '',
+        CDP_REDIS_READER_HOST: '',
+        CDP_REDIS_READER_PORT: 6379,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',

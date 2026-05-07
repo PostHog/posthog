@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, unlinkSync, writeFileSync } from 'fs'
 import { dirname, join, relative, resolve } from 'path'
 import type { Plugin } from 'vite'
 
@@ -37,7 +37,7 @@ function deleteDirectory(dirPath: string): void {
             }
         })
         // Remove the empty directory
-        require('fs').rmdirSync(dirPath)
+        rmdirSync(dirPath)
     } catch (error) {
         console.warn(`⚠️ Could not delete directory ${dirPath}:`, error)
     }

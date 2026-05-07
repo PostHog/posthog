@@ -40,8 +40,8 @@
 
     /* Variants */
     .quill-badge--variant-default {
-        color: var(--accent-foreground);
-        background-color: var(--accent);
+        color: var(--foreground);
+        background-color: var(--muted);
     }
 
     .quill-badge--variant-info {

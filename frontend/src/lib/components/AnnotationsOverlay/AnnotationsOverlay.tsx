@@ -68,6 +68,7 @@ export interface AnnotationsOverlayProps {
     chart: Chart
     chartWidth: number
     chartHeight: number
+    datasetIndex?: number
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
@@ -82,9 +83,15 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     chartHeight,
     dates,
     insightNumericId,
+    datasetIndex = 0,
 }: AnnotationsOverlayProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
+    const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(
+        chart,
+        chartWidth,
+        chartHeight,
+        datasetIndex
+    )
 
     // Memoize ticks by value to prevent unnecessary kea selector cascades.
     // chart.scales.x.ticks is a Chart.js internal array that is the same object between renders

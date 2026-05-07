@@ -18,7 +18,7 @@ export function SidePanelContentContainer({
                 contentClassName={contentClassName}
                 styledScrollbars
                 className={cn(
-                    'h-full bg-surface-primary flex flex-col flex-1 overflow-y-auto focus-within:outline-none focus-within:ring-2 focus-within:ring-primary z-10',
+                    'h-full bg-surface-primary flex flex-col flex-1 focus-within:outline-none focus-within:ring-2 focus-within:ring-primary z-10',
                     className
                 )}
                 data-attr="side-panel-content"

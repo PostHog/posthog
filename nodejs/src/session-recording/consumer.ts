@@ -21,7 +21,7 @@ import {
     runSessionReplayPipeline,
 } from '../ingestion/session_replay'
 import { TopHog } from '../ingestion/tophog/tophog'
-import { KafkaConsumer } from '../kafka/consumer'
+import { KafkaConsumer } from '../kafka/consumer/consumer-v1'
 import { getBlockEncryptor } from '../session-replay/shared/crypto'
 import { SessionFeatureStore } from '../session-replay/shared/features/session-feature-store'
 import { getKeyStore } from '../session-replay/shared/keystore'

@@ -456,6 +456,90 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('WorkflowVariables in SuggestedFilters', () => {
+        // The All/Suggestions tab is always prepended to the workflow scene's filter via
+        // `TaxonomicPropertyFilter`, and is the default landing tab. Surfacing workflow variables
+        // there (and ordering them first) avoids users landing on an empty-feeling tab when their
+        // query matches a defined variable.
+        it('surfaces workflow variables via optionsFromProp and orders them first in redistributed top matches', async () => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testWorkflowVariablesSuggested',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.WorkflowVariables,
+                    TaxonomicFilterGroupType.Events,
+                ],
+                optionsFromProp: {
+                    [TaxonomicFilterGroupType.WorkflowVariables]: [{ name: 'event_name' }, { name: 'unrelated_var' }],
+                },
+            }
+            const workflowLogicTest = taxonomicFilterLogic(logicProps)
+            workflowLogicTest.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+
+            expect(workflowLogicTest.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            // The query "event" matches both the WorkflowVariables option `event_name` and any
+            // events in the mocked event_definitions endpoint. WorkflowVariables must come first.
+            await expectLogic(workflowLogicTest, () => {
+                workflowLogicTest.actions.setSearchQuery('event')
+            })
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
+                .delay(1)
+
+            const redistributed = workflowLogicTest.values.redistributedTopMatchItems
+            const groupOrder = redistributed.map((item) => item.group)
+            const firstWorkflowIndex = groupOrder.indexOf(TaxonomicFilterGroupType.WorkflowVariables)
+            const firstEventsIndex = groupOrder.indexOf(TaxonomicFilterGroupType.Events)
+
+            expect(firstWorkflowIndex).toBeGreaterThanOrEqual(0)
+            expect(redistributed[firstWorkflowIndex]).toEqual(
+                expect.objectContaining({
+                    name: 'event_name',
+                    group: TaxonomicFilterGroupType.WorkflowVariables,
+                })
+            )
+            // Workflow variables come before events in the redistributed order.
+            if (firstEventsIndex !== -1) {
+                expect(firstWorkflowIndex).toBeLessThan(firstEventsIndex)
+            }
+
+            workflowLogicTest.unmount()
+        })
+
+        it('does not surface workflow variables in SuggestedFilters when no variables are defined', async () => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testWorkflowVariablesEmpty',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.WorkflowVariables,
+                    TaxonomicFilterGroupType.Events,
+                ],
+                optionsFromProp: {
+                    [TaxonomicFilterGroupType.WorkflowVariables]: [],
+                },
+            }
+            const workflowLogicTest = taxonomicFilterLogic(logicProps)
+            workflowLogicTest.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+
+            await expectLogic(workflowLogicTest, () => {
+                workflowLogicTest.actions.setSearchQuery('event')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .delay(1)
+
+            const groups = workflowLogicTest.values.redistributedTopMatchItems.map((item) => item.group)
+            expect(groups).not.toContain(TaxonomicFilterGroupType.WorkflowVariables)
+
+            workflowLogicTest.unmount()
+        })
+    })
+
     describe('SuggestedFilters presence', () => {
         it.each([
             {

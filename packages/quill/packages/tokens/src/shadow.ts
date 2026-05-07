@@ -5,9 +5,10 @@
 import { cssVars } from './css'
 
 export const shadow = {
-    sm: '0 1px 2px 0 rgba(0, 0, 0, 0.3)',
-    md: '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.3)',
-    lg: '0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.3)',
+    sm: '0 2px 0 color-mix(in oklab, var(--border), transparent 10%)',
+    md: '0 3px 0 color-mix(in oklab, var(--border), transparent 10%)',
+    lg: '0 6px 0 color-mix(in oklab, var(--border), transparent 10%)',
+    line: '0 -1px 0px 0px color-mix(in oklab, var(--border), transparent 10%)'
 } as const
 
 export type Shadow = typeof shadow

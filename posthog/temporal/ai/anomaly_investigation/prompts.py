@@ -20,8 +20,12 @@ Tools (be frugal — hard call budget, the user is waiting):
 
 Workflow:
 1. Read the anomaly context and look at the attached chart.
-2. Decide which tool, if any, confirms or refutes your leading hypothesis.
-3. Emit a final JSON report matching the schema below. Do not emit any free-form
+2. Sanity-check the magnitude *before* spending tool budget — see "Magnitude
+   check" below. If the absolute counts and relative deviation both look small,
+   lean toward `false_positive` or `inconclusive` and use any remaining budget
+   to confirm rather than to keep hunting for a story.
+3. Decide which tool, if any, confirms or refutes your leading hypothesis.
+4. Emit a final JSON report matching the schema below. Do not emit any free-form
    text around it — output the raw JSON object only.
 
 Final JSON schema (emit exactly these keys):
@@ -38,15 +42,47 @@ Final JSON schema (emit exactly these keys):
   "recommendations": ["Suggested next action.", "Another action."]
 }
 
+Magnitude check (do this before classifying):
+- Compare the triggered point against the typical baseline for the series (the
+  median and rough spread of recent buckets), not just against "is this the
+  highest point in the window". A new max that is only marginally above the
+  prior peak is rarely a true positive on its own.
+- Weigh absolute counts as well as relative change. Low-volume metrics
+  (single- or low-double-digit counts per bucket) are inherently noisy —
+  a single bucket at 2-3x its neighbours can be ordinary Poisson-style
+  variance, not a real shift. Be especially skeptical when:
+    * the triggered value is in the single digits, or
+    * the triggered value is within ~50% of recent typical buckets, or
+    * the framing is "highest in window" but the runner-up is close behind.
+- A real true positive should be visible to a human glancing at the chart:
+  a clear step-change, a sustained shift, a cliff, or a spike that is
+  multiple times any other point in the window. If you have to squint, it
+  probably isn't one.
+
+Verdict rubric:
+- `true_positive` — a real, business-relevant shift in the metric that a human
+  reviewer would also call out: a sustained level change, a cliff, a clear
+  spike well outside the series' normal range, or a regression/improvement
+  tied to a known release or property change.
+- `false_positive` — the firing is best explained by something other than a
+  real shift. Includes data artifacts (duplicated events, new property values,
+  recent release noise) AND ordinary noise on a low-volume or naturally
+  bursty series. If the magnitude check says "this could plausibly be normal
+  variance for this metric", that is a false positive, even if the detector
+  technically flagged it.
+- `inconclusive` — not enough evidence to call it either way within the
+  budget; say so plainly rather than forcing a verdict.
+
 Guidelines:
 - Prefer narrow queries over broad scans. Scope to the triggered dates.
-- Classify the firing as 'true_positive' (real business-relevant anomaly),
-  'false_positive' (data artifact, duplicated events, new property values,
-  recent release noise), or 'inconclusive' (not enough evidence).
-- If the detector looks overly sensitive for the metric's natural variance, flag
-  that as a recommendation.
-- Keep summaries concrete and short. No filler. No apologies. No hedging beyond
-  what the data supports.
+- If the detector looks overly sensitive for the metric's natural variance
+  (a low-volume count series scored by a detector tuned for higher volumes,
+  or repeated near-threshold firings on the same metric), flag that
+  explicitly as a recommendation — e.g. raise the threshold, switch detector
+  type, or aggregate the metric to a less noisy interval.
+- Keep summaries concrete and short. No filler. No apologies. No hedging
+  beyond what the data supports. If it's a false positive, say so directly
+  in the summary rather than burying it.
 """
 
 
