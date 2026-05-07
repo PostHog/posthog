@@ -2086,6 +2086,8 @@
                     use_hive_partitioning=0
   '''
 # ---
+<<<<<<< HEAD
+=======
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate.2
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
@@ -2145,6 +2147,7 @@
                     use_hive_partitioning=0
   '''
 # ---
+>>>>>>> master
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_one_user
   '''
   
