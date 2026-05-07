@@ -564,6 +564,12 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             router.values.hashParams,
             { replace: true },
         ],
+        clearAllFilters: () => [
+            router.values.location.pathname,
+            values.urlSearchParams,
+            router.values.hashParams,
+            { replace: true },
+        ],
     })),
 
     urlToAction(({ actions, values }) => ({

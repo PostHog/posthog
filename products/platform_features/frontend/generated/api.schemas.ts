@@ -539,6 +539,12 @@ export interface ActivityLogApi {
     user: UserBasicApi
     /** is the date of this log item newer than the user's bookmark */
     readonly unread: boolean
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    team_id?: number | null
     /** @nullable */
     organization_id?: string | null
     /** @nullable */

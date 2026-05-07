@@ -60,7 +60,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ActivityLog
-        exclude = ["team_id"]
+        fields = "__all__"
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""
@@ -547,6 +547,9 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
     """
 
     permission_classes = [PremiumFeaturePermission, OrganizationActivityLogPermission]
+    # The parent declares {"project_id": "team_id"} but our nested route only carries
+    # organization_id, so the rewrite would KeyError on missing "project_id". Reset it.
+    filter_rewrite_rules: dict[str, str] = {}
 
     def _should_skip_parents_filter(self) -> bool:
         # parents_query_dict is {"organization_id": <uuid>} on this nested route, so let
