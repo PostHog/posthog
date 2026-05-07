@@ -20,7 +20,12 @@ import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/type
 
 import { editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
-import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import {
+    activeTabMatchesUrlTarget,
+    getDisplayTypeToSaveInsight,
+    getSqlEditorActionToUrl,
+    sqlEditorLogic,
+} from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
 // tests without the full React component tree — disable auto-mounting
@@ -317,6 +322,26 @@ describe('sqlEditorLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(createTabSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('returns inactive tab URL updates even when they match the active URL', async () => {
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
+        await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+        expect(getSqlEditorActionToUrl(logic.values, undefined, { skipCurrentLocationCheck: true })).toBeUndefined()
+        expect(getSqlEditorActionToUrl(logic.values, undefined, { skipCurrentLocationCheck: false })).toEqual([
+            urls.sqlEditor(),
+            undefined,
+            expect.objectContaining({ q: 'SELECT 1' }),
+            { replace: true },
+        ])
     })
 
     it('syncs filters to the URL hash and removes them after reset', async () => {

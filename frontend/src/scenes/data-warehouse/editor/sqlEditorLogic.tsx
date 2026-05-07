@@ -37,6 +37,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -375,14 +376,20 @@ export function activeTabMatchesUrlTarget(activeTab: QueryTab | null, target: Sq
     return !activeTab?.draft && !activeTab?.view && !activeTab?.insight && plainQueryMatches
 }
 
-function getSqlEditorActionToUrl(
+function isActiveSceneTab(tabId?: string): boolean {
+    return !sceneLogic.isMounted() || !tabId || sceneLogic.values.activeTabId === tabId
+}
+
+export function getSqlEditorActionToUrl(
     values: sqlEditorLogicType['values'],
-    hash: Record<string, any> = getTabHash(values)
+    hash: Record<string, any> = getTabHash(values),
+    options: { skipCurrentLocationCheck?: boolean } = {}
 ): SqlEditorActionToUrlResponse {
     const nextLocation = combineUrl(urls.sqlEditor(), undefined, hash)
-    const currentLocation = router.values.location
+    const currentLocation = options.skipCurrentLocationCheck ? router.values.location : null
 
     if (
+        currentLocation &&
         currentLocation.pathname === nextLocation.pathname &&
         currentLocation.search === nextLocation.search &&
         currentLocation.hash === nextLocation.hash
@@ -2168,24 +2175,30 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values, props }) => ({
         syncUrlWithQuery: () => {
             if (values.isEmbeddedMode) {
                 return
             }
-            return getSqlEditorActionToUrl(values)
+            return getSqlEditorActionToUrl(values, undefined, {
+                skipCurrentLocationCheck: isActiveSceneTab(props.tabId),
+            })
         },
         createTab: ({ query, view, insight, draft }) => {
             if (values.isEmbeddedMode) {
                 return
             }
-            return getSqlEditorActionToUrl(values, getCreateTabHash(values, query, view, insight, draft))
+            return getSqlEditorActionToUrl(values, getCreateTabHash(values, query, view, insight, draft), {
+                skipCurrentLocationCheck: isActiveSceneTab(props.tabId),
+            })
         },
         setActiveTab: ({ tab }) => {
             if (values.isEmbeddedMode || !values.activeTab) {
                 return
             }
-            return getSqlEditorActionToUrl(values, getTabHash({ ...values, outputActiveTab: tab }))
+            return getSqlEditorActionToUrl(values, getTabHash({ ...values, outputActiveTab: tab }), {
+                skipCurrentLocationCheck: isActiveSceneTab(props.tabId),
+            })
         },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
