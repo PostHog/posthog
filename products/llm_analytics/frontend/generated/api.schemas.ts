@@ -297,6 +297,16 @@ export interface PatchedEvaluationApi {
     deleted?: boolean
 }
 
+export interface CreateEvaluationFromClusterRequestApi {
+    /** @minLength 1 */
+    run_id: string
+    cluster_id: number
+    /** @maxLength 1000 */
+    evaluation_goal?: string
+    /** @maxLength 2000 */
+    evaluation_prompt?: string
+}
+
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
 
 export interface TestHogRequestApi {

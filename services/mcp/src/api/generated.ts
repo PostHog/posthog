@@ -9735,6 +9735,16 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface CreateEvaluationFromClusterRequest {
+      /** @minLength 1 */
+      run_id: string;
+      cluster_id: number;
+      /** @maxLength 1000 */
+      evaluation_goal?: string;
+      /** @maxLength 2000 */
+      evaluation_prompt?: string;
+    }
+
     export interface CreateGroup {
       /**
        * @minimum -2147483648

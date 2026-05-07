@@ -2448,6 +2448,21 @@
             "readOnlyHint": false
         }
     },
+    "llma-evaluation-create-from-cluster": {
+        "description": "Create a disabled LLM-judge evaluation draft from an LLM Analytics cluster. Pass the clustering run_id and cluster_id. Optionally pass evaluation_goal to steer the generated boolean signal, or evaluation_prompt to provide the exact prompt to save. The default prompt is built from the cluster card title and summary, ignoring metrics like counts, cost, latency, and tokens. The evaluation stays disabled so a user or agent can review it before enabling.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create evaluation from cluster",
+        "title": "Create evaluation from cluster",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-evaluation-delete": {
         "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
         "category": "LLM analytics",

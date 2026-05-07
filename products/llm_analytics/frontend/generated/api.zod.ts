@@ -243,6 +243,21 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a disabled LLM-judge evaluation draft from a cluster card summary.
+ */
+
+export const evaluationsCreateFromClusterCreateBodyEvaluationGoalMax = 1000
+
+export const evaluationsCreateFromClusterCreateBodyEvaluationPromptMax = 2000
+
+export const EvaluationsCreateFromClusterCreateBody = /* @__PURE__ */ zod.object({
+    run_id: zod.string().min(1),
+    cluster_id: zod.number(),
+    evaluation_goal: zod.string().max(evaluationsCreateFromClusterCreateBodyEvaluationGoalMax).optional(),
+    evaluation_prompt: zod.string().max(evaluationsCreateFromClusterCreateBodyEvaluationPromptMax).optional(),
+})
+
+/**
  * Test Hog evaluation code against sample events without saving.
  */
 

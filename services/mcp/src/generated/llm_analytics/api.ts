@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 56 enabled ops
+ * PostHog API - MCP 57 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -237,6 +237,28 @@ export const EvaluationsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Create a disabled LLM-judge evaluation draft from a cluster card summary.
+ */
+export const EvaluationsCreateFromClusterCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const evaluationsCreateFromClusterCreateBodyEvaluationGoalMax = 1000
+
+export const evaluationsCreateFromClusterCreateBodyEvaluationPromptMax = 2000
+
+export const EvaluationsCreateFromClusterCreateBody = /* @__PURE__ */ zod.object({
+    run_id: zod.string().min(1),
+    cluster_id: zod.number(),
+    evaluation_goal: zod.string().max(evaluationsCreateFromClusterCreateBodyEvaluationGoalMax).optional(),
+    evaluation_prompt: zod.string().max(evaluationsCreateFromClusterCreateBodyEvaluationPromptMax).optional(),
 })
 
 /**

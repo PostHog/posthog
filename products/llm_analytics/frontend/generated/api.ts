@@ -13,6 +13,7 @@ import type {
     BatchCheckResponseApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
+    CreateEvaluationFromClusterRequestApi,
     DatasetApi,
     DatasetItemApi,
     DatasetItemsListParams,
@@ -256,6 +257,26 @@ export const evaluationsDestroy = async (projectId: string, id: string, options?
     return apiMutator<unknown>(getEvaluationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Create a disabled LLM-judge evaluation draft from a cluster card summary.
+ */
+export const getEvaluationsCreateFromClusterCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/evaluations/create_from_cluster/`
+}
+
+export const evaluationsCreateFromClusterCreate = async (
+    projectId: string,
+    createEvaluationFromClusterRequestApi: CreateEvaluationFromClusterRequestApi,
+    options?: RequestInit
+): Promise<EvaluationApi> => {
+    return apiMutator<EvaluationApi>(getEvaluationsCreateFromClusterCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createEvaluationFromClusterRequestApi),
     })
 }
 

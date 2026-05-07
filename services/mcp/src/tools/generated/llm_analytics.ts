@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     EvaluationRunsCreateBody,
     EvaluationsCreateBody,
+    EvaluationsCreateFromClusterCreateBody,
     EvaluationsDestroyParams,
     EvaluationsListQueryParams,
     EvaluationsPartialUpdateBody,
@@ -194,6 +195,38 @@ const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Sch
         const result = await context.api.request<Schemas.Evaluation>({
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationCreateFromClusterSchema = EvaluationsCreateFromClusterCreateBody
+
+const llmaEvaluationCreateFromCluster = (): ToolBase<
+    typeof LlmaEvaluationCreateFromClusterSchema,
+    Schemas.Evaluation
+> => ({
+    name: 'llma-evaluation-create-from-cluster',
+    schema: LlmaEvaluationCreateFromClusterSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationCreateFromClusterSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.run_id !== undefined) {
+            body['run_id'] = params.run_id
+        }
+        if (params.cluster_id !== undefined) {
+            body['cluster_id'] = params.cluster_id
+        }
+        if (params.evaluation_goal !== undefined) {
+            body['evaluation_goal'] = params.evaluation_goal
+        }
+        if (params.evaluation_prompt !== undefined) {
+            body['evaluation_prompt'] = params.evaluation_prompt
+        }
+        const result = await context.api.request<Schemas.Evaluation>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/create_from_cluster/`,
             body,
         })
         return result
@@ -1586,6 +1619,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-config-get': llmaEvaluationConfigGet,
     'llma-evaluation-config-set-active-key': llmaEvaluationConfigSetActiveKey,
     'llma-evaluation-create': llmaEvaluationCreate,
+    'llma-evaluation-create-from-cluster': llmaEvaluationCreateFromCluster,
     'llma-evaluation-delete': llmaEvaluationDelete,
     'llma-evaluation-get': llmaEvaluationGet,
     'llma-evaluation-judge-models': llmaEvaluationJudgeModels,
