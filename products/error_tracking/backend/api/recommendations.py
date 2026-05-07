@@ -1,4 +1,3 @@
-import time
 from datetime import datetime, timedelta
 from typing import override
 
@@ -25,8 +24,6 @@ from products.error_tracking.backend.tasks import compute_error_tracking_recomme
 
 logger = structlog.get_logger(__name__)
 
-LIST_WAIT_SECONDS = 1.0
-LIST_WAIT_POLL_INTERVAL = 0.1
 # How long a recommendation can stay in "computing" before we consider the worker
 # to have died and re-kick the task on the next list() request.
 COMPUTING_STUCK_AFTER = timedelta(minutes=5)
@@ -94,7 +91,7 @@ def _is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: dateti
     return now >= obj.computed_at + rec.refresh_interval
 
 
-def _claim_for_compute(obj_id, now: datetime) -> bool:
+def _claim_for_compute(obj_id, team_id: int, now: datetime) -> bool:
     """Atomically transition this recommendation into the 'computing' state.
 
     Returns True if we claimed the row (caller should kick a task), False if
@@ -102,7 +99,7 @@ def _claim_for_compute(obj_id, now: datetime) -> bool:
     """
     stuck_threshold = now - COMPUTING_STUCK_AFTER
     return (
-        ErrorTrackingRecommendation.objects.filter(id=obj_id)
+        ErrorTrackingRecommendation.objects.filter(id=obj_id, team_id=team_id)
         .filter(
             Q(status=ErrorTrackingRecommendation.Status.READY)
             | Q(
@@ -115,6 +112,17 @@ def _claim_for_compute(obj_id, now: datetime) -> bool:
             status_changed_at=now,
         )
         == 1
+    )
+
+
+def _revert_to_ready(obj_id, team_id: int) -> None:
+    ErrorTrackingRecommendation.objects.filter(
+        id=obj_id,
+        team_id=team_id,
+        status=ErrorTrackingRecommendation.Status.COMPUTING,
+    ).update(
+        status=ErrorTrackingRecommendation.Status.READY,
+        status_changed_at=timezone.now(),
     )
 
 
@@ -132,40 +140,21 @@ def _ensure_recommendation_row(rec: Recommendation, team_id: int) -> ErrorTracki
             return ErrorTrackingRecommendation.objects.get(team_id=team_id, type=rec.type)
 
 
-def _wait_for_pending_computations(team_id: int) -> None:
-    """Briefly wait for any in-flight computations to finish.
-
-    Returns as soon as no recommendation for this team is in 'computing' state,
-    or after LIST_WAIT_SECONDS, whichever comes first. This makes the common
-    case (fast computations or eager-mode tests) feel snappy without giving
-    slow computations an unbounded blocking window.
-    """
-    deadline = time.monotonic() + LIST_WAIT_SECONDS
-    while True:
-        still_computing = ErrorTrackingRecommendation.objects.filter(
-            team_id=team_id,
-            status=ErrorTrackingRecommendation.Status.COMPUTING,
-        ).exists()
-        if not still_computing or time.monotonic() >= deadline:
-            return
-        time.sleep(LIST_WAIT_POLL_INTERVAL)
-
-
-def _kick_off_stale_computations(team_id: int) -> bool:
-    """Kick a celery task for every stale recommendation that we can claim.
-
-    Returns True if at least one task was kicked.
-    """
+def _kick_off_stale_computations(team_id: int) -> None:
+    """Kick a celery task for every stale recommendation that we can claim."""
     now = timezone.now()
-    kicked = False
     for rec in RECOMMENDATIONS:
         try:
             obj = _ensure_recommendation_row(rec, team_id)
             if not _is_stale(rec, obj, now):
                 continue
-            if _claim_for_compute(obj.id, now):
-                compute_error_tracking_recommendation.delay(str(obj.id))
-                kicked = True
+            if not _claim_for_compute(obj.id, team_id, now):
+                continue
+            try:
+                compute_error_tracking_recommendation.delay(str(obj.id), team_id)
+            except Exception:
+                _revert_to_ready(obj.id, team_id)
+                raise
         except Exception as e:
             capture_exception(e)
             logger.warning(
@@ -174,7 +163,6 @@ def _kick_off_stale_computations(team_id: int) -> bool:
                 recommendation_type=rec.type,
                 exc_info=True,
             )
-    return kicked
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
@@ -192,14 +180,13 @@ class ErrorTrackingRecommendationViewSet(
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
-    @extend_schema(responses=ErrorTrackingRecommendationSerializer(many=True))
     @override
     def list(self, request: Request, *args, **kwargs) -> Response:
-        # When the frontend is polling for status updates we skip the kick + wait
+        # When the frontend is polling for status updates we skip the kick
         # so each poll is a cheap read of the current state.
         is_poll = request.query_params.get("poll", "false").lower() == "true"
-        if not is_poll and _kick_off_stale_computations(self.team.id):
-            _wait_for_pending_computations(self.team.id)
+        if not is_poll:
+            _kick_off_stale_computations(self.team.id)
         return super().list(request, *args, **kwargs)
 
     @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
@@ -209,8 +196,12 @@ class ErrorTrackingRecommendationViewSet(
         if recommendation.type not in RECOMMENDATIONS_BY_TYPE:
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
         force = request.query_params.get("force", "true").lower() != "false"
-        if force and _claim_for_compute(recommendation.id, timezone.now()):
-            compute_error_tracking_recommendation.delay(str(recommendation.id))
+        if force and _claim_for_compute(recommendation.id, self.team.id, timezone.now()):
+            try:
+                compute_error_tracking_recommendation.delay(str(recommendation.id), self.team.id)
+            except Exception:
+                _revert_to_ready(recommendation.id, self.team.id)
+                raise
             recommendation.refresh_from_db()
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
 

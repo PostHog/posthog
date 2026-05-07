@@ -97,8 +97,12 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             }
         },
         pollRecommendations: async () => {
-            const response = await api.errorTracking.listRecommendations({ poll: true })
-            actions.setRecommendations(response.results)
+            try {
+                const response = await api.errorTracking.listRecommendations({ poll: true })
+                actions.setRecommendations(response.results)
+            } catch {
+                actions.ensurePollingScheduled()
+            }
         },
         refreshRecommendation: async ({ id }) => {
             // Optimistic flip — the spinner appears instantly. The server response will
