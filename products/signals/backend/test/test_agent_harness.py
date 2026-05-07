@@ -17,12 +17,19 @@ from posthog.sync import database_sync_to_async
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.agent_harness.limits import DEFAULT_LIMITS, RunLimits, resolve_limits
 from products.signals.backend.agent_harness.prompt import build_run_prompt
-from products.signals.backend.agent_harness.runner import RunResult, _limits_for_run, arun_signals_agent
+from products.signals.backend.agent_harness.runner import (
+    RunResult,
+    _finalize_failed,
+    _limits_for_run,
+    _record_task_linkage,
+    arun_signals_agent,
+)
 from products.signals.backend.agent_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_agent_skill,
     load_skill_for_run,
 )
+from products.signals.backend.agent_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.models import SignalAgentConfig, SignalAgentRun
 from products.signals.backend.temporal.agentic.agent_scheduler import RunSignalsAgentInput, run_signals_agent_activity
 
@@ -336,3 +343,188 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
     assert output.run_id is None
     assert output.status is None
     assert output.skip_reason and "RUNNING" in output.skip_reason
+
+
+# ── Tasks-UI cross-link: SignalAgentRun.metadata.task_id / task_run_id ────────
+#
+# The runner spawns a sandbox via `MultiTurnSession.start()` which itself creates
+# a `(Task, TaskRun)` row in the Tasks product. The IDs of that pair are needed
+# both for the `task_url` deep-link surfaced on the run serializers and for the
+# future LLM-analytics token/cost join. These tests lock in the persistence path
+# without standing up the real sandbox.
+
+
+@pytest.mark.django_db
+def test_record_task_linkage_persists_both_ids_into_metadata():
+    team = Team.objects.create(
+        organization=Organization.objects.create(
+            name=f"link-test-org-{random.randint(1, 99999)}",
+            is_ai_data_processing_approved=True,
+        ),
+        name=f"link-test-team-{random.randint(1, 99999)}",
+    )
+    config = SignalAgentConfig.objects.create(team=team)
+    run = SignalAgentRun.objects.create(
+        team=team,
+        agent_config=config,
+        skill_name="signals-agent-errors",
+        skill_version=1,
+        status=SignalAgentRun.Status.RUNNING,
+        metadata={"limits": {"max_runtime_s": 1800}, "skill_id": "skill-uuid", "allowed_tools": {"declared": False}},
+    )
+
+    _record_task_linkage(
+        run_id=str(run.id),
+        task_id="11111111-1111-1111-1111-111111111111",
+        task_run_id="22222222-2222-2222-2222-222222222222",
+    )
+
+    run.refresh_from_db()
+    assert run.metadata["task_id"] == "11111111-1111-1111-1111-111111111111"
+    assert run.metadata["task_run_id"] == "22222222-2222-2222-2222-222222222222"
+    # Pre-existing keys must survive the merge — the run row is created with
+    # limits / skill_id / allowed_tools and clobbering them would lose the
+    # snapshot the rest of the harness reads back.
+    assert run.metadata["limits"] == {"max_runtime_s": 1800}
+    assert run.metadata["skill_id"] == "skill-uuid"
+    assert run.metadata["allowed_tools"] == {"declared": False}
+
+
+@pytest.mark.django_db
+def test_finalize_failed_preserves_task_linkage():
+    team = Team.objects.create(
+        organization=Organization.objects.create(
+            name=f"fail-link-org-{random.randint(1, 99999)}",
+            is_ai_data_processing_approved=True,
+        ),
+        name=f"fail-link-team-{random.randint(1, 99999)}",
+    )
+    skill = LLMSkill.objects.create(team=team, name="signals-agent-errors", description="x", body="x")
+    config = SignalAgentConfig.objects.create(team=team)
+    run = SignalAgentRun.objects.create(
+        team=team,
+        agent_config=config,
+        skill_name="signals-agent-errors",
+        skill_version=1,
+        status=SignalAgentRun.Status.RUNNING,
+        metadata={"limits": {"max_runtime_s": 1800}, "skill_id": str(skill.id), "allowed_tools": {"declared": False}},
+    )
+    # Linkage was recorded mid-run (between session start and the failure).
+    _record_task_linkage(
+        run_id=str(run.id),
+        task_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        task_run_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    )
+
+    loaded = load_skill_for_run(team_id=team.id, skill_name="signals-agent-errors", version=None)
+    _finalize_failed(
+        run_id=str(run.id),
+        exc=RuntimeError("sandbox died"),
+        runtime_s=12.5,
+        limits=DEFAULT_LIMITS,
+        skill=loaded,
+    )
+
+    run.refresh_from_db()
+    assert run.status == SignalAgentRun.Status.FAILED
+    # Failure annotation lands.
+    assert run.metadata["error_type"] == "RuntimeError"
+    # Task linkage survives — without the merge in `_finalize_failed`, the
+    # deep-link to the sandbox that actually died would be lost on the row a
+    # debugger needs to land on.
+    assert run.metadata["task_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert run.metadata["task_run_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+
+def test_build_task_url_renders_relative_path_when_both_ids_present():
+    url = _build_task_url(
+        team_id=42,
+        task_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        task_run_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    )
+    assert url == "/project/42/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?runId=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+
+@pytest.mark.parametrize(
+    "task_id,task_run_id",
+    [
+        (None, None),
+        ("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", None),
+        (None, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+    ],
+)
+def test_build_task_url_returns_none_when_either_id_missing(task_id, task_run_id):
+    # Cross-link only renders when both halves are captured — a half-link can't
+    # reliably open the right tab in the Tasks UI, so we'd rather emit null and
+    # let callers handle the absence than render a broken URL.
+    assert _build_task_url(team_id=42, task_id=task_id, task_run_id=task_run_id) is None
+
+
+@pytest.mark.django_db
+def test_to_summary_and_detail_surface_task_url_when_linkage_present():
+    team = Team.objects.create(
+        organization=Organization.objects.create(
+            name=f"surface-org-{random.randint(1, 99999)}",
+            is_ai_data_processing_approved=True,
+        ),
+        name=f"surface-team-{random.randint(1, 99999)}",
+    )
+    config = SignalAgentConfig.objects.create(team=team)
+    run = SignalAgentRun.objects.create(
+        team=team,
+        agent_config=config,
+        skill_name="signals-agent-errors",
+        skill_version=1,
+        status=SignalAgentRun.Status.COMPLETED,
+        summary="ok",
+        metadata={
+            "limits": {"max_runtime_s": 1800},
+            "skill_id": "skill-uuid",
+            "allowed_tools": {"declared": False},
+            "task_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "task_run_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        },
+    )
+
+    summary = _to_summary(run, team_id=team.id)
+    assert summary.task_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert summary.task_run_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    assert (
+        summary.task_url
+        == f"/project/{team.id}/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?runId=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    )
+
+    detail = _to_detail(run, team_id=team.id)
+    assert detail.task_id == summary.task_id
+    assert detail.task_run_id == summary.task_run_id
+    assert detail.task_url == summary.task_url
+    # Detail still carries the raw metadata blob (the IDs are duplicated as
+    # top-level fields for callers that want them without dict access).
+    assert detail.metadata["task_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+
+@pytest.mark.django_db
+def test_to_summary_and_detail_emit_null_task_url_when_linkage_missing():
+    team = Team.objects.create(
+        organization=Organization.objects.create(
+            name=f"missing-org-{random.randint(1, 99999)}",
+            is_ai_data_processing_approved=True,
+        ),
+        name=f"missing-team-{random.randint(1, 99999)}",
+    )
+    config = SignalAgentConfig.objects.create(team=team)
+    run = SignalAgentRun.objects.create(
+        team=team,
+        agent_config=config,
+        skill_name="signals-agent-errors",
+        skill_version=1,
+        status=SignalAgentRun.Status.COMPLETED,
+        summary="ok",
+        # No task_id / task_run_id — represents either a row predating the
+        # linkage capture or a run that aborted before `MultiTurnSession.start()`
+        # returned (e.g. sandbox provisioning failure).
+        metadata={"limits": {"max_runtime_s": 1800}, "skill_id": "skill-uuid"},
+    )
+
+    assert _to_summary(run, team_id=team.id).task_url is None
+    assert _to_detail(run, team_id=team.id).task_url is None

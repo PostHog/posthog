@@ -207,6 +207,16 @@ async def _spawn_and_run(
         verbose=verbose,
         origin_product=Task.OriginProduct.SIGNALS_AGENT,
     )
+    # Capture the Tasks (Task, TaskRun) IDs the harness span ran inside immediately
+    # after session start so the cross-link is queryable mid-run, survives both the
+    # success and failure finalize paths, and a partial-tick crash still leaves the
+    # row pointing at its sandbox. Powers the `task_url` deep-link on the run
+    # serializers and the future LLM-analytics token/cost join.
+    await database_sync_to_async(_record_task_linkage, thread_sensitive=False)(
+        run_id=str(run.id),
+        task_id=str(session.task.id),
+        task_run_id=str(session.task_run.id),
+    )
     try:
         # Limits are captured on the run row but only `max_runtime_s` is actually
         # enforced (via the sandbox poll-loop timeout). `max_findings` is a soft
@@ -270,6 +280,19 @@ def _finalize_completed(*, run_id: str, summary: str, runtime_s: float) -> None:
     )
 
 
+def _record_task_linkage(*, run_id: str, task_id: str, task_run_id: str) -> None:
+    """Persist the Tasks `(Task, TaskRun)` IDs the harness span ran inside.
+
+    Read-modify-write the metadata blob so we don't clobber the keys
+    `_create_run_row` set (`limits`, `skill_id`, `allowed_tools`). Two writers
+    on the same row would race here, but per-run linkage only ever flows from
+    one runner invocation, so a plain RMW is safe in practice.
+    """
+    existing = SignalAgentRun.objects.filter(id=run_id).values_list("metadata", flat=True).first() or {}
+    merged = {**existing, "task_id": task_id, "task_run_id": task_run_id}
+    SignalAgentRun.objects.filter(id=run_id).update(metadata=merged)
+
+
 def _finalize_failed(
     *,
     run_id: str,
@@ -279,17 +302,25 @@ def _finalize_failed(
     skill: LoadedSkill,
 ) -> None:
     findings_count = _read_findings_count(run_id)
+    # Read existing metadata so we preserve the Tasks linkage (`task_id` /
+    # `task_run_id` written mid-run by `_record_task_linkage`) and any other
+    # keys the run accreted while annotating with the failure reason. Writing
+    # a fresh dict here would silently drop the deep-link to the sandbox that
+    # actually died — exactly the row a debugger needs to land on.
+    existing = SignalAgentRun.objects.filter(id=run_id).values_list("metadata", flat=True).first() or {}
+    merged = {
+        **existing,
+        "limits": limits.as_dict(),
+        "skill_id": skill.skill_id,
+        "allowed_tools": skill.allowed_tools_resolution.as_dict(),
+        "error_type": type(exc).__name__,
+    }
     SignalAgentRun.objects.filter(id=run_id).update(
         status=SignalAgentRun.Status.FAILED,
         completed_at=timezone.now(),
         summary=f"Run failed: {exc!s}",
         run_metrics={"runtime_s": runtime_s, "findings": findings_count},
-        metadata={
-            "limits": limits.as_dict(),
-            "skill_id": skill.skill_id,
-            "allowed_tools": skill.allowed_tools_resolution.as_dict(),
-            "error_type": type(exc).__name__,
-        },
+        metadata=merged,
     )
 
 

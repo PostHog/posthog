@@ -32,6 +32,13 @@ class RunSummary:
     completed_at: str | None
     summary: str
     findings_count: int
+    # Tasks (Task, TaskRun) IDs the harness span ran inside, plus the deep-link
+    # path ready to render in MCP clients. All three are null on rows older than
+    # the linkage capture (predates the runner's `_record_task_linkage` write)
+    # or on aborted rows that died before `MultiTurnSession.start()` returned.
+    task_id: str | None = None
+    task_run_id: str | None = None
+    task_url: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -52,6 +59,10 @@ class RunDetail:
     hypotheses_considered: list[Any] = field(default_factory=list)
     run_metrics: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    # See `RunSummary` — same shape, same null cases.
+    task_id: str | None = None
+    task_run_id: str | None = None
+    task_url: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -78,7 +89,7 @@ def search_recent_runs(
     if since is not None:
         qs = qs.filter(started_at__gte=since)
     qs = qs[:clamped_limit]
-    return [_to_summary(row) for row in qs]
+    return [_to_summary(row, team_id=team_id) for row in qs]
 
 
 def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
@@ -90,11 +101,14 @@ def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
     row = SignalAgentRun.objects.filter(team_id=team_id, id=run_id).first()
     if row is None:
         return None
-    return _to_detail(row)
+    return _to_detail(row, team_id=team_id)
 
 
-def _to_summary(row: SignalAgentRun) -> RunSummary:
+def _to_summary(row: SignalAgentRun, *, team_id: int) -> RunSummary:
     findings = row.findings or []
+    metadata = row.metadata or {}
+    task_id = metadata.get("task_id")
+    task_run_id = metadata.get("task_run_id")
     return RunSummary(
         run_id=str(row.id),
         skill_name=row.skill_name,
@@ -104,10 +118,16 @@ def _to_summary(row: SignalAgentRun) -> RunSummary:
         completed_at=row.completed_at.isoformat() if row.completed_at else None,
         summary=row.summary or "",
         findings_count=len(findings) if isinstance(findings, list) else 0,
+        task_id=task_id,
+        task_run_id=task_run_id,
+        task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),
     )
 
 
-def _to_detail(row: SignalAgentRun) -> RunDetail:
+def _to_detail(row: SignalAgentRun, *, team_id: int) -> RunDetail:
+    metadata = dict(row.metadata or {})
+    task_id = metadata.get("task_id")
+    task_run_id = metadata.get("task_run_id")
     return RunDetail(
         run_id=str(row.id),
         skill_name=row.skill_name,
@@ -119,8 +139,23 @@ def _to_detail(row: SignalAgentRun) -> RunDetail:
         findings=list(row.findings or []),
         hypotheses_considered=list(row.hypotheses_considered or []),
         run_metrics=dict(row.run_metrics or {}),
-        metadata=dict(row.metadata or {}),
+        metadata=metadata,
+        task_id=task_id,
+        task_run_id=task_run_id,
+        task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),
     )
+
+
+def _build_task_url(*, team_id: int, task_id: str | None, task_run_id: str | None) -> str | None:
+    """Build the relative Tasks UI deep-link, or None if the linkage isn't captured.
+
+    Path shape follows the project URL convention (no host, includes `/project/{id}/`
+    for the front-end router; MCP clients render it against their own host). Both
+    IDs must be present — a task without a run id can't be opened on the right tab.
+    """
+    if not task_id or not task_run_id:
+        return None
+    return f"/project/{team_id}/tasks/{task_id}?runId={task_run_id}"
 
 
 def _clamp_limit(limit: int) -> int:

@@ -36,6 +36,21 @@ class SignalAgentRunSummarySerializer(serializers.Serializer):
     findings_count = serializers.IntegerField(
         help_text="Number of finding entries persisted on the run row.",
     )
+    task_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.",
+    )
+    task_run_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.",
+    )
+    task_url = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.",
+    )
 
 
 class SignalAgentRunDetailSerializer(serializers.Serializer):
@@ -61,7 +76,22 @@ class SignalAgentRunDetailSerializer(serializers.Serializer):
         help_text="Measured quantities about how the run went, e.g. {runtime_s, findings}.",
     )
     metadata = serializers.DictField(
-        help_text="Run metadata snapshot (limits, skill id, allowed_tools resolution).",
+        help_text="Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link).",
+    )
+    task_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.",
+    )
+    task_run_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.",
+    )
+    task_url = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.",
     )
 
 
