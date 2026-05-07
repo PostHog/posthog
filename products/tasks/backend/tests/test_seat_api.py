@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.test import APIClient
@@ -11,6 +12,8 @@ from rest_framework.test import APIClient
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.tasks.backend.seat_api import _seat_priority
 
 MOCK_BILLING_TOKEN = "mock-billing-jwt-token"
 MOCK_SEAT = {
@@ -32,6 +35,23 @@ def _billing_response(data=None, status_code=200, ok=True):
     resp.ok = ok
     resp.json.return_value = data if data is not None else {}
     return resp
+
+
+def _seat_dispatcher(seats_by_org_id):
+    """Dispatch mocked seat responses by Authorization token.
+
+    Pair with `build_billing_token` mocked as `lambda lic, org, user: f"token-{org.id}"`.
+    Orgs missing from `seats_by_org_id` get a 404 response.
+    """
+
+    def dispatch(*_args, **kwargs):
+        org_id = kwargs["headers"]["Authorization"].removeprefix("Bearer token-")
+        seat = seats_by_org_id.get(org_id)
+        if seat is None:
+            return _billing_response({"error": "no seat"}, status_code=404, ok=False)
+        return _billing_response({"seat": seat})
+
+    return dispatch
 
 
 class BaseSeatAPITest(TestCase):
@@ -533,6 +553,152 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
         response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["id"] == "seat_older"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch(
+        "products.tasks.backend.seat_api.build_billing_token",
+        side_effect=lambda _lic, org, _user: f"token-{org.id}",
+    )
+    def test_multi_org_free_prefers_requesting_org(self, _mock_token, mock_request, _mock_license):
+        # Newer free seat in the user's current org should beat an older free seat elsewhere.
+        user = User.objects.get(pk=self.user.pk)
+        user.current_organization = self.organization
+        user.save(update_fields=["current_organization"])
+        self.client.force_authenticate(user)
+
+        requesting_org_seat = {**MOCK_FREE_SEAT, "id": "seat_requesting", "created_at": "2026-06-01T00:00:00Z"}
+        other_org_seat = {**MOCK_FREE_SEAT, "id": "seat_other", "created_at": "2026-03-01T00:00:00Z"}
+        mock_request.side_effect = _seat_dispatcher(
+            {
+                str(self.organization.id): requesting_org_seat,
+                str(self.org2.id): other_org_seat,
+            }
+        )
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == "seat_requesting"
+        assert response.json()["organization_id"] == str(self.organization.id)
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch(
+        "products.tasks.backend.seat_api.build_billing_token",
+        side_effect=lambda _lic, org, _user: f"token-{org.id}",
+    )
+    def test_multi_org_free_falls_back_to_oldest_when_neither_is_requesting_org(
+        self, _mock_token, mock_request, _mock_license
+    ):
+        # If the user's current org has no seat, neither result gets the bias and oldest wins.
+        org3 = Organization.objects.create(name="Third Org")
+        org3.members.add(self.user)
+        user = User.objects.get(pk=self.user.pk)
+        user.current_organization = org3
+        user.save(update_fields=["current_organization"])
+        self.client.force_authenticate(user)
+
+        older_other = {**MOCK_FREE_SEAT, "id": "seat_older", "created_at": "2026-03-01T00:00:00Z"}
+        newer_other = {**MOCK_FREE_SEAT, "id": "seat_newer", "created_at": "2026-06-01T00:00:00Z"}
+        mock_request.side_effect = _seat_dispatcher(
+            {
+                str(self.organization.id): older_other,
+                str(self.org2.id): newer_other,
+                # org3 is missing → 404, filtered out before tie-break.
+            }
+        )
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == "seat_older"
+
+    @patch("products.tasks.backend.seat_api.requests.request")
+    @patch(
+        "products.tasks.backend.seat_api.build_billing_token",
+        side_effect=lambda _lic, org, _user: f"token-{org.id}",
+    )
+    def test_multi_org_pro_ignores_requesting_org_bias(self, _mock_token, mock_request, _mock_license):
+        # Pro seats are usable from any org so the requesting-org bias must not apply.
+        user = User.objects.get(pk=self.user.pk)
+        user.current_organization = self.organization
+        user.save(update_fields=["current_organization"])
+        self.client.force_authenticate(user)
+
+        requesting_org_pro_newer = {**MOCK_PRO_SEAT, "id": "pro_newer", "created_at": "2026-06-01T00:00:00Z"}
+        other_org_pro_older = {**MOCK_PRO_SEAT, "id": "pro_older", "created_at": "2026-03-01T00:00:00Z"}
+        mock_request.side_effect = _seat_dispatcher(
+            {
+                str(self.organization.id): requesting_org_pro_newer,
+                str(self.org2.id): other_org_pro_older,
+            }
+        )
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == "pro_older"
+        assert response.json()["organization_id"] == str(self.org2.id)
+
+
+class TestSeatPriority(TestCase):
+    """Direct tests for the priority key used in best-seat tie-breaking."""
+
+    @parameterized.expand(
+        [
+            (
+                "active_beats_canceled_at_same_tier",
+                {**MOCK_PRO_SEAT, "status": "active"},
+                False,
+                {**MOCK_PRO_SEAT, "status": "canceled"},
+                False,
+                True,
+            ),
+            (
+                "pro_beats_free_even_with_requesting_org_bias_on_free",
+                MOCK_PRO_SEAT,
+                False,
+                MOCK_FREE_SEAT,
+                True,
+                True,
+            ),
+            (
+                "free_in_requesting_org_beats_newer_free_outside",
+                {**MOCK_FREE_SEAT, "id": "older_requesting", "created_at": "2026-03-01T00:00:00Z"},
+                True,
+                {**MOCK_FREE_SEAT, "id": "newer_other", "created_at": "2026-06-01T00:00:00Z"},
+                False,
+                True,
+            ),
+            (
+                "free_in_requesting_org_beats_older_free_outside",
+                {**MOCK_FREE_SEAT, "id": "newer_requesting", "created_at": "2026-06-01T00:00:00Z"},
+                True,
+                {**MOCK_FREE_SEAT, "id": "older_other", "created_at": "2026-03-01T00:00:00Z"},
+                False,
+                True,
+            ),
+            (
+                "free_oldest_wins_when_neither_is_requesting_org",
+                {**MOCK_FREE_SEAT, "id": "older", "created_at": "2026-03-01T00:00:00Z"},
+                False,
+                {**MOCK_FREE_SEAT, "id": "newer", "created_at": "2026-06-01T00:00:00Z"},
+                False,
+                True,
+            ),
+            (
+                "pro_oldest_wins_even_when_other_is_requesting_org",
+                {**MOCK_PRO_SEAT, "id": "older_other", "created_at": "2026-03-01T00:00:00Z"},
+                False,
+                {**MOCK_PRO_SEAT, "id": "newer_requesting", "created_at": "2026-06-01T00:00:00Z"},
+                True,
+                True,
+            ),
+            (
+                "free_beats_no_plan_key_even_without_bias",
+                MOCK_FREE_SEAT,
+                False,
+                {**MOCK_FREE_SEAT, "plan_key": None},
+                True,
+                True,
+            ),
+        ]
+    )
+    def test_priority_winner(self, _name, seat_a, flag_a, seat_b, flag_b, a_wins):
+        assert (_seat_priority(seat_a, flag_a) > _seat_priority(seat_b, flag_b)) is a_wins
 
 
 @patch("products.tasks.backend.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
