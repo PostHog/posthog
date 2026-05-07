@@ -44,14 +44,6 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = (
     os.getenv("WAREHOUSE_SOURCES_DATABASE_URL") or PRODUCT_DB_WRITER_URLS.get("warehouse_sources_queue") or DATABASE_URL
 )
 
-# TTL for the cached Slack channel listing returned by `_fetch_all_channels`.
-# Slack workspaces with thousands of channels exhaust the `conversations.list`
-# Tier 2 budget (~20 req/min) when every per-schema sync re-discovers channels.
-# Caching the channel list per access-token avoids that, at the cost of a small
-# delay before newly created channels show up. The `refresh_schemas` action
-# clears this cache so users can force a fresh fetch on demand.
-SLACK_CHANNELS_CACHE_TTL_SECONDS: int = int(os.getenv("SLACK_CHANNELS_CACHE_TTL_SECONDS", "300"))
-
 # Warehouse-pipeline and cyclotron Kafka config live in `posthog/settings/kafka.py`
 # (profiles `warehouse_sources` and `cyclotron`) — read from `settings.KAFKA_PROFILES[...]`
 # or via the back-compat top-level names that settings/kafka.py exposes.

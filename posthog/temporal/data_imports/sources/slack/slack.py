@@ -4,7 +4,6 @@ import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
-from django.conf import settings
 from django.core.cache import cache
 
 import orjson
@@ -178,7 +177,7 @@ def _fetch_all_channels(access_token: str, authed_user: str | None = None) -> li
 
 
 _CHANNELS_CACHE_KEY_PREFIX = "@dwh/slack/channels"
-_CHANNELS_CACHE_TTL_FALLBACK_SECONDS = 300
+_CHANNELS_CACHE_TTL_SECONDS = 300
 
 
 def _channels_cache_key(access_token: str, authed_user: str | None) -> str:
@@ -202,8 +201,7 @@ def _fetch_all_channels_cached(access_token: str, authed_user: str | None = None
     if cached is not None:
         return cached
     channels = _fetch_all_channels(access_token, authed_user)
-    ttl = getattr(settings, "SLACK_CHANNELS_CACHE_TTL_SECONDS", _CHANNELS_CACHE_TTL_FALLBACK_SECONDS)
-    cache.set(cache_key, channels, ttl)
+    cache.set(cache_key, channels, _CHANNELS_CACHE_TTL_SECONDS)
     return channels
 
 
