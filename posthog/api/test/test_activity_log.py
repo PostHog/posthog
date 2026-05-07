@@ -12,7 +12,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.activity_logging.activity_log import log_activity
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -251,6 +251,10 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
             level=OrganizationMembership.Level.ADMIN
         )
+        # Audit logs feature must be unlocked for the org so the cloud paywall doesn't pre-empt the
+        # access-control checks under test.
+        self.organization.available_product_features = [{"key": AvailableFeature.AUDIT_LOGS, "name": "Activity logs"}]
+        self.organization.save()
 
         self.other_team_in_org = Team.objects.create(organization=self.organization, name="Other team in org")
 
@@ -269,7 +273,7 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
             item_id="flag-1",
             scope="FeatureFlag",
             activity="created",
-            detail=None,  # type: ignore[arg-type]
+            detail=Detail(name="seed"),
             force_save=True,
         )
         # Project-scoped row in the second team of the same org
@@ -281,7 +285,7 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
             item_id="insight-1",
             scope="Insight",
             activity="created",
-            detail=None,  # type: ignore[arg-type]
+            detail=Detail(name="seed"),
             force_save=True,
         )
         # Org-scoped row (team_id is null)
@@ -293,7 +297,7 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
             item_id=str(uuid4()),
             scope="Organization",
             activity="updated",
-            detail=None,  # type: ignore[arg-type]
+            detail=Detail(name="seed"),
             force_save=True,
         )
         # Row in a completely different organization — must NOT be visible
@@ -305,7 +309,7 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
             item_id="flag-outside",
             scope="FeatureFlag",
             activity="created",
-            detail=None,  # type: ignore[arg-type]
+            detail=Detail(name="seed"),
             force_save=True,
         )
 
@@ -313,7 +317,9 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         url = f"/api/organizations/{self.organization.id}/advanced_activity_logs/"
         return self.client.get(url, data=query)
 
-    def test_admin_sees_all_rows_for_their_organization(self) -> None:
+    def test_admin_sees_all_org_rows(self) -> None:
+        # Spot-check that the endpoint returns org-wide content (not just an empty 200)
+        # when the requester is allowed in. Permission gating itself is covered below.
         res = self._list()
 
         assert res.status_code == status.HTTP_200_OK
@@ -326,34 +332,26 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         # Cross-org row does NOT appear
         assert "flag-outside" not in item_ids
 
-    def test_org_member_without_admin_is_forbidden(self) -> None:
-        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
-            level=OrganizationMembership.Level.MEMBER
-        )
+    @parameterized.expand(
+        [
+            ("owner", OrganizationMembership.Level.OWNER, status.HTTP_200_OK),
+            ("admin", OrganizationMembership.Level.ADMIN, status.HTTP_200_OK),
+            ("member", OrganizationMembership.Level.MEMBER, status.HTTP_403_FORBIDDEN),
+            ("non_member", None, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_access_control_by_membership_level(self, _name: str, level: Optional[int], expected_status: int) -> None:
+        if level is None:
+            outsider = User.objects.create_and_join(
+                organization=self.outside_organization, email="outsider@example.com", password=""
+            )
+            self.client.force_login(outsider)
+        else:
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(level=level)
 
         res = self._list()
 
-        assert res.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_owner_can_access(self) -> None:
-        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
-            level=OrganizationMembership.Level.OWNER
-        )
-
-        res = self._list()
-
-        assert res.status_code == status.HTTP_200_OK
-
-    def test_non_member_cannot_access(self) -> None:
-        outsider = User.objects.create_and_join(
-            organization=self.outside_organization, email="outsider@example.com", password=""
-        )
-        self.client.force_login(outsider)
-
-        res = self._list()
-
-        # Non-members of the target org are stopped at OrganizationMemberPermissions
-        assert res.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        assert res.status_code == expected_status
 
     def test_team_ids_filter_narrows_to_selected_projects(self) -> None:
         res = self._list(team_ids=self.team.id)
@@ -396,7 +394,7 @@ class TestOrganizationAdvancedActivityLogsAvailableFilters(APIBaseTest):
             item_id="flag-1",
             scope="FeatureFlag",
             activity="created",
-            detail=None,  # type: ignore[arg-type]
+            detail=Detail(name="seed"),
             force_save=True,
         )
         log_activity(
@@ -407,7 +405,7 @@ class TestOrganizationAdvancedActivityLogsAvailableFilters(APIBaseTest):
             item_id="insight-1",
             scope="Insight",
             activity="updated",
-            detail=None,  # type: ignore[arg-type]
+            detail=Detail(name="seed"),
             force_save=True,
         )
 

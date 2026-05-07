@@ -35,36 +35,28 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
     const includesOrgLevelLogs = currentTeam?.receive_org_level_activity_logs
 
-    const tabs = isOrganizationView
-        ? [
-              {
-                  key: 'logs',
-                  label: 'Logs',
-                  content: (
-                      <div className="space-y-4">
-                          <AdvancedActivityLogFiltersPanel />
-                          <AdvancedActivityLogsList />
-                      </div>
-                  ),
-              },
-          ]
-        : [
-              {
-                  key: 'logs',
-                  label: 'Logs',
-                  content: (
-                      <div className="space-y-4">
-                          <AdvancedActivityLogFiltersPanel />
-                          <AdvancedActivityLogsList />
-                      </div>
-                  ),
-              },
-              {
-                  key: 'exports',
-                  label: 'Exports',
-                  content: <ExportsList />,
-              },
-          ]
+    const tabs = [
+        {
+            key: 'logs',
+            label: 'Logs',
+            content: (
+                <div className="space-y-4">
+                    <AdvancedActivityLogFiltersPanel />
+                    <AdvancedActivityLogsList />
+                </div>
+            ),
+        },
+        // Exports is project-scoped only — org view doesn't yet have an export path
+        ...(isOrganizationView
+            ? []
+            : [
+                  {
+                      key: 'exports',
+                      label: 'Exports',
+                      content: <ExportsList />,
+                  },
+              ]),
+    ]
 
     if (!hasAccess) {
         return (
