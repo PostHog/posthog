@@ -511,7 +511,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              LegalDocument
+                              CIMDVerificationToken
+                              |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
@@ -574,7 +575,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        LegalDocument
+                        CIMDVerificationToken
+                        |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration
