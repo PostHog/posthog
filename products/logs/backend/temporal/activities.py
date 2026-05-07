@@ -44,7 +44,7 @@ from products.logs.backend.alert_state_machine import (
     apply_outcome,
     evaluate_alert_check,
 )
-from products.logs.backend.alert_utils import advance_next_check_at
+from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
@@ -754,7 +754,12 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
     # (the per-alert fallback's `alert.save()` would honour `auto_now`, but the
     # happy path is bulk_update).
     alert.updated_at = now
-    alert.next_check_at = advance_next_check_at(alert.next_check_at, alert.check_interval_minutes, now)
+    alert.next_check_at = advance_next_check_at(
+        alert.next_check_at,
+        alert.check_interval_minutes,
+        now,
+        shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
+    )
     update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
     if (

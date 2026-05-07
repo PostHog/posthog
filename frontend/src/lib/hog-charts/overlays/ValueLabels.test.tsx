@@ -243,7 +243,7 @@ describe('ValueLabels', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#112233', data: [10, 0, 30] },
                 { key: 'b', label: 'B', color: '#445566', data: [5, 0, 5] },
-                { key: 'c', label: 'C', color: '#778899', data: [99, 99, 99], visibility: { fromValueLabels: true } },
+                { key: 'c', label: 'C', color: '#778899', data: [99, 99, 99], visibility: { valueLabel: false } },
             ]
             const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
             const divs = labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container)

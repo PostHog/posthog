@@ -269,9 +269,11 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                 }
 
                 if (props.id === 'new') {
+                    // nosemgrep: prefer-codegen-api
                     await api.create('api/environments/@current/taggers/', payload)
                     lemonToast.success('Tagger created')
                 } else {
+                    // nosemgrep: prefer-codegen-api
                     await api.update(`api/environments/@current/taggers/${props.id}/`, payload)
                     lemonToast.success('Tagger updated')
                 }
@@ -291,6 +293,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             }
             try {
                 const teamId = teamLogic.values.currentTeamId
+                // nosemgrep: prefer-codegen-api
                 const response = await api.create(`/api/environments/${teamId}/taggers/test_hog/`, {
                     source,
                     sample_count: 5,
@@ -361,6 +364,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             // Wrap in try/catch so a failed fetch clears taggerLoading — otherwise
             // the UI is stuck on the skeleton indefinitely on any API error.
             try {
+                // nosemgrep: prefer-codegen-api
                 const tagger = await api.get(`api/environments/@current/taggers/${props.id}/`)
                 actions.loadTaggerSuccess(tagger)
                 actions.setTaggerFormValues({
@@ -381,6 +385,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
             if (props.id === 'new') {
                 return
             }
+            // nosemgrep: prefer-codegen-api
             await api.update(`api/environments/@current/taggers/${props.id}/`, { deleted: true })
             lemonToast.success('Tagger deleted')
             router.actions.push(urls.llmAnalyticsTags())

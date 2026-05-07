@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 
 import api, { ApiConfig } from 'lib/api'
 
-import { isSharedView } from '~/exporter/exporterViewLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 
 type FileSystemLogViewType =
@@ -27,14 +26,7 @@ interface TrackFileSystemLogViewOptions {
 }
 
 export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {
-    if (
-        !enabled ||
-        window.IMPERSONATED_SESSION ||
-        isSharedView() ||
-        ref === null ||
-        ref === undefined ||
-        !ApiConfig.hasCurrentTeamId()
-    ) {
+    if (!enabled || window.IMPERSONATED_SESSION || ref === null || ref === undefined || !ApiConfig.hasCurrentTeamId()) {
         return
     }
 
