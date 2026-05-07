@@ -1,9 +1,11 @@
 import json
 import datetime
+from dataclasses import dataclass
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.db import DatabaseError
+from django.db.models import Q
 from django.utils.timezone import now
 
 import structlog
@@ -335,3 +337,81 @@ def get_aggregation_target_field(
         return f'{event_table_alias}."$group_{aggregation_group_type_index}"'
     else:
         return default
+
+
+@dataclass
+class ListGroupsResult:
+    groups: list[Group]
+    has_more: bool
+
+
+def list_groups(
+    team_id: int,
+    group_type_index: int,
+    *,
+    group_key_contains: str = "",
+    search: str = "",
+    cursor_created_at_ms: int = 0,
+    cursor_id: int = 0,
+    limit: int = 100,
+) -> ListGroupsResult:
+    """List groups with cursor pagination, routing through personhog with ORM fallback."""
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_group_to_model
+    from posthog.personhog_client.proto import ListGroupsRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.list_groups(
+                ListGroupsRequest(
+                    team_id=team_id,
+                    group_type_index=group_type_index,
+                    group_key_contains=group_key_contains,
+                    search=search,
+                    cursor_created_at_ms=cursor_created_at_ms,
+                    cursor_id=cursor_id,
+                    limit=limit,
+                )
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="list_groups", source="personhog", client_name=get_client_name()
+            ).inc()
+            return ListGroupsResult(
+                groups=[proto_group_to_model(g) for g in resp.groups],
+                has_more=resp.has_more,
+            )
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="list_groups",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_list_groups_failure",
+                team_id=team_id,
+                group_type_index=group_type_index,
+                exc_info=True,
+            )
+
+    PERSONHOG_ROUTING_TOTAL.labels(operation="list_groups", source="django_orm", client_name=get_client_name()).inc()
+    qs = Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+        team_id=team_id, group_type_index=group_type_index
+    )
+    if group_key_contains:
+        qs = qs.filter(group_key__icontains=group_key_contains)
+    if search:
+        qs = qs.filter(Q(group_properties__icontains=search) | Q(group_key__iexact=search))
+    qs = qs.order_by("-created_at", "-id")
+    if cursor_created_at_ms > 0:
+        cursor_dt = datetime.datetime.fromtimestamp(cursor_created_at_ms / 1000, tz=datetime.UTC)
+        cursor_dt_upper = cursor_dt + datetime.timedelta(milliseconds=1)
+        qs = qs.filter(
+            Q(created_at__lt=cursor_dt) | Q(created_at__gte=cursor_dt, created_at__lt=cursor_dt_upper, id__lt=cursor_id)
+        )
+    groups = list(qs[: limit + 1])
+    has_more = len(groups) > limit
+    if has_more:
+        groups = groups[:limit]
+    return ListGroupsResult(groups=groups, has_more=has_more)
