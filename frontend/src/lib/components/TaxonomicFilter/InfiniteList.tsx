@@ -588,8 +588,8 @@ export const InfiniteListRow = ({
                     isActive,
                 })}
                 {isCrossGroupItem && (
-                    <LemonTag size="small" type={isCurrentSelectionItem(item) ? 'primary' : 'highlight'}>
-                        {isCurrentSelectionItem(item)
+                    <LemonTag size="small" type={isSelected ? 'primary' : 'highlight'}>
+                        {isSelected
                             ? `${itemGroup.name} - currently selected`
                             : localListLabel
                               ? `${itemGroup.name} - ${localListLabel}`

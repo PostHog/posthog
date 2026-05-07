@@ -259,9 +259,9 @@ export function ActionFilterRow({
     const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
 
     const popoverValue = getValue(value, filter)
-    // Pin the active series to the top of the Suggested-series tab. Skip when there's no
-    // real selection yet (`'empty'` placeholder or null) and for data-warehouse rows, which
-    // open straight into the DataWarehouse tab.
+    // Hoist the active series to the top of the Suggested-series tab. Skip when there's
+    // no real selection yet (`'empty'` placeholder or null) and for data-warehouse rows,
+    // which open straight into the DataWarehouse tab.
     const currentSelection =
         suggestedFiltersLabel && !isDataWarehouseFilter && popoverValue != null && filter.id !== 'empty' && name
             ? {

@@ -15,12 +15,11 @@ import {
     taxonomicFilterPinnedPropertiesLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
-    CurrentSelectionItem,
     ExcludedOperators,
     InfiniteListLogicProps,
     QuickFilterItem,
     SkeletonItem,
-    isCurrentSelectionItem,
+    hoistCurrentSelection,
     isQuickFilterItem,
     isSkeletonItem,
     ListFuse,
@@ -815,21 +814,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
-                // Lift the host's pinned current-selection above recents/pinned so it always
+                // Hoist the host's current-selection above recents/pinned so it always
                 // anchors the top of the Suggested-filters tab.
-                const currentSelectionItems: CurrentSelectionItem[] = []
-                const localItemsWithoutCurrentSelection: TaxonomicDefinitionTypes[] = []
-                if (isSuggested) {
-                    for (const item of localItems.results) {
-                        if (isCurrentSelectionItem(item)) {
-                            currentSelectionItems.push(item)
-                        } else {
-                            localItemsWithoutCurrentSelection.push(item)
-                        }
-                    }
-                } else {
-                    localItemsWithoutCurrentSelection.push(...localItems.results)
-                }
+                const { hoisted: currentSelectionItems, rest: localItemsWithoutCurrentSelection } = isSuggested
+                    ? hoistCurrentSelection(localItems.results)
+                    : { hoisted: [], rest: localItems.results }
                 // Build a set of "groupType:value" keys for the current selection, so the same
                 // series doesn't also appear in the recents/pinned prefixes below.
                 const currentSelectionKeys = new Set(
@@ -874,11 +863,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ...remoteItems.results,
                     ...topMatches,
                 ]
-                // For non-suggested tabs that don't have their own pinning machinery, lift the
+                // For non-suggested tabs that don't have their own hoisting machinery, lift the
                 // currently-selected row to the top of the list so the user can see at a glance
                 // what's already chosen — without this it sits in alphabetical position.
-                // DataWarehouse has its own pin lifecycle via `getInitialPinnedRowIndex`; leaving
-                // its row order alone keeps that flow working.
+                // DataWarehouse has its own pin lifecycle via `getInitialPinnedRowIndex` (a
+                // separate row-pinning UX, unrelated to current-selection hoisting); leaving its
+                // row order alone keeps that flow working.
                 if (
                     !isSuggested &&
                     listGroupType !== TaxonomicFilterGroupType.DataWarehouse &&

@@ -159,7 +159,7 @@ describe('TaxonomicFilter', () => {
                 expectedTagText: 'Actions - currently selected',
             },
         ])(
-            'pins the currently-selected $description in the Suggested-filters list with a single combined tag',
+            'hoists the currently-selected $description to the top of the Suggested-filters list with a single combined tag',
             async ({ currentSelection, expectedTagText }) => {
                 renderFilter({
                     suggestedFiltersLabel: 'Suggested series',
@@ -178,7 +178,7 @@ describe('TaxonomicFilter', () => {
             }
         )
 
-        it('pins the currently-selected series even when the event is not in the team taxonomy', async () => {
+        it('hoists the currently-selected series even when the event is not in the team taxonomy', async () => {
             renderFilter({
                 suggestedFiltersLabel: 'Suggested series',
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],

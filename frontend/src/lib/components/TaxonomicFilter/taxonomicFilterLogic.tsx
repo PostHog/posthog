@@ -48,6 +48,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    hoistCurrentSelection,
     isCurrentSelectionItem,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
@@ -1414,7 +1415,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         isLocalOnly: true,
                         isMetaGroup: true,
                         options: [
-                            // Pin the host's current selection to the top so it stays visible
+                            // Hoist the host's current selection to the top so it stays visible
                             // alongside the suggestions. The cross-group dispatch in InfiniteList
                             // routes rendering to the Events / Actions / DataWarehouse renderer.
                             ...(currentSelection
@@ -1443,21 +1444,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ],
                         getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue => {
-                            // The pinned current-selection row carries its own value (action id or
-                            // event name); other suggested items are property names.
+                            // The hoisted current-selection row carries its own value (action id
+                            // or event name); other suggested items are property names.
                             if (isCurrentSelectionItem(item)) {
                                 return item.id ?? null
                             }
                             return 'name' in item ? (item.name ?? null) : null
                         },
-                        // Keep the pinned current-selection at the top regardless of search
+                        // Keep the hoisted current-selection at the top regardless of search
                         // query, and run a substring filter over the remaining suggestions.
                         localItemsSearch: (items, query) => {
-                            const pinned: TaxonomicDefinitionTypes[] = []
-                            const rest: TaxonomicDefinitionTypes[] = []
-                            for (const item of items) {
-                                ;(isCurrentSelectionItem(item) ? pinned : rest).push(item)
-                            }
+                            const { hoisted, rest } = hoistCurrentSelection(items)
                             const trimmedQuery = query.trim().toLowerCase()
                             const filteredRest = trimmedQuery
                                 ? rest.filter((item) => {
@@ -1465,7 +1462,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       return name?.toLowerCase().includes(trimmedQuery)
                                   })
                                 : rest
-                            return [...pinned, ...filteredRest]
+                            return [...hoisted, ...filteredRest]
                         },
                         getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
                     },
