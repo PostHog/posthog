@@ -21,6 +21,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
@@ -259,6 +260,7 @@ export const ActivityLogRow = ({
 export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id, caption, startingPage })
     const { humanizedActivity, activityLoading, pagination, highlightedActivityId } = useValues(logic)
+    const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { billingLoading } = useValues(billingLogic)
 
@@ -278,7 +280,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
             ) : (
                 <PayGateMini
                     feature={AvailableFeature.AUDIT_LOGS}
-                    overrideShouldShowGate={!!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+                    overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
                 >
                     {humanizedActivity.length === 0 ? (
                         <Empty scope={scope} />
