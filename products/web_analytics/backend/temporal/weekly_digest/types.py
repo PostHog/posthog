@@ -71,7 +71,8 @@ class DigestBatchResult:
 
     @property
     def failure_rate(self) -> float:
-        return self.orgs_failed / self.batch_size if self.batch_size > 0 else 0
+        attempted = self.orgs_processed + self.orgs_failed
+        return self.orgs_failed / attempted if attempted > 0 else 0.0
 
     def __iadd__(self, other: "DigestBatchResult") -> "DigestBatchResult":
         for f in dataclasses.fields(self):

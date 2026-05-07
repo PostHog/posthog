@@ -22,6 +22,7 @@ from products.web_analytics.backend.temporal.weekly_digest.activities import (
 from products.web_analytics.backend.temporal.weekly_digest.types import (
     WA_DIGEST_EMAIL_UNAVAILABLE_TYPE,
     DigestBatchInput,
+    DigestBatchResult,
     DigestOutcome,
     OrgDigestCounts,
     WAWeeklyDigestInput,
@@ -150,6 +151,19 @@ class TestSendDigestForUser(_DigestTestBase):
             date_suffix="2025-15",
         )
         assert outcome == DigestOutcome.FAILED
+
+    def test_propagates_send_error_when_test_mode(self):
+        self.mock_message.send.side_effect = RuntimeError("smtp blew up")
+        with self.assertRaises(RuntimeError) as cm:
+            _send_digest_for_user(
+                user=self.user,
+                org=self.organization,
+                membership=self.organization_membership,
+                team_digest_data={self.team.id: _make_team_digest(self.team)},
+                date_suffix="2025-15",
+                test=True,
+            )
+        assert "smtp blew up" in str(cm.exception)
 
     def test_test_mode_bypasses_per_team_opt_out(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
@@ -388,6 +402,12 @@ class TestGetOrgIdBatches(APIBaseTest):
         assert flat == override
         assert [len(b) for b in batches] == [2, 1]
 
+    def test_admin_org_ids_override_bypasses_rollout(self):
+        override = [f"org-{i:04d}" for i in range(20)]
+        batches = _get_org_id_batches(WAWeeklyDigestInput(org_ids=override, rollout_percentage=0.1, batch_size=100))
+        flat = [oid for batch in batches for oid in batch]
+        assert flat == override
+
     @parameterized.expand(
         [
             ("ten_percent", 0.1),
@@ -395,9 +415,15 @@ class TestGetOrgIdBatches(APIBaseTest):
         ]
     )
     def test_rollout_filter_is_deterministic(self, _name, percentage):
-        org_ids = [f"org-{i:04d}" for i in range(100)]
-        first = _get_org_id_batches(WAWeeklyDigestInput(org_ids=org_ids, rollout_percentage=percentage, batch_size=10))
-        second = _get_org_id_batches(WAWeeklyDigestInput(org_ids=org_ids, rollout_percentage=percentage, batch_size=10))
+        all_org_ids = [f"org-{i:04d}" for i in range(100)]
+        with patch("products.web_analytics.backend.temporal.weekly_digest.activities.Organization") as mock_org_model:
+            mock_org_model.objects.all.return_value.values_list.return_value = all_org_ids
+            first = _get_org_id_batches(
+                WAWeeklyDigestInput(rollout_percentage=percentage, batch_size=10, active_since_days=None)
+            )
+            second = _get_org_id_batches(
+                WAWeeklyDigestInput(rollout_percentage=percentage, batch_size=10, active_since_days=None)
+            )
         first_flat = [oid for batch in first for oid in batch]
         second_flat = [oid for batch in second for oid in batch]
         assert first_flat == second_flat
@@ -476,6 +502,28 @@ class TestRunWaDigestBatch(APIBaseTest):
         assert totals.orgs_skipped == 3
         assert totals.orgs_failed == 0
         assert totals.failure_rate == 0.0
+
+    @parameterized.expand(
+        [
+            ("all_skipped", {"batch_size": 100, "orgs_skipped": 100}, 0.0),
+            ("all_failed", {"batch_size": 10, "orgs_failed": 10}, 1.0),
+            ("mixed_skip_and_fail", {"batch_size": 100, "orgs_skipped": 90, "orgs_failed": 10}, 1.0),
+            (
+                "mixed_processed_and_failed",
+                {"batch_size": 10, "orgs_processed": 8, "orgs_failed": 2},
+                0.2,
+            ),
+            (
+                "skipped_does_not_dilute",
+                {"batch_size": 100, "orgs_processed": 1, "orgs_skipped": 98, "orgs_failed": 1},
+                0.5,
+            ),
+            ("empty", {}, 0.0),
+        ]
+    )
+    def test_failure_rate_denominator_excludes_skipped(self, _name, fields, expected):
+        result = DigestBatchResult(**fields)
+        assert result.failure_rate == expected
 
     def test_aggregates_email_attribution_via_real_build_and_send(self):
         opted_out = User.objects.create_user(email="opted-out@example.com", password="x", first_name="Out")

@@ -113,7 +113,7 @@ class WAWeeklyDigestWorkflow(PostHogWorkflow):
             "failed_batches": failed_batches,
             "emails_sent": totals.emails_sent,
             "emails_failed": totals.emails_failed,
-            "duration_seconds": totals.total_duration,
+            "cumulative_duration_seconds": totals.total_duration,
         }
 
 

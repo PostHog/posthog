@@ -99,9 +99,9 @@ def _get_org_id_batches(input: WAWeeklyDigestInput) -> list[list[str]]:
             cutoff=cutoff.isoformat() if cutoff else None,
         )
 
-    if input.rollout_percentage < 1.0:
-        org_ids = filter_ids_for_rollout(org_ids, input.rollout_percentage)
-        logger.info("after rollout filtering", rollout_pct=input.rollout_percentage, count=len(org_ids))
+        if input.rollout_percentage < 1.0:
+            org_ids = filter_ids_for_rollout(org_ids, input.rollout_percentage)
+            logger.info("after rollout filtering", rollout_pct=input.rollout_percentage, count=len(org_ids))
 
     batches = [list(b) for b in batched(org_ids, input.batch_size)]
     logger.info("created wa digest batches", batch_count=len(batches), batch_size=input.batch_size)
@@ -178,6 +178,8 @@ def _send_digest_for_user(
         message.add_user_recipient(user)
         message.send()
     except Exception as e:
+        if test:
+            raise
         logger.warning(
             "failed to send wa digest email",
             org_id=str(org.id),
@@ -308,74 +310,78 @@ def _push_wa_digest_metrics(totals: DigestBatchResult, success: bool) -> None:
     if not settings.PROM_PUSHGATEWAY_ADDRESS:
         return
 
-    with pushed_metrics_registry("wa_weekly_digest") as registry:
-        duration_gauge = Gauge(
-            "posthog_wa_digest_duration_seconds",
-            "Time spent in each phase of the WA weekly digest run",
-            labelnames=["phase"],
-            registry=registry,
-        )
-        for phase, value in [
-            ("build", totals.build_duration),
-            ("send", totals.send_duration),
-            ("total", totals.total_duration),
-        ]:
-            duration_gauge.labels(phase=phase).set(value)
+    try:
+        with pushed_metrics_registry("wa_weekly_digest") as registry:
+            duration_gauge = Gauge(
+                "posthog_wa_digest_duration_seconds",
+                "Time spent in each phase of the WA weekly digest run (work time, summed across concurrent batches — not wall-clock)",
+                labelnames=["phase"],
+                registry=registry,
+            )
+            for phase, value in [
+                ("build", totals.build_duration),
+                ("send", totals.send_duration),
+                ("cumulative", totals.total_duration),
+            ]:
+                duration_gauge.labels(phase=phase).set(value)
 
-        orgs_gauge = Gauge(
-            "posthog_wa_digest_orgs",
-            "Org outcomes for a WA weekly digest run",
-            labelnames=["outcome"],
-            registry=registry,
-        )
-        for outcome, value in [
-            ("total", totals.batch_size),
-            ("processed", totals.orgs_processed),
-            ("skipped", totals.orgs_skipped),
-            ("failed", totals.orgs_failed),
-        ]:
-            orgs_gauge.labels(outcome=outcome).set(value)
+            orgs_gauge = Gauge(
+                "posthog_wa_digest_orgs",
+                "Org outcomes for a WA weekly digest run",
+                labelnames=["outcome"],
+                registry=registry,
+            )
+            for outcome, value in [
+                ("total", totals.batch_size),
+                ("processed", totals.orgs_processed),
+                ("skipped", totals.orgs_skipped),
+                ("failed", totals.orgs_failed),
+            ]:
+                orgs_gauge.labels(outcome=outcome).set(value)
 
-        emails_gauge = Gauge(
-            "posthog_wa_digest_emails",
-            "Email outcomes for a WA weekly digest run",
-            labelnames=["outcome"],
-            registry=registry,
-        )
-        for outcome, value in [
-            ("sent", totals.emails_sent),
-            ("skipped_optout", totals.emails_skipped_optout),
-            ("skipped_no_data", totals.emails_skipped_no_data),
-            ("failed", totals.emails_failed),
-        ]:
-            emails_gauge.labels(outcome=outcome).set(value)
+            emails_gauge = Gauge(
+                "posthog_wa_digest_emails",
+                "Email outcomes for a WA weekly digest run",
+                labelnames=["outcome"],
+                registry=registry,
+            )
+            for outcome, value in [
+                ("sent", totals.emails_sent),
+                ("skipped_optout", totals.emails_skipped_optout),
+                ("skipped_no_data", totals.emails_skipped_no_data),
+                ("failed", totals.emails_failed),
+            ]:
+                emails_gauge.labels(outcome=outcome).set(value)
 
-        success_gauge = Gauge(
-            "posthog_wa_digest_success",
-            "1 if the WA weekly digest run completed within failure threshold, else 0",
-            registry=registry,
-        )
-        success_gauge.set(1 if success else 0)
+            success_gauge = Gauge(
+                "posthog_wa_digest_success",
+                "1 if the WA weekly digest run completed within failure threshold, else 0",
+                registry=registry,
+            )
+            success_gauge.set(1 if success else 0)
 
-        failure_rate_gauge = Gauge(
-            "posthog_wa_digest_failure_rate",
-            "Fraction of orgs whose processing raised an exception in the WA weekly digest",
-            registry=registry,
-        )
-        failure_rate_gauge.set(totals.failure_rate)
+            failure_rate_gauge = Gauge(
+                "posthog_wa_digest_failure_rate",
+                "Fraction of orgs whose processing raised an exception in the WA weekly digest",
+                registry=registry,
+            )
+            failure_rate_gauge.set(totals.failure_rate)
 
-        last_run_gauge = Gauge(
-            "posthog_wa_digest_last_run_timestamp",
-            "Unix timestamp of the most recent WA weekly digest run",
-            registry=registry,
-        )
-        last_run_gauge.set(time.time())
+            last_run_gauge = Gauge(
+                "posthog_wa_digest_last_run_timestamp",
+                "Unix timestamp of the most recent WA weekly digest run",
+                registry=registry,
+            )
+            last_run_gauge.set(time.time())
+    except Exception as e:
+        logger.warning("Failed to push WA digest metrics to Pushgateway", error=str(e))
+        capture_exception(e)
 
 
 @activity.defn(name="wa-digest-push-metrics")
 async def push_wa_digest_metrics_activity(totals_dict: dict, success: bool) -> None:
     totals = DigestBatchResult(**totals_dict)
-    _push_wa_digest_metrics(totals, success=success)
+    await database_sync_to_async(_push_wa_digest_metrics, thread_sensitive=False)(totals, success)
 
 
 def _send_test_digest(email: str, team_id: int | None = None) -> None:
