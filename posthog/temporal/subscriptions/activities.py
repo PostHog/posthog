@@ -35,7 +35,7 @@ from posthog.temporal.subscriptions.types import (
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
-from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, TERMINAL_SLACK_ERROR_CODES, _capture_delivery_failed_event
+from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
@@ -343,11 +343,9 @@ async def _auto_disable_and_return(
     subscription: Subscription,
     reason: DisableReason,
     recipient_results: list[RecipientResult],
-    capture_event: bool = True,
 ) -> DeliverSubscriptionResult:
     """Permanent-failure exit path: record per-recipient failure, capture analytics,
-    and auto-disable the subscription. Pass `capture_event=False` when the caller
-    has already captured the analytics event with the real exception."""
+    and auto-disable the subscription."""
     recipient_results.append(
         RecipientResult(
             recipient=subscription.target_value,
@@ -355,10 +353,9 @@ async def _auto_disable_and_return(
             error={"message": reason.description, "type": reason.key},
         )
     )
-    if capture_event:
-        # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
-        # so a plain Exception conveys the same info without implying retry semantics.
-        _capture_delivery_failed_event(subscription, Exception(reason.description))
+    # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
+    # so a plain Exception conveys the same info without implying retry semantics.
+    _capture_delivery_failed_event(subscription, Exception(reason.description))
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
@@ -557,7 +554,6 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         except Exception as e:
             slack_error_code = e.response.get("error") if isinstance(e, SlackApiError) else None
             is_user_config_error = slack_error_code in SLACK_USER_CONFIG_ERRORS
-            is_terminal_slack_error = slack_error_code in TERMINAL_SLACK_ERROR_CODES
             _capture_delivery_failed_event(subscription, e)
             LOGGER.error(
                 "deliver_subscription.slack_failed",
@@ -567,24 +563,13 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 exc_info=True,
             )
             capture_exception(e)
-            # Terminal user-config error (revoked auth, archived/deleted channel, etc.) —
-            # won't self-heal, so auto-disable to stop the subscription re-firing every cycle.
-            if is_terminal_slack_error:
+            if is_user_config_error:
+                # Won't self-heal without user action — auto-disable so the subscription
+                # stops re-firing every cycle.
                 return await _auto_disable_and_return(
-                    subscription,
-                    SLACK_PERMISSION_REVOKED_DISABLE_REASON,
-                    recipient_results,
-                    capture_event=False,  # already captured above with the real exception
+                    subscription, SLACK_PERMISSION_REVOKED_DISABLE_REASON, recipient_results
                 )
-            recipient_results.append(
-                RecipientResult(
-                    recipient=subscription.target_value,
-                    status="failed",
-                    error={"message": str(e), "type": type(e).__name__},
-                )
-            )
-            if not is_user_config_error:
-                raise  # Transient Slack errors — let Temporal retry
+            raise  # Transient Slack errors — let Temporal retry
 
     await LOGGER.ainfo(
         "deliver_subscription.completed",

@@ -16,8 +16,7 @@ class DisableReason(NamedTuple):
     # Shown in the disabled-subscription email body and the activity's recipient_results.
     description: str
     # Re-enable rejection message surfaced by the API serializer; `{target_type}` is interpolated.
-    # None for reasons detected only at delivery time (no inspectable state for the API).
-    user_message: str | None = None
+    user_message: str
 
 
 SLACK_DISCONNECTED_DISABLE_REASON = DisableReason(
@@ -30,11 +29,10 @@ UNSUPPORTED_TARGET_DISABLE_REASON = DisableReason(
     description="Unsupported delivery channel",
     user_message="Cannot re-enable {target_type} subscription: this delivery channel is not currently supported.",
 )
-# `user_message` is None — only set by the delivery activity, never returned
-# by `get_subscription_disable_reason`, so the API never needs a re-enable rejection.
 SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     key="slack_permission_revoked",
     description="PostHog can no longer post to this Slack channel",
+    user_message="Cannot re-enable {target_type} subscription: PostHog can't post to this Slack channel. Reconnect Slack or re-add the bot to the channel, then try again.",
 )
 
 logger = structlog.get_logger(__name__)
@@ -54,7 +52,7 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
 def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
     """API-serializer wrapper — returns the user-facing rejection message, or None if re-enable is OK."""
     reason = get_subscription_disable_reason(target_type, integration_id)
-    if reason is None or reason.user_message is None:
+    if reason is None:
         return None
     return reason.user_message.format(target_type=target_type)
 
