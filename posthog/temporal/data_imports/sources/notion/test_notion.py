@@ -37,7 +37,8 @@ def _capture_post_calls(session: MagicMock, responses: list[MagicMock]) -> list[
 
     def side_effect(*_args: object, **kwargs: object) -> MagicMock:
         json_body = kwargs.get("json")
-        snapshots.append(copy.deepcopy(json_body) if json_body is not None else {})
+        snapshot: dict[str, Any] = copy.deepcopy(json_body) if isinstance(json_body, dict) else {}
+        snapshots.append(snapshot)
         return next(response_iter)
 
     session.post.side_effect = side_effect
@@ -64,7 +65,7 @@ class TestPaginate:
             ("resume_final_page", "saved-c", [(False, None)], [], True),
         ]
     )
-    @patch("posthog.temporal.data_imports.sources.notion.notion._execute_request")
+    @patch("posthog.temporal.data_imports.sources.notion.notion._execute_post")
     def test_pagination_state(
         self,
         _name: str,
@@ -76,7 +77,7 @@ class TestPaginate:
     ) -> None:
         snapshots: list[dict[str, Any]] = []
 
-        def side_effect(_sess: object, _method: object, _url: object, body: dict[str, Any]) -> dict[str, Any]:
+        def side_effect(_sess: object, _url: object, body: dict[str, Any]) -> dict[str, Any]:
             snapshots.append(copy.deepcopy(body))
             has_more, next_cursor = page_specs[len(snapshots) - 1]
             return {
@@ -118,7 +119,7 @@ class TestPaginate:
             assert body["page_size"] == 100
 
     @parameterized.expand([("null_next_cursor", None), ("empty_next_cursor", "")])
-    @patch("posthog.temporal.data_imports.sources.notion.notion._execute_request")
+    @patch("posthog.temporal.data_imports.sources.notion.notion._execute_post")
     def test_raises_when_has_more_but_cursor_missing(
         self,
         _name: str,

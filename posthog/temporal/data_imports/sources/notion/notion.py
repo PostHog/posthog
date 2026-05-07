@@ -63,7 +63,7 @@ def _execute_get(sess: requests.Session, url: str, params: dict[str, Any]) -> di
     return _do()
 
 
-def _execute_request(sess: requests.Session, method: str, url: str, json_body: dict[str, Any] | None) -> dict[str, Any]:
+def _execute_post(sess: requests.Session, url: str, json_body: dict[str, Any] | None) -> dict[str, Any]:
     @retry(
         retry=retry_if_exception_type(NotionRetryableError),
         stop=stop_after_attempt(5),
@@ -71,7 +71,7 @@ def _execute_request(sess: requests.Session, method: str, url: str, json_body: d
         reraise=True,
     )
     def _do() -> dict[str, Any]:
-        response = sess.request(method, url, json=json_body, timeout=60)
+        response = sess.post(url, json=json_body, timeout=60)
 
         if response.status_code >= 500 or response.status_code == 429:
             raise NotionRetryableError(f"Notion: server/rate-limit error {response.status_code}")
@@ -124,7 +124,7 @@ def _paginate(
             params = {k: v for k, v in request_body.items() if v is not None}
             payload = _execute_get(sess, url, params)
         else:
-            payload = _execute_request(sess, method, url, request_body)
+            payload = _execute_post(sess, url, request_body)
 
         results = payload.get("results", [])
         yield results

@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import SourceFieldOauthConfig
+
 from posthog.temporal.data_imports.sources.generated_configs import NotionSourceConfig
 from posthog.temporal.data_imports.sources.notion.settings import database_rows_schema_name
 from posthog.temporal.data_imports.sources.notion.source import NotionSource
@@ -18,7 +20,7 @@ class TestNotionSource:
         assert config.featureFlag == "dwh-notion"
         assert config.iconPath == "/static/services/notion.png"
 
-        oauth_fields = [f for f in config.fields if getattr(f, "kind", None) == "notion"]
+        oauth_fields = [f for f in config.fields if isinstance(f, SourceFieldOauthConfig) and f.kind == "notion"]
         assert len(oauth_fields) == 1
         assert oauth_fields[0].name == "notion_integration_id"
         assert oauth_fields[0].required is True
