@@ -28,7 +28,7 @@ export const getSmolagentsSteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install smolagents openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
+                            pip install smolagents openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
                         `}
                     />
                 </>

@@ -3447,6 +3447,9 @@ importers:
       ai:
         specifier: ^6.0.0
         version: 6.0.77(zod@4.3.6)
+      eventsource-parser:
+        specifier: ^3.0.0
+        version: 3.0.6
       fflate:
         specifier: ^0.8.2
         version: 0.8.2

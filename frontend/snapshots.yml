@@ -440,6 +440,10 @@ snapshots:
         hash: v1.k794b7964.2e57b5eb67fe61cb0d615db8e602b5867b9965271f930576572486f5c3a381cf.rQJgmmPBwH0Jl_NALrmNhCrkHPrw3zfvQwW7NaUfCSU
     components-hogcharts-barchart--horizontal--light:
         hash: v1.k794b7964.c2d37efbb5f1a595f2ad8004b5b532ed557f5ef0cf8d66c6889c9ba60120d197.68oC5-4T8-zOosLcakG-rWYkDFsG_-GG6G60H69pI4g
+    components-hogcharts-barchart--horizontal-aggregated-single--dark:
+        hash: v1.k794b7964.8608593ebfba3ffae5144e5be62baeed502949152b7ae382ec2529c870205aa7.fmgEKz_TwFIitbSD0dhjQKNyOgxmLegrv-xPzbZ22x0
+    components-hogcharts-barchart--horizontal-aggregated-single--light:
+        hash: v1.k794b7964.e3aeccafc937e33a26348c2760b8c27c4bcdfb93d1b52638bd3514b482d18ba6.AwaxzDrNr0PXQe5iu8yrhQmTf1ib0qe1FUsYp5M1I8s
     components-hogcharts-barchart--horizontal-grouped--dark:
         hash: v1.k794b7964.f68e09df33fe1a42fa38a4c49b714f9f309995f5a9a76c45082cbfeefca19150.lfLphoQUP9BMClRf4sT9t3HD1DzyVZb99whBGWaVfqU
     components-hogcharts-barchart--horizontal-grouped--light:
@@ -3297,7 +3301,7 @@ snapshots:
     mcp-apps-error-tracking--chained-exceptions--light:
         hash: v1.k794b7964.389fb139ebca1a46d52bbde8fb206d19fca821f4246fbaeeec5cb6abac1edbe0.Tdry9M03t4ByyoywuZ8Ji3HdpO458gYKGWeSXtbvCBM
     mcp-apps-error-tracking--error-details--light:
-        hash: v1.k794b7964.15370fe6ee63046e8dde963d24a7cb1dc72d3f33ee3c063b99e7ab44bc4f527e.K95H1vX5WL6oT6pwRoUHaGotlgHnqcXZesFxjqoahqY
+        hash: v1.k794b7964.74f9d68f76de7bb2b9a8fe2c9e9eb1d0e168e36ec968ea31db600fee9ceb9c5e.g8P9K2bwwae_R1V-A3RPR6mAzlfgAIvg97NX470Cz4M
     mcp-apps-error-tracking--list--light:
         hash: v1.k794b7964.9aa5264a8942447254a8133097d32ff170bb770882f7c9e6986e9e8002ec2bfd.032Gz3ampq0eCejp_vtf7TYyket4mu5-jhhZWYeU-s4
     mcp-apps-error-tracking--python-stack-trace--light:
