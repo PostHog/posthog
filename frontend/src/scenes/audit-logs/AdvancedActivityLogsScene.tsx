@@ -73,11 +73,17 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
         )
     }
 
-    const scopeStatusLabel = inOrganizationScope
-        ? 'Showing activity across the entire organization.'
-        : includesOrgLevelLogs
-          ? 'This view includes activity from both this project and organization-level changes (such as organization settings, domains, and members).'
-          : 'This view only includes activity from this project. Organization-level changes are not shown.'
+    const projectScopeTooltip = (
+        <>
+            {includesOrgLevelLogs
+                ? 'This project view also includes organization-level changes (such as organization settings, domains, and members).'
+                : 'This project view only shows activity from this project. Organization-level changes are not shown.'}
+            <br />
+            <Link to={urls.settings('environment-activity-logs', 'activity-log-org-level-settings')}>
+                Change in settings
+            </Link>
+        </>
+    )
 
     return (
         <SceneContent>
@@ -96,51 +102,39 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                     sceneInset
                     rightSlot={
                         <div className="flex items-center gap-3">
-                            {canViewOrganizationScope && (
-                                <Tooltip title="Switch between activity logs scoped to this project and activity logs across all projects in the organization. Organization scope is restricted to organization admins and owners.">
-                                    <span>
-                                        <LemonSegmentedButton
-                                            size="small"
-                                            value={scope}
-                                            onChange={(value) => setScope(value as ActivityLogsScope)}
-                                            options={[
-                                                { value: 'project', label: 'Project' },
-                                                { value: 'organization', label: 'Organization' },
-                                            ]}
-                                            data-attr="audit-logs-scope-toggle"
-                                        />
+                            {canViewOrganizationScope ? (
+                                <LemonSegmentedButton
+                                    size="small"
+                                    value={scope}
+                                    onChange={(value) => setScope(value as ActivityLogsScope)}
+                                    options={[
+                                        {
+                                            value: 'project',
+                                            label: (
+                                                <span className="flex items-center gap-1">
+                                                    Project
+                                                    <IconInfo className="text-base" />
+                                                </span>
+                                            ),
+                                            tooltip: projectScopeTooltip,
+                                        },
+                                        {
+                                            value: 'organization',
+                                            label: 'Organization',
+                                            tooltip: 'Activity across all projects in the organization.',
+                                        },
+                                    ]}
+                                    data-attr="audit-logs-scope-toggle"
+                                />
+                            ) : (
+                                // No toggle for non-admins — keep the contextual indicator inline.
+                                <Tooltip title={projectScopeTooltip}>
+                                    <span className="flex items-center gap-1 text-sm text-secondary whitespace-nowrap cursor-pointer">
+                                        {includesOrgLevelLogs ? 'Project and organization logs' : 'Project logs only'}
+                                        <IconInfo className="text-base" />
                                     </span>
                                 </Tooltip>
                             )}
-                            <Tooltip
-                                title={
-                                    <>
-                                        {scopeStatusLabel}
-                                        {!inOrganizationScope && (
-                                            <>
-                                                <br />
-                                                <Link
-                                                    to={urls.settings(
-                                                        'environment-activity-logs',
-                                                        'activity-log-org-level-settings'
-                                                    )}
-                                                >
-                                                    Change in settings
-                                                </Link>
-                                            </>
-                                        )}
-                                    </>
-                                }
-                            >
-                                <span className="flex items-center gap-1 text-sm text-secondary whitespace-nowrap cursor-pointer">
-                                    {inOrganizationScope
-                                        ? 'Organization-wide logs'
-                                        : includesOrgLevelLogs
-                                          ? 'Project and organization logs'
-                                          : 'Project logs only'}
-                                    <IconInfo className="text-base" />
-                                </span>
-                            </Tooltip>
                         </div>
                     }
                 />
