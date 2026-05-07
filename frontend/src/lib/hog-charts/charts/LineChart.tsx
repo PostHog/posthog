@@ -161,6 +161,22 @@ function LineChartInner<Meta = unknown>({
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
             }
 
+            // Clip data drawing to the plot area so an overlay series with values outside
+            // the y-domain (e.g. a trendline projecting below 0) doesn't bleed into the
+            // axis-label gutter beneath the chart. A small pad on top/bottom keeps strokes
+            // at the domain edge from rendering at half-thickness — line strokes and point
+            // markers extend past the value's pixel center.
+            const CLIP_PAD = 8
+            ctx.save()
+            ctx.beginPath()
+            ctx.rect(
+                dimensions.plotLeft,
+                dimensions.plotTop - CLIP_PAD,
+                dimensions.plotWidth,
+                dimensions.plotHeight + CLIP_PAD * 2
+            )
+            ctx.clip()
+
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
                     continue
@@ -178,6 +194,8 @@ function LineChartInner<Meta = unknown>({
                     drawPoints(drawCtx, s, yValues)
                 }
             }
+
+            ctx.restore()
         },
         [showGrid, stackedData]
     )
@@ -198,7 +216,7 @@ function LineChartInner<Meta = unknown>({
                 // Auxiliary overlays (moving averages, trend lines) opt out of stacking.
                 // In percent-stack mode the y-scale domain is [0, 1], so mapping their raw
                 // values produces a highlight ring far outside the plot — skip them entirely.
-                if (s.visibility?.fromStack) {
+                if (s.overlay) {
                     continue
                 }
                 const data = stackedData?.get(s.key)?.top ?? s.data

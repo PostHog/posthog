@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-06 10:39:49 UTC
+// Generated at: 2026-05-06 20:29:04 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -21,7 +21,6 @@ export type CanonicalProvider =
     | 'anthropic-2'
     | 'arcee-ai'
     | 'arcee-ai-prime'
-    | 'atlas-cloud-fast'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
@@ -71,7 +70,6 @@ export type CanonicalProvider =
     | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-int4'
-    | 'ionstream-bf16'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
