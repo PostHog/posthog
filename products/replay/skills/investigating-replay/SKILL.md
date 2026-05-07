@@ -18,13 +18,13 @@ ask for each piece.
 
 ## Available tools
 
-| Tool                                  | Purpose                                          |
-| ------------------------------------- | ------------------------------------------------ |
-| `posthog:session-recording-get`       | Recording metadata (duration, counts, status)    |
-| `posthog:persons-retrieve`            | Person profile (properties, distinct IDs)        |
-| `posthog:execute-sql`                 | Query events, errors, and page views in session  |
-| `posthog:query-error-tracking-issues-list`  | Find error tracking issues linked to the session |
-| `posthog:session-recording-summarize` | AI-generated summary (slow, ~5 min, optional)    |
+| Tool                                       | Purpose                                          |
+| ------------------------------------------ | ------------------------------------------------ |
+| `posthog:session-recording-get`            | Recording metadata (duration, counts, status)    |
+| `posthog:persons-retrieve`                 | Person profile (properties, distinct IDs)        |
+| `posthog:execute-sql`                      | Query events, errors, and page views in session  |
+| `posthog:query-error-tracking-issues-list` | Find error tracking issues linked to the session |
+| `posthog:session-recording-summarize`      | AI-generated summary (slow, ~5 min, optional)    |
 
 ## Workflow
 

@@ -2,6 +2,5 @@
 # name: TestAPIDocsSchema.test_api_docs_generation_warnings_snapshot
   list([
     '',
-    'Warning: enum naming encountered a non-optimally resolvable collision for fields named "orderBy". The same name has been used for multiple choice sets in multiple components. The collision was resolved with "OrderBy5f0Enum". add an entry to ENUM_NAME_OVERRIDES to fix the naming.',
   ])
 # ---

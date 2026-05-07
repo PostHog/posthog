@@ -17,13 +17,13 @@ or duplicate occurrences. This skill picks the most useful one.
 
 ## Available tools
 
-| Tool                                     | Purpose                                               |
-| ---------------------------------------- | ----------------------------------------------------- |
-| `posthog:query-error-tracking-issue`     | Get issue details (fingerprint, status, volume)       |
-| `posthog:execute-sql`                    | Query exception events to find linked sessions        |
-| `posthog:query-session-recordings-list`  | Fetch recording metadata for candidate sessions       |
-| `posthog:session-recording-get`          | Get full details for the selected recording           |
-| `posthog:session-recording-summarize`    | AI summary of the selected recording (optional, slow) |
+| Tool                                    | Purpose                                               |
+| --------------------------------------- | ----------------------------------------------------- |
+| `posthog:query-error-tracking-issue`    | Get issue details (fingerprint, status, volume)       |
+| `posthog:execute-sql`                   | Query exception events to find linked sessions        |
+| `posthog:query-session-recordings-list` | Fetch recording metadata for candidate sessions       |
+| `posthog:session-recording-get`         | Get full details for the selected recording           |
+| `posthog:session-recording-summarize`   | AI summary of the selected recording (optional, slow) |
 
 ## Workflow
 
