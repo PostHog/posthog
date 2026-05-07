@@ -809,15 +809,27 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
                 const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                // Lift the host's pinned current-selection above recents/pinned so it always
+                // anchors the top of the Suggested-filters tab.
+                const isCurrentSelectionItem = (item: TaxonomicDefinitionTypes): boolean =>
+                    !!item &&
+                    typeof item === 'object' &&
+                    'isCurrentSelection' in item &&
+                    !!(item as { isCurrentSelection?: boolean }).isCurrentSelection
+                const currentSelectionItems = isSuggested ? localItems.results.filter(isCurrentSelectionItem) : []
+                const localItemsWithoutCurrentSelection = isSuggested
+                    ? localItems.results.filter((item) => !isCurrentSelectionItem(item))
+                    : localItems.results
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
                 // see the autocapture/event-type shortcut prominently and pressing Enter picks it.
                 // Real events with the same name remain accessible below the shortcut.
                 const combinedResults = [
+                    ...currentSelectionItems,
                     ...keywordShortcutItems,
                     ...recentPrefix,
                     ...pinnedPrefix,
                     ...suggestedPinnedMatches,
-                    ...localItems.results,
+                    ...localItemsWithoutCurrentSelection,
                     ...remoteItems.results,
                     ...topMatches,
                 ]

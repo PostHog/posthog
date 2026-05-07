@@ -1449,6 +1449,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             }
                             return 'name' in item ? (item.name ?? null) : null
                         },
+                        // Keep the pinned current-selection at the top regardless of search
+                        // query, and run a substring filter over the remaining suggestions.
+                        localItemsSearch: (items, query) => {
+                            const isCurrentSelection = (item: TaxonomicDefinitionTypes): boolean =>
+                                !!item &&
+                                typeof item === 'object' &&
+                                'isCurrentSelection' in item &&
+                                !!(item as { isCurrentSelection?: boolean }).isCurrentSelection
+                            const pinned = items.filter(isCurrentSelection)
+                            const rest = items.filter((item) => !isCurrentSelection(item))
+                            const trimmedQuery = query.trim().toLowerCase()
+                            const filteredRest = trimmedQuery
+                                ? rest.filter((item) => {
+                                      const name = 'name' in item ? item.name : ''
+                                      return name?.toLowerCase().includes(trimmedQuery)
+                                  })
+                                : rest
+                            return [...pinned, ...filteredRest]
+                        },
                         getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
                     },
                     {
