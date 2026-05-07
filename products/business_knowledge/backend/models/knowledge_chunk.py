@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
@@ -52,7 +54,7 @@ class KnowledgeChunk(models.Model):
             ),
         ]
 
-    def save(self, *args: object, **kwargs: object) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         if self.pk is None:
             raise ValueError(
                 "KnowledgeChunk.id must be set before save — use logic.py's deterministic chunk_id() to compute it."
