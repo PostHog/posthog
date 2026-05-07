@@ -5,7 +5,6 @@ Single source of truth for list, sparkline, heatmap, and BubbleUp queries.
 """
 
 import json
-import time
 import base64
 import decimal
 import datetime as dt
@@ -142,6 +141,7 @@ class TraceSpansFilterBuilder:
 
         if self.span_filters:
             for span_filter in self.span_filters:
+                span_filter = span_filter.model_copy(deep=True)
                 if span_filter.key in ("trace_id", "span_id"):
                     if isinstance(span_filter.value, list):
                         span_filter.value = [_normalise_to_base64(str(v)) for v in span_filter.value]
@@ -158,23 +158,6 @@ class TraceSpansFilterBuilder:
                     else:
                         if _is_number(str(span_filter.value)):
                             span_filter.value = _duration_filter_value_to_nano_str(span_filter.value)
-
-                    # #region agent log
-                    with open("/Users/danielvisca/Development/posthog/.cursor/debug-f7867f.log", "a") as _dbg_f:
-                        _dbg_f.write(
-                            json.dumps(
-                                {
-                                    "sessionId": "f7867f",
-                                    "hypothesisId": "A",
-                                    "location": "filter_builder.py:duration_nano",
-                                    "message": "duration filter normalized to nano str",
-                                    "data": {"value": span_filter.value},
-                                    "timestamp": int(time.time() * 1000),
-                                }
-                            )
-                            + "\n"
-                        )
-                    # #endregion
 
                 if span_filter.key == "kind":
                     values = span_filter.value if isinstance(span_filter.value, list) else [str(span_filter.value)]

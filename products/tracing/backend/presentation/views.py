@@ -39,7 +39,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..bubble_up import run_bubble_up
+from ..bubble_up import BubbleUpRegion, run_bubble_up
 from ..logic import (
     TraceSpansQueryRunner,
     run_attribute_names_query,
@@ -426,10 +426,12 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 status_codes=query_data.get("statusCodes"),
                 filter_group=filter_group,
                 root_spans=query_data.get("rootSpans", True),
-                region_time_from=t_from,
-                region_time_to=t_to,
-                region_duration_min_nano=d_min,
-                region_duration_max_nano=d_max,
+                region=BubbleUpRegion(
+                    time_from=t_from,
+                    time_to=t_to,
+                    duration_min_nano=d_min,
+                    duration_max_nano=d_max,
+                ),
             )
         except ExposedHogQLError as exc:
             return Response(

@@ -7,3 +7,4 @@
 - **Progressive heatmap load** (last hour then full range): not implemented; add if traces CH p95 stays high on wide ranges after measuring with the flag rolled out.
 - **CH projection** for `(time, log2(duration), service)`: deferred until heatmap byte/time p95 exceeds the review threshold (~150ms / unacceptable cost); `TRACE_SPANS_HEATMAP_SETTINGS` caps bytes today.
 - **Heatmap Y UI labels**: the toggle only changes **row order** (linear = ascending log₂ buckets → slower spans toward the top; log = reversed domain → slower toward the bottom). Labels say “Slow at top” / “Slow at bottom” instead of “Linear Y” / “Log Y”.
+- **BubbleUp UX**: heatmap button uses `LemonButton` `tooltip`; modal title + table headers use `Tooltip` + `IconInfo` with copy centralized in `bubbleUpCopy.ts` so interpretation (lift, inset vs baseline) stays aligned with backend behavior.

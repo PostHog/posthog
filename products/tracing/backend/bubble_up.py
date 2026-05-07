@@ -3,30 +3,39 @@ BubbleUp: compare attribute distributions in a brushed region vs the full filter
 """
 
 import datetime as dt
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from posthog.schema import DateRange, HogQLFilters, IntervalType, PropertyGroupFilter, TraceSpansQuery
+from posthog.schema import DateRange, HogQLFilters, PropertyGroupFilter, TraceSpansQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.tracing.backend.constants import TRACE_SPANS_HEATMAP_SETTINGS
 from products.tracing.backend.filter_builder import TraceSpansFilterBuilder
+from products.tracing.backend.query_date_range import tracing_qdr_baseline, tracing_qdr_minutely
 
 if TYPE_CHECKING:
     from posthog.models import Team
 
 
-def _merge_counts(rows: list[Any]) -> dict[tuple[str, str, str], float]:
-    out: dict[tuple[str, str, str], float] = {}
+@dataclass(frozen=True)
+class BubbleUpRegion:
+    time_from: dt.datetime
+    time_to: dt.datetime
+    duration_min_nano: int
+    duration_max_nano: int
+
+
+def _merge_counts(rows: list[Any]) -> dict[tuple[str, str, str], int]:
+    out: dict[tuple[str, str, str], int] = {}
     for row in rows or []:
-        k, v, t, c = str(row[0]), str(row[1]), str(row[2]), float(row[3])
+        k, v, t, c = str(row[0]), str(row[1]), str(row[2]), int(row[3])
         key = (k, v, t)
-        out[key] = out.get(key, 0.0) + c
+        out[key] = out.get(key, 0) + c
     return out
 
 
@@ -37,7 +46,7 @@ def _inset_attribute_counts(
     date_range: DateRange,
     map_field: str,
     attribute_type_label: str,
-) -> dict[tuple[str, str, str], float]:
+) -> dict[tuple[str, str, str], int]:
     query = parse_select(
         f"""
         SELECT
@@ -75,10 +84,7 @@ def run_bubble_up(
     service_names: list[str] | None,
     status_codes: list[int] | None,
     root_spans: bool | None,
-    region_time_from: dt.datetime,
-    region_time_to: dt.datetime,
-    region_duration_min_nano: int,
-    region_duration_max_nano: int,
+    region: BubbleUpRegion,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     """Return ranked attribute key/value pairs enriched in the brushed region vs baseline."""
@@ -90,13 +96,7 @@ def run_bubble_up(
         rootSpans=root_spans,
     )
     fb = TraceSpansFilterBuilder(team, base_query)
-    qdr = QueryDateRange(
-        date_range=date_range,
-        team=team,
-        interval=IntervalType.MINUTE,
-        interval_count=2,
-        now=dt.datetime.now(),
-    )
+    qdr = tracing_qdr_minutely(team, date_range)
 
     where_base = fb.build_where(qdr)
 
@@ -104,15 +104,15 @@ def run_bubble_up(
         parse_expr(
             "timestamp >= {t_from} AND timestamp < {t_to}",
             placeholders={
-                "t_from": ast.Constant(value=region_time_from),
-                "t_to": ast.Constant(value=region_time_to),
+                "t_from": ast.Constant(value=region.time_from),
+                "t_to": ast.Constant(value=region.time_to),
             },
         ),
         parse_expr(
             "duration_nano >= {d_min} AND duration_nano < {d_max}",
             placeholders={
-                "d_min": ast.Constant(value=region_duration_min_nano),
-                "d_max": ast.Constant(value=region_duration_max_nano),
+                "d_min": ast.Constant(value=region.duration_min_nano),
+                "d_max": ast.Constant(value=region.duration_max_nano),
             },
         ),
     ]
@@ -128,17 +128,11 @@ def run_bubble_up(
         map_field="resource_attributes",
         attribute_type_label="resource",
     ).items():
-        inset_map[k] = inset_map.get(k, 0.0) + v
+        inset_map[k] = inset_map.get(k, 0) + v
 
     inset_total = sum(inset_map.values())
 
-    baseline_qdr = QueryDateRange(
-        date_range=date_range,
-        team=team,
-        interval=IntervalType.MINUTE,
-        interval_count=10,
-        now=dt.datetime.now(),
-    )
+    baseline_qdr = tracing_qdr_baseline(team, date_range)
 
     baseline_query = parse_select(
         """
@@ -178,7 +172,7 @@ def run_bubble_up(
     for key, inset_c in inset_map.items():
         if inset_c < 5:
             continue
-        base_c = baseline_map.get(key, 1.0)
+        base_c = baseline_map.get(key, 1)
         p_in = inset_c / inset_total
         p_base = max(base_c / baseline_total, 1e-9)
         lift = p_in / p_base
@@ -187,8 +181,8 @@ def run_bubble_up(
                 "attribute_key": key[0],
                 "attribute_value": key[1],
                 "attribute_type": key[2],
-                "inset_count": int(inset_c),
-                "baseline_count": int(base_c),
+                "inset_count": inset_c,
+                "baseline_count": base_c,
                 "lift": round(lift, 4),
             }
         )

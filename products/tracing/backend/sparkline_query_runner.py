@@ -8,12 +8,13 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.tracing.backend.constants import TRACE_SPANS_HEATMAP_SETTINGS, TRACE_SPANS_SPARKLINE_SETTINGS
-from products.tracing.backend.logic import TraceSpansQueryRunner
+from products.tracing.backend.logic import TraceSpansQueryRunnerMixin
 
 
-class TraceSpansSparklineQueryRunner(TraceSpansQueryRunner):
+class TraceSpansSparklineQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     """Aggregates trace spans over time for the tracing chart (volume or latency heatmap)."""
 
     @property

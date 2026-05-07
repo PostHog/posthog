@@ -33,6 +33,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.tracing.backend.constants import TRACE_SPANS_LIST_SETTINGS
 from products.tracing.backend.filter_builder import TraceSpansFilterBuilder
+from products.tracing.backend.query_date_range import tracing_qdr_baseline, tracing_qdr_minutely
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -100,15 +101,15 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
     def settings(self) -> HogQLGlobalSettings:
         return TRACE_SPANS_LIST_SETTINGS
 
+    def validate_query_runner_access(self, user: "User") -> bool:
+        user_access_control = UserAccessControl(user=user, team=self.team)
+        return user_access_control.assert_access_level_for_resource("tracing", "viewer")
+
 
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     query: TraceSpansQuery
     cached_response: CachedTraceSpansQueryResponse
     paginator: HogQLHasMorePaginator
-
-    def validate_query_runner_access(self, user: "User") -> bool:
-        user_access_control = UserAccessControl(user=user, team=self.team)
-        return user_access_control.assert_access_level_for_resource("tracing", "viewer")
 
     def _calculate(self) -> TraceSpansQueryResponse:
         limit_by_n = self.query.prefetchSpans or 1
@@ -229,13 +230,7 @@ def run_service_names_query(
     search: str = "",
 ) -> list[dict]:
     """Return distinct service names from trace spans."""
-    query_date_range = QueryDateRange(
-        date_range=date_range,
-        team=team,
-        interval=IntervalType.MINUTE,
-        interval_count=2,
-        now=dt.datetime.now(),
-    )
+    query_date_range = tracing_qdr_minutely(team, date_range)
 
     exprs: list[ast.Expr] = [
         parse_expr(
@@ -292,14 +287,7 @@ def run_attribute_names_query(
     offset: int = 0,
 ) -> tuple[list[dict], int]:
     """Return attribute names from trace_attributes table."""
-    query_date_range = QueryDateRange(
-        date_range=date_range,
-        team=team,
-        interval=IntervalType.MINUTE,
-        interval_count=10,
-        now=dt.datetime.now(),
-        timezone_info=ZoneInfo("UTC"),
-    )
+    query_date_range = tracing_qdr_baseline(team, date_range)
 
     property_filter_type = (
         attribute_type if attribute_type in ("span", "span_attribute", "span_resource_attribute") else "span_attribute"
@@ -365,14 +353,7 @@ def run_attribute_values_query(
     offset: int = 0,
 ) -> list[dict]:
     """Return attribute values for a given key from trace_attributes table."""
-    query_date_range = QueryDateRange(
-        date_range=date_range,
-        team=team,
-        interval=IntervalType.MINUTE,
-        interval_count=10,
-        now=dt.datetime.now(),
-        timezone_info=ZoneInfo("UTC"),
-    )
+    query_date_range = tracing_qdr_baseline(team, date_range)
 
     query = parse_select(
         """
