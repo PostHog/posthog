@@ -15,6 +15,7 @@ import {
     taxonomicFilterPinnedPropertiesLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
+    ExcludedOperators,
     InfiniteListLogicProps,
     QuickFilterItem,
     SkeletonItem,
@@ -431,20 +432,34 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (s) => [
                 s.recentFilterItems,
                 s.taxonomicGroupTypes,
+                (_, props: InfiniteListLogicProps) => props.excludedOperators,
                 (_, props: InfiniteListLogicProps) => props.selectingKeyOnly,
             ],
             (
                 recentFilterItems: TaxonomicDefinitionTypes[],
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
+                excludedOperators: ExcludedOperators | undefined,
                 selectingKeyOnly: boolean | undefined
             ): TaxonomicDefinitionTypes[] => {
                 if (!recentFilterItems?.length) {
                     return []
                 }
                 const availableTypes = new Set(taxonomicGroupTypes)
-                const inScope = recentFilterItems.filter(
-                    (item) => hasRecentContext(item) && availableTypes.has(item._recentContext.sourceGroupType)
-                )
+                const inScope = recentFilterItems.filter((item) => {
+                    if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+                        return false
+                    }
+                    const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]
+                    if (excludedForGroup?.length) {
+                        const propertyFilter = item._recentContext.propertyFilter
+                        const operator =
+                            propertyFilter && 'operator' in propertyFilter ? propertyFilter.operator : undefined
+                        if (operator && excludedForGroup.includes(operator)) {
+                            return false
+                        }
+                    }
+                    return true
+                })
                 if (!selectingKeyOnly) {
                     return inScope
                 }

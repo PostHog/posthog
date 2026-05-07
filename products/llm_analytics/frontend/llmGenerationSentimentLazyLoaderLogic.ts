@@ -181,6 +181,7 @@ export const llmGenerationSentimentLazyLoaderLogic = kea<llmGenerationSentimentL
 
                     await runWithConcurrency(chunks, MAX_CONCURRENT_BATCHES, async (batch) => {
                         try {
+                            // nosemgrep: prefer-codegen-api
                             const response = await api.create<BatchGenerationSentimentResponse>(
                                 `api/environments/${teamId}/llm_analytics/sentiment/`,
                                 {
