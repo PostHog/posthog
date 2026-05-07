@@ -2,6 +2,8 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache as django_cache
+
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -10,7 +12,9 @@ from posthog.temporal.data_imports.sources.slack.slack import (
     SlackResumeConfig,
     _channel_messages_generator,
     _fetch_all_channels,
+    _fetch_all_channels_cached,
     _fetch_channels_by_type,
+    invalidate_channels_cache,
     slack_source,
 )
 
@@ -262,7 +266,116 @@ class TestFetchAllChannels:
         assert mock_get.call_args_list[1].kwargs["params"]["user"] == "U_INSTALLER"
 
 
+class TestFetchAllChannelsCached:
+    def setup_method(self) -> None:
+        django_cache.clear()
+
+    def teardown_method(self) -> None:
+        django_cache.clear()
+
+    def test_second_call_uses_cache(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=[{"id": "C1", "name": "general"}],
+        ) as mock_fetch:
+            first = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
+            second = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
+
+        assert first == second == [{"id": "C1", "name": "general"}]
+        assert mock_fetch.call_count == 1
+
+    def test_different_tokens_get_independent_cache_entries(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            side_effect=[[{"id": "A1", "name": "a"}], [{"id": "B1", "name": "b"}]],
+        ) as mock_fetch:
+            a = _fetch_all_channels_cached("token-a", authed_user="U1")
+            b = _fetch_all_channels_cached("token-b", authed_user="U1")
+
+        assert a == [{"id": "A1", "name": "a"}]
+        assert b == [{"id": "B1", "name": "b"}]
+        assert mock_fetch.call_count == 2
+
+    def test_different_authed_users_get_independent_cache_entries(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            side_effect=[[{"id": "A1", "name": "a"}], [{"id": "B1", "name": "b"}]],
+        ) as mock_fetch:
+            a = _fetch_all_channels_cached("token", authed_user="U1")
+            b = _fetch_all_channels_cached("token", authed_user="U2")
+
+        assert a == [{"id": "A1", "name": "a"}]
+        assert b == [{"id": "B1", "name": "b"}]
+        assert mock_fetch.call_count == 2
+
+    def test_invalidate_forces_refetch(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
+        ) as mock_fetch:
+            first = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
+            invalidate_channels_cache("token", authed_user="U_INSTALLER")
+            second = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
+
+        assert first == [{"id": "C1", "name": "general"}]
+        assert second == [{"id": "C2", "name": "renamed"}]
+        assert mock_fetch.call_count == 2
+
+    def test_invalidate_is_safe_when_no_cache_entry(self) -> None:
+        # Calling invalidate before anything was cached must not raise.
+        invalidate_channels_cache("token", authed_user="U_INSTALLER")
+
+
+class TestSlackSourceInvalidateSchemaCache:
+    def setup_method(self) -> None:
+        django_cache.clear()
+
+    def teardown_method(self) -> None:
+        django_cache.clear()
+
+    def test_invalidate_clears_cached_channels_for_integration(self) -> None:
+        from posthog.temporal.data_imports.sources.slack.source import SlackSource
+
+        config = MagicMock()
+        config.slack_integration_id = 42
+
+        integration = MagicMock()
+        integration.access_token = "token"
+        integration.config = {"authed_user": {"id": "U_INSTALLER"}}
+
+        source = SlackSource()
+        with patch.object(source, "get_oauth_integration", return_value=integration):
+            with patch(
+                "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+                side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
+            ) as mock_fetch:
+                first = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
+                source.invalidate_schema_cache(config, team_id=1)
+                second = _fetch_all_channels_cached("token", authed_user="U_INSTALLER")
+
+        assert first == [{"id": "C1", "name": "general"}]
+        assert second == [{"id": "C2", "name": "renamed"}]
+        assert mock_fetch.call_count == 2
+
+    def test_invalidate_is_no_op_when_integration_unreadable(self) -> None:
+        from posthog.temporal.data_imports.sources.slack.source import SlackSource
+
+        config = MagicMock()
+        config.slack_integration_id = 42
+
+        source = SlackSource()
+        with patch.object(source, "get_oauth_integration", side_effect=Exception("boom")):
+            # Must not raise — if we can't read the integration there's nothing to invalidate.
+            source.invalidate_schema_cache(config, team_id=1)
+
+
 class TestSlackSourceChannelsEndpoint:
+    def setup_method(self) -> None:
+        django_cache.clear()
+
+    def teardown_method(self) -> None:
+        django_cache.clear()
+
     def _build_source(self, authed_user: str | None) -> Any:
         return slack_source(
             access_token="token",

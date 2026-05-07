@@ -33,6 +33,7 @@ from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, mess
 from posthog.temporal.data_imports.sources.slack.slack import (
     SlackResumeConfig,
     get_channels,
+    invalidate_channels_cache,
     slack_source,
     validate_credentials as validate_slack_credentials,
 )
@@ -163,6 +164,19 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             "Integration not found": "Your Slack integration was not found. Please reconnect the source.",
             "Slack access token not found": "Your Slack access token is missing. Please reconnect the source.",
         }
+
+    def invalidate_schema_cache(self, config: SlackSourceConfig, team_id: int) -> None:
+        try:
+            integration = self.get_oauth_integration(config.slack_integration_id, team_id)
+        except Exception:
+            # If the integration is missing or unreadable there's nothing to invalidate;
+            # the next `get_schemas` call will surface the underlying error.
+            return None
+        access_token = integration.access_token
+        if not access_token:
+            return None
+        invalidate_channels_cache(access_token, self._get_authed_user_id(integration))
+        return None
 
     def get_schemas(
         self, config: SlackSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None

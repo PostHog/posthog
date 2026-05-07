@@ -79,6 +79,16 @@ class _BaseSource(ABC, Generic[ConfigType]):
     ) -> list[SourceSchema]:
         raise NotImplementedError()
 
+    def invalidate_schema_cache(self, config: ConfigType, team_id: int) -> None:
+        """Invalidate any cached schema discovery results for this source.
+
+        Sources that cache expensive schema discovery (e.g. paginated upstream API
+        listings) should override this to clear those caches so the next call to
+        ``get_schemas`` fetches fresh data. Default is a no-op for sources that do
+        not cache.
+        """
+        return None
+
     @property
     @abstractmethod
     def get_source_config(self) -> SourceConfig:
