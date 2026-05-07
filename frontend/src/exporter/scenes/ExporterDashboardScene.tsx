@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
@@ -24,19 +24,21 @@ function SharedDashboardAutoRefresh({
     // matching the props <Dashboard> binds with via BindLogic.
     const logic = dashboardLogic({ id: dashboardId, placement: DashboardPlacement.Public, dashboard })
     const { setAutoRefresh, setPageVisibility, triggerDashboardRefresh } = useActions(logic)
-    const { effectiveLastRefresh } = useValues(logic)
 
+    // Read `logic.values.effectiveLastRefresh` inside the callback so we always see the
+    // live value when the tab regains focus — Chrome throttles background timers, so a
+    // captured/closed-over value could be stale by the time visibility flips.
     const onVisibilityChange = useCallback(
         (visible: boolean) => {
             setPageVisibility(visible)
             if (visible) {
                 scheduleSharedDashboardStaleAutoForceIfEligible({
-                    effectiveLastRefresh,
+                    effectiveLastRefresh: logic.values.effectiveLastRefresh,
                     triggerDashboardRefresh: () => void triggerDashboardRefresh(),
                 })
             }
         },
-        [setPageVisibility, triggerDashboardRefresh, effectiveLastRefresh]
+        [setPageVisibility, triggerDashboardRefresh, logic]
     )
     usePageVisibilityCb(onVisibilityChange)
 
