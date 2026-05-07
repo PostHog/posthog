@@ -45,6 +45,24 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: strin
     error_tracking: (id) => urls.errorTrackingIssue(id),
 }
 
+export interface NotificationGroup {
+    group_key: string
+    representative: InAppNotification
+    count: number
+    first_seen: string
+    last_seen: string
+    children: InAppNotification[]
+    has_unread: boolean
+    full_children_loaded: boolean
+}
+
+export function groupKey(n: InAppNotification): string {
+    const localDay = dayjs(n.created_at).format('YYYY-MM-DD')
+    return `${n.notification_type}|${n.target_type}:${n.target_id}|${n.resource_type ?? ''}:${
+        n.resource_id ?? ''
+    }|${localDay}`
+}
+
 export function buildNotificationSourcePath(notification: InAppNotification): string | null {
     if (notification.source_type && notification.source_id && notification.source_type in SOURCE_TYPE_TO_PATH) {
         return SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi](
