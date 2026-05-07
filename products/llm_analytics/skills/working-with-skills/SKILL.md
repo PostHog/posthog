@@ -14,8 +14,8 @@ description: >-
 This skill teaches agents how to use the `llma-skill-*` MCP tools well — minimum
 context, minimum round-trips, minimum mistakes. If you are not yet familiar with
 the tool surface itself, read the `skills-store` skill first for the catalog.
-This document is about *how to choose between the tools* and *how to scale the
-workflow* when skills get big.
+This document is about _how to choose between the tools_ and _how to scale the
+workflow_ when skills get big.
 
 ## Operating principles
 
@@ -92,7 +92,7 @@ matters most.
 2. Scan the body's table of contents / headings. The body should already tell
    you which file goes with which task — that's why bodies stay short and
    reference files by path.
-3. For each file the body explicitly points at for *the current task*, call
+3. For each file the body explicitly points at for _the current task_, call
    `llma-skill-file-get(file_path=...)`. Skip everything else.
 4. If the body references "see scripts/X for the rare case Y" and you are not
    in case Y, do not fetch `scripts/X`.
@@ -132,7 +132,7 @@ posthog:llma-skill-create
   hyphens. The spec validator rejects anything else.
 - **Body ≤ ~500 lines.** Long preambles, exhaustive SQL, full example payloads,
   and runnable code belong in `references/`, `assets/`, or `scripts/`. The body
-  should *route* to those files, not inline them.
+  should _route_ to those files, not inline them.
 - **File layout convention** — `scripts/` for executable code, `references/`
   for prose docs and examples, `assets/` for templates / data. Agents can rely
   on this for orientation when they only have the manifest.
@@ -291,7 +291,7 @@ Every write tool accepts `base_version`. Always pass it.
   further edits with that — do not re-`get` between back-to-back writes you
   control.
 
-Skipping `base_version` does *not* speed things up — it just turns a clean
+Skipping `base_version` does _not_ speed things up — it just turns a clean
 "someone else won the race" error into a silent overwrite of their work.
 
 ## Common pitfalls
