@@ -25,19 +25,18 @@ from ee.billing.billing_manager import BillingManager
 
 from ..facade.enums import DocumentType
 from ..models import LegalDocument
-from . import (
-    pandadoc as pandadoc_client,
-    slack as slack_notifier,
-)
+from ..storage import signed_pdf_storage_key
+from . import pandadoc as pandadoc_client
 
 logger = structlog.get_logger(__name__)
 
 # Addon types that entitle an organization to a BAA.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
 
-# PostHog-side CC on every signing envelope. Lives here rather than on the
-# PandaDoc client so the client stays generic and reusable.
-POSTHOG_SIGNING_CC_EMAIL = "sales@posthog.com"
+# PostHog-side mailbox used both as the CC recipient on every signing envelope
+# and as the document owner. PandaDoc sends the signing email on behalf of the
+# owner, so this is the From address the signer sees.
+POSTHOG_SIGNING_EMAIL = "privacy@posthog.com"
 
 
 def _pandadoc_template_id_for(document_type: str) -> str:
@@ -45,6 +44,10 @@ def _pandadoc_template_id_for(document_type: str) -> str:
     Resolve the PandaDoc template id for a given document type. One template
     per type, configured via env. Returns an empty string if the matching env
     var isn't set, which surfaces as a clear PandaDocError at send time.
+
+    MSAs intentionally have no PandaDoc template — they can only originate from
+    a staff upload in Django admin, so this function returning empty for MSA
+    short-circuits the unreachable PandaDoc branch with a clear log line.
     """
     if document_type == DocumentType.BAA:
         return settings.PANDADOC_BAA_TEMPLATE_ID
@@ -124,15 +127,6 @@ def mark_document_signed(document: LegalDocument) -> LegalDocument:
     document.status = LegalDocument.Status.SIGNED
     document.save(update_fields=["status", "updated_at"])
     return document
-
-
-def signed_pdf_storage_key(document: LegalDocument) -> str:
-    """
-    Canonical key under which the signed PDF lives in object storage. The
-    document uuid is the natural identifier and never changes, so admins
-    regenerating the envelope for the same row just overwrite the old object.
-    """
-    return f"{settings.OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER}/{document.id}.pdf"
 
 
 # Short-enough that leaked URLs stop working on a human timescale, long enough
@@ -245,7 +239,7 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
             name=f"PostHog {document.document_type} — {document.company_name}",
             recipients=[
                 pandadoc_client.PandaDocRecipient(
-                    email=POSTHOG_SIGNING_CC_EMAIL, role=pandadoc_client.PandaDocRole.POSTHOG
+                    email=POSTHOG_SIGNING_EMAIL, role=pandadoc_client.PandaDocRole.POSTHOG
                 ),
                 pandadoc_client.PandaDocRecipient(
                     email=document.representative_email, role=pandadoc_client.PandaDocRole.CLIENT
@@ -260,6 +254,7 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
                 "organization_id": str(document.organization_id),
                 "document_type": document.document_type,
             },
+            owner_email=POSTHOG_SIGNING_EMAIL,
         )
         set_pandadoc_document_id(document, created.id)
         return created.id
@@ -317,33 +312,6 @@ def send_pandadoc_envelope(document: LegalDocument) -> bool:
         return False
 
 
-def notify_slack_on_submit(document: LegalDocument) -> None:
-    try:
-        slack_notifier.notify_submitted(
-            document_type=document.document_type,
-            company_name=document.company_name,
-            representative_email=document.representative_email,
-            pandadoc_document_id=document.pandadoc_document_id or None,
-        )
-    except Exception as exc:
-        # Slack errors are already swallowed inside the notifier, but protect
-        # the submit path from unexpected import/attr errors too.
-        logger.exception("legal_document_slack_submit_notify_failed", error=str(exc))
-        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
-
-
-def notify_slack_on_signed(document: LegalDocument) -> None:
-    try:
-        slack_notifier.notify_signed(
-            document_type=document.document_type,
-            company_name=document.company_name,
-            pandadoc_document_id=document.pandadoc_document_id or None,
-        )
-    except Exception as exc:
-        logger.exception("legal_document_slack_signed_notify_failed", error=str(exc))
-        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
-
-
 SUBMITTED_EVENT = "legal document submitted"
 SIGNED_EVENT = "legal document signed"
 
@@ -351,8 +319,8 @@ SIGNED_EVENT = "legal document signed"
 def fire_legal_document_submitted_event(document: LegalDocument, distinct_id: str) -> None:
     """
     Capture the submission to PostHog for analytics. No longer a critical path —
-    the customer-facing work (PandaDoc + Slack) is driven directly by the
-    submit handler. This event is kept for product analytics on the
+    the customer-facing work (PandaDoc) is driven directly by the submit
+    handler. This event is kept for product analytics on the
     `/legal/new/:type` funnel.
     """
     _capture_lifecycle_event(document, SUBMITTED_EVENT, distinct_id)
