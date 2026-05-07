@@ -310,6 +310,7 @@
         "session_recording_sample_rate": {
             "anyOf": [
                 {
+                    "format": "decimal",
                     "pattern": "^-?\\d{0,1}(?:\\.\\d{0,2})?$",
                     "type": "string"
                 },
