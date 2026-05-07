@@ -872,7 +872,6 @@ class SignalReportViewSet(
         # and so multiple dismissals (with different rationales) can stack over time.
         # Captured for both suppress and snooze (transition to potential) flows.
         if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
-
             user = request.user
             artefact_content = {
                 "reason": dismissal_reason,

@@ -598,7 +598,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
                 SignalReport.Status.SUPPRESSED,
                 "some_brand_new_code",
-                "",
+                None,
             ),
             (
                 "snooze_with_reason_and_note",
