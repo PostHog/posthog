@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import json
+import textwrap
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -867,6 +868,7 @@ def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
     lines.append("")
 
     applicable = list(ps.dimensions)
+    wrap_width = 88
     for i, dim in enumerate(applicable):
         is_last = i == len(applicable) - 1
         connector = "\u2514\u2500" if is_last else "\u251c\u2500"
@@ -875,21 +877,37 @@ def generate_detail(ps: ProductScore, *, verbose: bool = True) -> str:
         if not verbose:
             continue
         if not dim.next_steps and not dim.skills:
+            if not is_last:
+                lines.append(f"  \u2502")
             continue
 
-        # Indent guide column matches the tree above. Use a vertical bar for
-        # non-last dimensions so the tree stays visually intact, and spaces
-        # for the last dimension.
-        guide = "\u2502 " if not is_last else "  "
-        prefix = f"  {guide}    "
+        # Indent guide matches the tree above. Use a vertical bar for non-last
+        # dimensions so the tree stays visually intact, spaces for the last.
+        guide = "\u2502" if not is_last else " "
+        gutter = f"  {guide}     "  # column under "\u251c\u2500 <name>"
+        bullet_indent = f"{gutter}  "
+        cont_indent = f"{gutter}    "
+
+        # Blank line under the score, then the to-fix block
+        lines.append(f"  {guide}")
         if dim.next_steps:
-            lines.append(f"{prefix}to fix:")
-            for step in dim.next_steps:
-                # Wrap long lines lightly \u2014 keep indentation consistent.
-                lines.append(f"{prefix}  - {step}")
+            lines.append(f"{gutter}to fix:")
+            for j, step in enumerate(dim.next_steps):
+                wrapped = textwrap.wrap(step, width=wrap_width) or [step]
+                lines.append(f"{bullet_indent}\u2022 {wrapped[0]}")
+                for cont in wrapped[1:]:
+                    lines.append(f"{cont_indent}{cont}")
+                # Blank line between bullets, but not after the last one
+                if j < len(dim.next_steps) - 1:
+                    lines.append(f"  {guide}")
         if dim.skills:
+            if dim.next_steps:
+                lines.append(f"  {guide}")
             skills_str = "  ".join(dim.skills)
-            lines.append(f"{prefix}skills: {skills_str}")
+            lines.append(f"{gutter}skills: {skills_str}")
+        # Trailing breather before the next dimension
+        if not is_last:
+            lines.append(f"  {guide}")
 
     if overall is not None:
         lines.append("")
