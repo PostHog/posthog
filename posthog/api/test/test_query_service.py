@@ -8,6 +8,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    DataVisualizationNode,
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
     DatabaseSchemaPostHogTable,
@@ -19,11 +20,13 @@ from posthog.schema import (
     HogLanguage,
     HogQLAutocomplete,
     HogQLAutocompleteResponse,
+    HogQLQuery,
 )
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.errors import ResolutionError
 
 from posthog.api.services.query import process_query_model
 
@@ -33,6 +36,23 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestQueryService(APIBaseTest):
+    @patch("posthog.api.services.query.get_query_runner_or_none")
+    def test_data_visualization_node_surfaces_hogql_resolution_error_without_value_error_context(
+        self, mock_get_query_runner_or_none: MagicMock
+    ):
+        query = DataVisualizationNode(
+            source=HogQLQuery(query="SELECT properties FROM events JOIN persons ON 1 = 1")
+        )
+        runner = MagicMock()
+        runner.run.side_effect = ResolutionError("Ambiguous query. Found multiple sources for field: properties")
+        mock_get_query_runner_or_none.side_effect = [None, runner]
+
+        with self.assertRaises(ResolutionError) as context:
+            process_query_model(self.team, query)
+
+        self.assertIn("Ambiguous query. Found multiple sources for field: properties", str(context.exception))
+        self.assertIsNone(context.exception.__context__)
+
     @patch("posthog.api.services.query.DataWarehouseJoin.objects.filter")
     @patch("posthog.api.services.query.resolve_database_for_connection")
     def test_database_schema_query_filters_tables_to_selected_connection(
