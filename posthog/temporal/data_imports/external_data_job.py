@@ -304,13 +304,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
 
-            # Schema discovery used to run here on every per-schema sync, which scales
-            # disastrously for sources with thousands of schemas (each schema's tick
-            # re-fetches the entire upstream listing). It now runs on its own
-            # per-source `discover-schemas` schedule — see
-            # `data_load.service.sync_discover_schemas_schedule` and the
-            # `backfill_discovery_schedules` management command for the migration path.
-
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
                 run_id=job_id,
