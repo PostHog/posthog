@@ -20,6 +20,8 @@ from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
 
+from products.legal_documents.backend.admin import LegalDocumentInline
+
 # Registry of models to count for bulk-delete report.
 # Format: (model_import_path, filter_field, display_name)
 # This mirrors delete_bulky_postgres_data() in posthog/models/team/util.py
@@ -155,7 +157,14 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_platform",
         "members_can_invite",
     ]
-    inlines = [ProjectInline, TeamInline, OrganizationMemberInline, OrganizationInviteInline, OrganizationDomainInline]
+    inlines = [
+        ProjectInline,
+        TeamInline,
+        OrganizationMemberInline,
+        OrganizationInviteInline,
+        OrganizationDomainInline,
+        LegalDocumentInline,
+    ]
     readonly_fields = [
         "id",
         "created_at",

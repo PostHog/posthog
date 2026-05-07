@@ -96,6 +96,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     getGroup: () => ({}),
     getGroups: () => ({ groups: [], missingGroups: [] }),
     getGroupsBatch: () => ({ results: [] }),
+    listGroups: () => ({ groups: [], hasMore: false }),
     getGroupTypeMappingsByTeamId: () => ({ mappings: [] }),
     getGroupTypeMappingsByTeamIds: () => ({ results: [] }),
     getGroupTypeMappingsByProjectId: () => ({ mappings: [] }),
