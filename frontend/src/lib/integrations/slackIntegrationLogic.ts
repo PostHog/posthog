@@ -98,7 +98,10 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                         'seconds'
                     )
                     if (now.isBefore(earliestRefresh)) {
-                        return `You can refresh the channels again ${earliestRefresh.from(now)}`
+                        const secondsLeft = Math.ceil(earliestRefresh.diff(now) / 1000)
+                        return `You can refresh the channels again in ${secondsLeft} second${
+                            secondsLeft === 1 ? '' : 's'
+                        }`
                     }
                 }
                 return ''

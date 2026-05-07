@@ -83,7 +83,8 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
     const [localValue, setLocalValue] = useState<string | null>(null)
 
-    usePeriodicRerender(10000)
+    // 1s tick so the cooldown countdown rendered by `getChannelRefreshButtonDisabledReason` updates each second
+    usePeriodicRerender(1000)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
