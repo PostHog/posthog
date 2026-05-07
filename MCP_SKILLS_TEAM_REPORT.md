@@ -10,7 +10,7 @@ Saved insight (stacked bar of MCP tools + skills per team): [/insights/xftwxwIH]
 - Product ownership read from each `products/*/product.yaml` `owners:` field.
 - MCP tool count = entries with `enabled: true` in `products/*/mcp/tools.yaml`.
 - Skill count = `SKILL.md` files under `products/*/skills/**`.
-- Non-engineering teams (sales, marketing, ops, etc.) and teams whose code lives outside this monorepo (Client Libraries, ClickHouse infra, Cloud Foundations, etc.) are listed separately as "out of scope".
+- Engineering teams without a product directory in this monorepo (e.g. Cloud Foundations, Client Libraries, Platform UX) and non-engineering teams (sales, marketing, ops, etc.) are listed in separate sections below.
 
 ## Engineering teams that own a product directory
 
@@ -40,49 +40,44 @@ Saved insight (stacked bar of MCP tools + skills per team): [/insights/xftwxwIH]
 | Warehouse Sources | warehouse_sources_queue | 0 | 0 | Neither |
 | Data Tools | streamlit_apps | 0 | 0 | Neither |
 | Ingestion | managed_migrations | 0 | 0 | Neither |
+| ClickHouse | live_debugger | 0 | 0 | Neither |
 
 Notes:
 - "Flags Platform" appears on posthog.com/teams but no product.yaml maps to a `team-flags-platform` owner — ownership in this repo currently rolls up to `team-feature-flags`.
 - The `core_events` product is owned by `team-events`, which does not appear on the public teams page; treating it as part of Ingestion / Product Analytics scope.
-- `live_debugger` is owned by `clickhouse` (infra team) and currently ships no MCP tools or skills.
+- `access_control` has owner `team-CHANGEME` (placeholder) — excluded from the table until ownership is set.
 
-## Teams on posthog.com/teams with no product directory in this repo
+## Engineering teams on posthog.com/teams with no product directory in this repo
 
-These teams either don't ship product code in `posthog/posthog`, are non-engineering, or work in separate repos. They are not expected to ship MCP tools or skills here.
+These are engineering teams whose code does not live under `products/` in this monorepo — typically infra, platform, or SDK work in separate repos or directories. Not expected to ship product-level MCP tools or skills, but listed for completeness.
 
-- Billing
-- Blitzscale
-- Client Libraries (SDKs live in `posthog-js`, `posthog-python`, etc.)
-- Cloud Foundations
-- ClickHouse (infra; only owns `live_debugger` here)
-- Customer Success
-- Demand Gen
-- Docs & Wizard
-- Editorial
-- Forward Deployed Engineering
-- Graphics
-- IRL Events
-- Marketing
-- New Business Sales
-- Onboarding (no `product.yaml` owner found)
-- People & Ops
-- Platform UX
-- PostHog Code
-- Product-Led Sales East
-- Product-Led Sales West
-- Security
-- Support
-- Talent
-- Website
-- YouTube
+- Blitzscale — special-projects engineering team
+- Client Libraries — SDKs in `posthog-js`, `posthog-python`, etc.
+- Cloud Foundations — cloud infrastructure
+- Docs & Wizard — docs and onboarding wizard
+- Flags Platform — work currently rolls up to `team-feature-flags` in this repo
+- Forward Deployed Engineering — customer-facing engineering
+- Onboarding — no `product.yaml` owner found
+- Platform UX — frontend platform
+- PostHog Code — internal agent tooling (this team)
+- Security — security engineering
+
+## Non-engineering teams on posthog.com/teams
+
+Out of scope for this report — listed only to confirm we accounted for every team on the public page.
+
+Billing, Customer Success, Demand Gen, Editorial, Graphics, IRL Events, Marketing, New Business Sales, People & Ops, Product-Led Sales East, Product-Led Sales West, Support, Talent, Website, YouTube.
 
 ## Summary
 
-- **24** engineering teams own product directories in this repo.
+- **50** teams on posthog.com/teams.
+- **25** engineering teams own at least one product directory in this repo.
 - **11** ship both MCP tools and skills.
 - **9** ship MCP tools but no skills — primary gap to close.
 - **1** ships skills but no MCP tools (Growth).
-- **3** ship neither (Warehouse Sources, Data Tools, Ingestion).
+- **4** ship neither (Warehouse Sources, Data Tools, Ingestion, ClickHouse).
+- **10** engineering teams from the public page have no product directory in this repo (work elsewhere).
+- **15** non-engineering teams on the public page (out of scope).
 
 ## Top opportunities
 
