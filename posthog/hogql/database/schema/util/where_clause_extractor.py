@@ -1,5 +1,6 @@
 import random
 import string
+from collections.abc import Callable
 from datetime import datetime
 from typing import Optional, cast
 
@@ -8,7 +9,7 @@ from django.core.cache import cache
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
+from posthog.hogql.database.models import DatabaseField, LazyJoin, LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.database.schema.util.uuid import (
     uuid_uint128_expr_to_timestamp_expr_v2,
     uuid_uint128_expr_to_timestamp_expr_v3,
@@ -469,7 +470,32 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
     Inverts the field-tracking semantics of ``WhereClauseExtractor``: we keep fields that
     resolve to the EventsTable and tombstone everything else, letting the base AND/OR/NOT
     logic drop unsafe branches.
+
+    When ``session_lazy_join`` is set, an extra narrowing step drops OR disjuncts that
+    don't reference the session join. Rows matching those dropped disjuncts don't consult
+    ``events__session.*`` columns, so their LEFT JOIN producing NULL is semantically
+    equivalent to their original behavior — keeping them in the IN subquery just inflates
+    the session set without narrowing. See the 2026-04-17 analysis doc for the follow-up
+    benchmark showing 4.5× speedup on rare-step-1 funnels.
     """
+
+    session_lazy_join: Optional[LazyJoin] = None
+
+    def __init__(self, context: HogQLContext, session_lazy_join: Optional[LazyJoin] = None):
+        super().__init__(context)
+        self.session_lazy_join = session_lazy_join
+
+    def visit_or(self, node: ast.Or) -> ast.Expr:
+        if self.session_lazy_join is not None:
+            # Flatten nested ORs so narrowing is based on leaf disjuncts, then keep
+            # only those that reference the session lazy join.
+            flattened = flatten_ors(node.exprs)
+            kept = [expr for expr in flattened if _expr_references_lazy_join(expr, self.session_lazy_join)]
+            if kept and len(kept) < len(flattened):
+                if len(kept) == 1:
+                    return self.visit(kept[0])
+                return super().visit_or(ast.Or(exprs=kept))
+        return super().visit_or(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         if has_tombstone(node, self.tombstone_string):
@@ -494,6 +520,37 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
         if is_events_only_field(node):
             return cast(ast.Field, clone_expr(node))
         return ast.Constant(value=self.tombstone_string)
+
+
+def _expr_references_lazy_join(expr: ast.Expr, lazy_join: LazyJoin) -> bool:
+    """True iff ``expr`` contains any field whose resolved type traverses ``lazy_join``."""
+    visitor = _ReferencesLazyJoinVisitor(lazy_join)
+    visitor.visit(expr)
+    return visitor.found
+
+
+class _ReferencesLazyJoinVisitor(TraversingVisitor):
+    found: bool = False
+    lazy_join: LazyJoin
+
+    def __init__(self, lazy_join: LazyJoin):
+        self.lazy_join = lazy_join
+
+    def visit_field(self, node: ast.Field):
+        if self.found:
+            return
+        type_ = node.type
+        if isinstance(type_, ast.PropertyType):
+            type_ = type_.field_type
+        if isinstance(type_, ast.FieldAliasType):
+            type_ = type_.type
+        if not isinstance(type_, ast.FieldType):
+            return
+        table_type = type_.table_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+        if isinstance(table_type, ast.LazyJoinType) and table_type.lazy_join is self.lazy_join:
+            self.found = True
 
 
 def is_events_only_field(node: ast.Field) -> bool:
@@ -536,7 +593,9 @@ def build_session_id_v7_pushdown_predicate(
     if events_join is None or not isinstance(events_join.table, ast.Field):
         return None
 
-    events_where = EventsOnlyWhereClauseExtractor(context).get_inner_where(outer_node)
+    events_where = EventsOnlyWhereClauseExtractor(context, session_lazy_join=join_to_add.lazy_join).get_inner_where(
+        outer_node
+    )
     if events_where is None:
         return None
 
@@ -556,6 +615,74 @@ def build_session_id_v7_pushdown_predicate(
         left=session_id_v7_field,
         right=subquery,
     )
+
+
+def build_session_property_pre_aggregation_predicate(
+    outer_node: ast.SelectQuery,
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    requested_fields: dict[str, list[str | int]],
+    select_from_fn: Callable[[dict[str, list[str | int]], ast.SelectQuery, HogQLContext], ast.SelectQuery],
+    session_id_v7_field: ast.Expr,
+) -> Optional[ast.Expr]:
+    """Build ``raw_sessions.session_id_v7 IN (SELECT session_id_v7 FROM <small inner> WHERE <session predicate>)``.
+
+    The "small inner" is a recursive call to ``select_from_fn`` (the same builder) with a pruned
+    ``requested_fields`` containing only the session aliases referenced by the predicate. That
+    keeps the small inner's GROUP BY hash table cheap — one or two AggregateFunction states per
+    session instead of however many the outer SELECT pulls in (e.g. ``$channel_type`` drags in
+    7+).
+
+    Returns None when ``WhereClauseExtractor`` produces no liftable session predicate (no session
+    filter, or only filters guarded by NOT/OR with non-session terms — see the visitor's tombstone
+    handling). The predicate-references-outer-fields check is a defensive belt; in practice
+    ``requested_fields`` already contains every session alias the outer query references, so
+    extraction guarantees a non-empty intersection.
+    """
+    extractor = WhereClauseExtractor(context)
+    extractor.add_local_tables(join_to_add)
+    lifted = extractor.get_inner_where(outer_node)
+    if lifted is None or isinstance(lifted, ast.Constant):
+        return None
+
+    referenced_aliases = _collect_referenced_top_level_aliases(lifted)
+    referenced_in_outer = referenced_aliases & {name for name in requested_fields if name != "session_id_v7"}
+    if not referenced_in_outer:
+        return None
+
+    pruned_fields: dict[str, list[str | int]] = {name: requested_fields[name] for name in referenced_in_outer}
+    pruned_fields["session_id_v7"] = ["session_id_v7"]
+
+    small_inner = select_from_fn(pruned_fields, outer_node, context)
+
+    wrapped = ast.SelectQuery(
+        select=[ast.Field(chain=["session_id_v7"])],
+        select_from=ast.JoinExpr(table=small_inner),
+        where=lifted,
+    )
+
+    return ast.CompareOperation(
+        op=CompareOperationOp.In,
+        left=session_id_v7_field,
+        right=wrapped,
+    )
+
+
+def _collect_referenced_top_level_aliases(expr: ast.Expr) -> set[str]:
+    visitor = _CollectTopLevelAliasesVisitor()
+    visitor.visit(expr)
+    return visitor.names
+
+
+class _CollectTopLevelAliasesVisitor(TraversingVisitor):
+    names: set[str]
+
+    def __init__(self):
+        self.names = set()
+
+    def visit_field(self, node: ast.Field):
+        if node.chain:
+            self.names.add(str(node.chain[0]))
 
 
 def _find_join_for_alias(select_from: Optional[ast.JoinExpr], alias: str) -> Optional[ast.JoinExpr]:

@@ -13,8 +13,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { BuilderHog3 } from '../hedgehogs'
+
+function labelFor(key: string, type: TaxonomicFilterGroupType, fallback: string): string {
+    return getCoreFilterDefinition(key, type)?.label ?? fallback
+}
 
 type EmptyStateProps = {
     title: string
@@ -137,39 +142,112 @@ const PinnedFiltersEmptyState = (): JSX.Element => {
     )
 }
 
+const DescriptiveEmptyState = ({
+    heading,
+    explanation,
+    hint,
+}: {
+    heading: string
+    explanation: string
+    hint: string
+}): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center gap-2 p-8 mt-4 w-full text-center">
+            <p className="text-sm font-semibold text-primary">{heading}</p>
+            <p className="text-sm text-secondary max-w-md">{explanation}</p>
+            <p className="text-xs text-tertiary max-w-md">{hint}</p>
+        </div>
+    )
+}
+
 const PageviewUrlsEmptyState = (): JSX.Element => {
     const { hasPageview } = getProjectEventExistence()
+    const pageviewLabel = labelFor('$pageview', TaxonomicFilterGroupType.Events, 'Pageview')
+    const urlLabel = labelFor('$current_url', TaxonomicFilterGroupType.EventProperties, 'Current URL')
     return (
-        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
-            <p className="text-sm text-secondary">
-                {hasPageview
-                    ? 'Search to find pageview URLs. Type at least 3 characters to see results.'
-                    : 'No pageview events have been ingested yet. Once your app sends $pageview events, URLs will appear here.'}
-            </p>
-        </div>
+        <DescriptiveEmptyState
+            heading={`${pageviewLabel} events filtered by ${urlLabel}`}
+            explanation={`Pick a URL to match ${pageviewLabel} events whose ${urlLabel} equals it — a shortcut for "${pageviewLabel.toLowerCase()}s, but only on this page".`}
+            hint={
+                hasPageview
+                    ? 'Type at least 3 characters to search URLs we have seen.'
+                    : `No ${pageviewLabel} events have been ingested yet. Once your app sends them, URLs will appear here.`
+            }
+        />
+    )
+}
+
+const PageviewEventsEmptyState = (): JSX.Element => {
+    const { hasPageview } = getProjectEventExistence()
+    const pageviewLabel = labelFor('$pageview', TaxonomicFilterGroupType.Events, 'Pageview')
+    const urlLabel = labelFor('$current_url', TaxonomicFilterGroupType.EventProperties, 'Current URL')
+    return (
+        <DescriptiveEmptyState
+            heading={`${pageviewLabel} events narrowed to one ${urlLabel}`}
+            explanation={`Picking a URL creates a ${pageviewLabel} event already filtered to that ${urlLabel} — handy for series like "${pageviewLabel.toLowerCase()}s of /pricing".`}
+            hint={
+                hasPageview
+                    ? 'Type at least 3 characters to search URLs we have seen.'
+                    : `No ${pageviewLabel} events have been ingested yet. Once your app sends them, URLs will appear here.`
+            }
+        />
     )
 }
 
 const ScreensEmptyState = (): JSX.Element => {
     const { hasScreen } = getProjectEventExistence()
+    const screenLabel = labelFor('$screen', TaxonomicFilterGroupType.Events, 'Screen')
+    const screenNameLabel = labelFor('$screen_name', TaxonomicFilterGroupType.EventProperties, 'Screen name')
     return (
-        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
-            <p className="text-sm text-secondary">
-                {hasScreen
-                    ? 'Search to find screens. Type at least 3 characters to see results.'
-                    : 'No screen events have been ingested yet. Once your app sends $screen events, screen names will appear here.'}
-            </p>
-        </div>
+        <DescriptiveEmptyState
+            heading={`${screenLabel} events filtered by ${screenNameLabel}`}
+            explanation={`Pick a screen name to match ${screenLabel} events whose ${screenNameLabel} equals it — a shortcut for "${screenLabel.toLowerCase()}s, but only on this screen".`}
+            hint={
+                hasScreen
+                    ? 'Type at least 3 characters to search screens we have seen.'
+                    : `No ${screenLabel} events have been ingested yet. Once your app sends them, screen names will appear here.`
+            }
+        />
+    )
+}
+
+const ScreenEventsEmptyState = (): JSX.Element => {
+    const { hasScreen } = getProjectEventExistence()
+    const screenLabel = labelFor('$screen', TaxonomicFilterGroupType.Events, 'Screen')
+    const screenNameLabel = labelFor('$screen_name', TaxonomicFilterGroupType.EventProperties, 'Screen name')
+    return (
+        <DescriptiveEmptyState
+            heading={`${screenLabel} events narrowed to one ${screenNameLabel}`}
+            explanation={`Picking a screen name creates a ${screenLabel} event already filtered to that ${screenNameLabel} — handy for series like "views of Settings".`}
+            hint={
+                hasScreen
+                    ? 'Type at least 3 characters to search screens we have seen.'
+                    : `No ${screenLabel} events have been ingested yet. Once your app sends them, screen names will appear here.`
+            }
+        />
+    )
+}
+
+const AutocaptureEventsEmptyState = (): JSX.Element => {
+    const autocaptureLabel = labelFor('$autocapture', TaxonomicFilterGroupType.Events, 'Autocapture')
+    const elementTextLabel = labelFor('$el_text', TaxonomicFilterGroupType.EventProperties, 'Element text')
+    return (
+        <DescriptiveEmptyState
+            heading={`${autocaptureLabel} events narrowed to one ${elementTextLabel}`}
+            explanation={`Picking an element creates an ${autocaptureLabel} event already filtered to that ${elementTextLabel.toLowerCase()} — handy for series like "clicks of Sign up".`}
+            hint="Type at least 3 characters to search element text we have seen."
+        />
     )
 }
 
 const EmailAddressesEmptyState = (): JSX.Element => {
+    const emailLabel = labelFor('email', TaxonomicFilterGroupType.PersonProperties, 'Email address')
     return (
-        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
-            <p className="text-sm text-secondary">
-                Search to find email addresses. Type at least 5 characters to see results.
-            </p>
-        </div>
+        <DescriptiveEmptyState
+            heading={`Persons filtered by ${emailLabel.toLowerCase()}`}
+            explanation={`Pick an email to match events by the person whose ${emailLabel.toLowerCase()} equals it — a shortcut for "events, but only by this person".`}
+            hint="Type at least 5 characters to search emails we have seen on person properties."
+        />
     )
 }
 
@@ -184,7 +262,10 @@ const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, React.ComponentType
     [TaxonomicFilterGroupType.RecentFilters]: RecentFiltersEmptyState,
     [TaxonomicFilterGroupType.PinnedFilters]: PinnedFiltersEmptyState,
     [TaxonomicFilterGroupType.PageviewUrls]: PageviewUrlsEmptyState,
+    [TaxonomicFilterGroupType.PageviewEvents]: PageviewEventsEmptyState,
     [TaxonomicFilterGroupType.Screens]: ScreensEmptyState,
+    [TaxonomicFilterGroupType.ScreenEvents]: ScreenEventsEmptyState,
+    [TaxonomicFilterGroupType.AutocaptureEvents]: AutocaptureEventsEmptyState,
     [TaxonomicFilterGroupType.EmailAddresses]: EmailAddressesEmptyState,
 } as const
 

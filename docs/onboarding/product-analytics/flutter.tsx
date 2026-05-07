@@ -18,7 +18,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'yaml',
                                 file: 'pubspec.yaml',
                                 code: dedent`
-                                    posthog_flutter: ^5.0.0
+                                    posthog_flutter: ^5.24.0
                                 `,
                             },
                         ]}
@@ -44,7 +44,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             <activity>
                                               [...]
                                             </activity>
-                                            <meta-data android:name="com.posthog.posthog.API_KEY" android:value="<ph_project_token>" />
+                                            <meta-data android:name="com.posthog.posthog.PROJECT_TOKEN" android:value="<ph_project_token>" />
                                             <meta-data android:name="com.posthog.posthog.POSTHOG_HOST" android:value="<ph_client_api_host>" />
                                             <meta-data android:name="com.posthog.posthog.TRACK_APPLICATION_LIFECYCLE_EVENTS" android:value="true" />
                                             <meta-data android:name="com.posthog.posthog.DEBUG" android:value="true" />
@@ -63,7 +63,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         file: 'android/app/build.gradle',
                                         code: dedent`
                                           defaultConfig {
-                                            minSdkVersion 21
+                                            minSdkVersion 23
                                             // rest of your config
                                           }
                                         `,
@@ -81,7 +81,7 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         code: dedent`
                                           <dict>
                                             [...]
-                                            <key>com.posthog.posthog.API_KEY</key>
+                                            <key>com.posthog.posthog.PROJECT_TOKEN</key>
                                             <string><ph_project_token></string>
                                             <key>com.posthog.posthog.POSTHOG_HOST</key>
                                             <string><ph_client_api_host></string>

@@ -1,10 +1,11 @@
+import os
 import time
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
 import structlog
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest, multiprocess
 
 logger = structlog.get_logger(__name__)
 
@@ -73,7 +74,15 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
     def _handle_metrics(self) -> None:
-        output = generate_latest()
+        # When multiple consumer processes share a pod, each writes its metrics
+        # to PROMETHEUS_MULTIPROC_DIR; MultiProcessCollector aggregates them so
+        # a single scrape endpoint reflects the whole pod.
+        if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+            registry = CollectorRegistry()
+            multiprocess.MultiProcessCollector(registry)
+            output = generate_latest(registry)
+        else:
+            output = generate_latest()
         self.send_response(200)
         self.send_header("Content-Type", CONTENT_TYPE_LATEST)
         self.end_headers()

@@ -332,8 +332,7 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
         dependency metadata (stages, missing deps, transitive deps), and cohorts contains
         serialized cohort definitions referenced by the flags (including transitive deps).
     """
-    # Exclude encrypted remote config flags at DB level for efficiency
-    flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
+    flags = get_feature_flags(team=team, exclude_encrypted_payloads=True)
     flags_data = serialize_feature_flags(flags)
     evaluation_metadata = _compute_flag_dependencies(flags_data)
 
@@ -374,16 +373,15 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     # Load all flags for all teams in one query with evaluation tags pre-loaded.
     # Include disabled flags (active=False) so flag dependencies can reference them
     # and evaluate them as false, rather than raising DependencyNotFound errors.
-    # Exclude encrypted remote config flags - they can only be accessed via the
+    # Exclude encrypted payload flags - they can only be accessed via the
     # dedicated /remote_config endpoint which handles decryption.
     # Note: We intentionally don't select_related("team") here because we only need
     # team_id (already on the model) for grouping, and the Team objects are already
     # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
-        FeatureFlag.objects.filter(
-            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
-            team__in=teams,
-        ).annotate(
+        FeatureFlag.objects.filter(team__in=teams)
+        .exclude(has_encrypted_payloads=True)
+        .annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "flag_evaluation_contexts__evaluation_context__name",
                 filter=Q(flag_evaluation_contexts__isnull=False),
@@ -454,6 +452,10 @@ flags_hypercache = HyperCache(
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
     batch_load_fn=_get_feature_flags_for_teams_batch,
     expiry_sorted_set_key=FLAGS_CACHE_EXPIRY_SORTED_SET,
+    # Etag is consumed by the Rust feature-flags service in-memory cache
+    # (FlagDefinitionsCache), keyed on (team_id, etag). Without this, the cache
+    # bypass branch fires on every request and the perf opt is wasted.
+    enable_etag=True,
 )
 
 
@@ -525,12 +527,17 @@ def verify_team_flags(
         Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
         When verbose=True, includes 'diffs' list with detailed diff information.
     """
-    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch)
+    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch).
+    # The etag rides on the same MGET when enable_etag=True, so the MISSING_ETAG check
+    # below stays per-chunk and never re-introduces a per-team Redis GET.
     if cache_batch_data and team.id in cache_batch_data:
-        cached_data, source = cache_batch_data[team.id]
+        cached_data, source, cached_etag = cache_batch_data[team.id]
     else:
-        # Fall back to individual lookup (shouldn't happen in batch verification)
-        cached_data, source = flags_hypercache.get_from_cache_with_source(team)
+        # Single-team fallback (CLI verifier path; the management command does
+        # not pre-fetch cache_batch_data). Reuse the batch shape so payload +
+        # etag come from one MGET and stay consistent under concurrent writes.
+        batch = flags_hypercache.batch_get_from_cache([team])
+        cached_data, source, cached_etag = batch.get(team.id, (None, "miss", None))
 
     # Get flags from database - use db_batch_data if available to avoid N+1 queries
     if db_batch_data and team.id in db_batch_data:
@@ -556,6 +563,22 @@ def verify_team_flags(
             "status": "mismatch",
             "issue": "MISSING_EVALUATION_METADATA",
             "details": "Cache entry missing evaluation_metadata",
+            "db_data": db_data,
+        }
+
+    # Without an etag, the Rust feature-flags in-memory cache bypasses every
+    # request for this team via the `etag_missing` branch. Surfacing this here
+    # turns a silent perf regression into a counted verifier mismatch. The
+    # etag rides on the same MGET as the payload, so this stays O(1) per batch.
+    # Checked before the per-flag diff: a team with both missing etag AND
+    # drifted flags reports as MISSING_ETAG; the repair writes db_data back
+    # and fixes both, so ordering it first skips the diff loop on rollout
+    # when most teams hit this branch with valid data.
+    if cached_etag is None:
+        return {
+            "status": "mismatch",
+            "issue": "MISSING_ETAG",
+            "details": "Cache entry has payload but no etag — Rust in-memory cache will bypass for this team",
             "db_data": db_data,
         }
 
@@ -593,8 +616,8 @@ def verify_team_flags(
         if flag_id in cached_flags_by_id:
             db_flag = db_flags_by_id[flag_id]
             cached_flag = cached_flags_by_id[flag_id]
-            if db_flag != cached_flag:
-                field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            if field_diffs:
                 diff = {
                     "type": "FIELD_MISMATCH",
                     "flag_id": flag_id,
@@ -649,12 +672,18 @@ def verify_team_flags(
 
 
 def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
-    """Compare field values between DB and cached versions of a flag."""
-    field_diffs = []
-    all_keys = set(db_flag.keys()) | set(cached_flag.keys())
+    """Compare field values between DB and cached versions of a flag.
 
-    for key in all_keys:
-        db_val = db_flag.get(key)
+    The DB serialization is treated as the source of truth: only keys present in
+    ``db_flag`` are compared. Extra keys in ``cached_flag`` (e.g. fields that
+    were removed from the serializer but still linger in pre-existing cache
+    entries) are ignored so that benign serializer field removals do not flag
+    every team's cache as mismatched.
+    """
+    field_diffs = []
+
+    for key in db_flag.keys():
+        db_val = db_flag[key]
         cached_val = cached_flag.get(key)
 
         if db_val != cached_val:

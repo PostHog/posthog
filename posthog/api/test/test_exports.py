@@ -627,12 +627,13 @@ class TestExports(APIBaseTest):
             ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
         ]
     )
-    def test_cannot_access_other_users_export(self, _name, url_template) -> None:
+    def test_teammate_blocked_from_other_users_non_session_recording_export(self, _name, url_template) -> None:
         export = ExportedAsset.objects.create(
             team=self.team,
             dashboard_id=self.dashboard.id,
             export_format="image/png",
             created_by=self.user,
+            content=b"fakepng-bytes-for-content",
         )
 
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
@@ -640,6 +641,33 @@ class TestExports(APIBaseTest):
 
         response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_teammate_can_access_session_recording_png_export_by_other_user(self, _name, url_template) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "session-png-peer@posthog.com", "password")
+        SessionRecording.objects.create(team=self.team, session_id="sess-png-shared")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="image/png",
+            export_context={"session_recording_id": "sess-png-shared"},
+            created_by=owner,
+            content=b"png-bytes",
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if "/content" in url_template:
+            self.assertEqual(response.content, b"png-bytes")
 
     @parameterized.expand(
         [
@@ -703,6 +731,154 @@ class TestExports(APIBaseTest):
         self.client.force_login(other_user)
         response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_teammate_can_access_system_session_video_export(self, _name, url_template) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "signal-session-viewer@posthog.com", "password")
+        SessionRecording.objects.create(team=self.team, session_id="signal-sess-shared")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "signal-sess-shared"},
+            created_by=owner,
+            is_system=True,
+            content=b"videobytes",
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if "/content" in url_template:
+            self.assertEqual(response.content, b"videobytes")
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_teammate_blocked_from_system_video_export_when_no_session_access(self, _name, url_template) -> None:
+        """Session recording RBAC still gates system (signals pipeline) video exports."""
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "signal-session-blocked@posthog.com", "password")
+        recording = SessionRecording.objects.create(team=self.team, session_id="signal-sess-private")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "signal-sess-private"},
+            created_by=owner,
+            is_system=True,
+            content=b"videobytes",
+        )
+
+        self.organization.available_product_features = [{"key": "advanced_permissions", "name": "Advanced permissions"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            resource_id=str(recording.id),
+            team=self.team,
+            access_level="none",
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_cannot_access_session_video_export_when_session_recording_row_missing_and_resource_denied(
+        self, _name, url_template
+    ) -> None:
+        """
+        Without a SessionRecording row, object-level RBAC cannot run; resource-level session_recording
+        access must still apply so exports are not fail-open for all project members.
+        """
+        from posthog.models.organization import OrganizationMembership
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "ghost-session-blocked@posthog.com", "password")
+        membership = OrganizationMembership.objects.get(user=teammate, organization=self.organization)
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "no-session-recording-row"},
+            created_by=owner,
+            is_system=True,
+            content=b"videobytes",
+        )
+
+        self.organization.available_product_features = [{"key": "advanced_permissions", "name": "Advanced permissions"}]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="session_recording",
+            resource_id=None,
+            team=self.team,
+            access_level="none",
+            organization_member=membership,
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_exports_with_session_recording_only_shows_own_matching_exports(self) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "signal-session-lister@posthog.com", "password")
+        SessionRecording.objects.create(team=self.team, session_id="lookup-sess-filter")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "lookup-sess-filter"},
+            created_by=owner,
+            is_system=True,
+            content=b"x",
+        )
+
+        self.client.force_login(teammate)
+        url = f"/api/projects/{self.team.id}/exports/?session_recording_id=lookup-sess-filter&export_format=video/mp4"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {r["id"] for r in response.json().get("results", [])}
+        self.assertNotIn(export.id, ids)
+
+    def test_list_exports_without_session_filter_hides_others_system_exports(self) -> None:
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "solo-exports@posthog.com", "password")
+        system_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "nosy-sess"},
+            created_by=owner,
+            is_system=True,
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {r["id"] for r in response.json().get("results", [])}
+        self.assertNotIn(system_export.id, ids)
 
     @parameterized.expand(
         [
@@ -910,54 +1086,181 @@ class TestExports(APIBaseTest):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @parameterized.expand(
+        [
+            # name, available_product_features, expected_limit
+            ("free", [], 10),
+            (
+                "paid",
+                [{"key": "recordings_file_export", "name": "Recordings file export"}],
+                15,
+            ),
+            (
+                "enterprise_via_role_based_access",
+                [
+                    {"key": "recordings_file_export", "name": "Recordings file export"},
+                    {"key": "role_based_access", "name": "Role based access"},
+                ],
+                25,
+            ),
+            (
+                "enterprise_via_saml",
+                [
+                    {"key": "recordings_file_export", "name": "Recordings file export"},
+                    {"key": "saml", "name": "SAML"},
+                ],
+                25,
+            ),
+            (
+                "enterprise_via_saml_only",
+                [{"key": "saml", "name": "SAML"}],
+                25,
+            ),
+        ]
+    )
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
-    def test_video_export_team_specific_limit(self, mock_async_connect, mock_async_to_sync) -> None:
-        """Test that teams can have custom export limits via extra_settings"""
-        # Set a custom limit of 3 for this team
-        self.team.extra_settings = {"full_video_exports_limit": 3}
-        self.team.save()
+    def test_video_export_limit_varies_by_plan_tier(
+        self,
+        _name: str,
+        available_product_features: list[dict],
+        expected_limit: int,
+        mock_async_connect,
+        mock_async_to_sync,
+    ) -> None:
+        """The monthly video export limit scales with the organization's plan tier."""
+        self.organization.available_product_features = available_product_features
+        self.organization.save()
 
-        # Create 2 video exports (should succeed)
-        for i in range(2):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/exports",
-                {
-                    "export_format": "video/mp4",
-                    "export_context": {
-                        "session_recording_id": f"session_{i}",
-                    },
-                },
+        for i in range(expected_limit):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"session_recording_id": f"session_{i}"},
+                created_by=self.user,
             )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # The 3rd export should succeed (at the custom limit)
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "session_recording_id": "session_3",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # The 4th export should fail with the custom limit in error message
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {
-                "export_format": "video/mp4",
-                "export_context": {
-                    "session_recording_id": "session_4",
+                    "session_recording_id": "session_over_limit",
                 },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         error_data = response.json()
-        self.assertEqual(error_data["type"], "validation_error")
         self.assertEqual(error_data["attr"], "export_limit_exceeded")
-        self.assertIn("reached the limit of 3 full video exports this month", error_data["detail"])
+        self.assertIn(f"reached the limit of {expected_limit} full video exports this month", error_data["detail"])
+
+    @parameterized.expand(
+        [
+            # (name, available_product_features, override, effective_limit)
+            # Override bumps above tier → effective limit is the override.
+            (
+                "paid_override_above_tier_wins",
+                [{"key": "recordings_file_export", "name": "Recordings file export"}],
+                20,
+                20,
+            ),
+            # Override below tier default is a no-op — tier default wins, so legacy
+            # flat-10 overrides can't silently downgrade enterprise orgs post-deploy.
+            (
+                "enterprise_override_below_tier_is_floored",
+                [
+                    {"key": "recordings_file_export", "name": "Recordings file export"},
+                    {"key": "saml", "name": "SAML"},
+                ],
+                10,
+                25,
+            ),
+            # Free tier with an override-bump also works.
+            ("free_override_above_tier_wins", [], 30, 30),
+        ]
+    )
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_extra_settings_override_acts_as_floor_above_plan_tier(
+        self,
+        _name: str,
+        available_product_features: list[dict],
+        override: int,
+        effective_limit: int,
+        mock_async_connect,
+        mock_async_to_sync,
+    ) -> None:
+        """The per-team override bumps the limit *above* the tier default but never below it.
+
+        Preserves the "support bump" purpose without silently downgrading orgs whose tier
+        default is now higher than a legacy override set during the flat-10 era.
+        """
+        self.organization.available_product_features = available_product_features
+        self.organization.save()
+        self.team.extra_settings = {"full_video_exports_limit": override}
+        self.team.save()
+
+        for i in range(effective_limit):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"session_recording_id": f"session_{i}"},
+                created_by=self.user,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "session_recording_id": "session_over_limit",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            f"reached the limit of {effective_limit} full video exports this month", response.json()["detail"]
+        )
+
+    @parameterized.expand(
+        [
+            # (name, is_system, should_succeed)
+            ("system_assets_dont_count", True, True),
+            ("user_assets_count", False, False),
+        ]
+    )
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_limit_excludes_system_assets(
+        self,
+        _name: str,
+        is_system: bool,
+        should_succeed: bool,
+        mock_async_connect,
+        mock_async_to_sync,
+    ) -> None:
+        for i in range(50):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/webm",
+                export_context={"session_recording_id": f"session_{i}"},
+                created_by=self.user,
+                is_system=is_system,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {"session_recording_id": "new_user_export"},
+            },
+        )
+
+        if should_succeed:
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        else:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["attr"], "export_limit_exceeded")
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_export_records_failure_on_query_error(self, mock_export_direct) -> None:

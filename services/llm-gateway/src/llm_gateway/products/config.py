@@ -11,7 +11,9 @@ from llm_gateway.config import get_settings
 
 @dataclass(frozen=True)
 class ProductConfig:
-    allowed_application_ids: frozenset[str] | None = None  # None = all allowed
+    # Empty set (the default) or None means no OAuth application is authorized for this product.
+    # To permit OAuth access, explicitly list the allowed application IDs.
+    allowed_application_ids: frozenset[str] | None = frozenset()
     allowed_models: frozenset[str] | None = None  # None = all allowed
     allow_api_keys: bool = True
 
@@ -42,6 +44,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-sonnet-4-5",
                 "claude-sonnet-4-6",
                 "claude-haiku-4-5",
+                "gpt-5.5",
                 "gpt-5.4",
                 "gpt-5.3-codex",
                 "gpt-5.2",
@@ -119,6 +122,15 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset({"gpt-4.1-mini"}),
         allow_api_keys=True,
     ),
+    "signals": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
+        allow_api_keys=False,
+    ),
+    "subscriptions": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-4.1-mini"}),
+        allow_api_keys=True,
+    ),
 }
 
 
@@ -190,9 +202,10 @@ def check_product_access(
         return False, f"Product '{product}' requires OAuth authentication"
 
     is_oauth = auth_method == "oauth_access_token"
-    if is_oauth and config.allowed_application_ids is not None:
+    if is_oauth and not settings.debug:
         # Skip application ID checks in debug mode
-        if not settings.debug and application_id not in config.allowed_application_ids:
+        allowed_application_ids = config.allowed_application_ids or frozenset()
+        if application_id not in allowed_application_ids:
             return False, f"OAuth application not authorized for product '{product}'"
 
     if model and config.allowed_models is not None:

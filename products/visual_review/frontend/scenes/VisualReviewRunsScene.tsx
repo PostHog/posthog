@@ -1,22 +1,28 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconGithub } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Link, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { IconGear, IconGithub } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { RepoSwitcher } from '../components/RepoSwitcher'
 import { RunSummaryStats } from '../components/RunSummaryStats'
+import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { RunApi } from '../generated/api.schemas'
-import { ReviewState, visualReviewRunsSceneLogic } from './visualReviewRunsSceneLogic'
+import { ReviewState, VisualReviewRunsSceneLogicProps, visualReviewRunsSceneLogic } from './visualReviewRunsSceneLogic'
 
 export const scene: SceneExport = {
     component: VisualReviewRunsScene,
     logic: visualReviewRunsSceneLogic,
+    paramsToProps: ({ params: { repoId } }): VisualReviewRunsSceneLogicProps => ({
+        repoId: repoId || '',
+    }),
 }
 
 function BranchCell({ run, repoFullName }: { run: RunApi; repoFullName?: string }): JSX.Element {
@@ -55,8 +61,9 @@ const TAB_COUNT_TYPES: Record<ReviewState, 'warning' | 'highlight' | 'default' |
 }
 
 export function VisualReviewRunsScene(): JSX.Element {
-    const { runs, runsLoading, activeTab, counts, repoFullName } = useValues(visualReviewRunsSceneLogic)
-    const { loadRuns, loadCounts, setActiveTab } = useActions(visualReviewRunsSceneLogic)
+    const { runs, runsLoading, activeTab, counts, repoId, repoFullName, page, totalCount } =
+        useValues(visualReviewRunsSceneLogic)
+    const { loadRuns, loadCounts, setActiveTab, setPage } = useActions(visualReviewRunsSceneLogic)
 
     const columns: LemonTableColumns<RunApi> = [
         {
@@ -126,23 +133,20 @@ export function VisualReviewRunsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Visual review"
+                name={repoFullName ?? 'Visual review'}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            loadRuns()
-                            loadCounts()
-                        }}
-                        loading={runsLoading}
-                    >
-                        Refresh
-                    </LemonButton>
+                    <div className="flex gap-2 items-center">
+                        <RepoSwitcher repoId={repoId} activeTab="runs" />
+                        <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
+                            Settings
+                        </LemonButton>
+                    </div>
                 }
             />
+            <VisualReviewTabs activeKey="runs" repoId={repoId} />
 
-            <div className="mb-3">
+            <div className="mb-3 flex items-center gap-2">
                 <LemonSegmentedButton
                     value={activeTab}
                     onChange={(value) => setActiveTab(value)}
@@ -161,13 +165,34 @@ export function VisualReviewRunsScene(): JSX.Element {
                     }))}
                     size="small"
                 />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => {
+                        loadRuns()
+                        loadCounts()
+                    }}
+                    loading={runsLoading}
+                    // Push refresh away from the segmented filter; sitting flush
+                    // next to the active-tab handle made it look like another tab.
+                    className="ml-auto"
+                >
+                    Refresh
+                </LemonButton>
             </div>
 
             <LemonTable
                 dataSource={runs}
                 columns={columns}
                 loading={runsLoading}
-                pagination={{ pageSize: 20 }}
+                pagination={{
+                    controlled: true,
+                    pageSize: 20,
+                    currentPage: page,
+                    entryCount: totalCount,
+                    onBackward: () => setPage(page - 1),
+                    onForward: () => setPage(page + 1),
+                }}
                 nouns={['run', 'runs']}
                 emptyState={EMPTY_MESSAGES[activeTab]}
                 onRow={(run) => ({

@@ -190,7 +190,7 @@ def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, Exp
         return "$feature_flag_called"
 
     event = exposure_config.event
-    return event if event and event != "$feature_flag_called" else "$feature_flag_called"
+    return str(event) if event and event != "$feature_flag_called" else "$feature_flag_called"
 
 
 def _build_action_filter(action_id: int, team: Team) -> ast.Expr:

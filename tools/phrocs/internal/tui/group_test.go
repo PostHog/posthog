@@ -211,6 +211,94 @@ func TestBuildGroupedEntries_ungroupedAppearsAfterConfiguredGroups(t *testing.T)
 	}
 }
 
+// ── capability dimension ─────────────────────────────────────────────────────
+
+// The capability dimension is inferred by config.Load() (it copies each
+// proc's Capability field into Groups["capability"]). These tests exercise
+// the TUI layer: once Groups["capability"] is populated, all the existing
+// grouping mechanics should work unchanged.
+
+func TestBuildGroupedEntries_capabilityDimension(t *testing.T) {
+	procs := []*process.Process{
+		{Name: "capture", Cfg: config.ProcConfig{Groups: map[string]string{"capability": "event_ingestion"}}},
+		{Name: "nodejs", Cfg: config.ProcConfig{Groups: map[string]string{"capability": "event_ingestion"}}},
+		{Name: "feature-flags", Cfg: config.ProcConfig{Groups: map[string]string{"capability": "flag_evaluation"}}},
+	}
+	cfg := &config.Config{
+		GroupOrder: map[string][]string{
+			"capability": {"event_ingestion", "flag_evaluation"},
+		},
+	}
+	entries := buildGroupedEntries(procs, "capability", cfg)
+
+	var headerOrder []string
+	procsUnder := map[string][]string{}
+	currentHeader := ""
+	for _, e := range entries {
+		switch {
+		case e.isHeader():
+			headerOrder = append(headerOrder, e.groupHeader)
+			currentHeader = e.groupHeader
+		case e.proc != nil:
+			procsUnder[currentHeader] = append(procsUnder[currentHeader], e.proc.Name)
+		}
+	}
+
+	if len(headerOrder) != 2 || headerOrder[0] != "event_ingestion" || headerOrder[1] != "flag_evaluation" {
+		t.Errorf("header order: got %v, want [event_ingestion flag_evaluation]", headerOrder)
+	}
+	if len(procsUnder["event_ingestion"]) != 2 {
+		t.Errorf("event_ingestion: got %v, want 2 procs", procsUnder["event_ingestion"])
+	}
+	if len(procsUnder["flag_evaluation"]) != 1 || procsUnder["flag_evaluation"][0] != "feature-flags" {
+		t.Errorf("flag_evaluation: got %v, want [feature-flags]", procsUnder["flag_evaluation"])
+	}
+}
+
+func TestBuildGroupedEntries_capabilityUngroupedFallback(t *testing.T) {
+	// Procs without a capability (e.g. backend, frontend, manual tools) have
+	// no Groups["capability"], so they fall under Ungrouped — matching how
+	// layer/tech behave today.
+	procs := []*process.Process{
+		{Name: "capture", Cfg: config.ProcConfig{Groups: map[string]string{"capability": "event_ingestion"}}},
+		{Name: "backend", Cfg: config.ProcConfig{}},
+	}
+	cfg := &config.Config{
+		GroupOrder: map[string][]string{"capability": {"event_ingestion"}},
+	}
+	entries := buildGroupedEntries(procs, "capability", cfg)
+
+	hasUngrouped := false
+	for _, e := range entries {
+		if e.isHeader() && e.groupHeader == ungroupedName {
+			hasUngrouped = true
+		}
+	}
+	if !hasUngrouped {
+		t.Error("proc without capability should appear under Ungrouped")
+	}
+}
+
+func TestBuildGroupedEntries_capabilityPinned(t *testing.T) {
+	// The `info` proc uses capability=pinned to stay at the top regardless
+	// of the active dimension, matching its layer=pinned / tech=pinned.
+	procs := []*process.Process{
+		{Name: "capture", Cfg: config.ProcConfig{Groups: map[string]string{"capability": "event_ingestion"}}},
+		{Name: "info", Cfg: config.ProcConfig{Groups: map[string]string{"capability": "pinned"}}},
+	}
+	cfg := &config.Config{}
+	entries := buildGroupedEntries(procs, "capability", cfg)
+
+	if len(entries) == 0 || entries[0].proc == nil || entries[0].proc.Name != "info" {
+		t.Error("info should be pinned at the top of capability grouping")
+	}
+	for _, e := range entries {
+		if e.isHeader() && e.groupHeader == "pinned" {
+			t.Error("pinned should never appear as a group header")
+		}
+	}
+}
+
 // ── groupDimensions ──────────────────────────────────────────────────────────
 
 func TestGroupDimensions(t *testing.T) {
@@ -245,6 +333,23 @@ func TestGroupDimensions(t *testing.T) {
 				"complex": {Shell: "echo", Groups: map[string]string{"tech": "Rust", "team": "Infra", "cost": "High"}},
 			}},
 			want: []string{"cost", "layer", "team", "tech"},
+		},
+		{
+			// capability is inferred from ProcConfig.Capability and always
+			// sorts after user-declared dims so the `g` cycle ends on it.
+			name: "capability is always last",
+			cfg: &config.Config{Procs: map[string]config.ProcConfig{
+				"a": {Groups: map[string]string{"layer": "App", "tech": "Python", "capability": "event_ingestion"}},
+				"b": {Groups: map[string]string{"capability": "flag_evaluation"}},
+			}},
+			want: []string{"layer", "tech", "capability"},
+		},
+		{
+			name: "capability only",
+			cfg: &config.Config{Procs: map[string]config.ProcConfig{
+				"a": {Groups: map[string]string{"capability": "event_ingestion"}},
+			}},
+			want: []string{"capability"},
 		},
 	}
 	for _, tc := range tests {

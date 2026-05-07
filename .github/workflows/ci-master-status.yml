@@ -11,13 +11,14 @@ on:
             - 'Dagster CI'
             - 'E2E CI Playwright'
             - 'Rust CI'
+            - 'LLM Services CI'
         branches: [master]
         types: [completed]
 
 env:
     SLACK_CHANNEL: 'C09ADEV3AJD'
     # Keep in sync with workflow_run.workflows trigger above
-    REQUIRED_WORKFLOWS: 'Backend CI,Node.js CI,Frontend CI,Storybook,Security,Dagster CI,E2E CI Playwright,Rust CI'
+    REQUIRED_WORKFLOWS: 'Backend CI,Node.js CI,Frontend CI,Storybook,Security,Dagster CI,E2E CI Playwright,Rust CI,LLM Services CI'
 
 permissions:
     contents: read
@@ -82,7 +83,7 @@ jobs:
             - name: Post new incident to Slack
               if: steps.process.outputs.action == 'create'
               id: slack_new
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -130,7 +131,7 @@ jobs:
 
             - name: Update Slack message
               if: steps.process.outputs.action == 'update'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -164,7 +165,7 @@ jobs:
 
             - name: Thread reply with failure
               if: steps.process.outputs.action == 'update'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -177,7 +178,7 @@ jobs:
 
             - name: Thread reply with recovery
               if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'false'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -200,7 +201,7 @@ jobs:
 
             - name: Update Slack to resolved
               if: steps.process.outputs.resolved == 'true'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -227,7 +228,7 @@ jobs:
 
             - name: Thread reply with resolution
               if: steps.process.outputs.resolved == 'true'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}

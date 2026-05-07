@@ -33,6 +33,7 @@ type keyMap struct {
 	LazyDocker   key.Binding
 	ProcViewer   key.Binding
 	SetupMode    key.Binding
+	ShowAll      key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -108,8 +109,8 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("↑:", "prev match"),
 		),
 		CommitFilter: key.NewBinding(
-			key.WithKeys("enter"),
-			key.WithHelp("↵:", "filter"),
+			key.WithKeys("tab"),
+			key.WithHelp("↹:", "filter"),
 		),
 		ToggleFilter: key.NewBinding(
 			key.WithKeys("tab"),
@@ -157,6 +158,10 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("t"),
 			key.WithHelp("t:", "setup"),
 		),
+		ShowAll: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a:", "show all"),
+		),
 	}
 }
 
@@ -180,6 +185,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.NextPane, k.PrevPane, k.LazyDocker, k.ProcViewer},
 		{k.Start, k.Stop, k.Restart, k.InfoMode},
 		{k.SearchMode, k.CopyMode, k.SetupMode},
-		{k.Quit, k.Help},
+		{k.Quit, k.Help, k.ShowAll},
 	}
 }

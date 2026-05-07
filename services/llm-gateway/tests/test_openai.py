@@ -225,3 +225,83 @@ class TestChatCompletionsEndpoint:
         assert "base_url" not in forwarded_metadata["nested"]
         assert forwarded_metadata["safe"] == "value"
         assert forwarded_metadata["nested"]["keep"] == "ok"
+
+
+class TestUnsupportedModelRejection:
+    """Gemini/Vertex models must be rejected before reaching litellm, which would
+    otherwise raise ImportError from vertex_llm_base because we don't install
+    litellm[google]."""
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gemini/gemini-3-pro-preview",
+            "gemini/gemini-1.5-pro",
+            "vertex_ai/gemini-1.5-pro",
+            "vertex_ai-language-models/text-bison",
+            "GEMINI/gemini-pro",  # case-insensitive prefix match
+            # Bare gemini-* names (most commonly seen in the pod crash logs).
+            # These may not be in the litellm cost registry yet, so we match
+            # them by name prefix rather than relying on registry lookup.
+            "gemini-3-pro-preview",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash",
+            "Gemini-3-Pro-Preview",  # case-insensitive
+        ],
+    )
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_unsupported_model_prefix_returns_400(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+        model: str,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={"model": model, "messages": [{"role": "user", "content": "Hi"}]},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "model_not_supported"
+        mock_completion.assert_not_called()
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_unsupported_provider_via_registry_returns_400(
+        self,
+        mock_completion: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        # Bare model name (no prefix) where litellm's registry identifies the
+        # provider as vertex_ai — we still need to catch this.
+        from llm_gateway.rate_limiting.model_cost_service import ModelCostService
+        from llm_gateway.services.model_registry import ModelRegistryService
+
+        fake_costs = {
+            "gemini-pro-bare": {
+                "litellm_provider": "vertex_ai",
+                "max_input_tokens": 1000,
+                "supports_vision": False,
+                "mode": "chat",
+            },
+        }
+
+        def fake_get_costs(self: ModelCostService, model: str):
+            return fake_costs.get(model)
+
+        ModelRegistryService.reset_instance()
+        ModelCostService.reset_instance()
+        try:
+            with patch.object(ModelCostService, "get_costs", fake_get_costs):
+                response = authenticated_client.post(
+                    "/v1/chat/completions",
+                    json={"model": "gemini-pro-bare", "messages": [{"role": "user", "content": "Hi"}]},
+                    headers={"Authorization": "Bearer phx_test_key"},
+                )
+        finally:
+            ModelRegistryService.reset_instance()
+            ModelCostService.reset_instance()
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "model_not_supported"
+        mock_completion.assert_not_called()

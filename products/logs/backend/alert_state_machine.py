@@ -18,7 +18,7 @@ from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from products.logs.backend.models import LogsAlertConfiguration
+    from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 MAX_CONSECUTIVE_FAILURES = 5
 
@@ -36,6 +36,8 @@ class NotificationAction(Enum):
     NONE = "none"
     FIRE = "fire"
     RESOLVE = "resolve"
+    ERROR = "error"
+    BROKEN = "broken"
 
 
 class InvalidTransition(Exception):
@@ -48,6 +50,7 @@ class CheckResult:
     threshold_breached: bool
     error_message: str | None = None
     query_duration_ms: int | None = None
+    is_transient_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,7 @@ class AlertSnapshot:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     consecutive_failures: int
-    recent_checks_breached: tuple[bool, ...]
+    recent_events_breached: tuple[bool, ...]
 
 
 @dataclass(frozen=True)
@@ -120,11 +123,25 @@ def evaluate_alert_check(
         effective_state = snapshot.state
 
     if check.error_message is not None:
-        consecutive_failures = snapshot.consecutive_failures + 1
+        consecutive_failures = (
+            snapshot.consecutive_failures if check.is_transient_error else snapshot.consecutive_failures + 1
+        )
         new_state = AlertState.BROKEN if consecutive_failures >= MAX_CONSECUTIVE_FAILURES else AlertState.ERRORED
+        first_error = (
+            effective_state != AlertState.ERRORED
+            and snapshot.state != AlertState.ERRORED  # prevents re-notification after snooze auto-expiry
+            and new_state == AlertState.ERRORED
+        )
+        first_broken = new_state == AlertState.BROKEN
+        if first_broken:
+            notification = NotificationAction.BROKEN
+        elif first_error:
+            notification = NotificationAction.ERROR
+        else:
+            notification = NotificationAction.NONE
         return AlertCheckOutcome(
             new_state=new_state,
-            notification=NotificationAction.NONE,
+            notification=notification,
             consecutive_failures=consecutive_failures,
             update_last_notified_at=False,
             error_message=check.error_message,
@@ -132,7 +149,7 @@ def evaluate_alert_check(
 
     consecutive_failures = 0
 
-    window = [check.threshold_breached, *snapshot.recent_checks_breached]
+    window = [check.threshold_breached, *snapshot.recent_events_breached]
     m = snapshot.evaluation_periods
     window = window[:m]
 
@@ -151,13 +168,10 @@ def evaluate_alert_check(
         else:
             new_state = AlertState.NOT_FIRING
 
-    # PENDING_RESOLVE is currently unused — resolution is immediate on the first
-    # OK check. Kept in the enum for future symmetric N-of-M resolution support.
     elif effective_state in (AlertState.FIRING, AlertState.PENDING_RESOLVE):
-        if check.threshold_breached:
+        if breach_count >= n:
             new_state = AlertState.FIRING
         else:
-            # Always resolve after a single OK check — N-of-M only governs firing
             new_state = AlertState.NOT_FIRING
             notification = NotificationAction.RESOLVE
 
@@ -221,12 +235,35 @@ def apply_threshold_change(snapshot: AlertSnapshot) -> ControlPlaneOutcome:
     return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
 
 
-def apply_outcome(alert: LogsAlertConfiguration, outcome: Outcome) -> list[str]:
+def apply_outcome(
+    alert: LogsAlertConfiguration,
+    outcome: Outcome,
+    *,
+    kind: LogsAlertEvent.Kind | None = None,
+) -> list[str]:
     """Mutates `alert.state` and `alert.consecutive_failures` from an outcome.
     Returns modified field names for `save(update_fields=...)`.
+
+    If `kind` is provided, writes a `LogsAlertEvent` audit row — even when
+    state_before == state_after, because the caller has already decided the action
+    is audit-worthy (e.g. enabling an already-NOT_FIRING alert). Worker CHECK rows
+    are written by the temporal activity, not here.
     """
+    state_before = alert.state
     alert.state = outcome.new_state.value
     alert.consecutive_failures = outcome.consecutive_failures
+
+    if kind is not None:
+        from products.logs.backend.models import LogsAlertEvent
+
+        LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=kind,
+            threshold_breached=False,
+            state_before=state_before,
+            state_after=outcome.new_state.value,
+        )
+
     return ["state", "consecutive_failures"]
 
 

@@ -249,9 +249,7 @@ class TestProcessDueSchedules(APIBaseTest):
 
     def _post(self):
         return self.client.post(
-            self.INTERNAL_URL,
-            content_type="application/json",
-            HTTP_X_INTERNAL_API_SECRET="test-secret",
+            self.INTERNAL_URL, content_type="application/json", headers={"x-internal-api-secret": "test-secret"}
         )
 
     def test_due_schedule_is_processed_and_next_run_at_advanced(self, mock_dispatch):
@@ -419,9 +417,7 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
     def _post(self):
         return self.client.post(
-            self.INTERNAL_URL,
-            content_type="application/json",
-            HTTP_X_INTERNAL_API_SECRET="test-secret",
+            self.INTERNAL_URL, content_type="application/json", headers={"x-internal-api-secret": "test-secret"}
         )
 
     def test_due_schedule_trigger_dispatches_scheduled_invocation(self, mock_invocation):

@@ -233,6 +233,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 full: true,
                 showPropertyFilter: false,
                 showEventFilter: false,
+                ...(props.id && props.id !== 'new'
+                    ? { showPersistentColumnConfigurator: true, contextKey: `cohort:${props.id}` }
+                    : {}),
             } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),

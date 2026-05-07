@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 
@@ -14,6 +15,8 @@ export function PostHogCodeSlackIntegration(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
     const { posthogCodeSlackIntegrations, posthogCodeSlackAvailable } = useValues(integrationsLogic)
+    const flagEnabled = useFeatureFlag('POSTHOG_CODE_SLACK_AVAILABILITY')
+    const canConnect = posthogCodeSlackAvailable && flagEnabled
 
     return (
         <div>
@@ -25,7 +28,7 @@ export function PostHogCodeSlackIntegration(): JSX.Element {
                 ))}
 
                 <div>
-                    {posthogCodeSlackAvailable ? (
+                    {canConnect ? (
                         <LemonButton
                             disableClientSideRouting
                             to={api.integrations.authorizeUrl({ kind: 'slack-posthog-code' })}

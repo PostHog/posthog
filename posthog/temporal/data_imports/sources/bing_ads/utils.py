@@ -4,6 +4,7 @@ import typing
 import zipfile
 import datetime as dt
 import tempfile
+import dataclasses
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,23 @@ import structlog
 from bingads.v13.reporting import ReportingDownloadParameters
 from dateutil.relativedelta import relativedelta
 
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+
 from .schemas import BingAdsResource
+
+
+@dataclasses.dataclass
+class BingAdsResumeConfig:
+    """Resume state for Bing Ads stats report fetches.
+
+    The stats endpoints iterate over yearly date-range chunks; the resume checkpoint captures
+    the next chunk's start date and the original end of the sync window so a restart reuses
+    the same window instead of drifting forward to today.
+    """
+
+    next_start_date: str
+    end_date: str
+
 
 logger = structlog.get_logger(__name__)
 
@@ -42,12 +59,19 @@ def fetch_data_in_yearly_chunks(
     account_id: int,
     start_date: dt.date,
     end_date: dt.date,
+    resumable_source_manager: ResumableSourceManager[BingAdsResumeConfig],
 ) -> Iterator[list[dict]]:
     """Fetch data in yearly chunks to handle Bing Ads API limitations.
 
     Bing Ads API performs better with smaller date ranges. This function splits
     large date ranges into yearly chunks and aggregates errors for better visibility.
     """
+    # On resume, restart at the saved chunk boundary and preserve the original sync window
+    # (end_date) so we don't drift if the worker restarts on a later day.
+    if resumable_source_manager.can_resume() and (saved_state := resumable_source_manager.load_state()) is not None:
+        start_date = dt.date.fromisoformat(saved_state.next_start_date)
+        end_date = dt.date.fromisoformat(saved_state.end_date)
+
     current_start = start_date
     errors: list[dict[str, typing.Any]] = []
 
@@ -80,6 +104,15 @@ def fetch_data_in_yearly_chunks(
 
         # Move to the day after chunk_end to avoid duplicate dates at chunk boundaries
         current_start = chunk_end + dt.timedelta(days=1)
+
+        # Checkpoint after each chunk boundary (both success and error paths) so resume
+        # always advances past chunks we've already attempted.
+        resumable_source_manager.save_state(
+            BingAdsResumeConfig(
+                next_start_date=current_start.isoformat(),
+                end_date=end_date.isoformat(),
+            )
+        )
 
     if errors:
         logger.error(

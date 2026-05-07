@@ -172,15 +172,19 @@ const RECURRING_SUPPORTED_OPERATIONS = new Set([
 
 function ScheduleStatusTag({ scheduledChange }: { scheduledChange: ScheduledChangeType }): JSX.Element {
     const { executed_at, failure_reason, is_recurring } = scheduledChange
+    const { currentTeam } = useValues(teamLogic)
+    const tz = currentTeam?.timezone || 'UTC'
 
     function getStatus(): { type: LemonTagType; text: string; tooltip?: string } {
         if (failure_reason) {
             return { type: 'danger', text: 'Error', tooltip: `Failed: ${failure_reason}` }
         } else if (executed_at) {
+            const executedAt = dayjs(executed_at)
+            const tzShort = shortTimeZone(tz, executedAt.toDate()) ?? tz
             return {
                 type: 'completion',
                 text: 'Complete',
-                tooltip: `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`,
+                tooltip: `Completed: ${executedAt.tz(tz).format('MMMM D, YYYY h:mm A')} (${tzShort})`,
             }
         } else if (isSchedulePaused(scheduledChange)) {
             return {
@@ -257,8 +261,11 @@ function ChangeDescription({
 }
 
 function ScheduleTiming({ scheduledChange }: { scheduledChange: ScheduledChangeType }): JSX.Element {
-    const scheduledAt = dayjs(scheduledChange.scheduled_at)
-    const formattedDate = scheduledAt.format(DAYJS_FORMAT)
+    const { currentTeam } = useValues(teamLogic)
+    const tz = currentTeam?.timezone || 'UTC'
+    const scheduledAt = dayjs(scheduledChange.scheduled_at).tz(tz)
+    const tzShort = shortTimeZone(tz, scheduledAt.toDate()) ?? tz
+    const formattedDate = `${scheduledAt.format(DAYJS_FORMAT)} (${tzShort})`
     const timeStr = scheduledAt.format('h:mm A')
 
     // Determine the recurring description from either a cron expression or a fixed interval
@@ -298,7 +305,7 @@ function ScheduleTiming({ scheduledChange }: { scheduledChange: ScheduledChangeT
         }
 
         const endDateStr = scheduledChange.end_date
-            ? ` · Ends ${dayjs(scheduledChange.end_date).format('MMM D, YYYY')}`
+            ? ` · Ends ${dayjs(scheduledChange.end_date).tz(tz).format('MMM D, YYYY')}`
             : ''
         return (
             <Tooltip title={`Next: ${formattedDate}${endDateStr}`}>
@@ -771,9 +778,14 @@ function FeatureFlagScheduleV2(): JSX.Element {
                         <div className="rounded border p-4 flex flex-col gap-2">
                             <p className="text-muted text-sm m-0">
                                 The flag will be <strong>{schedulePayload.active ? 'enabled' : 'disabled'}</strong>
-                                {scheduleDateMarker
-                                    ? ` on ${scheduleDateMarker.format(DAYJS_FORMAT)}`
-                                    : ' on the scheduled date'}
+                                {scheduleDateMarker ? (
+                                    <>
+                                        {` on ${scheduleDateMarker.format(DAYJS_FORMAT)} `}
+                                        <ScheduleTimezoneHint />
+                                    </>
+                                ) : (
+                                    ' on the scheduled date'
+                                )}
                                 .
                             </p>
                             <LemonSwitch
@@ -1150,6 +1162,8 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
     } = useActions(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const tz = currentTeam?.timezone || 'UTC'
 
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
 
@@ -1213,8 +1227,9 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
             title: 'Scheduled at',
             dataIndex: 'scheduled_at',
             render: function Render(_, scheduledChange: ScheduledChangeType) {
-                const scheduledAt = dayjs(scheduledChange.scheduled_at)
-                const formattedDate = scheduledAt.format(DAYJS_FORMAT)
+                const scheduledAt = dayjs(scheduledChange.scheduled_at).tz(tz)
+                const tzShort = shortTimeZone(tz, scheduledAt.toDate()) ?? tz
+                const formattedDate = `${scheduledAt.format(DAYJS_FORMAT)} (${tzShort})`
                 const timeStr = scheduledAt.format('h:mm A')
                 const isPaused = !scheduledChange.is_recurring && !!scheduledChange.recurrence_interval
 
@@ -1249,7 +1264,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                     }
 
                     const endDateStr = scheduledChange.end_date
-                        ? `\nEnds: ${dayjs(scheduledChange.end_date).format('MMMM D, YYYY')}`
+                        ? `\nEnds: ${dayjs(scheduledChange.end_date).tz(tz).format('MMMM D, YYYY')}`
                         : ''
                     return (
                         <Tooltip title={`Next: ${formattedDate}${endDateStr}`}>
@@ -1270,7 +1285,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                 if (!scheduledChange.end_date) {
                     return <span className="text-muted">No end date</span>
                 }
-                return dayjs(scheduledChange.end_date).format('MMM D, YYYY')
+                return dayjs(scheduledChange.end_date).tz(tz).format('MMM D, YYYY')
             },
         },
         createdAtColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
@@ -1286,10 +1301,12 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                     if (failure_reason) {
                         return { type: 'danger', text: 'Error', tooltip: `Failed: ${failure_reason}` }
                     } else if (executed_at) {
+                        const executedAt = dayjs(executed_at)
+                        const tzShort = shortTimeZone(tz, executedAt.toDate()) ?? tz
                         return {
                             type: 'completion',
                             text: 'Complete',
-                            tooltip: `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`,
+                            tooltip: `Completed: ${executedAt.tz(tz).format('MMMM D, YYYY h:mm A')} (${tzShort})`,
                         }
                     } else if (isPaused) {
                         return {

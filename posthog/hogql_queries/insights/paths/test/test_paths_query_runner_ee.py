@@ -1846,7 +1846,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         # test aggregation for long paths
         paths_query["pathsFilter"]["startPoint"] = "/2"
-        paths_query["pathsFilter"]["stepLimit"] = 4
+        paths_query["pathsFilter"]["stepLimit"] = 4  # ty: ignore[invalid-assignment]
         result = PathsQueryRunner(
             query=paths_query,
             team=self.team,

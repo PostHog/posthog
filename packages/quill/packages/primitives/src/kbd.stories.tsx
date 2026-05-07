@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { Field, FieldLabel } from './field'
-import { Input } from './input'
 import { Kbd, KbdGroup, KbdText } from './kbd'
 
 const meta = {
@@ -34,17 +32,6 @@ export const Default: Story = {
                     <Kbd>B</Kbd>
                 </KbdGroup>
             </div>
-        )
-    },
-} satisfies Story
-
-export const WithField: Story = {
-    render: () => {
-        return (
-            <Field className="max-w-sm">
-                <FieldLabel htmlFor="email">Your email address</FieldLabel>
-                <Input id="email" />
-            </Field>
         )
     },
 } satisfies Story

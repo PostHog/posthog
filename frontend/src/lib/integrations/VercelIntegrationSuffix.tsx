@@ -1,11 +1,15 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 
 import { IntegrationType } from '~/types'
 
@@ -15,6 +19,26 @@ type EnvMapping = {
     development: number | null
 }
 
+function DisconnectButton({ integration }: { integration: IntegrationType }): JSX.Element {
+    const { deleteOrganizationIntegration } = useActions(organizationIntegrationsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
+
+    return (
+        <LemonButton
+            type="secondary"
+            status="danger"
+            onClick={() => deleteOrganizationIntegration(integration.id)}
+            icon={<IconTrash />}
+            disabledReason={restrictedReason}
+        >
+            Disconnect
+        </LemonButton>
+    )
+}
+
 export function VercelIntegrationSuffix({ integration }: { integration: IntegrationType }): JSX.Element {
     const accountUrl = integration.config?.account?.url
     const accountName = integration.config?.account?.name
@@ -22,23 +46,32 @@ export function VercelIntegrationSuffix({ integration }: { integration: Integrat
     const envMapping: EnvMapping | undefined = integration.config?.environment_mapping
 
     if (!isConnectable || !envMapping) {
-        if (!accountUrl) {
-            return <></>
-        }
         return (
-            <LemonButton
-                type="secondary"
-                to={accountUrl}
-                targetBlank
-                sideIcon={<IconOpenInNew />}
-                tooltip={accountName ? `Open ${accountName} in Vercel` : 'Open in Vercel'}
-            >
-                View in Vercel
-            </LemonButton>
+            <div className="flex gap-2">
+                {accountUrl && (
+                    <LemonButton
+                        type="secondary"
+                        to={accountUrl}
+                        targetBlank
+                        sideIcon={<IconOpenInNew />}
+                        tooltip={accountName ? `Open ${accountName} in Vercel` : 'Open in Vercel'}
+                    >
+                        View in Vercel
+                    </LemonButton>
+                )}
+                <DisconnectButton integration={integration} />
+            </div>
         )
     }
 
-    return <VercelEnvMappingEditor integration={integration} envMapping={envMapping} />
+    return (
+        <div>
+            <div className="flex justify-end">
+                <DisconnectButton integration={integration} />
+            </div>
+            <VercelEnvMappingEditor integration={integration} envMapping={envMapping} />
+        </div>
+    )
 }
 
 function VercelEnvMappingEditor({

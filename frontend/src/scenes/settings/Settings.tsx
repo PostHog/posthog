@@ -338,65 +338,42 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     return (
         <div className="flex flex-col gap-y-8 pb-[30vh]">
             {settings.length ? (
-                settings.map((x, index) => {
-                    const previous = index > 0 ? settings[index - 1] : undefined
-                    const showSubGroup = !settingsInSidebar && !!x.subGroup && x.subGroup !== previous?.subGroup
-                    return (
-                        <React.Fragment key={`${x.id}-${index}`}>
-                            {showSubGroup && (
-                                <div className="flex items-center gap-3 mt-8 -mb-4 first:mt-0">
-                                    <span className="text-xs font-semibold uppercase tracking-wider text-secondary whitespace-nowrap">
-                                        {x.subGroup}
-                                    </span>
-                                    <LemonDivider className="flex-1 m-0" />
-                                </div>
-                            )}
-                            <div className="relative last:mb-4">
-                                {!settingsInSidebar && x.title && (
-                                    <h2
-                                        id={x.id}
-                                        className="flex flex-wrap gap-2 items-center text-base font-semibold mb-0"
-                                    >
-                                        <span className="flex gap-2 items-center">
-                                            {x.title}
-                                            {props.logicKey === 'settingsScene' && (
-                                                <LemonButton
-                                                    icon={<IconLink />}
-                                                    size="small"
-                                                    to={urls.settings(selectedSectionId ?? selectedLevel, x.id)}
-                                                    onClick={(e) => {
-                                                        selectSetting(x.id)
-                                                        e.preventDefault()
-                                                    }}
-                                                />
-                                            )}
-                                        </span>
-                                        {x.platformSupport && <SupportedPlatforms config={x.platformSupport} />}
-                                    </h2>
+                settings.map((x, index) => (
+                    <div key={`${x.id}-${index}`} className="relative last:mb-4">
+                        {!settingsInSidebar && x.title && (
+                            <h2 id={x.id} className="flex gap-2 items-center text-base font-semibold mb-0">
+                                {x.title}
+                                {props.logicKey === 'settingsScene' && (
+                                    <LemonButton
+                                        icon={<IconLink />}
+                                        size="small"
+                                        to={urls.settings(selectedSectionId ?? selectedLevel, x.id)}
+                                        onClick={(e) => {
+                                            selectSetting(x.id)
+                                            e.preventDefault()
+                                        }}
+                                    />
                                 )}
-                                {x.description && (
-                                    <p className="max-w-160 text-sm text-secondary mb-4">
-                                        {x.description}
-                                        {x.docsUrl && (
-                                            <>
-                                                &nbsp;
-                                                <Link
-                                                    to={x.docsUrl}
-                                                    target="_blank"
-                                                    data-attr={`settings-docs-link-${x.id}`}
-                                                >
-                                                    Docs
-                                                </Link>
-                                            </>
-                                        )}
-                                    </p>
+                                {x.platformSupport && <SupportedPlatforms config={x.platformSupport} />}
+                            </h2>
+                        )}
+                        {x.description && (
+                            <p className="max-w-160 text-sm text-secondary mb-4">
+                                {x.description}
+                                {x.docsUrl && (
+                                    <>
+                                        &nbsp;
+                                        <Link to={x.docsUrl} target="_blank" data-attr={`settings-docs-link-${x.id}`}>
+                                            Docs
+                                        </Link>
+                                    </>
                                 )}
+                            </p>
+                        )}
 
-                                {x.component}
-                            </div>
-                        </React.Fragment>
-                    )
-                })
+                        {x.component}
+                    </div>
+                ))
             ) : (
                 <NotFound object="setting" />
             )}

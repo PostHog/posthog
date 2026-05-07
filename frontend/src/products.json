@@ -121,10 +121,24 @@
             "intents": ["llm_evaluations"]
         },
         {
+            "path": "Tags",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_tags",
+            "intents": ["llm_analytics"]
+        },
+        {
             "path": "Prompts",
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_prompts",
+            "intents": ["llm_prompts"]
+        },
+        {
+            "path": "Skills",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_skills",
             "intents": ["llm_prompts"]
         },
         { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
@@ -173,7 +187,6 @@
             "intents": ["revenue_analytics"]
         },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
-        { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": ["tasks"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         { "path": "Tracing", "category": "Unreleased", "iconType": "tracing", "type": null, "intents": ["tracing"] },
         {

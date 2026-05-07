@@ -337,8 +337,8 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         # Test Retention Query
         retention_query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(name="event"),
-                returningEntity=AssistantRetentionEventsNode(name="event"),
+                targetEntity=AssistantRetentionEventsNode(id="event"),
+                returningEntity=AssistantRetentionEventsNode(id="event"),
             )
         )
         self.assertEqual(get_example_prompt(retention_query), RETENTION_EXAMPLE_PROMPT)

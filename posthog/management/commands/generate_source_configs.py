@@ -386,15 +386,21 @@ class SourceConfigGenerator:
             if field_content == "pass" or not field_content:
                 continue
 
-            # If the field contains " = " it has a default, otherwise it doesn't
-            if "config." in field_content and "default=" not in field_content:
-                fields_with_config_annotations.append(field)
-            elif " = " in field_content and "default_factory=lambda: None" in field_content:
-                fields_with_none_default.append(field)
-            elif " = " in field_content:
-                fields_with_defaults.append(field)
-            else:
+            has_assignment = " = " in field_content
+            has_default = has_assignment and (
+                "default=" in field_content or "default_factory=" in field_content or field_content.endswith(" = None")
+            )
+
+            if not has_assignment:
                 fields_without_defaults.append(field)
+            elif has_default and "default_factory=lambda: None" in field_content:
+                fields_with_none_default.append(field)
+            elif has_default:
+                fields_with_defaults.append(field)
+            elif "config." in field_content:
+                fields_with_config_annotations.append(field)
+            else:
+                fields_with_defaults.append(field)
 
         return (
             fields_without_defaults + fields_with_config_annotations + fields_with_none_default + fields_with_defaults

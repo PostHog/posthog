@@ -71,7 +71,7 @@ class Command(BaseCommand):
                 person_data = self._generate_person_data(i, identified_ratio)
 
                 # Create person in Django only
-                person = Person.objects.create(
+                person = Person.objects.create(  # nosemgrep: no-direct-persons-db-orm
                     team=team,
                     properties=person_data["properties"],
                     is_identified=person_data["is_identified"],
@@ -79,7 +79,7 @@ class Command(BaseCommand):
 
                 # Create distinct ID
                 distinct_id = str(UUIDT())
-                PersonDistinctId.objects.create(
+                PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
                     team=team,
                     person=person,
                     distinct_id=distinct_id,
@@ -858,7 +858,7 @@ class Command(BaseCommand):
 
         events_created = 0
         for _i in range(min(person_count, 50)):  # Limit events to avoid overwhelming
-            person = Person.objects.filter(team=team).order_by("?").first()
+            person = Person.objects.filter(team=team).order_by("?").first()  # nosemgrep: no-direct-persons-db-orm
             if not person:
                 continue
 

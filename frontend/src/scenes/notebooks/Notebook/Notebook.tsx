@@ -15,6 +15,7 @@ import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/not
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 
+import { AddExperimentsToNotebookModal } from '../AddExperimentsToNotebookModal/AddExperimentsToNotebookModal'
 import { AddInsightsToNotebookModal } from '../AddInsightsToNotebookModal/AddInsightsToNotebookModal'
 import { Editor } from './Editor'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
@@ -37,9 +38,18 @@ export function Notebook({
     editable = true,
     initialAutofocus = 'start',
     initialContent,
+    cachedNotebook,
+    cachedInsightsByShortId,
+    cachedInlineQueryResultsByNodeId,
     className,
 }: NotebookProps): JSX.Element {
-    const logicProps: NotebookLogicProps = { shortId, mode }
+    const logicProps: NotebookLogicProps = {
+        shortId,
+        mode,
+        cachedNotebook,
+        cachedInsightsByShortId,
+        cachedInlineQueryResultsByNodeId,
+    }
     const logic = notebookLogic(logicProps)
     const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
         useValues(logic)
@@ -140,6 +150,7 @@ export function Notebook({
                 </div>
             )}
             <AddInsightsToNotebookModal />
+            <AddExperimentsToNotebookModal />
         </BindLogic>
     )
 }

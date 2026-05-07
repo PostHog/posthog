@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from django.conf import settings
@@ -155,7 +155,7 @@ def produce_replay_summary(
     last_timestamp = _sensible_last_timestamp(first_timestamp, last_timestamp)
 
     timestamp = format_clickhouse_timestamp(cast_timestamp_or_now(first_timestamp))
-    data = {
+    data: dict[str, Any] = {
         "session_id": session_id or "1",
         "team_id": team_id,
         "distinct_id": distinct_id or "user",

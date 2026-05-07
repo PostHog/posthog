@@ -13,7 +13,7 @@ import { file_personhog_types_v1_common } from './common_pb'
 export const file_personhog_types_v1_cohort: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvY29ob3J0LnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiOAoQQ29ob3J0TWVtYmVyc2hpcBIRCgljb2hvcnRfaWQYASABKAMSEQoJaXNfbWVtYmVyGAIgASgIInwKHENoZWNrQ29ob3J0TWVtYmVyc2hpcFJlcXVlc3QSEQoJcGVyc29uX2lkGAEgASgDEhIKCmNvaG9ydF9pZHMYAiADKAMSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIlUKGENvaG9ydE1lbWJlcnNoaXBSZXNwb25zZRI5CgttZW1iZXJzaGlwcxgBIAMoCzIkLnBlcnNvbmhvZy50eXBlcy52MS5Db2hvcnRNZW1iZXJzaGlwYgZwcm90bzM',
+        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvY29ob3J0LnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiOAoQQ29ob3J0TWVtYmVyc2hpcBIRCgljb2hvcnRfaWQYASABKAMSEQoJaXNfbWVtYmVyGAIgASgIInwKHENoZWNrQ29ob3J0TWVtYmVyc2hpcFJlcXVlc3QSEQoJcGVyc29uX2lkGAEgASgDEhIKCmNvaG9ydF9pZHMYAiADKAMSNQoMcmVhZF9vcHRpb25zGAMgASgLMh8ucGVyc29uaG9nLnR5cGVzLnYxLlJlYWRPcHRpb25zIlUKGENvaG9ydE1lbWJlcnNoaXBSZXNwb25zZRI5CgttZW1iZXJzaGlwcxgBIAMoCzIkLnBlcnNvbmhvZy50eXBlcy52MS5Db2hvcnRNZW1iZXJzaGlwImYKGUNvdW50Q29ob3J0TWVtYmVyc1JlcXVlc3QSEgoKY29ob3J0X2lkcxgBIAMoAxI1CgxyZWFkX29wdGlvbnMYAiABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiKwoaQ291bnRDb2hvcnRNZW1iZXJzUmVzcG9uc2USDQoFY291bnQYASABKAMiQQoZRGVsZXRlQ29ob3J0TWVtYmVyUmVxdWVzdBIRCgljb2hvcnRfaWQYASABKAMSEQoJcGVyc29uX2lkGAIgASgDIi0KGkRlbGV0ZUNvaG9ydE1lbWJlclJlc3BvbnNlEg8KB2RlbGV0ZWQYASABKAgiSAoeRGVsZXRlQ29ob3J0TWVtYmVyc0J1bGtSZXF1ZXN0EhIKCmNvaG9ydF9pZHMYASADKAMSEgoKYmF0Y2hfc2l6ZRgCIAEoBSI4Ch9EZWxldGVDb2hvcnRNZW1iZXJzQnVsa1Jlc3BvbnNlEhUKDWRlbGV0ZWRfY291bnQYASABKAMiZQoaSW5zZXJ0Q29ob3J0TWVtYmVyc1JlcXVlc3QSEQoJY29ob3J0X2lkGAEgASgDEhIKCnBlcnNvbl9pZHMYAiADKAMSFAoHdmVyc2lvbhgDIAEoBUgAiAEBQgoKCF92ZXJzaW9uIjUKG0luc2VydENvaG9ydE1lbWJlcnNSZXNwb25zZRIWCg5pbnNlcnRlZF9jb3VudBgBIAEoAyKFAQoaTGlzdENvaG9ydE1lbWJlcklkc1JlcXVlc3QSEQoJY29ob3J0X2lkGAEgASgDEg4KBmN1cnNvchgCIAEoAxINCgVsaW1pdBgDIAEoBRI1CgxyZWFkX29wdGlvbnMYBCABKAsyHy5wZXJzb25ob2cudHlwZXMudjEuUmVhZE9wdGlvbnMiRgobTGlzdENvaG9ydE1lbWJlcklkc1Jlc3BvbnNlEhIKCnBlcnNvbl9pZHMYASADKAMSEwoLbmV4dF9jdXJzb3IYAiABKANiBnByb3RvMw',
         [file_personhog_types_v1_common]
     )
 
@@ -87,3 +87,243 @@ export type CohortMembershipResponse = Message<'personhog.types.v1.CohortMembers
 export const CohortMembershipResponseSchema: GenMessage<CohortMembershipResponse> =
     /*@__PURE__*/
     messageDesc(file_personhog_types_v1_cohort, 2)
+
+/**
+ * CountCohortMembers returns the total member count across the given cohort IDs.
+ * Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+ *
+ * @generated from message personhog.types.v1.CountCohortMembersRequest
+ */
+export type CountCohortMembersRequest = Message<'personhog.types.v1.CountCohortMembersRequest'> & {
+    /**
+     * @generated from field: repeated int64 cohort_ids = 1;
+     */
+    cohortIds: bigint[]
+
+    /**
+     * @generated from field: personhog.types.v1.ReadOptions read_options = 2;
+     */
+    readOptions?: ReadOptions
+}
+
+/**
+ * Describes the message personhog.types.v1.CountCohortMembersRequest.
+ * Use `create(CountCohortMembersRequestSchema)` to create a new message.
+ */
+export const CountCohortMembersRequestSchema: GenMessage<CountCohortMembersRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 3)
+
+/**
+ * @generated from message personhog.types.v1.CountCohortMembersResponse
+ */
+export type CountCohortMembersResponse = Message<'personhog.types.v1.CountCohortMembersResponse'> & {
+    /**
+     * @generated from field: int64 count = 1;
+     */
+    count: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.CountCohortMembersResponse.
+ * Use `create(CountCohortMembersResponseSchema)` to create a new message.
+ */
+export const CountCohortMembersResponseSchema: GenMessage<CountCohortMembersResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 4)
+
+/**
+ * DeleteCohortMember removes a single person from a cohort.
+ * Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+ *
+ * @generated from message personhog.types.v1.DeleteCohortMemberRequest
+ */
+export type DeleteCohortMemberRequest = Message<'personhog.types.v1.DeleteCohortMemberRequest'> & {
+    /**
+     * @generated from field: int64 cohort_id = 1;
+     */
+    cohortId: bigint
+
+    /**
+     * @generated from field: int64 person_id = 2;
+     */
+    personId: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteCohortMemberRequest.
+ * Use `create(DeleteCohortMemberRequestSchema)` to create a new message.
+ */
+export const DeleteCohortMemberRequestSchema: GenMessage<DeleteCohortMemberRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 5)
+
+/**
+ * @generated from message personhog.types.v1.DeleteCohortMemberResponse
+ */
+export type DeleteCohortMemberResponse = Message<'personhog.types.v1.DeleteCohortMemberResponse'> & {
+    /**
+     * @generated from field: bool deleted = 1;
+     */
+    deleted: boolean
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteCohortMemberResponse.
+ * Use `create(DeleteCohortMemberResponseSchema)` to create a new message.
+ */
+export const DeleteCohortMemberResponseSchema: GenMessage<DeleteCohortMemberResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 6)
+
+/**
+ * DeleteCohortMembersBulk removes members for the given cohort IDs in batches.
+ * Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+ *
+ * @generated from message personhog.types.v1.DeleteCohortMembersBulkRequest
+ */
+export type DeleteCohortMembersBulkRequest = Message<'personhog.types.v1.DeleteCohortMembersBulkRequest'> & {
+    /**
+     * @generated from field: repeated int64 cohort_ids = 1;
+     */
+    cohortIds: bigint[]
+
+    /**
+     * @generated from field: int32 batch_size = 2;
+     */
+    batchSize: number
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteCohortMembersBulkRequest.
+ * Use `create(DeleteCohortMembersBulkRequestSchema)` to create a new message.
+ */
+export const DeleteCohortMembersBulkRequestSchema: GenMessage<DeleteCohortMembersBulkRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 7)
+
+/**
+ * @generated from message personhog.types.v1.DeleteCohortMembersBulkResponse
+ */
+export type DeleteCohortMembersBulkResponse = Message<'personhog.types.v1.DeleteCohortMembersBulkResponse'> & {
+    /**
+     * @generated from field: int64 deleted_count = 1;
+     */
+    deletedCount: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.DeleteCohortMembersBulkResponse.
+ * Use `create(DeleteCohortMembersBulkResponseSchema)` to create a new message.
+ */
+export const DeleteCohortMembersBulkResponseSchema: GenMessage<DeleteCohortMembersBulkResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 8)
+
+/**
+ * InsertCohortMembers adds persons to a static cohort.
+ * Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+ *
+ * @generated from message personhog.types.v1.InsertCohortMembersRequest
+ */
+export type InsertCohortMembersRequest = Message<'personhog.types.v1.InsertCohortMembersRequest'> & {
+    /**
+     * @generated from field: int64 cohort_id = 1;
+     */
+    cohortId: bigint
+
+    /**
+     * @generated from field: repeated int64 person_ids = 2;
+     */
+    personIds: bigint[]
+
+    /**
+     * @generated from field: optional int32 version = 3;
+     */
+    version?: number
+}
+
+/**
+ * Describes the message personhog.types.v1.InsertCohortMembersRequest.
+ * Use `create(InsertCohortMembersRequestSchema)` to create a new message.
+ */
+export const InsertCohortMembersRequestSchema: GenMessage<InsertCohortMembersRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 9)
+
+/**
+ * @generated from message personhog.types.v1.InsertCohortMembersResponse
+ */
+export type InsertCohortMembersResponse = Message<'personhog.types.v1.InsertCohortMembersResponse'> & {
+    /**
+     * @generated from field: int64 inserted_count = 1;
+     */
+    insertedCount: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.InsertCohortMembersResponse.
+ * Use `create(InsertCohortMembersResponseSchema)` to create a new message.
+ */
+export const InsertCohortMembersResponseSchema: GenMessage<InsertCohortMembersResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 10)
+
+/**
+ * ListCohortMemberIds returns person IDs for a cohort with keyset pagination.
+ * Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+ *
+ * @generated from message personhog.types.v1.ListCohortMemberIdsRequest
+ */
+export type ListCohortMemberIdsRequest = Message<'personhog.types.v1.ListCohortMemberIdsRequest'> & {
+    /**
+     * @generated from field: int64 cohort_id = 1;
+     */
+    cohortId: bigint
+
+    /**
+     * @generated from field: int64 cursor = 2;
+     */
+    cursor: bigint
+
+    /**
+     * @generated from field: int32 limit = 3;
+     */
+    limit: number
+
+    /**
+     * @generated from field: personhog.types.v1.ReadOptions read_options = 4;
+     */
+    readOptions?: ReadOptions
+}
+
+/**
+ * Describes the message personhog.types.v1.ListCohortMemberIdsRequest.
+ * Use `create(ListCohortMemberIdsRequestSchema)` to create a new message.
+ */
+export const ListCohortMemberIdsRequestSchema: GenMessage<ListCohortMemberIdsRequest> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 11)
+
+/**
+ * @generated from message personhog.types.v1.ListCohortMemberIdsResponse
+ */
+export type ListCohortMemberIdsResponse = Message<'personhog.types.v1.ListCohortMemberIdsResponse'> & {
+    /**
+     * @generated from field: repeated int64 person_ids = 1;
+     */
+    personIds: bigint[]
+
+    /**
+     * @generated from field: int64 next_cursor = 2;
+     */
+    nextCursor: bigint
+}
+
+/**
+ * Describes the message personhog.types.v1.ListCohortMemberIdsResponse.
+ * Use `create(ListCohortMemberIdsResponseSchema)` to create a new message.
+ */
+export const ListCohortMemberIdsResponseSchema: GenMessage<ListCohortMemberIdsResponse> =
+    /*@__PURE__*/
+    messageDesc(file_personhog_types_v1_cohort, 12)

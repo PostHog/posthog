@@ -5,9 +5,10 @@ import { SurveyValidationRule, SurveyValidationType } from '~/types'
 interface ValidationRulesEditorProps {
     value: SurveyValidationRule[] | undefined
     onChange: (rules: SurveyValidationRule[] | undefined) => void
+    disabled?: boolean
 }
 
-export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditorProps): JSX.Element {
+export function ValidationRulesEditor({ value, onChange, disabled }: ValidationRulesEditorProps): JSX.Element {
     const rules = value || []
 
     const minLengthRule = rules.find((r) => r.type === SurveyValidationType.MinLength)
@@ -15,10 +16,15 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
     const hasLengthLimit = !!minLengthRule || !!maxLengthRule
 
     const updateRules = (newRules: SurveyValidationRule[]): void => {
-        onChange(newRules.length > 0 ? newRules : undefined)
+        if (!disabled) {
+            onChange(newRules.length > 0 ? newRules : undefined)
+        }
     }
 
     const toggleLengthLimit = (enabled: boolean): void => {
+        if (disabled) {
+            return
+        }
         if (enabled) {
             const filtered = rules.filter(
                 (r) => r.type !== SurveyValidationType.MinLength && r.type !== SurveyValidationType.MaxLength
@@ -34,6 +40,9 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
     }
 
     const setMinLength = (val: number | undefined): void => {
+        if (disabled) {
+            return
+        }
         const filtered = rules.filter((r) => r.type !== SurveyValidationType.MinLength)
         if (val !== undefined && val > 0) {
             updateRules([...filtered, { type: SurveyValidationType.MinLength, value: val }])
@@ -43,6 +52,9 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
     }
 
     const setMaxLength = (val: number | undefined): void => {
+        if (disabled) {
+            return
+        }
         const filtered = rules.filter((r) => r.type !== SurveyValidationType.MaxLength)
         if (val !== undefined && val > 0) {
             updateRules([...filtered, { type: SurveyValidationType.MaxLength, value: val }])
@@ -53,7 +65,12 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
 
     return (
         <div className="flex flex-row items-center gap-2">
-            <LemonCheckbox label="Validate message length" checked={hasLengthLimit} onChange={toggleLengthLimit} />
+            <LemonCheckbox
+                label="Validate message length"
+                checked={hasLengthLimit}
+                onChange={toggleLengthLimit}
+                disabled={disabled}
+            />
             <LemonInput
                 type="number"
                 min={1}
@@ -62,6 +79,7 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
                 value={minLengthRule?.value}
                 onChange={setMinLength}
                 className="w-16"
+                disabled={disabled}
             />
             <span className="text-secondary">to</span>
             <LemonInput
@@ -71,6 +89,7 @@ export function ValidationRulesEditor({ value, onChange }: ValidationRulesEditor
                 value={maxLengthRule?.value}
                 onChange={setMaxLength}
                 className="w-16"
+                disabled={disabled}
             />
         </div>
     )

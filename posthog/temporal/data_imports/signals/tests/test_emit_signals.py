@@ -30,10 +30,12 @@ from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, 
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
+    emit_data_import_signals_activity,
 )
 
 PIPELINE_MODULE_PATH = "posthog.temporal.data_imports.signals.pipeline"
 FETCHER_MODULE_PATH = "posthog.temporal.data_imports.signals.fetchers.data_warehouse"
+ACTIVITY_MODULE_PATH = "posthog.temporal.data_imports.workflow_activities.emit_signals"
 
 
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
@@ -534,6 +536,84 @@ class TestEmitSignals:
                 await _emit_signals(team=MagicMock(), outputs=outputs, extra={})
 
 
+class TestPipelineStageTelemetry:
+    @pytest.mark.asyncio
+    async def test_captures_each_stage_per_signal(self):
+        team = MagicMock(id=1)
+        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+        short_description = "short actionable bug"
+        long_description = "x" * 500
+        non_actionable_description = "billing question, not actionable"
+
+        def emitter(team_id, record):
+            return SignalEmitterOutput(
+                source_product="zendesk",
+                source_type="ticket",
+                source_id=str(record["id"]),
+                description=record["description"],
+                weight=0.5,
+                extra={},
+            )
+
+        config = _make_config(
+            source_product="zendesk",
+            source_type="ticket",
+            emitter=emitter,
+            summarization_prompt="Summarize: {description}",
+            description_summarization_threshold_chars=100,
+            actionability_prompt="Actionable? {description}",
+        )
+
+        records = [
+            {"id": "ticket_short", "description": short_description},
+            {"id": "ticket_long", "description": long_description},
+            {"id": "ticket_filtered", "description": non_actionable_description},
+        ]
+
+        mock_llm_client = MagicMock()
+
+        async def generate_content(*args, **kwargs):
+            contents = kwargs.get("contents") or (args[1] if len(args) > 1 else None)
+            prompt_text = ""
+            if contents:
+                first = contents[0]
+                prompt_text = first.text if hasattr(first, "text") else first
+            if "Summarize" in prompt_text:
+                return _make_llm_response("Summarized ticket body.")
+            if "not actionable" in prompt_text:
+                return _make_llm_response("NOT_ACTIONABLE")
+            return _make_llm_response("ACTIONABLE")
+
+        mock_llm_client.models.generate_content = generate_content
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.genai") as mock_genai,
+            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
+        ):
+            mock_genai.AsyncClient.return_value = mock_llm_client
+            await run_signal_pipeline(team=team, config=config, records=records, extra={})
+
+        events_by_source_id: dict[str, list[str]] = {}
+        for call in capture.call_args_list:
+            kwargs = call.kwargs
+            source_id = kwargs["properties"]["source_id"]
+            events_by_source_id.setdefault(source_id, []).append(kwargs["event"])
+            assert kwargs["distinct_id"] == str(team.uuid)
+            assert kwargs["properties"]["source_product"] == "zendesk"
+            assert kwargs["properties"]["source_type"] == "ticket"
+            assert "project" in kwargs["groups"]
+
+        assert events_by_source_id["ticket_short"] == ["signal_data_source_entered"]
+        assert events_by_source_id["ticket_long"] == ["signal_data_source_entered", "signal_data_source_summarized"]
+        assert events_by_source_id["ticket_filtered"] == [
+            "signal_data_source_entered",
+            "signal_data_source_filtered",
+        ]
+
+
 class TestEmitDataImportSignalsWorkflow:
     def test_parse_inputs(self):
         schema_id = str(uuid.uuid4())
@@ -597,3 +677,66 @@ class TestEmitDataImportSignalsWorkflow:
         assert captured_inputs["team_id"] == 42
         assert captured_inputs["schema_id"] == schema_id
         assert captured_inputs["source_type"] == "Zendesk"
+
+
+class TestEmitActivityTableNameResolution:
+    # Regression: HogQL exposes warehouse tables under keys built by
+    # `get_data_warehouse_table_name` (e.g. `github.issues`), not under the raw
+    # `DataWarehouseTable.name` storage form (e.g. `github_issues`). Passing the
+    # storage name to the fetcher made every emit run fail with `Unknown table`.
+
+    @pytest.mark.parametrize(
+        "prefix,storage_name,expected_hogql_name",
+        [
+            (None, "github_issues", "github.issues"),
+            ("", "github_issues", "github.issues"),
+            ("website", "websitegithub_issues", "github.website.issues"),
+            ("website_", "website_github_issues", "github.website.issues"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_passes_hogql_resolvable_table_name_to_fetcher(
+        self, prefix: str | None, storage_name: str, expected_hogql_name: str
+    ):
+        from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+
+        captured_context: dict[str, Any] = {}
+
+        def capture_fetcher(team, config, context):
+            captured_context.update(context)
+            return []
+
+        config = _make_config(record_fetcher=capture_fetcher)
+
+        source = MagicMock(spec=ExternalDataSource)
+        source.source_type = "GitHub"
+        source.prefix = prefix
+        source.access_method = ExternalDataSource.AccessMethod.WAREHOUSE
+        table = MagicMock()
+        table.name = storage_name
+        schema = MagicMock()
+        schema.table = table
+        schema.source = source
+
+        fetch_mock = AsyncMock(return_value=(schema, MagicMock()))
+
+        with (
+            patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
+            patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
+            patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
+            patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
+        ):
+            run_mock.return_value = {"status": "success", "signals_emitted": 0}
+            await emit_data_import_signals_activity(
+                EmitSignalsActivityInputs(
+                    team_id=1,
+                    schema_id=uuid.uuid4(),
+                    source_id=uuid.uuid4(),
+                    job_id="job-x",
+                    source_type="GitHub",
+                    schema_name="issues",
+                    last_synced_at=None,
+                )
+            )
+
+        assert captured_context["table_name"] == expected_hogql_name

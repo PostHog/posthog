@@ -31,8 +31,8 @@ func (e sidebarEntry) isNonSelectable() bool {
 }
 
 // groupDimensions discovers the available grouping dimensions from the config.
-// Returns dimension names sorted alphabetically, or ordered by group_order keys
-// if present.
+// User-declared dimensions (from `groups:` on each proc) come first, the
+// inferred `capability` dimension is appended.
 func groupDimensions(cfg *config.Config) []string {
 	seen := make(map[string]bool)
 	for _, pc := range cfg.Procs {
@@ -45,11 +45,17 @@ func groupDimensions(cfg *config.Config) []string {
 		seen[dim] = true
 	}
 
-	dims := make([]string, 0, len(seen))
+	hasCapability := seen[config.CapabilityGroupKey]
+	delete(seen, config.CapabilityGroupKey)
+
+	dims := make([]string, 0, len(seen)+1)
 	for dim := range seen {
 		dims = append(dims, dim)
 	}
 	sort.Strings(dims)
+	if hasCapability {
+		dims = append(dims, config.CapabilityGroupKey)
+	}
 	return dims
 }
 

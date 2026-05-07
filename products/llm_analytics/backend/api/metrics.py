@@ -121,7 +121,7 @@ def llma_track_latency(endpoint: str) -> Callable[[F], F]:
                 duration = time.perf_counter() - start
                 LLMA_REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
     return decorator
 
@@ -153,7 +153,7 @@ def llma_track_llm_call_latency(endpoint: str, provider: str) -> Callable[[F], F
                 duration = time.perf_counter() - start
                 LLMA_LLM_CALL_LATENCY.labels(endpoint=endpoint, provider=provider).observe(duration)
 
-        return wrapper  # type: ignore[return-value]
+        return wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
     return decorator
 

@@ -22,6 +22,9 @@ export const errorTrackingVolumeSparklineLogic = kea<errorTrackingVolumeSparklin
     actions({
         setHoveredBin: (payload: { index: number; datum: SparklineDatum } | null) => ({ payload }),
         setHoveredEvent: (payload: SparklineEvent<string> | null) => ({ payload }),
+        setClickedSpike: (payload: { datum: SparklineDatum; clientX: number; clientY: number } | null) => ({
+            payload,
+        }),
     }),
 
     reducers({
@@ -32,6 +35,12 @@ export const errorTrackingVolumeSparklineLogic = kea<errorTrackingVolumeSparklin
                     payload == null ? null : { kind: 'bin', index: payload.index, datum: payload.datum },
                 setHoveredEvent: (_, { payload }): VolumeSparklineHoverSelection | null =>
                     payload == null ? null : { kind: 'event', event: payload },
+            },
+        ],
+        clickedSpike: [
+            null as { datum: SparklineDatum; clientX: number; clientY: number } | null,
+            {
+                setClickedSpike: (_, { payload }) => payload,
             },
         ],
     }),

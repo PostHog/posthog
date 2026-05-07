@@ -2,12 +2,14 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
@@ -110,7 +112,11 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     }, [loading, hasSources, showOnboarding, resetOnboarding]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const feedbackBanner = (
-        <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
+        <LemonBanner
+            type="info"
+            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
+            className="mt-4"
+        >
             Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
             directly to us!
         </LemonBanner>
@@ -234,6 +240,15 @@ export function MarketingAnalyticsScene(): JSX.Element {
                                     data-attr="marketing-analytics-docs-button"
                                 >
                                     Documentation
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconGear />}
+                                    to={urls.settings('environment-marketing-analytics', 'marketing-settings')}
+                                    data-attr="marketing-analytics-settings-button"
+                                >
+                                    Settings
                                 </LemonButton>
                             </>
                         }

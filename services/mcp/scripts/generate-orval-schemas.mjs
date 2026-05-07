@@ -18,7 +18,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { applyNestedExclusions, filterSchemaByOperationIds, runOrvalParallel } from '@posthog/openapi-codegen'
+import {
+    applyNestedExclusions,
+    filterSchemaByOperationIds,
+    preprocessSchema,
+    runOrvalParallel,
+} from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
 import { stripEnumMinLength } from './lib/schema-transforms.mjs'
@@ -91,6 +96,36 @@ function stripNullDefaults(obj) {
         result[key] = stripNullDefaults(value)
     }
     return result
+}
+
+/**
+ * Strip `default` values from Patched* (PATCH request body) schemas.
+ *
+ * drf-spectacular copies serializer defaults into both the create and
+ * partial-update schemas. When Orval sees `default: 5` it generates
+ * `.default(5)` in Zod, which fills in the value during `.parse()` even
+ * when the caller didn't provide the field. The generated PATCH handler
+ * then can't distinguish "caller sent 5" from "Zod filled in 5", so it
+ * sends the default to the API — silently overwriting the stored value.
+ *
+ * Stripping defaults from Patched* schemas makes Zod treat omitted
+ * fields as undefined, which is the correct semantics for partial updates.
+ */
+function stripDefaultsFromPatchedSchemas(schema) {
+    const schemas = schema?.components?.schemas
+    if (!schemas) {
+        return
+    }
+    for (const [name, definition] of Object.entries(schemas)) {
+        if (!name.startsWith('Patched') || !definition.properties) {
+            continue
+        }
+        for (const prop of Object.values(definition.properties)) {
+            if ('default' in prop && !prop.readOnly) {
+                delete prop.default
+            }
+        }
+    }
 }
 
 /**
@@ -187,7 +222,14 @@ function postprocessOrvalOutput(outputFile) {
     // Annotate top-level exported Zod expressions with @__PURE__ so esbuild
     // can tree-shake unused schemas out of the bundle.
     const generated = fs.readFileSync(outputFile, 'utf-8')
-    const annotated = generated.replace(/^(export const \w+ =) (zod\.)/gm, '$1 /* @__PURE__ */ $2')
+    const withoutRedundantEnumDescriptions = generated.replace(
+        /\n\s*\.describe\(\n\s*(['"`])\* `(?:\\.|(?!\1)[\s\S])*?\1\n\s*\)(?=\s*(?:\.(?:optional|nullish)\(\)\s*)?\.describe\()/g,
+        ''
+    )
+    const annotated = withoutRedundantEnumDescriptions.replace(
+        /^(export const \w+ =) (zod\.)/gm,
+        '$1 /* @__PURE__ */ $2'
+    )
     fs.writeFileSync(outputFile, annotated)
 }
 
@@ -202,7 +244,7 @@ if (definitions.length === 0) {
     process.exit(0)
 }
 
-const fullSchema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
+const fullSchema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf-8')))
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-orval-'))
 
 // Phase 1: Prepare all modules (filter schemas, write temp files) — synchronous, fast
@@ -222,6 +264,7 @@ for (const def of definitions) {
     filtered.info.title = `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} enabled ops`
 
     filtered = stripNullDefaults(filtered)
+    stripDefaultsFromPatchedSchemas(filtered)
     stripUuidFormat(filtered)
     stripReadOnlyFromRequired(filtered)
     applyNestedExclusions(filtered, schemaExclusions)

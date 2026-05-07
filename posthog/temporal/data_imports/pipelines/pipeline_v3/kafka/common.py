@@ -2,25 +2,16 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Optional
 
-from django.conf import settings
-
 from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.routing import KafkaClusterProfile, get_producer
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
-from posthog.utils import SingletonDecorator
 
 SyncTypeLiteral = Literal["full_refresh", "incremental", "append", "cdc"]
-
-_WarpStreamKafkaProducer = SingletonDecorator(_KafkaProducer)
 
 
 def get_warpstream_kafka_producer() -> _KafkaProducer:
     """Get a singleton Kafka producer configured for WarpStream/warehouse pipelines."""
-    return _WarpStreamKafkaProducer(
-        kafka_hosts=settings.WAREHOUSE_PIPELINES_KAFKA_HOSTS,
-        kafka_security_protocol=settings.WAREHOUSE_PIPELINES_KAFKA_SECURITY_PROTOCOL,
-        acks="all",
-        enable_idempotence=True,
-    )
+    return get_producer(profile=KafkaClusterProfile.WAREHOUSE_SOURCES)
 
 
 @dataclass

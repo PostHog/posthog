@@ -21,7 +21,14 @@ def main():
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
-    execute_from_command_line(sys.argv)
+
+    # Default query tags so management commands don't trip the DEBUG-only UntaggedQueryError
+    # in sync_execute. HTTP requests (runserver's CHQueries middleware) and Celery tasks reset
+    # tags at their own boundaries, so this only effectively applies to direct CLI commands.
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+
+    with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
+        execute_from_command_line(sys.argv)
 
 
 if __name__ == "__main__":

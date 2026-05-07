@@ -77,7 +77,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     )
     monkeypatch.setenv("DUCKLAKE_BUCKET", "ducklake-test-bucket")
     # Mock Delta partition column detection
-    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["timestamp"])
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["timestamp"])
 
     metadata = await activity_environment.run(prepare_data_modeling_ducklake_metadata_activity, inputs)
 
@@ -95,10 +95,10 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
 
 def test_detect_partition_column_name_returns_first_partition(monkeypatch):
     monkeypatch.setattr(
-        ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["partition_ts", "timestamp"]
+        ducklake_module, "_fetch_delta_partition_columns", lambda table_uri, *, team_id: ["partition_ts", "timestamp"]
     )
 
-    column = ducklake_module._detect_partition_column_name("s3://source/table")
+    column = ducklake_module._detect_partition_column_name("s3://source/table", team_id=1)
 
     assert column == "partition_ts"
 
@@ -204,12 +204,16 @@ def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch)
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow._get_org_id_for_team",
+        MagicMock(return_value="org-123"),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_organization",
         MagicMock(return_value=_create_mock_catalog()),
     )
     mock_server = MagicMock()
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_duckgres_server_for_team",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_duckgres_server_for_organization",
         MagicMock(return_value=mock_server),
     )
     mock_stage = MagicMock()
@@ -241,7 +245,13 @@ def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch)
 
     copy_data_modeling_model_to_ducklake_activity(inputs)
 
-    mock_stage.assert_called_once()
+    mock_stage.assert_called_once_with(
+        source_uri="s3://source/table",
+        catalog_bucket="test-bucket",
+        role_arn="arn:aws:iam::123456789012:role/test-role",
+        external_id="external-id-123",
+        organization_id="org-123",
+    )
     execute_calls = mock_conn.execute.call_args_list
     assert any("CREATE SCHEMA IF NOT EXISTS" in str(call) for call in execute_calls)
     assert any("CREATE OR REPLACE TABLE" in str(call) for call in execute_calls)
@@ -297,7 +307,7 @@ def test_verify_ducklake_copy_activity_runs_queries(monkeypatch):
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
         MagicMock(return_value=_create_mock_catalog()),
     )
     monkeypatch.setattr(
@@ -446,7 +456,7 @@ def test_verify_ducklake_copy_activity_reports_failures(monkeypatch):
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
         MagicMock(return_value=_create_mock_catalog()),
     )
     monkeypatch.setattr(
@@ -602,7 +612,7 @@ def test_verify_ducklake_copy_activity_respects_tolerance(monkeypatch, observed,
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
         MagicMock(return_value=_create_mock_catalog()),
     )
     monkeypatch.setattr(
@@ -683,7 +693,7 @@ def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypatch):
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
         MagicMock(return_value=_create_mock_catalog()),
     )
     monkeypatch.setattr(
@@ -738,7 +748,11 @@ def test_copy_data_modeling_model_to_ducklake_activity_raises_when_no_catalog(mo
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow._get_org_id_for_team",
+        MagicMock(return_value="org-123"),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_organization",
         MagicMock(return_value=None),
     )
 
@@ -779,7 +793,7 @@ def test_verify_ducklake_copy_activity_raises_when_no_catalog(monkeypatch):
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
         MagicMock(return_value=None),
     )
 

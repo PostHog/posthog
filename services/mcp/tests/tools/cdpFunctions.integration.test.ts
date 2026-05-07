@@ -24,6 +24,8 @@ describe('Hog Functions', { concurrent: false }, () => {
     const deleteTool = GENERATED_TOOLS['cdp-functions-delete']!()
     const invocationsTool = GENERATED_TOOLS['cdp-functions-invocations-create']!()
     const rearrangeTool = GENERATED_TOOLS['cdp-functions-rearrange-partial-update']!()
+    const logsTool = GENERATED_TOOLS['cdp-functions-logs-retrieve']!()
+    const metricsTool = GENERATED_TOOLS['cdp-functions-metrics-retrieve']!()
 
     beforeAll(async () => {
         validateEnvironmentVariables()
@@ -224,6 +226,103 @@ describe('Hog Functions', { concurrent: false }, () => {
         it('should reject when called without orders (schema mismatch)', async () => {
             // Passing no fields produces an empty body — Django rejects with 400 "No orders provided"
             await expect(rearrangeTool.handler(context, {})).rejects.toThrow()
+        })
+    })
+
+    describe('cdp-functions-logs-retrieve tool', () => {
+        it('should return log entries for a function', async () => {
+            const created = await createTool.handler(context, {
+                name: `test-fn-${generateUniqueKey('logs')}`,
+                type: 'destination' as const,
+                hog: 'return null',
+                enabled: false,
+            })
+            const fn = parseToolResponse(created)
+            createdFunctionIds.push(fn.id)
+
+            const result = await logsTool.handler(context, { id: fn.id })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.results)).toBe(true)
+        })
+
+        it('should respect the limit parameter', async () => {
+            const created = await createTool.handler(context, {
+                name: `test-fn-${generateUniqueKey('logs-limit')}`,
+                type: 'destination' as const,
+                hog: 'return null',
+                enabled: false,
+            })
+            const fn = parseToolResponse(created)
+            createdFunctionIds.push(fn.id)
+
+            const result = await logsTool.handler(context, { id: fn.id, limit: 5 })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.results)).toBe(true)
+            expect(data.results.length).toBeLessThanOrEqual(5)
+        })
+
+        it('should accept level filter', async () => {
+            const created = await createTool.handler(context, {
+                name: `test-fn-${generateUniqueKey('logs-level')}`,
+                type: 'destination' as const,
+                hog: 'return null',
+                enabled: false,
+            })
+            const fn = parseToolResponse(created)
+            createdFunctionIds.push(fn.id)
+
+            const result = await logsTool.handler(context, { id: fn.id, level: 'ERROR' })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.results)).toBe(true)
+        })
+
+        it('should throw for a non-existent UUID', async () => {
+            const absentId = crypto.randomUUID()
+            await expect(logsTool.handler(context, { id: absentId })).rejects.toThrow()
+        })
+    })
+
+    describe('cdp-functions-metrics-retrieve tool', () => {
+        it('should return metrics for a function', async () => {
+            const created = await createTool.handler(context, {
+                name: `test-fn-${generateUniqueKey('metrics')}`,
+                type: 'destination' as const,
+                hog: 'return null',
+                enabled: false,
+            })
+            const fn = parseToolResponse(created)
+            createdFunctionIds.push(fn.id)
+
+            const result = await metricsTool.handler(context, { id: fn.id })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.labels)).toBe(true)
+            expect(Array.isArray(data.series)).toBe(true)
+        })
+
+        it('should accept interval parameter', async () => {
+            const created = await createTool.handler(context, {
+                name: `test-fn-${generateUniqueKey('metrics-interval')}`,
+                type: 'destination' as const,
+                hog: 'return null',
+                enabled: false,
+            })
+            const fn = parseToolResponse(created)
+            createdFunctionIds.push(fn.id)
+
+            const result = await metricsTool.handler(context, { id: fn.id, interval: 'day' })
+            const data = parseToolResponse(result)
+
+            expect(Array.isArray(data.labels)).toBe(true)
+            expect(Array.isArray(data.series)).toBe(true)
+        })
+
+        it('should throw for a non-existent UUID', async () => {
+            const absentId = crypto.randomUUID()
+            await expect(metricsTool.handler(context, { id: absentId })).rejects.toThrow()
         })
     })
 

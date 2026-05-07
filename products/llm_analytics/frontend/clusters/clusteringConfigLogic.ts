@@ -35,12 +35,14 @@ export const clusteringConfigLogic = kea<clusteringConfigLogicType>([
             { event_filters: [], created_at: '', updated_at: '' } as ClusteringConfig,
             {
                 loadConfig: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_config/`
                     )
                     return response as ClusteringConfig
                 },
                 saveEventFilters: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(
                         `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_config/set_event_filters/`,
                         {

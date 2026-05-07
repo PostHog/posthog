@@ -98,7 +98,7 @@ class FrequentistMethod:
         Returns:
             Dict with summary information
         """
-        summary = {
+        summary: dict[str, Any] = {
             "test_type": result.test_type,
             "point_estimate": result.point_estimate,
             "confidence_interval": result.confidence_interval,

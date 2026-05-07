@@ -1,12 +1,14 @@
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import {
+    LegacyExploreButton,
+    LegacyResultsQuery,
+    LegacySummaryTable,
+    LegacyWinningVariantText,
+    LegacySignificanceText,
+} from '~/scenes/experiments/legacy'
 import type { Experiment } from '~/types'
-
-import { LegacyExploreButton } from '../components/LegacyExploreButton'
-import { LegacyResultsQuery } from '../components/LegacyResultsQuery'
-import { LegacySummaryTable } from '../components/LegacySummaryTable'
-import { LegacyWinningVariantText, LegacySignificanceText } from './LegacyOverview'
 
 interface LegacyChartModalProps {
     isOpen: boolean

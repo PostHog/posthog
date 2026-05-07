@@ -26,6 +26,8 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
             return 'Collections'
         case ReplayTabs.Templates:
             return 'What to watch'
+        case ReplayTabs.Settings:
+            return 'Settings'
         default:
             return capitalizeFirstLetter(tab)
     }
