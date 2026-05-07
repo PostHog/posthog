@@ -20,7 +20,7 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
     const word = context.selectedCount === 1 ? singular : plural
 
     return (
-        <div className="flex items-center justify-end gap-2 min-h-9 px-1 py-2 LemonTable__bulk-selection-bar">
+        <div className="flex items-center justify-end gap-2 min-h-9 px-1 LemonTable__bulk-selection-bar">
             <span className="text-secondary text-sm">
                 {context.selectedCount} {word} selected
             </span>
