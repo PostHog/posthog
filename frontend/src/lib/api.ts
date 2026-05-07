@@ -1930,6 +1930,13 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
     }
 
+    public messagingPreferencesExportOptOuts(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs')
+    }
+
     public hogFlows(): ApiRequest {
         return this.environments().current().addPathComponent('hog_flows')
     }
@@ -6099,6 +6106,16 @@ const api = {
                     page: page || 1,
                 })
                 .get()
+        },
+        async exportMessageOptOuts(categoryKey?: string): Promise<Blob> {
+            const response = await new ApiRequest()
+                .messagingPreferencesExportOptOuts()
+                .withQueryString(categoryKey ? { category_key: categoryKey } : {})
+                .getResponse()
+            if (!response.ok) {
+                throw new Error(`Failed to export opt-outs: ${response.status}`)
+            }
+            return await response.blob()
         },
     },
     hogFlows: {

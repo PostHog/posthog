@@ -1,6 +1,15 @@
+import csv
+from datetime import UTC, datetime
+
+from django.db.models import QuerySet
+from django.http import HttpResponse
+
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
@@ -22,9 +31,14 @@ class OptOutsPagination(PageNumberPagination):
 
 
 class MessagePreferencesSerializer(serializers.ModelSerializer):
-    identifier = serializers.CharField()
-    updated_at = serializers.DateTimeField()
-    preferences = serializers.JSONField()
+    identifier = serializers.CharField(help_text="Recipient identifier (typically an email address).")
+    updated_at = serializers.DateTimeField(help_text="When this recipient's preferences were last updated.")
+    preferences = serializers.JSONField(
+        help_text=(
+            "Mapping of category id (or `$all` for the global marketing bucket) to one of "
+            "`OPTED_IN`, `OPTED_OUT`, or `NO_PREFERENCE`."
+        ),
+    )
 
     class Meta:
         model = MessageRecipientPreference
@@ -47,28 +61,41 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
     serializer_class = _FallbackSerializer
 
-    @action(detail=False, methods=["get"])
-    def opt_outs(self, request, **kwargs):
-        """Get opt-outs filtered by category or overall opt-outs if no category specified"""
+    def _get_opt_outs_queryset(
+        self, request: Request
+    ) -> tuple[QuerySet[MessageRecipientPreference] | None, Response | None, MessageCategory | None]:
+        """Build the opt-out queryset shared by `opt_outs` and `export_opt_outs`.
+
+        Returns ``(queryset, error_response, category)``. On error (e.g. unknown
+        ``category_key``), the queryset is ``None`` and a ready-to-return DRF
+        ``Response`` is provided instead.
+        """
         category_key = request.query_params.get("category_key")
+        category: MessageCategory | None = None
 
         if category_key:
-            # Get opt-outs for a specific category
             try:
                 category = MessageCategory.objects.get(key=category_key, team_id=self.team_id)
             except MessageCategory.DoesNotExist:
-                return Response({"error": "Category not found"}, status=404)
+                return None, Response({"error": "Category not found"}, status=404), None
 
-        # Find recipients who have opted out of this specific category, or use the derived $all category if no specific category is provided
-        category_id = category.id if category_key else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
-        query_filters = {}
+        # Use the specific category id if provided, otherwise the derived $all bucket
+        category_id = category.id if category else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
+        query_filters = {f"preferences__{str(category_id)}": PreferenceStatus.OPTED_OUT.value}
 
-        query_filters[f"preferences__{str(category_id)}"] = PreferenceStatus.OPTED_OUT.value
-
-        opt_outs = MessageRecipientPreference.objects.filter(
+        queryset = MessageRecipientPreference.objects.filter(
             team_id=self.team_id,
             **query_filters,
-        ).order_by("-updated_at")  # Order by most recently updated first
+        ).order_by("-updated_at")
+        return queryset, None, category
+
+    @action(detail=False, methods=["get"])
+    def opt_outs(self, request, **kwargs):
+        """Get opt-outs filtered by category or overall opt-outs if no category specified"""
+        opt_outs, error, _category = self._get_opt_outs_queryset(request)
+        if error is not None:
+            return error
+        assert opt_outs is not None
 
         # Apply pagination
         paginator = OptOutsPagination()
@@ -80,6 +107,49 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # Fallback if pagination fails for some reason
         serializer = MessagePreferencesSerializer(opt_outs, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="category_key",
+                description=(
+                    "Optional category key. When omitted, exports recipients who opted out of all "
+                    "marketing communications (the `$all` bucket)."
+                ),
+                required=False,
+                type=str,
+            ),
+        ],
+        responses={(200, "text/csv"): OpenApiTypes.STR},
+        description=(
+            "Export opt-out recipients as CSV. Returns a `text/csv` attachment with columns "
+            "`Recipient` and `Opt-out date` (ISO-8601 UTC), filtered identically to the "
+            "`opt_outs` endpoint."
+        ),
+    )
+    @action(detail=False, methods=["get"])
+    def export_opt_outs(self, request, **kwargs):
+        """Export opt-outs as a CSV file, filtered by category if provided."""
+        opt_outs, error, category = self._get_opt_outs_queryset(request)
+        if error is not None:
+            return error
+        assert opt_outs is not None
+
+        response = HttpResponse(content_type="text/csv")
+        date_str = datetime.now(tz=UTC).strftime("%Y-%m-%d")
+        slug = category.key if category else "marketing"
+        response["Content-Disposition"] = f'attachment; filename="opt-outs-{slug}-{date_str}.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(["Recipient", "Opt-out date"])
+        for opt_out in opt_outs.iterator():
+            writer.writerow(
+                [
+                    opt_out.identifier,
+                    opt_out.updated_at.isoformat() if opt_out.updated_at else "",
+                ]
+            )
+        return response
 
     @action(detail=False, methods=["get"])
     def webhook_url(self, request, **kwargs):

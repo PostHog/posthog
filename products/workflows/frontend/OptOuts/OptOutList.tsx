@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronLeft, IconChevronRight, IconExternal, IconRefresh } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconDownload, IconExternal, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -15,10 +15,22 @@ import type { OptOutEntry } from './types'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
-    const { setSelectedIdentifier, openPreferencesPage, loadNextPage, loadPreviousPage, loadOptOutPersons } =
-        useActions(logic)
-    const { selectedIdentifier, optOutPersons, optOutPersonsLoading, preferencesUrlLoading, currentPage } =
-        useValues(logic)
+    const {
+        setSelectedIdentifier,
+        openPreferencesPage,
+        loadNextPage,
+        loadPreviousPage,
+        loadOptOutPersons,
+        exportCsv,
+    } = useActions(logic)
+    const {
+        selectedIdentifier,
+        optOutPersons,
+        optOutPersonsLoading,
+        preferencesUrlLoading,
+        currentPage,
+        csvExporting,
+    } = useValues(logic)
 
     const handleShowPersons = (identifier: string): void => {
         setSelectedIdentifier(identifier)
@@ -85,7 +97,17 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
 
     return (
         <>
-            <div className="flex justify-end mb-2 mt-[-3rem]">
+            <div className="flex justify-end gap-2 mb-2 mt-[-3rem]">
+                <LemonButton
+                    icon={<IconDownload />}
+                    size="small"
+                    type="secondary"
+                    onClick={exportCsv}
+                    loading={csvExporting}
+                    disabledReason={optOutPersons.count === 0 ? 'No opt-outs to export' : undefined}
+                >
+                    Export to CSV
+                </LemonButton>
                 <LemonButton
                     icon={<IconRefresh />}
                     size="small"

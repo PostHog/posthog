@@ -1,9 +1,11 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { downloadBlob } from 'lib/components/ExportButton/exporter'
+import { dayjs } from 'lib/dayjs'
 
 import { MessageCategory } from './optOutCategoriesLogic'
 import type { optOutListLogicType } from './optOutListLogicType'
@@ -34,6 +36,8 @@ export const optOutListLogic = kea<optOutListLogicType>([
         setCurrentPage: (page: number) => ({ page }),
         loadNextPage: true,
         loadPreviousPage: true,
+        exportCsv: true,
+        setCsvExporting: (exporting: boolean) => ({ exporting }),
     }),
     reducers({
         personsModalOpen: [
@@ -75,6 +79,12 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 loadPreviousPageSuccess: (state) => Math.max(1, state - 1),
             },
         ],
+        csvExporting: [
+            false,
+            {
+                setCsvExporting: (_, { exporting }) => exporting,
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         optOutPersons: {
@@ -107,6 +117,20 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     return values.optOutPersons
                 }
             },
+        },
+    })),
+    listeners(({ props, actions }) => ({
+        exportCsv: async () => {
+            actions.setCsvExporting(true)
+            try {
+                const blob = await api.messaging.exportMessageOptOuts(props.category?.key)
+                const slug = props.category?.key ?? 'marketing'
+                downloadBlob(blob, `opt-outs-${slug}-${dayjs().format('YYYY-MM-DD')}.csv`)
+            } catch {
+                lemonToast.error('Failed to export opt-outs')
+            } finally {
+                actions.setCsvExporting(false)
+            }
         },
     })),
     afterMount(({ props, actions }) => {

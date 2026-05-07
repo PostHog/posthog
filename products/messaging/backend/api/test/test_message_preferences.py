@@ -1,3 +1,5 @@
+import io
+import csv
 import json
 
 from posthog.test.base import APIBaseTest, BaseTest
@@ -334,3 +336,134 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertEqual(data["count"], 1)
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["identifier"], "user1@example.com")
+
+    def _parse_export_csv(self, response) -> list[list[str]]:
+        return list(csv.reader(io.StringIO(response.content.decode("utf-8"))))
+
+    def test_export_opt_outs_global(self):
+        """Global opt-outs export returns a CSV attachment with header + rows for $all opt-outs."""
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user1@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        )
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user2@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        )
+        # A category-only opt-out should not appear in the global export
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user3@example.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_OUT.value},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/export_opt_outs/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/csv")
+        self.assertTrue(response["Content-Disposition"].startswith("attachment;"))
+        self.assertIn("opt-outs-marketing-", response["Content-Disposition"])
+        self.assertTrue(response["Content-Disposition"].rstrip('"').endswith(".csv"))
+
+        rows = self._parse_export_csv(response)
+        self.assertEqual(rows[0], ["Recipient", "Opt-out date"])
+        identifiers = [r[0] for r in rows[1:]]
+        self.assertCountEqual(identifiers, ["user1@example.com", "user2@example.com"])
+
+    def test_export_opt_outs_by_category(self):
+        """`?category_key=...` returns only that category's opted-out users."""
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user1@example.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_OUT.value},
+        )
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user2@example.com",
+            preferences={str(self.category2.id): PreferenceStatus.OPTED_OUT.value},
+        )
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user3@example.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_OUT.value},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/messaging_preferences/export_opt_outs/",
+            {"category_key": self.category.key},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(f"opt-outs-{self.category.key}-", response["Content-Disposition"])
+
+        rows = self._parse_export_csv(response)
+        self.assertEqual(rows[0], ["Recipient", "Opt-out date"])
+        identifiers = [r[0] for r in rows[1:]]
+        self.assertCountEqual(identifiers, ["user1@example.com", "user3@example.com"])
+
+    def test_export_opt_outs_team_isolation(self):
+        """Other teams' opt-outs are not in the CSV."""
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="user1@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        )
+        other_team = self.organization.teams.create(name="Other Team")
+        MessageRecipientPreference.objects.create(
+            team=other_team,
+            identifier="leaked@example.com",
+            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/export_opt_outs/")
+        self.assertEqual(response.status_code, 200)
+
+        rows = self._parse_export_csv(response)
+        identifiers = [r[0] for r in rows[1:]]
+        self.assertEqual(identifiers, ["user1@example.com"])
+        self.assertNotIn("leaked@example.com", identifiers)
+
+    def test_export_opt_outs_excludes_opted_in(self):
+        """Recipients with OPTED_IN or NO_PREFERENCE for the category are excluded."""
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="opted-out@example.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_OUT.value},
+        )
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="opted-in@example.com",
+            preferences={str(self.category.id): PreferenceStatus.OPTED_IN.value},
+        )
+        MessageRecipientPreference.objects.create(
+            team=self.team,
+            identifier="no-pref@example.com",
+            preferences={str(self.category.id): PreferenceStatus.NO_PREFERENCE.value},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/messaging_preferences/export_opt_outs/",
+            {"category_key": self.category.key},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        rows = self._parse_export_csv(response)
+        identifiers = [r[0] for r in rows[1:]]
+        self.assertEqual(identifiers, ["opted-out@example.com"])
+
+    def test_export_opt_outs_empty(self):
+        """When no opt-outs exist, returns the header row only."""
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/export_opt_outs/")
+        self.assertEqual(response.status_code, 200)
+
+        rows = self._parse_export_csv(response)
+        self.assertEqual(rows, [["Recipient", "Opt-out date"]])
+
+    def test_export_opt_outs_unknown_category(self):
+        """An unknown `category_key` returns a 404 (matching the `opt_outs` action)."""
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/messaging_preferences/export_opt_outs/",
+            {"category_key": "nonexistent_category"},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"], "Category not found")
