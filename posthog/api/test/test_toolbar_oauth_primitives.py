@@ -1,4 +1,5 @@
 import json
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
@@ -304,6 +305,9 @@ class TestTokenEndpointStatusRemapping(APIBaseTest):
 
 
 class ToolbarOAuthAuthorizeMixin:
+    # Mixin assumes the concrete TestCase subclass provides a Django test `client`.
+    client: Any
+
     def _authorize_and_get_state(self, redirect_url: str = "https://example.com/page") -> str:
         response = self.client.get(
             "/toolbar_oauth/authorize/",
