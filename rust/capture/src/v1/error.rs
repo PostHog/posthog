@@ -85,13 +85,9 @@ pub enum Error {
     #[error("body read stalled after receiving {0} bytes")]
     BodyReadTimeout(usize),
 
-    // 402 - billing_error (non-retryable, unlike 429)
+    // 402 - billing_error (non-retryable)
     #[error("billing limit exceeded")]
     BillingLimitExceeded,
-
-    // 429 - rate_limit_error
-    #[error("rate limited: {0}")]
-    RateLimited(String),
 
     // 500 - server_error
     #[error("internal server error: {0}")]
@@ -133,7 +129,6 @@ impl Error {
             Self::UnsupportedContentType(_) => "unsupported_content_type",
             Self::UnsupportedEncoding(_) => "unsupported_encoding",
             Self::BillingLimitExceeded => "billing_limit_exceeded",
-            Self::RateLimited(_) => "rate_limited",
             Self::InternalError(_) => "internal_error",
             Self::ServiceUnavailable(_) => "service_unavailable",
             Self::GatewayTimeout => "gateway_timeout",
@@ -146,7 +141,6 @@ impl Error {
             Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
             Self::InvalidApiToken(_) => "The provided API token is not valid.".to_string(),
             Self::BillingLimitExceeded => "Billing quota exceeded. Events are being dropped. Upgrade your plan to resume ingestion.".to_string(),
-            Self::RateLimited(_) => "Rate limit exceeded.".to_string(),
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
                 .status_code()
                 .canonical_reason()
@@ -189,8 +183,7 @@ impl Error {
             | Self::PayloadTooLarge(_)
             | Self::UnsupportedContentType(_)
             | Self::UnsupportedEncoding(_)
-            | Self::BillingLimitExceeded
-            | Self::RateLimited(_) => Level::WARN,
+            | Self::BillingLimitExceeded => Level::WARN,
 
             // body read timeout: error-level despite being 4xx
             Self::BodyReadTimeout(_) => Level::ERROR,
@@ -256,8 +249,6 @@ impl Error {
 
             Self::BillingLimitExceeded => StatusCode::PAYMENT_REQUIRED,
 
-            Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
-
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
             Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -274,8 +265,7 @@ impl Error {
         // 402 (BillingLimitExceeded) is intentionally non-retryable per RFC, so no Retry-After.
         if matches!(
             self,
-            Self::RateLimited(_)
-                | Self::RequestTimeout
+            Self::RequestTimeout
                 | Self::BodyReadTimeout(_)
                 | Self::InternalError(_)
                 | Self::ServiceUnavailable(_)
@@ -428,7 +418,6 @@ mod tests {
     }
 
     #[rstest]
-    #[case::rate_limited(Error::RateLimited("too many".into()), StatusCode::TOO_MANY_REQUESTS)]
     #[case::request_timeout(Error::RequestTimeout, StatusCode::REQUEST_TIMEOUT)]
     #[case::body_read_timeout(Error::BodyReadTimeout(1024), StatusCode::REQUEST_TIMEOUT)]
     #[case::internal_error(Error::InternalError("boom".into()), StatusCode::INTERNAL_SERVER_ERROR)]
