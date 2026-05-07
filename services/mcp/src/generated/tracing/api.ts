@@ -3,10 +3,41 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Aggregates logs + trace_spans joinability and service-name overlap for agents.
+ */
+export const ObservabilitySignalSnapshotCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ObservabilitySignalSnapshotCreateBody = /* @__PURE__ */ zod.object({
+    dateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe('Start of the range. ISO 8601 or relative (-1h, -24h, -7d). Defaults to -24h when omitted.'),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the range. Same format as date_from. Omit or null for "now".'),
+        })
+        .optional()
+        .describe('Time window for both logs and span aggregates. Defaults to last 24 hours.'),
+    serviceNames: zod
+        .array(zod.string())
+        .optional()
+        .describe('When set, restrict log and span aggregates to these service_name values.'),
+})
 
 export const TracingSpansAttributesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
