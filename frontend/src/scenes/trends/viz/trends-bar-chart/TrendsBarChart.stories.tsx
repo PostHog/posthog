@@ -27,15 +27,16 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/annotations/': {
-                    count: 1,
+                    count: 2,
                     next: null,
                     previous: null,
                     results: [
                         {
                             id: 1,
                             content: 'Pricing page redesign shipped',
-                            // Mid-week marker so the badge has room either side. The fix
-                            // anchors it to the current-period bar (right of band center).
+                            // Current-period marker. Pre-fix the badge sat between the
+                            // bars at band center; post-fix it sits over the right
+                            // (current-period) bar of band index 3 (Jul 7).
                             date_marker: '2023-07-07T12:00:00Z',
                             creation_type: 'USR',
                             dashboard_item: null,
@@ -48,6 +49,27 @@ const meta: Meta = {
                             },
                             created_at: '2023-07-07T12:00:00Z',
                             updated_at: '2023-07-07T12:00:00Z',
+                            deleted: false,
+                            scope: 'project',
+                        },
+                        {
+                            id: 2,
+                            content: 'Pricing page launched (previous period)',
+                            // Previous-period marker, falls in the Jun 27 - Jul 3 window.
+                            // Jul 1 → previous-period dataIndex 4 → left bar of band 4
+                            // (under the "Jul 8" tick on the rendered axis).
+                            date_marker: '2023-07-01T12:00:00Z',
+                            creation_type: 'USR',
+                            dashboard_item: null,
+                            created_by: {
+                                id: 1,
+                                uuid: '0188cbcf-2391-0000-1868-14fb987285c5',
+                                distinct_id: 'storybook-user',
+                                first_name: 'Story',
+                                email: 'story@posthog.com',
+                            },
+                            created_at: '2023-07-01T12:00:00Z',
+                            updated_at: '2023-07-01T12:00:00Z',
                             deleted: false,
                             scope: 'project',
                         },
