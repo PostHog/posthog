@@ -35,11 +35,6 @@ describe('createHeatmapsConsumer', () => {
             INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
             PERSONS_PREFETCH_ENABLED: false,
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
-            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
-            PERSON_MERGE_ASYNC_ENABLED: false,
-            PERSON_MERGE_SYNC_BATCH_SIZE: 10,
-            PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
-            PERSON_PROPERTIES_UPDATE_ALL: false,
             CDP_HOG_WATCHER_SAMPLE_RATE: 0,
         }
     }

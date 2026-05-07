@@ -23,13 +23,12 @@ import {
 } from '../common/subpipelines/post-team-preprocessing'
 import { createPreTeamPreprocessingSubpipeline } from '../common/subpipelines/pre-team-preprocessing'
 import { CookielessManager } from '../cookieless/cookieless-manager'
-import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
-import { createHeatmapSubpipeline } from './heatmap-subpipeline'
+import { HeatmapEventOptions, createHeatmapSubpipeline } from './heatmap-subpipeline'
 
 export interface HeatmapsPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
@@ -47,7 +46,7 @@ export interface HeatmapsPipelineConfig {
         | PersonDistinctIdsOutput
         | AppMetricsOutput
     >
-    perEventOptions: EventPipelineRunnerOptions
+    perEventOptions: HeatmapEventOptions
 }
 
 export interface HeatmapsPipelineDeps {

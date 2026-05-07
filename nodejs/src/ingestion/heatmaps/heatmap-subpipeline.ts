@@ -22,8 +22,15 @@ export interface HeatmapSubpipelineInput {
     headers: EventHeaders
 }
 
+/**
+ * The subset of event pipeline options the heatmap chain reads. Only
+ * `processGroupsStep` consults `SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP`;
+ * `processPersonsStep` (which uses the full options shape) doesn't run here.
+ */
+export type HeatmapEventOptions = Pick<EventPipelineRunnerOptions, 'SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP'>
+
 export interface HeatmapSubpipelineConfig {
-    options: EventPipelineRunnerOptions
+    options: HeatmapEventOptions
     outputs: IngestionOutputs<HeatmapsOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager

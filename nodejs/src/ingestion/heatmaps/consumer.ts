@@ -13,9 +13,9 @@ import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import { IngestionConsumerConfig } from '../config'
 import { CookielessManager } from '../cookieless/cookieless-manager'
-import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
+import { HeatmapEventOptions } from './heatmap-subpipeline'
 import { createHeatmapsPipeline } from './pipeline'
 
 export type HeatmapsConsumerFullConfig = CommonIngestionConsumerConfig &
@@ -25,11 +25,6 @@ export type HeatmapsConsumerFullConfig = CommonIngestionConsumerConfig &
         | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
         | 'PERSONS_PREFETCH_ENABLED'
         | 'SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP'
-        | 'PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT'
-        | 'PERSON_MERGE_ASYNC_ENABLED'
-        | 'PERSON_MERGE_SYNC_BATCH_SIZE'
-        | 'PERSON_JSONB_SIZE_ESTIMATE_ENABLE'
-        | 'PERSON_PROPERTIES_UPDATE_ALL'
     > &
     Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
 
@@ -58,14 +53,9 @@ export interface HeatmapsConsumerDeps {
     overflowLaneTTLRefreshService?: OverflowRedirectService
 }
 
-function buildPerEventOptions(config: HeatmapsConsumerFullConfig): EventPipelineRunnerOptions {
+function buildPerEventOptions(config: HeatmapsConsumerFullConfig): HeatmapEventOptions {
     return {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
-        PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
-        PERSON_MERGE_ASYNC_ENABLED: config.PERSON_MERGE_ASYNC_ENABLED,
-        PERSON_MERGE_SYNC_BATCH_SIZE: config.PERSON_MERGE_SYNC_BATCH_SIZE,
-        PERSON_JSONB_SIZE_ESTIMATE_ENABLE: config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-        PERSON_PROPERTIES_UPDATE_ALL: config.PERSON_PROPERTIES_UPDATE_ALL,
     }
 }
 
