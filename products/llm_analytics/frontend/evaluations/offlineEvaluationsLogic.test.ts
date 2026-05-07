@@ -41,6 +41,8 @@ describe('offlineEvaluationsLogic mapping helpers', () => {
                 'output one',
                 'expected one',
                 '2026-01-03T00:00:00Z',
+                'trace-1',
+                'trace_id',
             ],
             [
                 'item-1',
@@ -61,6 +63,8 @@ describe('offlineEvaluationsLogic mapping helpers', () => {
                 null,
                 null,
                 '2026-01-04T00:00:00Z',
+                null,
+                null,
             ],
             [
                 'item-2',
@@ -81,6 +85,8 @@ describe('offlineEvaluationsLogic mapping helpers', () => {
                 'output two',
                 'expected two',
                 '2026-01-05T00:00:00Z',
+                null,
+                null,
             ],
         ])
 
@@ -129,6 +135,8 @@ describe('offlineEvaluationsLogic mapping helpers', () => {
             resultType: 'numeric',
             reasoning: 'The answer matches the expected output exactly.',
             traceId: 'trace-1',
+            targetId: 'trace-1',
+            targetType: 'trace_id',
         })
 
         expect(items[1].metrics['toxicity::2']).toEqual({
@@ -139,6 +147,8 @@ describe('offlineEvaluationsLogic mapping helpers', () => {
             resultType: 'numeric',
             reasoning: 'The model output contains disallowed language.',
             traceId: null,
+            targetId: null,
+            targetType: null,
         })
     })
 })
