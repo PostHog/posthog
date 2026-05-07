@@ -11,7 +11,7 @@ ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
 ARRAY_APP_CLIENT_ID_EU = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9"
 ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
 
-McpScopePreset = Literal["read_only", "full"]
+McpScopePreset = Literal["read_only", "full", "signals_agent"]
 
 
 # Scopes matching the MCP server's OAUTH_SCOPES_SUPPORTED (services/mcp/src/lib/constants.ts),
@@ -93,7 +93,7 @@ TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
 
-MCP_SCOPE_PRESETS = ("read_only", "full")
+MCP_SCOPE_PRESETS = ("read_only", "full", "signals_agent")
 
 
 def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_scopes: bool = True) -> list[str]:
@@ -101,13 +101,23 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
     if isinstance(scopes, str):
         if scopes == "full":
             return [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
+        # "read_only" and "signals_agent" share the same scope content (reads + internal).
+        # The difference is in `has_write_scopes`: "signals_agent" reports True so the MCP
+        # server doesn't enable read-only mode, which would otherwise filter out the
+        # agent's own internal-write tools (`signal_agent_internal:write` is annotated as
+        # not-read-only and would be stripped by the read-only filter regardless of scope).
         return [*MCP_READ_SCOPES, *internal]
     return [*scopes, *internal]
 
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     if isinstance(scopes, str):
-        return scopes == "full"
+        # `signals_agent` reports True so the MCP server doesn't enable read-only mode for
+        # the harness sandbox — the agent IS allowed to call its own internal-write tools
+        # (memory create/delete, runs findings create) even though it has no user-facing
+        # write scopes. Read-only mode is a tool-annotation filter, not a scope filter,
+        # and would strip those tools categorically without this opt-out.
+        return scopes in ("full", "signals_agent")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 

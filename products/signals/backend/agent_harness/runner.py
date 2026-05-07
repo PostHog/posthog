@@ -192,7 +192,15 @@ async def _spawn_and_run(
         user_id=user_id,
         repository=repository,
         sandbox_environment_id=sandbox_env_id,
-        posthog_mcp_scopes="read_only",
+        # `signals_agent` is the harness's own scope posture: same scope content as
+        # `read_only` (project reads + INTERNAL_SCOPES, including
+        # `signal_agent_internal:write`) but reports `has_write_scopes=True` so the
+        # MCP server doesn't enable read-only-mode tool filtering. Without that
+        # opt-out, the MCP layer would categorically strip every tool annotated
+        # `readOnlyHint: false` — including the agent's own `memory_create`,
+        # `memory_delete`, and `runs_findings_create` tools — even though the
+        # OAuth token does carry the right scope to call them.
+        posthog_mcp_scopes="signals_agent",
     )
     prompt = build_run_prompt(skill, run_id=str(run.id), team_id=team.id, started_at=run.started_at)
     logger.info(
