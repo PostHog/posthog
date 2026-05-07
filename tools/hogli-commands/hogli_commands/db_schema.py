@@ -45,6 +45,10 @@ class SchemaRestoreUnavailable(SchemaRestoreError):
     """Raised when a schema restore is not possible in the current environment."""
 
 
+class SchemaRestoreCleanupFailed(SchemaRestoreError):
+    """Raised when migrations should not run after a failed restore."""
+
+
 @dataclass(frozen=True)
 class SchemaArtifact:
     id: int
@@ -101,7 +105,20 @@ def _validate_gzip(path: Path) -> None:
 
 
 def _run_psql_with_gzip_input(gzip_path: Path, target_db: str) -> None:
-    command = [*DOCKER_COMPOSE, "exec", "-T", "db", "psql", "-q", "-U", "posthog", target_db]
+    command = [
+        *DOCKER_COMPOSE,
+        "exec",
+        "-T",
+        "db",
+        "psql",
+        "-q",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "--single-transaction",
+        "-U",
+        "posthog",
+        target_db,
+    ]
     process = subprocess.Popen(
         command,
         cwd=REPO_ROOT,
@@ -133,6 +150,11 @@ def _psql_admin(sql: str) -> None:
     _run([*DOCKER_COMPOSE, "exec", "-T", "db", "psql", "-U", "posthog", "postgres", "-c", sql])
 
 
+def _recreate_database(target_db: str) -> None:
+    _psql_admin(f"DROP DATABASE IF EXISTS {target_db};")
+    _psql_admin(f"CREATE DATABASE {target_db};")
+
+
 def _ensure_migration_defaults(target_db: str) -> None:
     _run(
         ["python", "manage.py", "ensure_migration_defaults"],
@@ -155,13 +177,22 @@ def restore_schema_dump(
     _validate_gzip(resolved_schema_path)
 
     if recreate:
-        _psql_admin(f"DROP DATABASE IF EXISTS {target_db};")
-        _psql_admin(f"CREATE DATABASE {target_db};")
+        _recreate_database(target_db)
 
-    _run_psql_with_gzip_input(resolved_schema_path, target_db)
+    try:
+        _run_psql_with_gzip_input(resolved_schema_path, target_db)
 
-    if ensure_defaults:
-        _ensure_migration_defaults(target_db)
+        if ensure_defaults:
+            _ensure_migration_defaults(target_db)
+    except Exception as exc:
+        if recreate:
+            try:
+                _recreate_database(target_db)
+            except Exception as cleanup_exc:
+                raise SchemaRestoreCleanupFailed(
+                    f"schema restore failed and cleanup failed for {target_db}: {cleanup_exc}"
+                ) from exc
+        raise
 
     click.echo(f"Restored {target_db} from {schema_path}")
 
@@ -400,12 +431,12 @@ def restore_schema_if_fresh(*, target_db: str, mode: ArtifactMode) -> bool:
 
     click.echo(f"Database {target_db} is empty; restoring latest compatible schema before migrations")
     download_latest_compatible_schema()
-    restore_schema_dump(target_db=target_db, recreate=False, ensure_defaults=True)
+    restore_schema_dump(target_db=target_db, recreate=True, ensure_defaults=True)
     return True
 
 
 def _handle_restore_failure(exc: Exception, *, mode: ArtifactMode) -> None:
-    if mode == "auto":
+    if mode == "auto" and not isinstance(exc, SchemaRestoreCleanupFailed):
         click.echo(f"Schema restore skipped; falling back to migrations: {exc}", err=True)
         return
     raise click.ClickException(str(exc)) from exc

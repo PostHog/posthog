@@ -102,15 +102,86 @@ def test_select_ignores_invalid_artifacts(artifact: db_schema.SchemaArtifact) ->
     )
 
 
-def test_restore_schema_if_fresh_skips_non_empty_db(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(db_schema, "is_database_empty", lambda target_db: False)
+@pytest.mark.parametrize(
+    "mode,is_empty,expected_inspections",
+    [
+        ("off", True, []),
+        ("auto", False, ["posthog"]),
+    ],
+)
+def test_restore_schema_if_fresh_skips_without_download(
+    mode: db_schema.ArtifactMode,
+    is_empty: bool,
+    expected_inspections: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inspections: list[str] = []
+
+    def fake_is_database_empty(target_db: str) -> bool:
+        inspections.append(target_db)
+        return is_empty
+
+    monkeypatch.setattr(db_schema, "is_database_empty", fake_is_database_empty)
     monkeypatch.setattr(
         db_schema,
         "download_latest_compatible_schema",
         lambda: pytest.fail("download should not run"),
     )
 
-    assert db_schema.restore_schema_if_fresh(target_db="posthog", mode="auto") is False
+    assert db_schema.restore_schema_if_fresh(target_db="posthog", mode=mode) is False
+    assert inspections == expected_inspections
+
+
+def test_restore_schema_if_fresh_recreates_empty_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    restore_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(db_schema, "is_database_empty", lambda target_db: True)
+    monkeypatch.setattr(db_schema, "download_latest_compatible_schema", lambda: None)
+    monkeypatch.setattr(db_schema, "restore_schema_dump", lambda **kwargs: restore_calls.append(kwargs))
+
+    assert db_schema.restore_schema_if_fresh(target_db="posthog", mode="auto") is True
+    assert restore_calls == [{"target_db": "posthog", "recreate": True, "ensure_defaults": True}]
+
+
+def test_run_psql_with_gzip_input_uses_transactional_error_stopping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    schema_path = tmp_path / "schema.sql.gz"
+    _write_schema(schema_path)
+    commands: list[list[str]] = []
+
+    class FakeStdin:
+        def __init__(self) -> None:
+            self.data = b""
+
+        def write(self, chunk: bytes) -> int:
+            self.data += chunk
+            return len(chunk)
+
+        def close(self) -> None:
+            pass
+
+    class SuccessfulProcess:
+        def __init__(self) -> None:
+            self.stdin = FakeStdin()
+
+        def wait(self) -> int:
+            return 0
+
+        def kill(self) -> None:
+            pytest.fail("process should not be killed")
+
+    def fake_popen(command: list[str], **kwargs: object) -> SuccessfulProcess:
+        commands.append(command)
+        return SuccessfulProcess()
+
+    monkeypatch.setattr(db_schema.subprocess, "Popen", fake_popen)
+
+    db_schema._run_psql_with_gzip_input(schema_path, "posthog")
+
+    assert len(commands) == 1
+    assert "-v" in commands[0]
+    assert "ON_ERROR_STOP=1" in commands[0]
+    assert "--single-transaction" in commands[0]
 
 
 def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,6 +205,35 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
     assert any("CREATE DATABASE test_posthog;" in command for call in commands for command in call)
     assert restored == [(schema_path, "test_posthog")]
     assert defaults == ["test_posthog"]
+
+
+def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    schema_path = tmp_path / "schema.sql.gz"
+    _write_schema(schema_path)
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
+    monkeypatch.setattr(
+        db_schema,
+        "_run_psql_with_gzip_input",
+        lambda gzip_path, target_db: (_ for _ in ()).throw(db_schema.SchemaRestoreError("restore failed")),
+    )
+    monkeypatch.setattr(
+        db_schema,
+        "_ensure_migration_defaults",
+        lambda target_db: pytest.fail("defaults should not run after restore failure"),
+    )
+
+    with pytest.raises(db_schema.SchemaRestoreError, match="restore failed"):
+        db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
+
+    admin_sql = [command[-1] for command in commands]
+    assert admin_sql == [
+        "DROP DATABASE IF EXISTS test_posthog;",
+        "CREATE DATABASE test_posthog;",
+        "DROP DATABASE IF EXISTS test_posthog;",
+        "CREATE DATABASE test_posthog;",
+    ]
 
 
 def test_restore_schema_dump_without_recreate_does_not_drop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,6 +272,21 @@ def test_restore_schema_if_fresh_handles_unavailable_artifact(
 
     assert result.exit_code == expected_exit
     assert expected_output in result.output
+
+
+def test_restore_schema_if_fresh_auto_does_not_fallback_when_cleanup_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        db_schema,
+        "restore_schema_if_fresh",
+        lambda **kwargs: (_ for _ in ()).throw(db_schema.SchemaRestoreCleanupFailed("cleanup failed")),
+    )
+
+    result = runner.invoke(db_schema.db_restore_schema_if_fresh, ["--mode=auto"])
+
+    assert result.exit_code == 1
+    assert "cleanup failed" in result.output
 
 
 def test_restore_schema_fresh_recreates_target_db(monkeypatch: pytest.MonkeyPatch) -> None:
