@@ -50,7 +50,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai portkey-ai @posthog/ai@latest @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install openai portkey-ai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                         ]}

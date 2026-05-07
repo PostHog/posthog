@@ -43,7 +43,7 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @google/genai @posthog/ai@latest @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-google-generativeai
+                                    npm install @google/genai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-google-generativeai
                                 `,
                             },
                         ]}

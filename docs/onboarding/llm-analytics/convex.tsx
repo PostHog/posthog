@@ -18,7 +18,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai@latest @ai-sdk/openai ai @opentelemetry/sdk-trace-base @opentelemetry/resources @opentelemetry/api
+                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-trace-base @opentelemetry/resources @opentelemetry/api
                         `}
                     />
                 </>
