@@ -6,7 +6,7 @@ import pytest
 from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
@@ -21,7 +21,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupTypeMapping, GroupUsageMetric, Person, PropertyDefinition
 from posthog.models.filters.utils import GroupTypeIndex
-from posthog.models.group.util import create_group
+from posthog.models.group.util import create_group, list_groups
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -29,6 +29,8 @@ from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+from ee.clickhouse.views.groups import _decode_groups_cursor, _encode_groups_cursor
 
 PATH = "ee.clickhouse.views.groups"
 
@@ -2270,3 +2272,353 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
             team=self.team, name="test_prop", type=PropertyDefinition.Type.GROUP, group_type_index=1
         )
         self.assertEqual(prop_def.group_type_index, 1)
+
+
+class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
+    @freeze_time("2021-05-03")
+    def test_returns_groups_ordered_by_created_at_desc(self):
+        with freeze_time("2021-05-01"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        with freeze_time("2021-05-02"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 2
+        assert result.groups[0].group_key == "org:2"
+        assert result.groups[1].group_key == "org:1"
+        assert result.has_more is False
+
+    @freeze_time("2021-05-04")
+    def test_pagination_with_limit(self):
+        with freeze_time("2021-05-01"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        with freeze_time("2021-05-02"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
+        with freeze_time("2021-05-03"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:3", properties={})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+
+        assert len(result.groups) == 2
+        assert result.groups[0].group_key == "org:3"
+        assert result.groups[1].group_key == "org:2"
+        assert result.has_more is True
+
+    @freeze_time("2021-05-04")
+    def test_pagination_cursor_returns_next_page(self):
+        with freeze_time("2021-05-01"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        with freeze_time("2021-05-02"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
+        with freeze_time("2021-05-03"):
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:3", properties={})
+
+        page1 = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+        last = page1.groups[-1]
+
+        page2 = list_groups(
+            team_id=self.team.pk,
+            group_type_index=0,
+            cursor_created_at_ms=int(last.created_at.timestamp() * 1000),
+            cursor_id=last.id,
+            limit=2,
+        )
+
+        assert len(page2.groups) == 1
+        assert page2.groups[0].group_key == "org:1"
+        assert page2.has_more is False
+
+    @freeze_time("2021-05-03")
+    def test_search_filters_by_properties(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Acme Corp"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={"name": "Beta Inc"})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, search="Acme")
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:1"
+
+    @freeze_time("2021-05-03")
+    def test_search_matches_group_key_exact(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:alpha", properties={"name": "Alpha"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:beta", properties={"name": "Beta"})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, search="org:alpha")
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:alpha"
+
+    @freeze_time("2021-05-03")
+    def test_group_key_contains_filter(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:alpha", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:beta", properties={})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, group_key_contains="alpha")
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:alpha"
+
+    @freeze_time("2021-05-03")
+    def test_filters_by_group_type_index(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:1"
+
+    @freeze_time("2021-05-03")
+    def test_empty_result(self):
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 0
+        assert result.has_more is False
+
+    @freeze_time("2021-05-03")
+    def test_personhog_fallback_on_error(self):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Test"})
+
+        mock_client = MagicMock()
+        mock_client.list_groups.side_effect = Exception("gRPC error")
+        with patch("posthog.personhog_client.client.get_personhog_client", return_value=mock_client):
+            result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:1"
+        mock_client.list_groups.assert_called_once()
+
+    @freeze_time("2021-05-03")
+    @patch("posthog.personhog_client.client.get_personhog_client")
+    def test_personhog_success_path(self, mock_get_client):
+        from posthog.personhog_client.proto import ListGroupsResponse
+        from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import Group as ProtoGroup
+
+        proto_group = ProtoGroup(
+            id=1,
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            group_properties=b'{"name": "Test Org"}',
+            created_at=1620000000000,
+            version=0,
+        )
+        mock_response = ListGroupsResponse(groups=[proto_group], has_more=False)
+        mock_client = MagicMock()
+        mock_client.list_groups.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 1
+        assert result.groups[0].group_key == "org:1"
+        assert result.groups[0].group_properties == {"name": "Test Org"}
+        assert result.has_more is False
+        mock_client.list_groups.assert_called_once()
+
+    @freeze_time("2021-05-03")
+    @patch("posthog.personhog_client.client.get_personhog_client")
+    def test_personhog_pagination_has_more(self, mock_get_client):
+        from posthog.personhog_client.proto import ListGroupsResponse
+        from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import Group as ProtoGroup
+
+        proto_groups = [
+            ProtoGroup(
+                id=2,
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:2",
+                group_properties=b"{}",
+                created_at=1620086400000,
+                version=0,
+            ),
+            ProtoGroup(
+                id=1,
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:1",
+                group_properties=b"{}",
+                created_at=1620000000000,
+                version=0,
+            ),
+        ]
+        mock_response = ListGroupsResponse(groups=proto_groups, has_more=True)
+        mock_client = MagicMock()
+        mock_client.list_groups.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+
+        assert len(result.groups) == 2
+        assert result.has_more is True
+        assert result.groups[0].group_key == "org:2"
+        assert result.groups[1].group_key == "org:1"
+
+
+class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
+    @freeze_time("2021-05-02")
+    def test_response_format_matches_contract(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "Test"},
+        )
+
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
+
+        assert "next" in response_data
+        assert "previous" in response_data
+        assert "results" in response_data
+        assert response_data["next"] is None
+        assert response_data["previous"] is None
+        assert len(response_data["results"]) == 1
+        result = response_data["results"][0]
+        assert result["group_key"] == "org:1"
+        assert result["group_type_index"] == 0
+        assert result["group_properties"] == {"name": "Test"}
+        assert "created_at" in result
+
+    @freeze_time("2021-05-02")
+    def test_invalid_group_type_index_returns_400(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=abc")
+        assert response.status_code == 400
+
+    @freeze_time("2021-05-02")
+    def test_cursor_pagination_via_api(self):
+        for i in range(3):
+            with freeze_time(f"2021-05-0{i + 1}"):
+                create_group(
+                    team_id=self.team.pk,
+                    group_type_index=0,
+                    group_key=f"org:{i}",
+                    properties={},
+                )
+
+        page1 = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
+
+        assert page1["next"] is None
+        assert len(page1["results"]) == 3
+        assert page1["results"][0]["group_key"] == "org:2"
+        assert page1["results"][-1]["group_key"] == "org:0"
+
+    @freeze_time("2021-05-02")
+    def test_cursor_roundtrip(self):
+        cursor = _encode_groups_cursor(1620000000000, 42)
+        created_at_ms, group_id = _decode_groups_cursor(cursor)
+
+        assert created_at_ms == 1620000000000
+        assert group_id == 42
+
+    @freeze_time("2021-05-02")
+    def test_invalid_cursor_is_ignored(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={},
+        )
+
+        response_data = self.client.get(
+            f"/api/projects/{self.team.id}/groups?group_type_index=0&cursor=invalid_cursor"
+        ).json()
+
+        assert len(response_data["results"]) == 1
+
+    @freeze_time("2021-05-02")
+    def test_find_uses_personhog_routed_lookup(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "Test"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key=org:1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["group_key"] == "org:1"
+        assert data["group_properties"] == {"name": "Test"}
+
+    @freeze_time("2021-05-02")
+    def test_find_nonexistent_returns_404(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key=nonexistent")
+        assert response.status_code == 404
+
+    @freeze_time("2021-05-02")
+    @patch("posthog.personhog_client.client.get_personhog_client")
+    def test_list_api_with_personhog(self, mock_get_client):
+        from posthog.personhog_client.proto import ListGroupsResponse
+        from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import Group as ProtoGroup
+
+        proto_group = ProtoGroup(
+            id=99,
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:phog",
+            group_properties=b'{"name": "PersonHog Org"}',
+            created_at=1620000000000,
+            version=0,
+        )
+        mock_response = ListGroupsResponse(groups=[proto_group], has_more=False)
+        mock_client = MagicMock()
+        mock_client.list_groups.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
+
+        assert response_data["next"] is None
+        assert response_data["previous"] is None
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["group_key"] == "org:phog"
+        assert response_data["results"][0]["group_properties"] == {"name": "PersonHog Org"}
+
+    @freeze_time("2021-05-02")
+    @patch("posthog.personhog_client.client.get_personhog_client")
+    def test_list_api_with_personhog_has_more_produces_next_url(self, mock_get_client):
+        from posthog.personhog_client.proto import ListGroupsResponse
+        from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import Group as ProtoGroup
+
+        proto_groups = [
+            ProtoGroup(
+                id=i,
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                group_properties=b"{}",
+                created_at=1620000000000 + i * 1000,
+                version=0,
+            )
+            for i in range(100)
+        ]
+        mock_response = ListGroupsResponse(groups=proto_groups, has_more=True)
+        mock_client = MagicMock()
+        mock_client.list_groups.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
+
+        assert response_data["next"] is not None
+        assert "cursor=" in response_data["next"]
+        assert "group_type_index=0" in response_data["next"]
+        assert len(response_data["results"]) == 100
+
+    @freeze_time("2021-05-02")
+    def test_list_api_fallback_on_personhog_error(self):
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:fallback",
+            properties={"name": "Fallback Org"},
+        )
+
+        mock_client = MagicMock()
+        mock_client.list_groups.side_effect = Exception("gRPC unavailable")
+        with patch("posthog.personhog_client.client.get_personhog_client", return_value=mock_client):
+            response_data = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0").json()
+
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["group_key"] == "org:fallback"
+        assert response_data["results"][0]["group_properties"] == {"name": "Fallback Org"}
