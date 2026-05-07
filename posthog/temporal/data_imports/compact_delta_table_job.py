@@ -9,6 +9,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 
@@ -35,41 +36,49 @@ async def compact_delta_table_activity(inputs: CompactDeltaTableWorkflowInputs) 
     Triggered out-of-band (admin action) to remediate fragmented tables that
     can't recover via the in-pipeline pre-write compaction — e.g. when syncs
     are failing repeatedly and never reach the start-of-run compact path.
+
+    Wrapped in `Heartbeater` so the activity sends regular heartbeats while
+    `compact_table` runs in `asyncio.to_thread` — without it, Temporal
+    cancels the activity after `heartbeat_timeout` and a fragmented table
+    that takes longer than the timeout would never finish compacting.
     """
     bind_contextvars(team_id=inputs.team_id, schema_id=inputs.schema_id)
     logger = LOGGER.bind()
     close_old_connections()
 
-    schema = await ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id).afirst()
-    if schema is None:
-        await logger.aerror(f"Schema not found: id={inputs.schema_id} team={inputs.team_id}")
-        return
+    async with Heartbeater():
+        schema = await ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id).afirst()
+        if schema is None:
+            await logger.aerror(
+                "compact_delta_table.schema_not_found", schema_id=inputs.schema_id, team_id=inputs.team_id
+            )
+            return
 
-    job = (
-        await ExternalDataJob.objects.filter(schema_id=schema.id, team_id=inputs.team_id)
-        .order_by("-created_at")
-        .afirst()
-    )
-    if job is None:
-        await logger.aerror(f"No job found for schema id={inputs.schema_id} — cannot resolve folder path")
-        return
+        job = (
+            await ExternalDataJob.objects.filter(schema_id=schema.id, team_id=inputs.team_id)
+            .order_by("-created_at")
+            .afirst()
+        )
+        if job is None:
+            await logger.aerror("compact_delta_table.job_not_found", schema_id=inputs.schema_id, team_id=inputs.team_id)
+            return
 
-    # DeltaTableHelper normalizes the resource name internally when computing
-    # the delta_table_uri, so passing the raw schema name is safe.
-    helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
+        # DeltaTableHelper normalizes the resource name internally when computing
+        # the delta_table_uri, so passing the raw schema name is safe.
+        helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
 
-    delta_table = await helper.get_delta_table()
-    if delta_table is None:
-        await logger.ainfo("No Delta table at expected path; nothing to compact")
-        return
+        delta_table = await helper.get_delta_table()
+        if delta_table is None:
+            await logger.ainfo("compact_delta_table.no_delta_target", schema_id=inputs.schema_id)
+            return
 
-    file_uris = await helper.get_file_uris()
-    await logger.ainfo(f"Pre-compact file count: {len(file_uris)}")
+        file_uris = await helper.get_file_uris()
+        await logger.ainfo("compact_delta_table.pre_compact", file_count=len(file_uris))
 
-    await helper.compact_table()
+        await helper.compact_table()
 
-    file_uris_after = await helper.get_file_uris()
-    await logger.ainfo(f"Post-compact file count: {len(file_uris_after)}")
+        file_uris_after = await helper.get_file_uris()
+        await logger.ainfo("compact_delta_table.post_compact", file_count=len(file_uris_after))
 
 
 @workflow.defn(name="dwh-compact-delta-table")
