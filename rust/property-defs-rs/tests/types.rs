@@ -1,5 +1,7 @@
 use chrono::Utc;
-use property_defs_rs::types::{detect_property_type, get_floored_last_seen, PropertyValueType};
+use property_defs_rs::types::{
+    detect_property_type, get_floored_last_seen, Event, PropertyValueType, Update,
+};
 use serde_json::{Number, Value};
 
 #[test]
@@ -422,4 +424,66 @@ fn test_bare_utm_properties_still_string() {
             "expected String for key={key}, value={value}"
         );
     }
+}
+
+#[test]
+fn test_property_keys_are_sanitized_of_null_bytes() {
+    // Property keys with embedded null bytes must be sanitized before reaching Postgres,
+    // otherwise the INSERT fails with 22021 (invalid_text_representation) and burns the
+    // 3-retry batch. We mirror the existing sanitize on event names.
+    let event = Event {
+        team_id: 1,
+        project_id: 1,
+        event: "$pageview".to_string(),
+        properties: Some(r#"{"clean_key":"v","key\u0000with\u0000nulls":"v"}"#.to_string()),
+    };
+
+    let updates = event.into_updates(1000);
+
+    // Expect: 1 EventDefinition + 2 EventProperty + 2 PropertyDefinition = 5 updates
+    assert_eq!(
+        updates.len(),
+        5,
+        "all keys should produce updates: {updates:?}"
+    );
+
+    let replacement_char = '\u{FFFD}';
+
+    let mut saw_sanitized_event_property = false;
+    let mut saw_sanitized_property_definition = false;
+
+    for update in &updates {
+        match update {
+            Update::EventProperty(ep) => {
+                assert!(
+                    !ep.property.contains('\u{0000}'),
+                    "EventProperty.property must not contain null bytes: {:?}",
+                    ep.property
+                );
+                if ep.property.contains(replacement_char) {
+                    saw_sanitized_event_property = true;
+                }
+            }
+            Update::Property(pd) => {
+                assert!(
+                    !pd.name.contains('\u{0000}'),
+                    "PropertyDefinition.name must not contain null bytes: {:?}",
+                    pd.name
+                );
+                if pd.name.contains(replacement_char) {
+                    saw_sanitized_property_definition = true;
+                }
+            }
+            Update::Event(_) => {}
+        }
+    }
+
+    assert!(
+        saw_sanitized_event_property,
+        "expected at least one EventProperty with the sanitized key: {updates:?}"
+    );
+    assert!(
+        saw_sanitized_property_definition,
+        "expected at least one PropertyDefinition with the sanitized name: {updates:?}"
+    );
 }

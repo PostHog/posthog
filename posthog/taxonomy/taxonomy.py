@@ -2217,13 +2217,23 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",
-            "description": "The unique identifier of the event being evaluated.",
+            "description": "Deprecated — use $ai_target_id with $ai_target_type instead. The unique identifier of the event being evaluated.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
         },
         "$ai_target_event_type": {
             "label": "AI Target Event Type (LLM)",
-            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "description": "Deprecated — use $ai_target_type instead. The type of event being evaluated (e.g., $ai_generation).",
             "examples": ["$ai_generation", "$ai_span"],
+        },
+        "$ai_target_id": {
+            "label": "AI Target ID (LLM)",
+            "description": "Identifier of the entity this evaluation targets. Pair with $ai_target_type to know which ID space it belongs to (event UUID, trace ID, etc.).",
+            "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_target_type": {
+            "label": "AI Target Type (LLM)",
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "examples": ["generation_uuid", "trace_id"],
         },
         "$ai_metric_name": {
             "label": "AI Metric Name (LLM)",
