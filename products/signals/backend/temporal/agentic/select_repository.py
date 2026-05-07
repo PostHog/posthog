@@ -73,8 +73,9 @@ def _capture_repo_research_event(
             properties=properties,
             groups=groups(organization, team),
         )
-    except Exception:
+    except Exception as e:
         # Swallow the exception, to avoid breaking the flow over failed analytics event
+        posthoganalytics.capture_exception(e)
         logger.exception(
             "Failed to capture repo research event",
             event=event,
@@ -98,6 +99,7 @@ def _load_previous_repo_selection(report_id: str) -> RepoSelectionResult | None:
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelectionResult:
     """Select the most relevant repository for a report's signals."""
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)

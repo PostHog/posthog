@@ -6,6 +6,7 @@ from django.db import transaction
 
 import structlog
 import temporalio
+import posthoganalytics
 from pydantic import ValidationError
 
 from posthog.models import Team, User
@@ -401,6 +402,7 @@ async def _persist_agentic_report_artefacts(
             reviewers_content=reviewers_content,
         )
     except Exception as error:
+        posthoganalytics.capture_exception(error)
         logger.exception(
             "signals auto-start task failed",
             report_id=report_id,
@@ -411,6 +413,7 @@ async def _persist_agentic_report_artefacts(
 
 
 @temporalio.activity.defn
+@posthoganalytics.scoped()
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:
