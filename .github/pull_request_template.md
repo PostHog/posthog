@@ -46,6 +46,7 @@
      - decisions made along the way (what was tried, rejected, chosen, and why)
      - anything else that helps reviewers
      Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
+     DO NOT INCLUDE sensitive data that may have been shared in an agent session.
 -->
 <!-- Rules for agent-authored PRs:
      - All PRs must be attributable to a human author, even if agent-assisted.
