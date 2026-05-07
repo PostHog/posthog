@@ -3,7 +3,7 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 
 import { Logo } from 'lib/brand/Logo'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -18,11 +18,12 @@ import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
-import ExporterDashboardScene from './scenes/ExporterDashboardScene'
-import ExporterHeatmapScene from './scenes/ExporterHeatmapScene'
-import ExporterInsightScene from './scenes/ExporterInsightScene'
-import ExporterNotebookScene from './scenes/ExporterNotebookScene'
-import ExporterRecordingScene from './scenes/ExporterRecordingScene'
+
+const LazyDashboardScene = lazy(() => import('./scenes/ExporterDashboardScene'))
+const LazyHeatmapScene = lazy(() => import('./scenes/ExporterHeatmapScene'))
+const LazyInsightScene = lazy(() => import('./scenes/ExporterInsightScene'))
+const LazyNotebookScene = lazy(() => import('./scenes/ExporterNotebookScene'))
+const LazyRecordingScene = lazy(() => import('./scenes/ExporterRecordingScene'))
 
 function resolveForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 'dark' | null {
     if (theme === 'light' || theme === 'dark') {
@@ -148,27 +149,37 @@ export function Exporter(props: ExportedData): JSX.Element {
                                 </div>
                             </div>
                         )}
-                        <ExporterNotebookScene
-                            notebook={notebook}
-                            insights={insights}
-                            inline_query_results={inlineQueryResults}
-                        />
+                        <Suspense fallback={null}>
+                            <LazyNotebookScene
+                                notebook={notebook}
+                                insights={insights}
+                                inline_query_results={inlineQueryResults}
+                            />
+                        </Suspense>
                     </div>
                 ) : insight ? (
-                    <ExporterInsightScene insight={insight} themes={themes!} exportOptions={exportOptions} />
+                    <Suspense fallback={null}>
+                        <LazyInsightScene insight={insight} themes={themes!} exportOptions={exportOptions} />
+                    </Suspense>
                 ) : dashboard ? (
-                    <ExporterDashboardScene dashboard={dashboard} type={type} themes={themes} />
+                    <Suspense fallback={null}>
+                        <LazyDashboardScene dashboard={dashboard} type={type} themes={themes} />
+                    </Suspense>
                 ) : recording ? (
-                    <ExporterRecordingScene
-                        recording={recording}
-                        mode={props.mode}
-                        autoplay={props.autoplay}
-                        noBorder={props.noBorder}
-                        exportToken={exportToken}
-                        showInspector={showInspector}
-                    />
+                    <Suspense fallback={null}>
+                        <LazyRecordingScene
+                            recording={recording}
+                            mode={props.mode}
+                            autoplay={props.autoplay}
+                            noBorder={props.noBorder}
+                            exportToken={exportToken}
+                            showInspector={showInspector}
+                        />
+                    </Suspense>
                 ) : type === ExportType.Heatmap ? (
-                    <ExporterHeatmapScene />
+                    <Suspense fallback={null}>
+                        <LazyHeatmapScene />
+                    </Suspense>
                 ) : (
                     <h1 className="text-center p-4">Something went wrong...</h1>
                 )}
