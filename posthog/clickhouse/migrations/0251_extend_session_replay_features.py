@@ -54,9 +54,6 @@ def _alter_aggregating(table_name: str) -> str:
 _is_cloud = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
 
 operations = [
-    # 1. Drop all materialized views and Kafka tables (MSK + WarpStream) before
-    # any schema changes so no in-flight writes hit the tables mid-ALTER.
-    # Each DROP uses IF EXISTS so it's safe to re-run.
     run_sql_with_exceptions(DROP_SESSION_REPLAY_FEATURES_TABLE_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     *(
@@ -69,7 +66,6 @@ operations = [
         if _is_cloud
         else []
     ),
-    # 2. Add columns to the data tables — sharded source first, then distributed/writable.
     run_sql_with_exceptions(
         _alter_aggregating(SESSION_REPLAY_FEATURES_DATA_TABLE()),
         node_roles=[NodeRole.DATA],
@@ -88,8 +84,6 @@ operations = [
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    # 3. Recreate the Kafka tables and materialized views with the new column set
-    # (MSK first, then WarpStream on cloud).
     run_sql_with_exceptions(
         KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False),
         node_roles=[NodeRole.INGESTION_MEDIUM],
