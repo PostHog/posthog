@@ -128,6 +128,18 @@ tools:
         description: >
             Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and
             creation/modification metadata.
+    notebooks-sharing-list:
+        operation: notebooks_sharing_list
+        enabled: false
+    notebooks-sharing-passwords-create:
+        operation: notebooks_sharing_passwords_create
+        enabled: false
+    notebooks-sharing-passwords-destroy:
+        operation: notebooks_sharing_passwords_destroy
+        enabled: false
+    notebooks-sharing-refresh-create:
+        operation: notebooks_sharing_refresh_create
+        enabled: false
     notebooks-update:
         operation: notebooks_update
         enabled: false

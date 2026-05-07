@@ -60,6 +60,12 @@ class ProcessTaskInput:
 
 
 @dataclass
+class PendingFollowup:
+    message: str | None
+    artifact_ids: list[str]
+
+
+@dataclass
 class ProcessTaskOutput:
     success: bool
     task_result: Optional[ExecuteTaskOutput] = None
@@ -79,11 +85,11 @@ class CIFollowUpDecision(StrEnum):
     NO_PR = "no_pr"
 
 
-# Default 5 min in production. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS
+# Default 2 hours in production. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS
 # for local testing (e.g. `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast
 # shutdown for resume-flow testing). When overridden, the CI follow-up floor
 # below is bypassed so the timer actually fires that fast.
-INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 300)
+INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 2 * 60 * 60)
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
@@ -125,6 +131,7 @@ After fixing, commit and push so CI can re-run.
 #   2. Second cleanup PR (after another full drain): delete this helper and
 #      `_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT`.
 _PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT = "tasks-ci-follow-up-pr-context"
+_PATCH_ID_FOLLOWUP_QUEUE = "tasks-follow-up-message-queue"
 
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
@@ -142,7 +149,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
         self._heartbeat_received: bool = False
-        self._pending_followup: Optional[dict[str, Any]] = None
+        self._pending_followup: PendingFollowup | None = None
+        self._pending_followups: list[PendingFollowup] = []
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
         # Tracks which progress step is currently in-progress (step, label,
@@ -198,7 +206,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _wait_for_task_external_event(self):
         await workflow.wait_condition(
-            lambda: self._task_completed or self._heartbeat_received or self._pending_followup is not None
+            lambda: self._task_completed
+            or self._heartbeat_received
+            or self._pending_followup is not None
+            or len(self._pending_followups) > 0
         )
         return TaskEvent.SIGNAL_RECEIVED
 
@@ -427,15 +438,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             case _:
                                 raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
                     case TaskEvent.SIGNAL_RECEIVED:
-                        if self._pending_followup is not None:
+                        pending_followup_count = len(self._pending_followups) + (
+                            1 if self._pending_followup is not None else 0
+                        )
+                        if pending_followup_count > 0:
                             workflow.logger.info(
-                                "Pending follow-up message received, sending to sandbox", run_id=self.context.run_id
+                                "Pending follow-up message received, sending to sandbox",
+                                run_id=self.context.run_id,
+                                pending_followup_count=pending_followup_count,
                             )
-                            pending_followup = self._pending_followup
-                            self._pending_followup = None
+                            if self._pending_followup is not None:
+                                pending_followup = self._pending_followup
+                                self._pending_followup = None
+                            else:
+                                pending_followup = self._pending_followups.pop(0)
                             self._last_active_time = workflow.now()
-                            message = pending_followup.get("message")
-                            artifact_ids = pending_followup.get("artifact_ids") or []
+                            message = pending_followup.message
+                            artifact_ids = pending_followup.artifact_ids
                             if self._should_skip_followup(message, artifact_ids):
                                 workflow.logger.warning(
                                     "empty_followup_skipped",
@@ -903,16 +922,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
         # log below — gaps between the two point at workflow-loop backpressure.
+        context = self._context
         workflow.logger.info(
             "send_followup_signal_received",
-            run_id=self.context.run_id,
+            run_id=context.run_id if context is not None else None,
             message_length=len(message or ""),
             artifact_count=len(artifact_ids or []),
         )
-        self._pending_followup = {
-            "message": message,
-            "artifact_ids": artifact_ids or [],
-        }
+        pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [])
+        if workflow.patched(_PATCH_ID_FOLLOWUP_QUEUE):
+            self._pending_followups.append(pending_followup)
+        else:
+            self._pending_followup = pending_followup
 
     async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
         workflow.logger.info(
@@ -939,7 +960,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 error=str(e),
             )
-            # Mark the run as failed so _poll_for_turn sees a terminal status
+            # Mark the run as failed so poll_for_turn sees a terminal status
             # immediately instead of waiting for the inactivity timeout.
             self._completion_status = "failed"
             self._completion_error = f"Follow-up delivery failed: {e}"

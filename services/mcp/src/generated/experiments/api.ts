@@ -109,7 +109,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 feature_flag_variants: zod
                     .array(
                         zod.object({
-                            key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
+                            key: zod
+                                .string()
+                                .describe(
+                                    "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
+                                ),
                             name: zod.string().nullish().describe('Human-readable variant name.'),
                             rollout_percentage: zod.number().nullish(),
                             split_percent: zod
@@ -121,7 +125,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         })
                     )
                     .nullish()
-                    .describe('Experiment variants. If not specified, defaults to a 50/50 control/test split.'),
+                    .describe(
+                        "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
+                    ),
                 minimum_detectable_effect: zod
                     .number()
                     .nullish()
@@ -1282,7 +1288,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 feature_flag_variants: zod
                     .array(
                         zod.object({
-                            key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
+                            key: zod
+                                .string()
+                                .describe(
+                                    "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
+                                ),
                             name: zod.string().nullish().describe('Human-readable variant name.'),
                             rollout_percentage: zod.number().nullish(),
                             split_percent: zod
@@ -1294,7 +1304,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         })
                     )
                     .nullish()
-                    .describe('Experiment variants. If not specified, defaults to a 50/50 control/test split.'),
+                    .describe(
+                        "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
+                    ),
                 minimum_detectable_effect: zod
                     .number()
                     .nullish()
@@ -2474,7 +2486,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                 feature_flag_variants: zod
                     .array(
                         zod.object({
-                            key: zod.string().describe("Variant key, e.g. 'control', 'test', 'variant_a'."),
+                            key: zod
+                                .string()
+                                .describe(
+                                    "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
+                                ),
                             name: zod.string().nullish().describe('Human-readable variant name.'),
                             rollout_percentage: zod.number().nullish(),
                             split_percent: zod
@@ -2486,7 +2502,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                         })
                     )
                     .nullish()
-                    .describe('Experiment variants. If not specified, defaults to a 50/50 control/test split.'),
+                    .describe(
+                        "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
+                    ),
                 minimum_detectable_effect: zod
                     .number()
                     .nullish()

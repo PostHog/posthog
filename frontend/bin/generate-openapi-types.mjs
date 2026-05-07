@@ -194,6 +194,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     const grouped = new Map()
     const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
     const allSchemas = schema.components?.schemas ?? {}
+    const allParameters = schema.components?.parameters ?? {}
     const skippedTags = new Map()
     let skippedNoTags = 0
     let routedByTag = 0
@@ -307,6 +308,19 @@ function buildGroupedSchemasByOutput(schema, mappings) {
 
     // Build final schemas with only referenced components
     for (const [outputDir, entry] of grouped.entries()) {
+        const filteredParameters = {}
+        for (const ref of entry._refs) {
+            if (!ref.startsWith('#/components/parameters/')) {
+                continue
+            }
+            const paramName = ref.replace('#/components/parameters/', '')
+            const paramDef = allParameters[paramName]
+            if (paramDef) {
+                filteredParameters[paramName] = paramDef
+                collectSchemaRefs(paramDef, entry._refs)
+            }
+        }
+
         const allRefs = resolveNestedRefs(allSchemas, entry._refs)
         const filteredSchemas = {}
 
@@ -317,19 +331,26 @@ function buildGroupedSchemasByOutput(schema, mappings) {
             }
         }
 
-        // Inline the full `components.parameters` (and any other top-level
-        // component buckets we don't slice) verbatim. The per-product paths
-        // reference shared parameter objects like `#/components/parameters/
-        // ProjectIdPath` — without these, orval validation fails with
-        // INVALID_REFERENCE and silently writes nothing. The parameter set
-        // is small and reused across products, so the duplication is fine.
+        // Inline non-schema component buckets (securitySchemes, responses,
+        // headers, etc.) verbatim — per-product paths reference shared
+        // objects like `#/components/parameters/ProjectIdPath`, and without
+        // them orval validation fails with INVALID_REFERENCE and silently
+        // writes nothing. Parameters specifically are slicing-friendly and
+        // tracked via `_refs`, so we override with the filtered subset.
         const sharedComponents = { ...schema.components }
         delete sharedComponents.schemas
+        delete sharedComponents.parameters
+
+        const components = { ...sharedComponents, schemas: filteredSchemas }
+        if (Object.keys(filteredParameters).length > 0) {
+            components.parameters = filteredParameters
+        }
+
         grouped.set(outputDir, {
             openapi: entry.openapi,
             info: { ...entry.info, title: `${entry.info?.title ?? 'API'} - ${path.basename(outputDir)}` },
             paths: entry.paths,
-            components: { ...sharedComponents, schemas: filteredSchemas },
+            components,
         })
     }
 
@@ -628,8 +649,44 @@ if (zodJobs.length > 0) {
 }
 console.log('')
 
+// Snapshot expected output mtimes so we can detect "fulfilled but didn't
+// write" — orval prints "🛑 Validation failed" then resolves cleanly, so a
+// silent no-op looks identical to success without this check. Any job whose
+// output file isn't newer after the run is reclassified as a failure.
+const expectedOutputs = allJobs.map((job) => {
+    const outputPath = job.kind === 'zod' ? path.join(job.outputDir, 'api.zod.ts') : path.join(job.outputDir, 'api.ts')
+    return {
+        path: outputPath,
+        preMtime: fs.existsSync(outputPath) ? fs.statSync(outputPath).mtimeMs : 0,
+    }
+})
+
 // Run all orval generations in parallel (in-process, no subprocess overhead)
 const results = await runOrvalParallel(allJobs.map((j) => ({ config: j.config, label: `${j.label}:${j.kind}` })))
+
+// Reclassify silent-no-op fulfilments as failures. CI's `git diff --exit-code`
+// gate in ci-backend.yml can't catch this on its own — when orval skips a
+// write, the disk matches HEAD and the diff comes back clean for the wrong
+// reason. Catching it here makes `hogli build:openapi` itself exit non-zero
+// before we ever reach the diff check.
+for (let i = 0; i < results.length; i++) {
+    if (results[i].status !== 'fulfilled') {
+        continue
+    }
+    const expected = expectedOutputs[i]
+    const exists = fs.existsSync(expected.path)
+    const mtime = exists ? fs.statSync(expected.path).mtimeMs : 0
+    if (!exists || mtime <= expected.preMtime) {
+        results[i] = {
+            status: 'rejected',
+            label: results[i].label,
+            reason: new Error(
+                `orval reported success but did not write ${path.relative(repoRoot, expected.path)} ` +
+                    `— check stderr above for "🛑 Validation failed" or other orval errors`
+            ),
+        }
+    }
+}
 
 // Report results and collect output dirs for formatting
 const outputDirs = []
@@ -688,4 +745,11 @@ if (generateAll) {
     console.log('')
     console.log('💡 Now run: node frontend/bin/find-type-overlaps.mjs')
     console.log('   to see which manual types overlap with generated types.')
+}
+
+// Exit non-zero on any failure so the wrapping `hogli build:openapi` gates
+// fail loudly. Without this, `git diff --exit-code` is the only signal
+// downstream — and it can't see silent no-op writes (see above).
+if (failed > 0) {
+    process.exit(1)
 }

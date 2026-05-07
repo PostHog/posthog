@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
+from opentelemetry import trace
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
@@ -88,6 +89,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "experiment_saved_metric": "experiment",
     "dashboard_template": "dashboard",
 }
+
+tracer = trace.get_tracer(__name__)
 
 
 class UserAccessControlError(Exception):
@@ -390,7 +393,13 @@ class UserAccessControl:
             return []
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
-            self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+            with tracer.start_as_current_span("rbac.access_controls.db") as span:
+                resource = filters.get("resource")
+                if isinstance(resource, str):
+                    span.set_attribute("rbac.resource", resource)
+                span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
+                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+                span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]
 
@@ -823,20 +832,28 @@ class UserAccessControl:
         - "viewer" if user has specific object access (allows page access but not creation)
         - None or "none" if user has no access at all
         """
-        # First check resource-level access
-        resource_access = self.access_level_for_resource(resource)
+        with tracer.start_as_current_span("rbac.effective_access_level_for_resource") as span:
+            span.set_attribute("rbac.resource", str(resource))
+            # First check resource-level access
+            with tracer.start_as_current_span("rbac.resource_level_check"):
+                resource_access = self.access_level_for_resource(resource)
 
-        # If resource access is not "none", return it directly
-        if resource_access and resource_access != NO_ACCESS_LEVEL:
-            return resource_access
+            # If resource access is not "none", return it directly
+            if resource_access and resource_access != NO_ACCESS_LEVEL:
+                span.set_attribute("rbac.path", "resource_level")
+                return resource_access
 
-        # If resource access is "none" or None, check for specific object access
-        # For navigation purposes, if they have specific access to any objects,
-        # grant them "viewer" level to see the resource page but NOT create new items
-        if self.has_any_specific_access_for_resource(resource, required_level="viewer"):
-            return "viewer"
+            # If resource access is "none" or None, check for specific object access
+            # For navigation purposes, if they have specific access to any objects,
+            # grant them "viewer" level to see the resource page but NOT create new items
+            with tracer.start_as_current_span("rbac.specific_access_fallback"):
+                has_specific = self.has_any_specific_access_for_resource(resource, required_level="viewer")
+            if has_specific:
+                span.set_attribute("rbac.path", "specific_access")
+                return "viewer"
 
-        return resource_access  # This will be "none" or None
+            span.set_attribute("rbac.path", "no_access")
+            return resource_access  # This will be "none" or None
 
     # ------------------------------------------------------------
     # Filtering querysets

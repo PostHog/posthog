@@ -15,6 +15,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration } from 'lib/utils'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -126,7 +127,19 @@ function SharedDashboardAutoRefresh({ dashboardId }: { dashboardId: number }): J
 
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
-    const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = props
+    const {
+        type,
+        dashboard,
+        insight,
+        recording,
+        notebook,
+        insights,
+        inline_query_results: inlineQueryResults,
+        themes,
+        accessToken,
+        exportToken,
+        ...exportOptions
+    } = props
     const { whitelabel, showInspector = false } = exportOptions
     const forcedTheme = resolveForcedTheme(exportOptions.theme)
 
@@ -148,8 +161,11 @@ export function Exporter(props: ExportedData): JSX.Element {
         } else if (insight && (type === ExportType.Scene || type === ExportType.Embed)) {
             const baseTitle = insight.name || insight.derived_name || 'Insight'
             document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
+        } else if (notebook && (type === ExportType.Scene || type === ExportType.Embed)) {
+            const baseTitle = notebook.title || 'Notebook'
+            document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
         }
-    }, [dashboard, insight, type, whitelabel])
+    }, [dashboard, insight, notebook, type, whitelabel])
 
     useThemedHtml(false, forcedTheme)
 
@@ -164,6 +180,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     'Exporter--insight': !!insight,
                     'Exporter--dashboard': !!dashboard,
                     'Exporter--recording': !!recording,
+                    'Exporter--notebook': !!notebook,
                     'Exporter--heatmap': type === ExportType.Heatmap,
                 })}
                 ref={elementRef}
@@ -206,7 +223,30 @@ export function Exporter(props: ExportedData): JSX.Element {
                         </>
                     ) : null
                 ) : null}
-                {insight ? (
+                {notebook ? (
+                    <div className="SharedNotebook">
+                        {!whitelabel && type === ExportType.Scene && (
+                            <div className="SharedDashboard-header">
+                                <Link
+                                    to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-notebook"
+                                    target="_blank"
+                                >
+                                    <Logo className="text-lg" />
+                                </Link>
+                                <div className="SharedDashboard-header-team text-right">
+                                    <span className="block">{currentTeam?.name}</span>
+                                </div>
+                            </div>
+                        )}
+                        <Notebook
+                            shortId={notebook.short_id}
+                            editable={false}
+                            cachedNotebook={notebook}
+                            cachedInsightsByShortId={insights}
+                            cachedInlineQueryResultsByNodeId={inlineQueryResults}
+                        />
+                    </div>
+                ) : insight ? (
                     <ExportedInsight insight={insight} themes={themes!} exportOptions={exportOptions} />
                 ) : dashboard ? (
                     <>
