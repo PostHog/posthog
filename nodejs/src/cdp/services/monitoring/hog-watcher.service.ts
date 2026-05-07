@@ -30,6 +30,10 @@ export interface HogWatcherConfig {
     stateLockTtl: number
     observeResultsBufferTimeMs: number
     observeResultsBufferMaxResults: number
+    // When true, dispatches the token-bucket pipeline call to checkRateLimitV3
+    // (optimized lua: HMGET, multi-field HSET, conditional EXPIRE refresh).
+    // Default: V2.
+    useV3?: boolean
 }
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
@@ -447,8 +451,14 @@ export class HogWatcherService {
                 return readStates(this.redis)
             }),
             this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
+                const useV3 = this.config.useV3 ?? false
                 for (const functionCost of functionCostEntries) {
-                    pipeline.checkRateLimitV2(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
+                    const args = this.rateLimitArgs(functionCost.functionId, functionCost.cost)
+                    if (useV3) {
+                        pipeline.checkRateLimitV3(...args)
+                    } else {
+                        pipeline.checkRateLimitV2(...args)
+                    }
                 }
             }),
         ])
@@ -464,7 +474,7 @@ export class HogWatcherService {
             const tokenResult = tokenRes[index]
 
             const currentState: HogWatcherState = Number(stateRes.states[index] ?? HogWatcherState.healthy)
-            // V2 returns [tokensBefore, tokensAfter], we use tokensAfter
+            // checkRateLimit returns [tokensBefore, tokensAfter] for both V2 and V3.
             const tokens = Number(tokenResult?.[1]?.[1] ?? this.config.bucketSize)
             const newState = this.calculateNewState(tokens)
 

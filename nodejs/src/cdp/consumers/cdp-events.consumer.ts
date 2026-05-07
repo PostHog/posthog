@@ -55,7 +55,7 @@ export class CdpEventsConsumer<
         }
         this.hogRateLimiter = new HogRateLimiterService(rateLimiterConfig, this.redis)
         this.hogRateLimiterMirror = this.valkeyShadow
-            ? new HogRateLimiterService(rateLimiterConfig, this.valkeyShadow.writer)
+            ? new HogRateLimiterService({ ...rateLimiterConfig, useV3: true }, this.valkeyShadow.writer)
             : null
     }
 

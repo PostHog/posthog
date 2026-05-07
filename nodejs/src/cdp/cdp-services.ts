@@ -356,7 +356,7 @@ export function createCdpCoreServices(
     const hogWatcherMirror: HogWatcherService | null = valkeyShadow
         ? new HogWatcherService(
               deps.teamManager,
-              { ...hogWatcherConfig, sendEvents: false },
+              { ...hogWatcherConfig, sendEvents: false, useV3: true },
               valkeyShadow.writer,
               valkeyShadow.reader
           )

@@ -4,6 +4,9 @@ export interface HogRateLimiterConfig {
     bucketSize: number
     refillRate: number
     ttl: number
+    // When true, dispatches to checkRateLimitV3 (optimized lua: HMGET, multi-field
+    // HSET, conditional EXPIRE refresh). Default: V2.
+    useV3?: boolean
 }
 
 export const BASE_REDIS_KEY =
@@ -35,9 +38,15 @@ export class HogRateLimiterService {
     }
 
     public async rateLimitMany(idCosts: [string, number][]): Promise<[string, HogRateLimit][]> {
+        const useV3 = this.config.useV3 ?? false
         const res = await this.redis.usePipeline({ name: 'hog-rate-limiter', failOpen: true }, (pipeline) => {
             idCosts.forEach(([id, cost]) => {
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost))
+                const args = this.rateLimitArgs(id, cost)
+                if (useV3) {
+                    pipeline.checkRateLimitV3(...args)
+                } else {
+                    pipeline.checkRateLimitV2(...args)
+                }
             })
         })
 
@@ -47,7 +56,7 @@ export class HogRateLimiterService {
 
         return idCosts.map(([id], index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            // V2 returns [tokensBefore, tokensAfter], we use tokensAfter for backward compatibility
+            // checkRateLimit returns [tokensBefore, tokensAfter] for both V2 and V3.
             const tokensAfter = tokenRes[1]?.[1] ?? this.config.bucketSize
             return [
                 id,
