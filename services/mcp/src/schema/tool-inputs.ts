@@ -373,7 +373,7 @@ export const ExperimentCreateSchema = z.object({
         .boolean()
         .optional()
         .describe(
-            'Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.'
+            "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it)."
         ),
 })
 

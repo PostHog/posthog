@@ -17591,6 +17591,7 @@ export namespace Schemas {
       metrics_secondary?: _ExperimentApiMetricsList | null;
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
+      /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it). */
       allow_unknown_events?: boolean;
       _create_in_folder?: string;
       /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
@@ -28744,6 +28745,7 @@ export namespace Schemas {
       metrics_secondary?: _ExperimentApiMetricsList | null;
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
+      /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it). */
       allow_unknown_events?: boolean;
       _create_in_folder?: string;
       /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
