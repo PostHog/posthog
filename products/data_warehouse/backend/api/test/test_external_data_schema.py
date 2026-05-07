@@ -219,6 +219,71 @@ class TestExternalDataSchema(APIBaseTest):
             "detected_primary_keys": ["id"],
         }
 
+    @parameterized.expand(
+        [
+            # (test name, source_cdc_enabled, team_ff_enabled, expected_cdc_available)
+            ("source_enabled_team_enabled", True, True, True),
+            ("source_enabled_team_disabled", True, False, None),
+            ("source_disabled_team_enabled", False, True, None),
+            ("source_disabled_team_disabled", False, False, None),
+        ]
+    )
+    def test_incremental_fields_cdc_available_gating(
+        self, _name: str, source_cdc_enabled: bool, team_ff_enabled: bool, expected_cdc_available
+    ):
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        job_inputs = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "postgres",
+            "user": "postgres",
+            "password": "postgres",
+            "schema": "public",
+            "ssh_tunnel_enabled": False,
+        }
+        if source_cdc_enabled:
+            job_inputs["cdc_enabled"] = True
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Postgres",
+            job_inputs=job_inputs,
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="some_table",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        fake_schema = SourceSchema(
+            name="some_table",
+            supports_incremental=False,
+            supports_append=False,
+            supports_cdc=True,
+            incremental_fields=[],
+            columns=[("id", "integer", False)],
+            detected_primary_keys=["id"],
+        )
+
+        with (
+            mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=team_ff_enabled,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["cdc_available"] is expected_cdc_available
+
     def test_update_schema_change_sync_type(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

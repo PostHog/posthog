@@ -716,11 +716,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         schema = schemas[0]
 
+        source_cdc_enabled = bool(source.job_inputs and source.job_inputs.get("cdc_enabled"))
+        cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
+
         data = {
             "incremental_fields": schema.incremental_fields,
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
-            "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
+            "cdc_available": cdc_available,
             "full_refresh_available": True,
             "supports_webhooks": schema.supports_webhooks,
             "available_columns": [
