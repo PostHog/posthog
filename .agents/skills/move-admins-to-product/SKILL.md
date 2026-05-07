@@ -1,6 +1,6 @@
 ---
 name: move-admins-to-product
-description: Move a Django admin class out of the central `posthog/admin/admins/` registry and into the owning product's `backend/admin.py`. Use when adding admin coverage for a product, when refactoring an existing entry in `posthog/admin/admins/` for cleanup, when reviewing PRs that introduce a new admin class, or whenever editing files under `posthog/admin/admins/` or `products/*/backend/admin.py`. Also covers the choice between `@admin.register` (non-isolated products) and the explicit `ADMIN_REGISTRATIONS` tuple (isolated products), plus the pitfalls around `ProductTeamModel`, capped inlines, and tach interfaces.
+description: Move a Django admin class out of the central `posthog/admin/admins/` registry and into the owning product's `backend/admin.py`. Use when adding admin coverage for a product, when refactoring an existing entry in `posthog/admin/admins/` for cleanup, when reviewing PRs that introduce a new admin class, or whenever editing files under `posthog/admin/admins/` or `products/*/backend/admin.py`. Covers the `ADMIN_REGISTRATIONS` tuple contract, the `LazyAdminRegistry`-driven reason `@admin.register` is forbidden, and the pitfalls around `ProductTeamModel`, capped inlines, and tach interfaces.
 ---
 
 # Moving admins into the product
@@ -27,9 +27,21 @@ Don't migrate core posthog admins (Organization, Team, User, Dashboard, etc.). T
 
    Expect three call sites: a file under `posthog/admin/admins/`, an entry in `posthog/admin/admins/__init__.py` (`from .x_admin import …` and the `__all__` list), and an explicit `admin.site.register(Model, …Admin)` line in `posthog/admin/__init__.py::register_all_admin()`.
 
-2. **Decide the registration shape.** Check `products/<name>/package.json`:
-   - **Not isolated** (no `backend:contract-check` script): use `@admin.register(Model)` decorators in `products/<name>/backend/admin.py`. Django's stock admin autodiscover at `AdminConfig.ready()` walks `INSTALLED_APPS` and imports each app's `admin` submodule, which fires the decorators. No edits needed in `posthog/admin/__init__.py`.
-   - **Isolated** (has `backend:contract-check`): tach forbids `posthog/` from importing `products.<name>.backend.admin` directly. Don't use `@admin.register` — use an explicit `ADMIN_REGISTRATIONS = ((Model, AdminClass), …)` tuple at the bottom of `backend/admin.py`, and add the product's app name (`products.<name>.backend`) to `_PRODUCTS_WITH_DYNAMIC_ADMIN` in `posthog/admin/__init__.py`. The string-based `importlib.import_module(f"{app}.admin")` keeps the tach interface honest while letting `register_all_admin()` wire up the registrations against the current `admin.site`.
+2. **Define the registration tuple.** At the bottom of `products/<name>/backend/admin.py`, expose:
+
+   ```python
+   ADMIN_REGISTRATIONS: tuple[tuple[type, type[admin.ModelAdmin]], ...] = (
+       (Model, ModelAdmin),
+       ...
+   )
+   ```
+
+   No allowlist edit, no `@admin.register` decorator.
+   `posthog/admin/__init__.py::_register_dynamic_product_admins()` walks every `products.*` app config, imports the `admin` submodule if present, and registers anything it finds in `ADMIN_REGISTRATIONS`.
+   String-based `importlib.import_module(...)` keeps tach happy for isolated products — `posthog/` never names the internal admin module.
+
+   **Don't use `@admin.register(...)`** — it's also forbidden by the `no-admin-register-decorator` semgrep rule.
+   PostHog's `LazyAdminRegistry` swap in `posthog/apps.py::_setup_lazy_admin` runs _after_ Django's autodiscover, so any `@admin.register`-time registrations get wiped before `register_all_admin()` runs and the admin is silently missing in production.
 
 3. **Move the file.** `posthog/admin/admins/<x>_admin.py` → `products/<name>/backend/admin.py`. If the product already has an `admin.py`, append the class. Adjust imports — model imports go from absolute (`posthog.…`) to relative (`from .models import …`), or absolute to the product's path if the product chose absolute style.
 
@@ -66,7 +78,9 @@ This isn't required for the migration to be correct, but the visual_review admin
 
 These are the things that bit the visual_review admin PR. Worth checking explicitly:
 
-- **`@admin.register` + `patch.object(admin, "site", ...)` mismatch.** The decorator imports `default_site` from `django.contrib.admin.sites`, which `patch.object(admin, "site", AdminSite())` does **not** touch — `patch.object` swaps the package re-export, the decorator reads from the source module. `posthog/admin/test_admin.py::test_register_admin_models_succeeds` patches admin.site this way; using `@admin.register` plus an `importlib.reload` to re-fire decorators in `register_all_admin()` re-registers on the unpatched real site and crashes with `AlreadyRegistered`. For isolated products, use the explicit `ADMIN_REGISTRATIONS` tuple shape — `register_all_admin()` calls `admin.site.register(...)` itself and goes through whatever `admin.site` is in scope.
+- **`LazyAdminRegistry` wipes autodiscover-time registrations.** The swap in `posthog/apps.py::_setup_lazy_admin` runs _after_ `AdminConfig.ready()` autodiscover, so any `@admin.register(...)` decorator on a product admin module registers on the real `admin.site._registry` only to have that registry replaced moments later. The lazy registry is non-empty by the time admin is hit, but only the `register_all_admin()` calls it triggers populated it — autodiscover work is gone. Always go through `ADMIN_REGISTRATIONS`. The `no-admin-register-decorator` semgrep rule fails CI if a decorator slips in.
+
+- **`@admin.register` + `patch.object(admin, "site", ...)` mismatch (related).** Even ignoring the wipe, the decorator imports `default_site` from `django.contrib.admin.sites`, which `patch.object(admin, "site", AdminSite())` does NOT patch (it swaps the package re-export). `posthog/admin/test_admin.py::test_register_admin_models_succeeds` patches admin.site that way; `@admin.register` registers on the unpatched real site, breaking the test guarantee. `register_all_admin()` calling `admin.site.register(...)` itself goes through whatever `admin.site` is in scope, which is the right thing in both production and tests.
 
 - **`ProductTeamModel`-backed models and `TeamScopeError`.** `ProductTeamModel.Meta.default_manager_name = "all_teams"` already routes Django's framework managers (`_default_manager`, `_base_manager`) at the unscoped sibling — admin queryset, `ForeignKeyRawIdWidget` label rendering, related-object access, generic relations, `prefetch_related`, and DRF default querysets all read through `all_teams` automatically. Admin works without per-class plumbing. `Model.objects.filter(...)` (the explicit attribute) stays bound to `TeamScopedManager` and stays fail-closed. If you see `TeamScopeError` in admin, the product probably doesn't extend `ProductTeamModel`; check `posthog/models/scoping/README.md`.
 
@@ -77,3 +91,14 @@ These are the things that bit the visual_review admin PR. Worth checking explici
 ## Reference
 
 The visual_review admin (PR #57879, `products/visual_review/backend/admin.py`) is the canonical example: isolated product, `ProductTeamModel`-backed, all six models covered, capped inline, perf hygiene, no `@admin.register`. The `posthog/admin/__init__.py` change in that PR shows the dynamic-discovery wiring for isolated products.
+
+## Design notes — possible future cleanup
+
+The `LazyAdminRegistry` swap + the `no-admin-register-decorator` ban are compensating for the fact that `'django.contrib.admin'` is in `INSTALLED_APPS`, which means Django's `AdminConfig.ready()` runs `autodiscover_modules('admin')` at startup.
+The proper Django-native fix would be to swap `'django.contrib.admin'` for `'django.contrib.admin.apps.SimpleAdminConfig'` in `INSTALLED_APPS`.
+`SimpleAdminConfig` exists precisely to disable the autodiscover pass, so registrations happen only through whatever the project explicitly invokes (in PostHog's case, `register_all_admin()`).
+Combined with a custom `AdminSite` subclass that exposes `_registry` as a `cached_property` of the loaded dict (Django's documented [overriding-the-default-admin-site](https://docs.djangoproject.com/en/4.2/ref/contrib/admin/#overriding-the-default-admin-site) escape hatch), the `LazyAdminRegistry(dict)` swap and the autodiscover-vs-swap race both go away.
+
+That refactor is out of scope for the per-product admin migration.
+But it would let `@admin.register(...)` work everywhere (since there'd be no registry-replacement to wipe its work), making both the ban and `ADMIN_REGISTRATIONS` redundant.
+Worth scoping as a follow-up once the bulk of admins have moved into their products.

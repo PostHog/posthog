@@ -1,28 +1,64 @@
 # Lazy load admin classes to avoid loading all at startup.
-# Admin classes are loaded when Django admin site is first accessed
+# Admin classes are loaded when Django admin site is first accessed —
+# see `posthog/apps.py::_setup_lazy_admin` for the registry swap that
+# triggers `register_all_admin()` on first access. The swap saves
+# ~2-3s of startup by deferring the wall of model + ModelAdmin imports
+# below until needed (see PR #38272 for the original motivation).
+#
+# As a consequence of the swap, **anything Django's stock admin
+# autodiscover registers — i.e. `@admin.register(...)` decorators on
+# product admin modules — gets wiped before `register_all_admin()`
+# runs**. Don't use `@admin.register` anywhere in this codebase. Per-
+# product admins opt into central registration via an
+# `ADMIN_REGISTRATIONS = ((Model, AdminClass), …)` tuple at the bottom
+# of their `backend/admin.py`; `_register_dynamic_product_admins()`
+# below picks them up. Skill: `.agents/skills/move-admins-to-product/`.
 
 import importlib
 
-# Isolated products (per `tach.toml` interfaces) only expose `backend.facade`
-# and `backend.presentation.views`. Django admin needs the concrete `Model`/
-# `ModelAdmin` classes — there's no facade equivalent for `admin.site.register`.
-# For these products we load `backend/admin.py` dynamically and read the
-# module's `ADMIN_REGISTRATIONS` tuple to wire the admins ourselves. The
-# string-based `importlib.import_module` keeps static interface checks honest
-# (`posthog/` never names the internal module), and we deliberately avoid
-# `@admin.register(...)` on these modules so registration always goes through
-# the current `admin.site` rather than the django.contrib.admin.sites
-# singleton — the latter is what `patch.object(admin, "site", ...)` in
-# `posthog/admin/test_admin.py` does NOT patch.
-_PRODUCTS_WITH_DYNAMIC_ADMIN = ("products.visual_review.backend",)
-
 
 def _register_dynamic_product_admins() -> None:
+    """Walk `INSTALLED_APPS` and register admins for any product whose
+    `backend/admin.py` exposes an `ADMIN_REGISTRATIONS` tuple of
+    `(Model, AdminClass)` pairs.
+
+    Opt-in: a product is auto-discovered iff its admin module exposes
+    that tuple. Products without an admin module are skipped silently;
+    products whose admin module exists but doesn't expose the tuple
+    are skipped here and stay registered through the explicit imports
+    in `register_all_admin()` below (legacy path while the migration
+    to per-product admin is in flight — see
+    `.agents/skills/move-admins-to-product/SKILL.md`).
+
+    The string-based `importlib.import_module(...)` keeps tach's
+    static interface checks honest for isolated products — `posthog/`
+    never names the internal admin module, so `backend.admin` doesn't
+    need to be added to the interface expose list. Going through
+    `admin.site.register(...)` from this side rather than via
+    `@admin.register(...)` decorators in the product is also what
+    avoids the `django.contrib.admin.sites.site` vs package re-export
+    mismatch that breaks `patch.object(admin, "site", ...)` in
+    `posthog/admin/test_admin.py`.
+    """
+    from django.apps import apps
     from django.contrib import admin
 
-    for app_name in _PRODUCTS_WITH_DYNAMIC_ADMIN:
-        module = importlib.import_module(f"{app_name}.admin")
-        for model, admin_class in module.ADMIN_REGISTRATIONS:
+    for app_config in apps.get_app_configs():
+        if not app_config.name.startswith("products."):
+            continue
+        module_name = f"{app_config.name}.admin"
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError as exc:
+            # Product just has no admin.py — fine, skip silently.
+            if exc.name == module_name:
+                continue
+            # Real import error inside the product's admin.py — surface it.
+            raise
+        registrations = getattr(module, "ADMIN_REGISTRATIONS", None)
+        if registrations is None:
+            continue
+        for model, admin_class in registrations:
             admin.site.register(model, admin_class)
 
 
