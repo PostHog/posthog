@@ -45,12 +45,13 @@ Suppression is **not** the right tool when:
 
 ## Available tools
 
-| Tool                                              | Purpose                                          |
-| ------------------------------------------------- | ------------------------------------------------ |
-| `posthog:query-error-tracking-issues`             | Find suppression candidates by volume and impact |
-| `posthog:execute-sql`                             | Inspect events to scope the filter               |
-| `posthog:error-tracking-suppression-rules-list`   | Check existing suppression rules                 |
-| `posthog:error-tracking-suppression-rules-create` | Create the suppression rule                      |
+| Tool                                              | Purpose                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------- |
+| `posthog:query-error-tracking-issues-list`        | Find suppression candidates by volume and impact                          |
+| `posthog:query-error-tracking-issue-events`       | Inspect sampled `$exception` events to confirm the pattern                |
+| `posthog:execute-sql`                             | Pre-create volume estimate (count + distinct users) for the chosen filter |
+| `posthog:error-tracking-suppression-rules-list`   | Check existing suppression rules                                          |
+| `posthog:error-tracking-suppression-rules-create` | Create the suppression rule                                               |
 
 ## Workflow
 
@@ -60,7 +61,7 @@ High occurrences with low distinct users is the strongest noise signal — one
 user (or one bot) producing many events.
 
 ```json
-posthog:query-error-tracking-issues
+posthog:query-error-tracking-issues-list
 {
   "status": "active",
   "orderBy": "occurrences",
@@ -82,25 +83,21 @@ Look for:
 
 ### Step 2 — Confirm the pattern
 
-For each candidate, pull a sample of raw events and check that the pattern
-matches what you intend to suppress:
+For each candidate, pull a sample of `$exception` events and check that the
+pattern matches what you intend to suppress:
 
-```sql
-posthog:execute-sql
-SELECT
-    timestamp,
-    properties.$exception_type AS type,
-    properties.$exception_message AS message,
-    properties.$current_url AS url,
-    properties.$browser AS browser,
-    properties.$user_agent AS ua,
-    properties.$exception_stack_trace_raw AS stack
-FROM events
-WHERE event = '$exception'
-    AND properties.$exception_issue_id = '<candidate_issue_id>'
-ORDER BY timestamp DESC
-LIMIT 10
+```json
+posthog:query-error-tracking-issue-events
+{
+  "issueId": "<candidate_issue_id>",
+  "limit": 10,
+  "verbosity": "stack"
+}
 ```
+
+`onlyAppFrames` defaults to `true`, but for noise investigation you usually
+want the third-party frames visible — pass `onlyAppFrames: false` so extension
+URLs and vendor domains show up in the stack.
 
 Confirm:
 
