@@ -87,6 +87,36 @@ describe('KeyedRateLimiterService', () => {
         expect(res[0][1].tokens).toBe(60)
     })
 
+    it('recovers from a drained bucket under continuous traffic', async () => {
+        // Regression: previously the Lua script updated ts on every call, even
+        // when the request couldn't afford the cost. Under continuous traffic
+        // that pinned pool at -1 forever because timeDiffSeconds never got a
+        // chance to accumulate enough refill credit to clear the cost.
+        const limiter = buildLimiter('test-recovery', { bucketSize: 10, refillRate: 1 })
+        await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+        await limiter.rateLimitMany([{ id: 'team-1', cost: 10 }])
+
+        // Hammer with cost=100 every second for 10 seconds. Every call is
+        // unaffordable (10s * 1 token/s < 100), so all must be denied. Before
+        // the fix, each denied call bumped ts and re-stored pool=-1, so refill
+        // credit never accumulated.
+        for (let i = 0; i < 10; i++) {
+            advanceTime(1000)
+            const denied = await limiter.rateLimitMany([{ id: 'team-1', cost: 100 }])
+            expect(denied[0][1].isRateLimited).toBe(true)
+        }
+
+        // After 10s of denied hammering plus another 1s, cost=5 should succeed:
+        // 11 seconds at refillRate=1 = 11 tokens of accumulated credit. Without
+        // the fix, ts would point at the last hammer and only 1 token would be
+        // owed, leaving pool stuck at -1.
+        advanceTime(1000)
+        const recovered = await limiter.rateLimitMany([{ id: 'team-1', cost: 5 }])
+        expect(recovered[0][1].isRateLimited).toBe(false)
+        expect(recovered[0][1].tokens).toBe(6)
+    })
+
     it('isolates ids that share a limiter via different keys', async () => {
         const limiter = buildLimiter('test-multi')
         await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())

@@ -24,22 +24,16 @@ if before == false then
   return {tokensBefore, tokensAfter}
 end
 
--- We update the timestamp if it has changed
 local timeDiffSeconds = now - before
-
-if timeDiffSeconds > 0 then
-  redis.call('hset', key, 'ts', now)
-else
+if timeDiffSeconds < 0 then
   timeDiffSeconds = 0
 end
 
--- Calculate how much should be refilled in the bucket and add it
+-- Calculate how much should be refilled in the bucket and add it.
+-- tonumber() + fallback handles both a missing pool field and any stored
+-- value coming back as a string.
 local owedTokens = timeDiffSeconds * fillRate
-local currentTokens = redis.call('hget', key, 'pool')
-
-if currentTokens == false then
-  currentTokens = poolMax
-end
+local currentTokens = tonumber(redis.call('hget', key, 'pool')) or poolMax
 
 currentTokens = currentTokens + owedTokens
 
@@ -51,11 +45,17 @@ local tokensBefore = currentTokens
 local tokensAfter
 if currentTokens - cost >= 0 then
   tokensAfter = math.min(currentTokens - cost, poolMax)
+  -- Only commit ts/pool on a successful consumption. When rate-limited we
+  -- leave both fields untouched so the refill credit (timeDiffSeconds) keeps
+  -- accumulating across subsequent calls — otherwise continuous traffic that
+  -- can't afford the cost would reset ts on every call and pin the bucket
+  -- at -1 forever.
+  redis.call('hset', key, 'ts', now)
+  redis.call('hset', key, 'pool', tokensAfter)
 else
   tokensAfter = -1
 end
 
-redis.call('hset', key, 'pool', tokensAfter)
 redis.call('expire', key, expiry)
 
 -- Return both values for partial allowance calculation
