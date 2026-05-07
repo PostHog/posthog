@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 import gzip
-import shlex
 import shutil
 import zipfile
 import tempfile
@@ -71,17 +70,6 @@ def _run(command: list[str], *, env: Mapping[str, str] | None = None) -> None:
         command,
         cwd=REPO_ROOT,
         env={**os.environ, **dict(env or {})},
-        check=True,
-    )
-
-
-def _run_shell(command: str) -> None:
-    subprocess.run(
-        command,
-        cwd=REPO_ROOT,
-        env=os.environ.copy(),
-        executable="/bin/bash",
-        shell=True,
         check=True,
     )
 
@@ -466,11 +454,32 @@ def _create_postgres_backup() -> Path:
     backup_dir = REPO_ROOT / ".postgres-backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_file = backup_dir / f"posthog_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql.gz"
-    quoted_backup_file = shlex.quote(str(backup_file))
-    _run_shell(
-        "set -euo pipefail\n"
-        f"{shlex.join(DOCKER_COMPOSE)} exec -T db pg_dumpall --clean -U posthog | gzip > {quoted_backup_file}"
+    command = [*DOCKER_COMPOSE, "exec", "-T", "db", "pg_dumpall", "--clean", "-U", "posthog"]
+    dump = subprocess.Popen(
+        command,
+        cwd=REPO_ROOT,
+        env=os.environ.copy(),
+        stdout=subprocess.PIPE,
     )
+    if dump.stdout is None:
+        raise SchemaRestoreError("failed to open pg_dumpall stdout")
+
+    try:
+        with open(backup_file, "wb") as raw_backup, gzip.GzipFile(fileobj=raw_backup, mode="wb") as compressed_backup:
+            shutil.copyfileobj(dump.stdout, compressed_backup)
+    except Exception:
+        dump.kill()
+        dump.wait()
+        backup_file.unlink(missing_ok=True)
+        raise
+    finally:
+        dump.stdout.close()
+
+    returncode = dump.wait()
+    if returncode != 0:
+        backup_file.unlink(missing_ok=True)
+        raise subprocess.CalledProcessError(returncode, command)
+
     click.echo(f"Backup saved to: {backup_file.relative_to(REPO_ROOT)}")
     return backup_file
 
