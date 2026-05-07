@@ -484,7 +484,7 @@ jobs:
 
             - name: Prime posthog_e2e_test from cached schema
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
-              # Hogli's db:restore-test-db DROPs+CREATEs the target db, restores the
+              # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db, restores the
               # schema, and runs ensure_migration_defaults to seed RunPython data that's
               # missing from a schema-only dump. The migrate step below still runs and
               # layers any PR-added migrations on top — the cache just skips the bulk of
@@ -495,7 +495,7 @@ jobs:
               run: |
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  ./bin/hogli db:restore-schema-fresh
 
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
