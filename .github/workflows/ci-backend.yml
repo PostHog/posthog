@@ -516,13 +516,8 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
-        name: Repo checks (${{ matrix.runner }})
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        name: Repo checks (depot-ubuntu-latest)
+        runs-on: depot-ubuntu-latest
         steps:
             - uses: actions/checkout@v6
 
@@ -1874,13 +1869,12 @@ jobs:
                   retention-days: 90
 
     async-migrations:
-        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (${{ matrix.runner }})
+        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (depot-ubuntu-latest)
         needs: [changes, turbo-discover, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
-                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
         # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
@@ -1888,8 +1882,7 @@ jobs:
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         steps:
             - name: 'Checkout repo'
@@ -1976,7 +1969,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always() && !startsWith(matrix.runner, 'blacksmith')
+              if: always()
               with:
                   name: junit-results-async-migrations
                   path: junit.xml

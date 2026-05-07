@@ -13716,6 +13716,11 @@ export namespace Schemas {
       propertiesViaUrl?: boolean | null;
       response?: DataTableNodeResponse;
       /**
+       * Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative ("X ago"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.
+       * @nullable
+       */
+      showAbsoluteTime?: boolean | null;
+      /**
        * Show the kebab menu at the end of the row
        * @nullable
        */
@@ -15080,6 +15085,121 @@ export namespace Schemas {
       Mobile: 'Mobile',
       Tablet: 'Tablet',
     } as const;
+
+    /**
+     * * `passed` - passed
+    * `warned` - warned
+    * `failed` - failed
+    * `skipped` - skipped
+     */
+    export type DiagnosticCheckResultStatusEnum = typeof DiagnosticCheckResultStatusEnum[keyof typeof DiagnosticCheckResultStatusEnum];
+
+
+    export const DiagnosticCheckResultStatusEnum = {
+      Passed: 'passed',
+      Warned: 'warned',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * * `dns` - dns
+    * `config` - config
+    * `wait` - wait
+    * `retry` - retry
+     */
+    export type DiagnosticRemediationTypeEnum = typeof DiagnosticRemediationTypeEnum[keyof typeof DiagnosticRemediationTypeEnum];
+
+
+    export const DiagnosticRemediationTypeEnum = {
+      Dns: 'dns',
+      Config: 'config',
+      Wait: 'wait',
+      Retry: 'retry',
+    } as const;
+
+    export interface DiagnosticDnsRecord {
+      /** DNS record name (the hostname the record is set on). */
+      name: string;
+      /** DNS record type, e.g. CNAME, CAA, A. */
+      type: string;
+      /** DNS record value to set. */
+      value: string;
+    }
+
+    export interface DiagnosticRemediation {
+      /** Category of fix. dns: customer must change DNS records. config: customer must adjust their server config (e.g. allow port 80). wait: no action — the system will resolve on its own. retry: hit Retry.
+
+    * `dns` - dns
+    * `config` - config
+    * `wait` - wait
+    * `retry` - retry */
+      type: DiagnosticRemediationTypeEnum;
+      /** One-line, action-oriented summary of what to do. */
+      summary: string;
+      /** DNS records the customer should add (empty when remediation is not DNS-based). */
+      records: DiagnosticDnsRecord[];
+    }
+
+    export interface DiagnosticCheckResult {
+      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+      id: string;
+      /** Human-readable check name. */
+      name: string;
+      /** passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.
+
+    * `passed` - passed
+    * `warned` - warned
+    * `failed` - failed
+    * `skipped` - skipped */
+      status: DiagnosticCheckResultStatusEnum;
+      /** Customer-facing explanation of the check's outcome. */
+      detail: string;
+      /** Concrete remediation steps when the check failed; null when there's nothing actionable. */
+      remediation?: DiagnosticRemediation | null;
+    }
+
+    /**
+     * * `healthy` - healthy
+    * `warn` - warn
+    * `fail` - fail
+     */
+    export type DiagnosticReportSummaryStatusEnum = typeof DiagnosticReportSummaryStatusEnum[keyof typeof DiagnosticReportSummaryStatusEnum];
+
+
+    export const DiagnosticReportSummaryStatusEnum = {
+      Healthy: 'healthy',
+      Warn: 'warn',
+      Fail: 'fail',
+    } as const;
+
+    export interface DiagnosticReportSummary {
+      /** Overall outcome: healthy if the proxy is serving requests, warn for non-blocking issues, fail otherwise.
+
+    * `healthy` - healthy
+    * `warn` - warn
+    * `fail` - fail */
+      status: DiagnosticReportSummaryStatusEnum;
+      /**
+       * Check id of the most actionable failure, if any. Null when status is healthy.
+       * @nullable
+       */
+      primary_issue: string | null;
+      /**
+       * One-sentence next action the customer should take. Null when nothing's wrong.
+       * @nullable
+       */
+      next_action: string | null;
+    }
+
+    export interface DiagnosticReport {
+      /** When this diagnostic report was generated (UTC). */
+      ran_at: string;
+      /** Top-level outcome and recommended next action. */
+      summary: DiagnosticReportSummary;
+      /** Per-check results in execution order. */
+      checks: DiagnosticCheckResult[];
+    }
 
     /**
      * * `Up` - Up
@@ -17591,6 +17711,7 @@ export namespace Schemas {
       metrics_secondary?: _ExperimentApiMetricsList | null;
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
+      /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it). */
       allow_unknown_events?: boolean;
       _create_in_folder?: string;
       /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
@@ -25291,6 +25412,11 @@ export namespace Schemas {
       readonly archived: boolean;
       /** Current immutable configuration version number. */
       readonly current_version: number;
+      /**
+       * UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.
+       * @nullable
+       */
+      readonly current_version_id: string | null;
       /** Current immutable scorer configuration. */
       readonly config: ScoreDefinitionConfig;
       /** User who created the scorer. */
@@ -28744,6 +28870,7 @@ export namespace Schemas {
       metrics_secondary?: _ExperimentApiMetricsList | null;
       stats_config?: unknown | null;
       scheduling_config?: unknown | null;
+      /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it). */
       allow_unknown_events?: boolean;
       _create_in_folder?: string;
       /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
@@ -33929,6 +34056,11 @@ export namespace Schemas {
       propertiesViaUrl?: boolean | null;
       shortId: string;
       /**
+       * Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative ("X ago"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.
+       * @nullable
+       */
+      showAbsoluteTime?: boolean | null;
+      /**
        * Show the kebab menu at the end of the row
        * @nullable
        */
@@ -36831,6 +36963,11 @@ export namespace Schemas {
     export interface ScoreDefinitionNewVersion {
       /** Next immutable scorer configuration. */
       config: ScoreDefinitionConfig;
+      /**
+       * Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check.
+       * @minimum 1
+       */
+      base_version?: number;
     }
 
     /**
