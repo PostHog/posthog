@@ -55,3 +55,19 @@ export function setupSyncRaf(): () => void {
         global.requestAnimationFrame = original
     }
 }
+
+let jsdomReady = false
+
+/** Idempotent sibling of {@link setupJsdom} + {@link setupSyncRaf}. Called automatically by
+ *  `renderHogChart` so simple tests don't need a beforeEach for the mocks; they're installed
+ *  once for the test run and never torn down (cheap, and `getBoundingClientRect` stubbing is
+ *  harmless to leave on for non-chart code in the same file). Tests that want fine-grained
+ *  teardown can use the explicit `setupJsdom()` / `setupSyncRaf()` pair instead. */
+export function ensureJsdom(): void {
+    if (jsdomReady) {
+        return
+    }
+    jsdomReady = true
+    setupJsdom()
+    setupSyncRaf()
+}

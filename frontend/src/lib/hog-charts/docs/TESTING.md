@@ -43,29 +43,31 @@ chart.annotationBadges() // HTMLElement[]
 Map a label index to canvas coordinates and fire the right event. `clickAtIndex` is hover-then-click — the chart's click handler reads live tooltip context to choose between pinning and `onPointClick`, so a bare `fireEvent.click` without a prior hover takes the wrong branch.
 
 ```tsx
-hoverAtIndex(chart.element, 1, LABELS.length) // mouseMove over labels[1]
-await clickAtIndex(chart.element, 1, LABELS.length) // hover then click
+chart.hoverAtIndex(1) // mouseMove over labels[1]
+await chart.clickAtIndex(1) // hover then click
 ```
+
+The label count comes from `ui.props.labels`, captured at `renderHogChart` time. Outside `renderHogChart` (e.g. when calling `getHogChart(scope)` on a custom render tree), use the module-level `hoverAtIndex(wrapper, i, totalLabels)` / `clickAtIndex(wrapper, i, totalLabels)` instead.
 
 ### Tooltip helpers
 
-The tooltip mounts in a `FloatingPortal` on the document root, so it isn't inside the chart wrapper and can't be reached with `chart.element.querySelector`.
+`chart.waitForTooltip()` resolves once the tooltip mounts and returns a snapshot — the structured `TooltipContext` the chart computed plus the rendered portal element and an `isPinned` flag.
 
 ```tsx
-const tooltip = await waitForHogChartTooltip() // resolves once mounted
-expect(tooltip.textContent).toContain('Tue')
-
-const current = getHogChartTooltip() // null if not mounted
-expect(current?.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
+const tooltip = await chart.waitForTooltip()
+expect(tooltip.label).toBe('Tue')
+expect(tooltip.seriesData).toHaveLength(2)
+expect(tooltip.element.textContent).toContain('Tue')
+expect(tooltip.isPinned).toBe(false)
 ```
+
+The tooltip mounts in a `FloatingPortal` on the document root, so it isn't inside `chart.element`. Module-level `waitForHogChartTooltip()` / `getHogChartTooltip()` are still exported for cases where you don't have a `chart` accessor handy (e.g. an insight tree behind kea wrappers — see `frontend/src/test/insight-testing/`).
 
 ## Boilerplate
 
 ```tsx
-import { cleanup } from '@testing-library/react'
-
 import type { ChartTheme, Series } from '../core/types'
-import { renderHogChart, setupJsdom, setupSyncRaf } from '../testing'
+import { renderHogChart } from '../testing'
 import { LineChart } from './LineChart'
 
 const THEME: ChartTheme = { colors: ['#111', '#222'], backgroundColor: '#ffffff' }
@@ -73,19 +75,6 @@ const LABELS = ['Mon', 'Tue', 'Wed']
 const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
 
 describe('LineChart', () => {
-  let teardownJsdom: () => void
-  let teardownRaf: () => void
-
-  beforeEach(() => {
-    teardownJsdom = setupJsdom()
-    teardownRaf = setupSyncRaf()
-  })
-  afterEach(() => {
-    teardownRaf()
-    teardownJsdom()
-    cleanup()
-  })
-
   it('formats percent-stack y-ticks by default', () => {
     const { chart } = renderHogChart(
       <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ percentStackView: true }} />
@@ -95,7 +84,7 @@ describe('LineChart', () => {
 })
 ```
 
-`setupJsdom` mocks `ResizeObserver` and `getBoundingClientRect` so the chart computes real dimensions — without it the chart sees 0×0 and renders nothing measurable. `setupSyncRaf` runs `requestAnimationFrame` synchronously so the static-layer draw commits to the DOM before assertions run; without it the accessor reads stale state and `yTicks()` / `valueLabels()` come back empty.
+`renderHogChart` installs the jsdom mocks (`ResizeObserver`, `getBoundingClientRect`) and a synchronous `requestAnimationFrame` shim on first call — without them the chart sees 0×0 and the static-layer draw doesn't flush before assertions. It also calls `cleanup()` and removes any leftover tooltip portal, so test files don't need a `beforeEach`/`afterEach` for those. Use the explicit `setupJsdom()` / `setupSyncRaf()` only when you need fine-grained teardown control.
 
 ## Recipes
 
@@ -107,35 +96,31 @@ it('pins the tooltip on click when pinnable', async () => {
     <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
   )
 
-  hoverAtIndex(chart.element, 1, LABELS.length)
-  const tooltip = await waitForHogChartTooltip()
-  expect(tooltip.textContent).toContain('Tue')
-
-  await clickAtIndex(chart.element, 1, LABELS.length)
-  expect(getHogChartTooltip()?.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
+  await chart.clickAtIndex(1)
+  const tooltip = await chart.waitForTooltip()
+  expect(tooltip.isPinned).toBe(true)
 })
 ```
 
-### Render a custom tooltip
+### Assert against the structured tooltip context
 
-When a chart is given a `tooltip` render prop, that function receives `TooltipContext`. Trigger it with `hoverAtIndex` and read the rendered output through the tooltip portal.
+The `chart.waitForTooltip()` snapshot includes the same `TooltipContext` the chart's `tooltip` render prop would receive — read `seriesData`, `label`, `dataIndex`, etc. directly without round-tripping through DOM.
 
 ```tsx
-it('passes hovered seriesData to a custom tooltip', async () => {
-  const tooltip = (ctx: TooltipContext): React.ReactNode => (
-    <div data-attr="custom-tooltip">{ctx.seriesData.map((s) => s.value).join(',')}</div>
-  )
-  const { chart } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} />)
+it('passes hovered seriesData to the tooltip', async () => {
+  const { chart } = renderHogChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
 
-  hoverAtIndex(chart.element, 1, LABELS.length)
-  const node = await waitForHogChartTooltip()
-  expect(node.querySelector('[data-attr="custom-tooltip"]')?.textContent).toBe('2')
+  chart.hoverAtIndex(1)
+  const tooltip = await chart.waitForTooltip()
+  expect(tooltip.seriesData.map((s) => s.value)).toEqual([2])
 })
 ```
+
+When the test cares about what the user actually sees rendered, reach for `tooltip.element.textContent`.
 
 ### Click a data point
 
-Use `clickAtIndex` to fire a click on a specific column and assert that the chart's `onPointClick` callback received the expected `PointClickData` (`seriesIndex`, `dataIndex`, `series`, `value`, `label`, `crossSeriesData`). `clickAtIndex` resolves after the click handler runs.
+Use `chart.clickAtIndex` to fire a click on a specific column and assert that the chart's `onPointClick` callback received the expected `PointClickData` (`seriesIndex`, `dataIndex`, `series`, `value`, `label`, `crossSeriesData`). It resolves after the click handler runs.
 
 ```tsx
 it('invokes onPointClick with the clicked column', async () => {
@@ -144,7 +129,7 @@ it('invokes onPointClick with the clicked column', async () => {
     <LineChart series={SERIES} labels={LABELS} theme={THEME} onPointClick={onPointClick} />
   )
 
-  await clickAtIndex(chart.element, 1, LABELS.length)
+  await chart.clickAtIndex(1)
   expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 1, label: 'Tue', value: 2 }))
 })
 ```
@@ -180,7 +165,7 @@ it('reports render errors through onError', () => {
     <LineChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
   )
 
-  hoverAtIndex(chart.element, 1, LABELS.length)
+  chart.hoverAtIndex(1)
   expect(onError).toHaveBeenCalled()
 })
 ```
