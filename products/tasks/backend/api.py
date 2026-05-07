@@ -92,6 +92,7 @@ from .serializers import (
     get_task_run_artifact_max_size_bytes,
 )
 from .services.connection_token import create_sandbox_connection_token
+from .services.sandbox import is_public_sandbox_repo
 from .services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
     STAGED_ARTIFACT_TTL_DAYS,
@@ -123,6 +124,7 @@ from .temporal.process_task.utils import (
     PrAuthorshipMode,
     RunSource,
     cache_github_user_token,
+    get_github_token,
     get_pr_authorship_mode,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
@@ -138,17 +140,80 @@ TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
-def _ensure_task_team_github_integration(task: Task) -> bool:
+def _github_authorization_required_response(detail: str) -> Response:
+    return Response(
+        {
+            "type": "validation_error",
+            "code": "github_authorization_required",
+            "detail": detail,
+            "attr": "pr_authorship_mode",
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _ensure_task_team_github_integration(task: Task) -> Integration | None:
     if task.github_integration_id is not None:
-        return True
+        return Integration.objects.filter(id=task.github_integration_id, team_id=task.team_id, kind="github").first()
 
     github_integration = Integration.objects.filter(team_id=task.team_id, kind="github").first()
     if github_integration is None:
-        return False
+        return None
 
     task.github_integration = github_integration
     task.save(update_fields=["github_integration", "updated_at"])
-    return True
+    return github_integration
+
+
+def _validate_team_github_integration_for_cloud_run(task: Task) -> Response | None:
+    if task.repository and is_public_sandbox_repo(task.repository):
+        return None
+
+    github_integration = _ensure_task_team_github_integration(task)
+    if github_integration is None:
+        return _github_authorization_required_response(
+            "Connect a GitHub account with repo access before running cloud tasks for this repository."
+        )
+
+    if not task.repository:
+        return None
+
+    try:
+        github_token = get_github_token(github_integration.id)
+    except Exception as exc:
+        logger.warning(
+            "task.github_team_integration_token_unavailable",
+            extra={
+                "task_id": str(task.id),
+                "team_id": task.team_id,
+                "github_integration_id": github_integration.id,
+                "error": str(exc),
+            },
+        )
+        return _github_authorization_required_response(
+            "Reconnect the team's GitHub account before running cloud tasks for this repository."
+        )
+
+    if not github_token:
+        return _github_authorization_required_response(
+            "Reconnect the team's GitHub account before running cloud tasks for this repository."
+        )
+
+    return None
+
+
+def _resolve_user_github_authorship_mode(task: Task, request_user_id: int | None) -> PrAuthorshipMode | None:
+    if task.created_by_id != request_user_id:
+        return None
+
+    user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
+    if user_github_integration is not None and user_github_integration_is_usable(user_github_integration):
+        if task.github_user_integration_id != user_github_integration.integration.id:
+            task.github_user_integration = user_github_integration.integration
+            task.save(update_fields=["github_user_integration", "updated_at"])
+        return PrAuthorshipMode.USER
+
+    return None
 
 
 def _resolve_cloud_pr_authorship_mode(
@@ -157,8 +222,16 @@ def _resolve_cloud_pr_authorship_mode(
     pr_authorship_mode: PrAuthorshipMode | str | None,
     request_user_id: int | None,
     github_user_token: str | None,
+    require_team_github_token: bool,
 ) -> tuple[PrAuthorshipMode | str | None, Response | None]:
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
+        if require_team_github_token and pr_authorship_mode == PrAuthorshipMode.BOT and github_user_token is None:
+            validation_response = _validate_team_github_integration_for_cloud_run(task)
+            if validation_response is not None:
+                user_authorship_mode = _resolve_user_github_authorship_mode(task, request_user_id)
+                if user_authorship_mode is not None:
+                    return user_authorship_mode, None
+                return None, validation_response
         return pr_authorship_mode, None
 
     if task.created_by_id != request_user_id:
@@ -172,25 +245,15 @@ def _resolve_cloud_pr_authorship_mode(
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
-    if user_github_integration is not None and user_github_integration_is_usable(user_github_integration):
-        if task.github_user_integration_id != user_github_integration.integration.id:
-            task.github_user_integration = user_github_integration.integration
-            task.save(update_fields=["github_user_integration", "updated_at"])
+    user_authorship_mode = _resolve_user_github_authorship_mode(task, request_user_id)
+    if user_authorship_mode is not None:
         return PrAuthorshipMode.USER, None
 
-    if _ensure_task_team_github_integration(task):
+    validation_response = _validate_team_github_integration_for_cloud_run(task)
+    if validation_response is None:
         return PrAuthorshipMode.BOT, None
 
-    return None, Response(
-        {
-            "type": "validation_error",
-            "code": "github_authorization_required",
-            "detail": ("Link a GitHub account with repo access before running user-authored cloud tasks."),
-            "attr": "pr_authorship_mode",
-        },
-        status=status.HTTP_400_BAD_REQUEST,
-    )
+    return None, validation_response
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
@@ -745,6 +808,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             pr_authorship_mode=pr_authorship_mode,
             request_user_id=getattr(request.user, "id", None),
             github_user_token=github_user_token,
+            require_team_github_token=True,
         )
         if validation_response is not None:
             return validation_response
@@ -970,6 +1034,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             pr_authorship_mode=pr_authorship_mode,
             request_user_id=getattr(request.user, "id", None),
             github_user_token=github_user_token,
+            require_team_github_token=environment == TaskRun.Environment.CLOUD,
         )
         if validation_response is not None:
             return validation_response
@@ -2254,6 +2319,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     pr_authorship_mode=PrAuthorshipMode.USER,
                     request_user_id=getattr(request.user, "id", None),
                     github_user_token=None,
+                    require_team_github_token=True,
                 )
                 if validation_response is not None:
                     return validation_response

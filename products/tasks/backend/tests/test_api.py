@@ -719,7 +719,9 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_create_run_endpoint_caches_user_github_token(self, mock_workflow):
-        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        integration = Integration.objects.create(
+            team=self.team, kind="github", sensitive_config={"access_token": "token"}
+        )
         task = Task.objects.create(
             team=self.team,
             created_by=self.user,
@@ -785,7 +787,9 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_create_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
-        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        integration = Integration.objects.create(
+            team=self.team, kind="github", sensitive_config={"access_token": "token"}
+        )
         task = self.create_task(created_by=self.user)
 
         response = self.client.post(
@@ -804,6 +808,53 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task.github_integration_id, integration.id)
         self.assertIsNone(task.github_user_integration_id)
         self.assertEqual(task_run.state["pr_authorship_mode"], "bot")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_rejects_bot_authorship_with_unusable_team_integration(self, mock_workflow):
+        Integration.objects.create(team=self.team, kind="github")
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "bot",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "github_authorization_required")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_uses_user_authorship_when_bot_integration_is_unusable(self, mock_workflow):
+        Integration.objects.create(team=self.team, kind="github")
+        user_integration = _grant_user_github_access(self.user)
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "bot",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task.refresh_from_db()
+        self.assertEqual(task.github_user_integration_id, user_integration.id)
+        task_run = TaskRun.objects.get(task=task)
+        self.assertEqual(task_run.state["pr_authorship_mode"], "user")
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -1406,7 +1457,9 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
-        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        integration = Integration.objects.create(
+            team=self.team, kind="github", sensitive_config={"access_token": "token"}
+        )
         task = self.create_task(created_by=self.user)
 
         response = self.client.post(
@@ -1426,6 +1479,53 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task.github_integration_id == integration.id
         assert task.github_user_integration_id is None
         assert task_run.state["pr_authorship_mode"] == "bot"
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_bot_authorship_with_unusable_team_integration(self, mock_workflow):
+        Integration.objects.create(team=self.team, kind="github")
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "bot",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "github_authorization_required"
+        assert not TaskRun.objects.filter(task=task).exists()
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_uses_user_authorship_when_bot_integration_is_unusable(self, mock_workflow):
+        Integration.objects.create(team=self.team, kind="github")
+        user_integration = _grant_user_github_access(self.user)
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "bot",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task.refresh_from_db()
+        assert task.github_user_integration_id == user_integration.id
+        task_run = TaskRun.objects.get(task=task)
+        assert task_run.state["pr_authorship_mode"] == "user"
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -2439,7 +2539,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.api.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_falls_back_to_team_integration_when_no_user_integration(self, mock_resume):
-        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        integration = Integration.objects.create(
+            team=self.team, kind="github", sensitive_config={"access_token": "token"}
+        )
         task = self.create_task(created_by=self.user)
         run = TaskRun.objects.create(
             task=task,
