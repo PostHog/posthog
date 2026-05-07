@@ -1,7 +1,7 @@
 import json as _json
 import base64
 from collections import defaultdict
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast, overload
 from urllib.parse import urlencode
 
 from django.db import IntegrityError, transaction
@@ -62,14 +62,18 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def _encode_groups_cursor(created_at_ms: int, group_id: int) -> str:
-    return base64.urlsafe_b64encode(_json.dumps({"c": created_at_ms, "i": group_id}).encode()).decode()
+def _encode_groups_cursor(created_at_us: int, group_id: int) -> str:
+    return base64.urlsafe_b64encode(_json.dumps({"c": created_at_us, "i": group_id}).encode()).decode()
 
 
 def _decode_groups_cursor(cursor: str) -> tuple[int, int]:
     try:
         data = _json.loads(base64.urlsafe_b64decode(cursor))
-        return int(data.get("c", 0)), int(data.get("i", 0))
+        raw_ts = int(data.get("c", 0))
+        group_id = int(data.get("i", 0))
+        if 0 < raw_ts < 1e15:
+            raw_ts *= 1000
+        return raw_ts, group_id
     except Exception:
         return 0, 0
 
@@ -239,6 +243,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     def get_serializer_class(self):
         return self.serializer_classes.get(self.action, self.serializer_classes["default"])
 
+    @overload
+    def _safely_get_query_params(self, require_group_key: Literal[True]) -> tuple[str, str]: ...
+
+    @overload
+    def _safely_get_query_params(self, require_group_key: bool = ...) -> tuple[str, str | None]: ...
+
     def _safely_get_query_params(self, require_group_key: bool = False) -> tuple[str, str | None]:
         group_type_index = self.request.GET.get("group_type_index")
         if not group_type_index:
@@ -326,6 +336,12 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 description="Pagination cursor returned in the `next` URL of a previous response",
                 required=False,
             ),
+            OpenApiParameter(
+                "group_key",
+                OpenApiTypes.STR,
+                description="Filter groups whose key contains this string (case-insensitive)",
+                required=False,
+            ),
         ]
     )
     def list(self, request, *args, **kwargs):
@@ -369,7 +385,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         next_url = None
         if result.has_more and result.groups:
             last = result.groups[-1]
-            cursor = _encode_groups_cursor(int(last.created_at.timestamp() * 1000), last.id)
+            cursor = _encode_groups_cursor(int(last.created_at.timestamp() * 1_000_000), last.id)
             params: dict[str, str | int] = {"group_type_index": group_type_index, "cursor": cursor}
             if group_search:
                 params["search"] = group_search

@@ -2320,7 +2320,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         page2 = list_groups(
             team_id=self.team.pk,
             group_type_index=0,
-            cursor_created_at_ms=int(last.created_at.timestamp() * 1000),
+            cursor_created_at_ms=int(last.created_at.timestamp() * 1_000_000),
             cursor_id=last.id,
             limit=2,
         )
@@ -2505,10 +2505,18 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     def test_cursor_roundtrip(self):
-        cursor = _encode_groups_cursor(1620000000000, 42)
-        created_at_ms, group_id = _decode_groups_cursor(cursor)
+        cursor = _encode_groups_cursor(1620000000000_000, 42)
+        created_at_us, group_id = _decode_groups_cursor(cursor)
 
-        assert created_at_ms == 1620000000000
+        assert created_at_us == 1620000000000_000
+        assert group_id == 42
+
+    @freeze_time("2021-05-02")
+    def test_cursor_backward_compat_ms(self):
+        cursor = _encode_groups_cursor(1620000000000, 42)
+        created_at_us, group_id = _decode_groups_cursor(cursor)
+
+        assert created_at_us == 1620000000000_000
         assert group_id == 42
 
     @freeze_time("2021-05-02")
