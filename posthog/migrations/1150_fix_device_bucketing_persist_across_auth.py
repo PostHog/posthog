@@ -70,7 +70,7 @@ def fix_device_bucketing_persist_across_auth(apps, schema_editor):
                     # in the activity log UI; a top-level `reason` would be silently dropped.
                     "trigger": {
                         "job_type": "migration",
-                        "job_id": "1149_fix_device_bucketing_persist_across_auth",
+                        "job_id": "1150_fix_device_bucketing_persist_across_auth",
                         "payload": {
                             "reason": "Auto-disabled persist across auth due to incompatibility with device ID bucketing",
                         },
@@ -101,7 +101,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1148_backfill_encrypted_payloads_invariant"),
+        ("posthog", "1149_integrationrepositorycacheentry_user_integration"),
     ]
 
     operations = [
