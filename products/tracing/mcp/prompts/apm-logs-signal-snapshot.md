@@ -24,3 +24,7 @@ Use **`posthog:apm-logs-signal-snapshot`** at the start of cross-signal triage (
 ## Required OAuth / API key scopes
 
 Both **`tracing:read`** and **`logs:read`** are required.
+
+## Product gate
+
+The project must have the PostHog **`tracing`** feature flag enabled (same as the Tracing product in the UI). Otherwise the API returns **403** with a message about that flag — use HogQL joinability recipes from the **`investigating-apm-and-logs`** skill instead of retrying this tool.

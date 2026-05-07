@@ -17,6 +17,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.tracing.backend.logic import TraceSpansQueryRunner
 
@@ -85,6 +86,8 @@ class ObservabilitySignalSnapshotViewSet(TeamAndOrgViewSetMixin, PydanticModelMi
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
     required_scopes = ["tracing:read", "logs:read"]
+    posthog_feature_flag = "tracing"
+    permission_classes = [PostHogFeatureFlagPermission]
 
     @extend_schema(
         request=ObservabilitySignalSnapshotRequestSerializer,

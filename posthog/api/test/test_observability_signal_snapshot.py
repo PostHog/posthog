@@ -17,9 +17,20 @@ def test_joinable_trace_id_predicate_hogql_contains_trace_id():
 class TestObservabilitySignalSnapshotApi(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=False)
+    def test_signal_snapshot_forbidden_when_tracing_flag_disabled(self, _mock_ff):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/observability/signal-snapshot/",
+            {"dateRange": {"date_from": "2025-12-16T00:00:00Z", "date_to": "2025-12-17T00:00:00Z"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "tracing" in response.json()["detail"]
+
+    @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.observability.execute_hogql_query")
     @patch("posthog.api.observability.TraceSpansQueryRunner")
-    def test_signal_snapshot_response_shape(self, mock_runner_cls, mock_execute):
+    def test_signal_snapshot_response_shape(self, mock_runner_cls, mock_execute, _mock_ff):
         qdr = MagicMock()
         qdr.date_from.return_value = datetime(2025, 12, 16, 0, 0, tzinfo=UTC)
         qdr.date_to.return_value = datetime(2025, 12, 17, 0, 0, tzinfo=UTC)

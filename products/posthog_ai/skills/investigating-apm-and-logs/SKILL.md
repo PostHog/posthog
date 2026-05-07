@@ -4,7 +4,7 @@ description: >
   Triages incidents and performance questions using PostHog logs and APM (OpenTelemetry spans) together.
   Use when the user asks about logs plus traces, correlation on trace_id, 502 or HTTP errors vs span status,
   service mismatch between logs UI and trace services, infra vs application signals, or "why is error rate high".
-  Prefer posthog:apm-logs-signal-snapshot when available, then MCP logs and tracing tools; falls back to HogQL recipes.
+  Prefer posthog:apm-logs-signal-snapshot when the project has the tracing feature flag and the tool succeeds; otherwise MCP logs/tracing tools and HogQL recipes.
 ---
 
 # Investigating APM and logs (cross-signal)
@@ -15,16 +15,16 @@ For **span-only** deep dives (attributes, pagination, exemplar traces), use [`ex
 
 ## MCP tools (compose, do not assume one mega-tool)
 
-| Tool                               | Role                                                                                                                                              |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog:apm-logs-signal-snapshot` | One-shot joinability + service overlap + resolved window (requires tracing and logs read scopes). **Call first** when investigating both signals. |
-| `posthog:logs-count`               | Cheap volume before `query-logs`.                                                                                                                 |
-| `posthog:query-logs`               | Raw log lines; requires `serviceNames` or resource filters per tool schema.                                                                       |
-| `posthog:apm-services-list`        | Distinct **trace** `service_name` values (not the same set as log services).                                                                      |
-| `posthog:apm-sparkline-query`      | Time-bucketed span counts (OTEL `statusCodes` or `filterGroup` on `http.status_code`).                                                            |
-| `posthog:query-apm-spans`          | Span rows + `exemplarTraceIds`, `hasMore`, `warnings`, `resolvedDateRange`.                                                                       |
-| `posthog:apm-trace-get`            | Full trace for a hex `trace_id`; use `maxSpans` to cap payload.                                                                                   |
-| `posthog:execute-sql`              | Escape hatch when MCP filters are insufficient (see references).                                                                                  |
+| Tool                               | Role                                                                                                                                                                                                                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `posthog:apm-logs-signal-snapshot` | One-shot joinability + service overlap + resolved window. Requires **`tracing`** feature flag for the project, plus `tracing:read` and `logs:read` scopes. **403** or flag message → treat as unavailable. **Call first** when investigating both signals and the gate passes. |
+| `posthog:logs-count`               | Cheap volume before `query-logs`.                                                                                                                                                                                                                                              |
+| `posthog:query-logs`               | Raw log lines; requires `serviceNames` or resource filters per tool schema.                                                                                                                                                                                                    |
+| `posthog:apm-services-list`        | Distinct **trace** `service_name` values (not the same set as log services).                                                                                                                                                                                                   |
+| `posthog:apm-sparkline-query`      | Time-bucketed span counts (OTEL `statusCodes` or `filterGroup` on `http.status_code`).                                                                                                                                                                                         |
+| `posthog:query-apm-spans`          | Span rows + `exemplarTraceIds`, `hasMore`, `warnings`, `resolvedDateRange`.                                                                                                                                                                                                    |
+| `posthog:apm-trace-get`            | Full trace for a hex `trace_id`; use `maxSpans` to cap payload.                                                                                                                                                                                                                |
+| `posthog:execute-sql`              | Escape hatch when MCP filters are insufficient (see references).                                                                                                                                                                                                               |
 
 ## Gate 0 — Semantics (always)
 
@@ -38,8 +38,8 @@ Details: [decision-tree](./references/decision-tree.md).
 
 ## Gate 1 — Joinability (before promising `apm-trace-get`)
 
-1. Prefer **`posthog:apm-logs-signal-snapshot`** with the same `dateRange` you will use for logs and spans. Read `joinableTraceIdPercent` and `sampleJoinableTraceIds`.
-2. If the snapshot is unavailable, run the HogQL checks in [hogql-recipes](./references/hogql-recipes.md).
+1. Prefer **`posthog:apm-logs-signal-snapshot`** with the same `dateRange` you will use for logs and spans. Read `joinableTraceIdPercent` and `sampleJoinableTraceIds`. The REST/MCP endpoint is gated on the PostHog **`tracing`** feature flag for the project; if you get **403** (or the response says the `tracing` flag must be enabled), skip the snapshot and go to step 2.
+2. If the snapshot is unavailable (**403**, missing tool, or errors), run the HogQL checks in [hogql-recipes](./references/hogql-recipes.md).
 3. If joinability is **low** or samples are empty: **do not** promise a trace tree for every log line. Proxy or host logs often lack valid `trace_id`. Stay on logs + infra narrative; use spans for **different** services (e.g. compose health checks) without forcing a shared ID.
 
 ## Discovery — two "service" namespaces
