@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { screen, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -33,13 +33,12 @@ async function openAndPickAction(canvasElement: HTMLElement, action: 'Add' | 'Re
     const canvas = within(canvasElement)
     const trigger = await canvas.findByRole('button', { name: 'Update tags' })
     await userEvent.click(trigger)
-    const segment = await canvas.findByRole('radio', { name: action })
+    // Popover overlay renders to a portal, so query at the document level rather than canvas.
+    const segment = await screen.findByRole('button', { name: action })
     await userEvent.click(segment)
 }
 
-export const Closed: Story = {
-    parameters: { testOptions: { waitForSelector: '[role="button"]' } },
-}
+export const Closed: Story = {}
 
 export const AddMode: Story = {
     play: async ({ canvasElement }) => {
