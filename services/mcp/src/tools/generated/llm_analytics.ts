@@ -1346,15 +1346,7 @@ const llmaSkillList = (): ToolBase<typeof LlmaSkillListSchema, Schemas.Paginated
                 search: params.search,
             },
         })
-        // Slim the response: the catalog is for discovery, so callers only need
-        // name + description. Bodies, files, version metadata, and timestamps are
-        // available via `llma-skill-get` per skill. Without this trim a 90-skill
-        // library returns ~170KB and blows past tool-result token budgets.
-        const slimResults = (result.results ?? []).map((s) => ({
-            name: s.name,
-            description: s.description ?? '',
-        }))
-        return { ...result, results: slimResults } as Schemas.PaginatedLLMSkillListList
+        return result
     },
 })
 
