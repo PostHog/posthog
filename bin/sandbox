@@ -712,6 +712,16 @@ def clear_volume(volume: str) -> None:
     docker_volume_run(volume, "find /data -mindepth 1 -delete")
 
 
+def _is_partial_clone() -> bool:
+    """Check if the host repo is a partial clone (has promisor remote)."""
+    result = run(
+        ["git", "config", "--get", "remote.origin.promisor"],
+        check=False,
+        capture=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
 def _populate_workspace_volume(
     volume_name: str,
     branch: str,
@@ -725,9 +735,18 @@ def _populate_workspace_volume(
 
     Fetches by ref name (not bare SHA) because --depth only works with named
     refs over file:// transport. Runs as sandbox user so files have correct ownership.
+
+    For partial clones (--filter=blob:none), uses filtered fetches from the
+    host .git for commits + trees, and a separate HTTPS promisor remote for
+    blob lazy-fetching so the sandbox can work without SSH auth popups.
     """
     uid = os.getuid()
     gid = os.getgid()
+
+    partial = _is_partial_clone()
+    if partial:
+        # Enable filtered fetches over file:// transport.
+        run(["git", "config", "uploadpack.allowFilter", "true"], capture=True)
 
     run(["docker", "volume", "create", volume_name], capture=True)
 
@@ -748,19 +767,38 @@ def _populate_workspace_volume(
     )
 
     # file:// transport avoids CVE-2022-39253 symlink following.
+    # For partial clones, --filter=blob:none skips blobs that upload-pack
+    # can't serve; a separate HTTPS promisor remote handles blob lazy-fetching.
     script = r"""
         set -e
         git init -q -b "$BRANCH" /workspace
         cd /workspace
         GIT="git -c safe.directory=/host-git -c protocol.file.allow=always"
 
-        $GIT fetch --depth=50 --no-tags file:///host-git "$BRANCH_REF"
+        if [ "$USE_FILTER" = "true" ]; then
+            FILTER="--filter=blob:none"
+        else
+            FILTER=""
+        fi
+
+        $GIT fetch --depth=50 --no-tags $FILTER file:///host-git "$BRANCH_REF"
         git update-ref "refs/heads/$BRANCH" "$BRANCH_SHA"
         git update-ref refs/sandbox/start "$BRANCH_SHA"
+
+        if [ "$USE_FILTER" = "true" ]; then
+            # HTTPS promisor remote for blob lazy-fetching (public, no auth).
+            # Kept separate from origin so blobs don't trigger SSH prompts.
+            git remote add github-https https://github.com/PostHog/posthog
+            git config remote.github-https.promisor true
+            git config remote.github-https.partialclonefilter blob:none
+        fi
+
         git reset --hard
 
+        git remote add origin "$ORIGIN_URL"
+
         if [ -n "$BASE_SHA" ]; then
-            $GIT fetch --depth=1 --no-tags file:///host-git "$BASE_SHA"
+            $GIT fetch --depth=1 --no-tags $FILTER file:///host-git "$BASE_SHA"
             git update-ref "refs/remotes/origin/$BASE_BRANCH" "$BASE_SHA"
         fi
         # Set origin/<branch> so `sandbox destroy` can detect unpushed commits.
@@ -768,11 +806,10 @@ def _populate_workspace_volume(
             # Skip fetch if same as branch tip (already local); a redundant
             # --depth=1 fetch would clobber the depth=50 shallow history.
             if [ "$ORIGIN_BRANCH_SHA" != "$BRANCH_SHA" ]; then
-                $GIT fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
+                $GIT fetch --depth=1 --no-tags $FILTER file:///host-git "$ORIGIN_BRANCH_SHA"
             fi
             git update-ref "refs/remotes/origin/$BRANCH" "$ORIGIN_BRANCH_SHA"
         fi
-        git remote add origin "$ORIGIN_URL"
     """
 
     run(
@@ -807,6 +844,8 @@ def _populate_workspace_volume(
             f"ORIGIN_BRANCH_SHA={origin_branch_sha or ''}",
             "-e",
             f"ORIGIN_URL={SANDBOX_ORIGIN_URL}",
+            "-e",
+            f"USE_FILTER={'true' if partial else 'false'}",
             GIT_HELPER_IMAGE,
             "-c",
             script,
