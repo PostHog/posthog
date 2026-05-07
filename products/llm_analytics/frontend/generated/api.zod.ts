@@ -769,6 +769,18 @@ export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
     })
     .describe('Request serializer for evaluation summary - accepts IDs only, fetches data server-side.')
 
+export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
+    experiment_id: zod.string().describe('`$ai_experiment_id` whose offline-evaluation items to return.'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe('Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.'),
+    date_to: zod
+        .string()
+        .nullish()
+        .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
+})
+
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
@@ -1067,6 +1079,13 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
             }),
         ])
         .describe('Next immutable scorer configuration.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
+        ),
 })
 
 export const llmAnalyticsSentimentCreateBodyIdsMax = 5
@@ -1079,7 +1098,7 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .min(1)
         .max(llmAnalyticsSentimentCreateBodyIdsMax)
-        .describe('Trace IDs or generation IDs to classify, depending on analysis_level.'),
+        .describe('Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).'),
     analysis_level: zod
         .enum(['trace', 'generation'])
         .describe('* `trace` - trace\n* `generation` - generation')
@@ -1097,6 +1116,14 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
         .describe("Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."),
     date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
 })
+
+export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        filters: zod.unknown().optional(),
+    })
+    .describe(
+        'Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.\n\n`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL\npath used (dateRange, filterTestAccounts, properties), so the migration is\nbehaviour-preserving for callers that pass a request unchanged.'
+    )
 
 /**
  * 

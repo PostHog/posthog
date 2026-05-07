@@ -6,13 +6,17 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models import Organization
-from posthog.models.integration import Integration
+from posthog.models.integration import GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.models import SignalReportArtefact
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult, select_repository_for_report
+from products.signals.backend.report_generation.select_repo import (
+    RepoSelectionResult,
+    resolve_team_github_integration,
+    select_repository_for_report,
+)
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -41,16 +45,12 @@ class SelectRepositoryInput:
     signals: list[SignalData]
 
 
-def _resolve_team_repo_context(team_id: int) -> int:
-    """Resolve user context for repository selection, validating GitHub integration exists."""
-    team = Team.objects.get(id=team_id)
-    github_integration = Integration.objects.filter(team=team, kind="github").first()
-    if not github_integration:
-        raise RuntimeError(
-            f"No GitHub integration found for team {team_id}. "
-            "Signals agentic report generation requires a connected GitHub integration."
-        )
-    return resolve_user_id_for_team(team_id)
+def _resolve_sandbox_user_id(team_id: int) -> int | None:
+    """Select a user to assign sandbox to."""
+    github = resolve_team_github_integration(team_id)
+    if github is None:
+        return None
+    return resolve_user_id_for_team(team_id, github=github)
 
 
 def _capture_repo_research_event(
@@ -128,7 +128,25 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 )
                 return previous
 
-            user_id = await database_sync_to_async(_resolve_team_repo_context, thread_sensitive=False)(input.team_id)
+            user_id = await database_sync_to_async(_resolve_sandbox_user_id, thread_sensitive=False)(input.team_id)
+            if user_id is None:
+                logger.info(
+                    "signals repo selection skipped: No GitHub integration connected to a team/user",
+                    report_id=input.report_id,
+                    team_id=input.team_id,
+                )
+                no_repo_result = RepoSelectionResult(
+                    repository=None,
+                    reason="No GitHub integration connected to a team/user.",
+                )
+                _capture_repo_research_event(
+                    "signals_repo_research_completed",
+                    team,
+                    team.organization,
+                    input.report_id,
+                    result="no_repo",
+                )
+                return no_repo_result
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id,
                 SIGNALS_REPO_DISCOVERY_ENV_NAME,
@@ -156,13 +174,19 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             )
             return result
     except Exception as e:
-        failure_reason = "no_github_integration" if isinstance(e, RuntimeError) else "agentic_activity_error"
         _capture_repo_research_event(
             "signals_repo_research_completed",
             team,
             team.organization,
             input.report_id,
             result="failed",
-            failure_reason=failure_reason,
+            failure_reason="agentic_activity_error",
         )
+        # Permanent GitHub App auth failures (installation gone/suspended) won't recover via retry.
+        if isinstance(e, GitHubIntegrationError) and e.status_code in {401, 403, 404, 410}:
+            raise temporalio.exceptions.ApplicationError(
+                str(e),
+                type="GitHubIntegrationError",
+                non_retryable=True,
+            ) from e
         raise

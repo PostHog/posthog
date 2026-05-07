@@ -1,5 +1,6 @@
 import random
 import string
+from collections.abc import Callable
 from datetime import datetime
 from typing import Optional, cast
 
@@ -614,6 +615,74 @@ def build_session_id_v7_pushdown_predicate(
         left=session_id_v7_field,
         right=subquery,
     )
+
+
+def build_session_property_pre_aggregation_predicate(
+    outer_node: ast.SelectQuery,
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    requested_fields: dict[str, list[str | int]],
+    select_from_fn: Callable[[dict[str, list[str | int]], ast.SelectQuery, HogQLContext], ast.SelectQuery],
+    session_id_v7_field: ast.Expr,
+) -> Optional[ast.Expr]:
+    """Build ``raw_sessions.session_id_v7 IN (SELECT session_id_v7 FROM <small inner> WHERE <session predicate>)``.
+
+    The "small inner" is a recursive call to ``select_from_fn`` (the same builder) with a pruned
+    ``requested_fields`` containing only the session aliases referenced by the predicate. That
+    keeps the small inner's GROUP BY hash table cheap — one or two AggregateFunction states per
+    session instead of however many the outer SELECT pulls in (e.g. ``$channel_type`` drags in
+    7+).
+
+    Returns None when ``WhereClauseExtractor`` produces no liftable session predicate (no session
+    filter, or only filters guarded by NOT/OR with non-session terms — see the visitor's tombstone
+    handling). The predicate-references-outer-fields check is a defensive belt; in practice
+    ``requested_fields`` already contains every session alias the outer query references, so
+    extraction guarantees a non-empty intersection.
+    """
+    extractor = WhereClauseExtractor(context)
+    extractor.add_local_tables(join_to_add)
+    lifted = extractor.get_inner_where(outer_node)
+    if lifted is None or isinstance(lifted, ast.Constant):
+        return None
+
+    referenced_aliases = _collect_referenced_top_level_aliases(lifted)
+    referenced_in_outer = referenced_aliases & {name for name in requested_fields if name != "session_id_v7"}
+    if not referenced_in_outer:
+        return None
+
+    pruned_fields: dict[str, list[str | int]] = {name: requested_fields[name] for name in referenced_in_outer}
+    pruned_fields["session_id_v7"] = ["session_id_v7"]
+
+    small_inner = select_from_fn(pruned_fields, outer_node, context)
+
+    wrapped = ast.SelectQuery(
+        select=[ast.Field(chain=["session_id_v7"])],
+        select_from=ast.JoinExpr(table=small_inner),
+        where=lifted,
+    )
+
+    return ast.CompareOperation(
+        op=CompareOperationOp.In,
+        left=session_id_v7_field,
+        right=wrapped,
+    )
+
+
+def _collect_referenced_top_level_aliases(expr: ast.Expr) -> set[str]:
+    visitor = _CollectTopLevelAliasesVisitor()
+    visitor.visit(expr)
+    return visitor.names
+
+
+class _CollectTopLevelAliasesVisitor(TraversingVisitor):
+    names: set[str]
+
+    def __init__(self):
+        self.names = set()
+
+    def visit_field(self, node: ast.Field):
+        if node.chain:
+            self.names.add(str(node.chain[0]))
 
 
 def _find_join_for_alias(select_from: Optional[ast.JoinExpr], alias: str) -> Optional[ast.JoinExpr]:

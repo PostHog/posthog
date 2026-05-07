@@ -1,23 +1,45 @@
+import asyncio
+
 from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS, KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ
-from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka import KafkaConsumerService
-from posthog.temporal.data_imports.pipelines.pipeline_v3.load import (
-    ConsumerConfig,
-    HealthState,
-    process_message,
-    start_health_server,
-)
+from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState, start_health_server
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import BatchConsumer, ConsumerConfig
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import process_batch
 
 logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Run the warehouse sources load Kafka consumer service"
+    help = "Run the warehouse sources batch consumer"
 
     def add_arguments(self, parser):
+        parser.add_argument(
+            "--max-concurrency",
+            type=int,
+            default=16,
+            help="Maximum number of (team_id, schema_id) groups processed concurrently (default: 16)",
+        )
+        parser.add_argument(
+            "--poll-interval",
+            type=float,
+            default=2.0,
+            help="Seconds between poll cycles when idle (default: 2.0)",
+        )
+        parser.add_argument(
+            "--poll-limit",
+            type=int,
+            default=50,
+            help="Maximum batches fetched per poll cycle (default: 50)",
+        )
+        parser.add_argument(
+            "--max-attempts",
+            type=int,
+            default=3,
+            help="Maximum processing attempts per batch before failing the run (default: 3)",
+        )
         parser.add_argument(
             "--health-port",
             type=int,
@@ -25,92 +47,39 @@ class Command(BaseCommand):
             help="Port for the health check HTTP server (default: 8080)",
         )
         parser.add_argument(
-            "--batch-size",
-            type=int,
-            default=1000,
-            help="Maximum number of messages to process per batch (default: 1000)",
-        )
-        parser.add_argument(
-            "--batch-timeout",
-            type=float,
-            default=5.0,
-            help="Timeout in seconds for polling a batch (default: 5.0)",
-        )
-        parser.add_argument(
-            "--input-topic",
-            type=str,
-            default=KAFKA_WAREHOUSE_SOURCES_JOBS,
-            help="Kafka topic to consume messages from",
-        )
-        parser.add_argument(
-            "--consumer-group",
-            type=str,
-            required=True,
-            help="Kafka consumer group ID",
-        )
-        parser.add_argument(
             "--health-timeout",
             type=float,
             default=60.0,
             help="Health check timeout in seconds (default: 60.0)",
         )
-        parser.add_argument(
-            "--dlq-topic",
-            type=str,
-            default=KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ,
-            help="Kafka topic for dead-letter queue messages",
-        )
-        parser.add_argument(
-            "--max-poll-interval-ms",
-            type=int,
-            default=1_080_000,
-            help=(
-                "Maximum time between consume() calls before librdkafka evicts this consumer "
-                "from the group (default: 1080000 = 18 min). Post-load processing on final "
-                "batches can exceed the librdkafka default of 5 min."
-            ),
-        )
 
     def handle(self, *args, **options):
         health_port = options["health_port"]
-        batch_size = options["batch_size"]
-        batch_timeout = options["batch_timeout"]
-        input_topic = options["input_topic"]
-        consumer_group = options["consumer_group"]
         health_timeout = options["health_timeout"]
-        dlq_topic = options["dlq_topic"]
-        max_poll_interval_ms = options["max_poll_interval_ms"]
+
+        config = ConsumerConfig(
+            database_url=WAREHOUSE_SOURCES_DATABASE_URL,
+            max_concurrency=options["max_concurrency"],
+            poll_interval_seconds=options["poll_interval"],
+            poll_limit=options["poll_limit"],
+            max_attempts=options["max_attempts"],
+            health_port=health_port,
+            health_timeout_seconds=health_timeout,
+        )
 
         logger.info(
             "warehouse_sources_load_starting",
+            max_concurrency=config.max_concurrency,
+            poll_interval=config.poll_interval_seconds,
+            poll_limit=config.poll_limit,
+            max_attempts=config.max_attempts,
             health_port=health_port,
-            batch_size=batch_size,
-            batch_timeout=batch_timeout,
-            input_topic=input_topic,
-            consumer_group=consumer_group,
-            health_timeout=health_timeout,
-            dlq_topic=dlq_topic,
-            max_poll_interval_ms=max_poll_interval_ms,
         )
 
         health_state = HealthState(timeout_seconds=health_timeout)
-
         start_health_server(port=health_port, health_state=health_state)
 
-        config = ConsumerConfig(
-            input_topic=input_topic,
-            consumer_group=consumer_group,
-            dlq_topic=dlq_topic,
-            batch_size=batch_size,
-            batch_timeout_seconds=batch_timeout,
-            health_port=health_port,
-            health_timeout_seconds=health_timeout,
-            max_poll_interval_ms=max_poll_interval_ms,
+        consumer = BatchConsumer(
+            config=config, process_batch=process_batch, health_reporter=health_state.report_healthy
         )
-
-        consumer = KafkaConsumerService(
-            config=config,
-            process_message=process_message,
-        )
-
-        consumer.run(health_reporter=health_state.report_healthy)
+        asyncio.run(consumer.run())

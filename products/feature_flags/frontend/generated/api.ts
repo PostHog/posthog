@@ -18,6 +18,8 @@ import type {
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagStatusResponseApi,
+    FeatureFlagTestEvaluationRequestApi,
+    FeatureFlagTestEvaluationResponseApi,
     FeatureFlagVersionResponseApi,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsAllActivityRetrieveParams,
@@ -381,6 +383,31 @@ export const featureFlagsStatusRetrieve = async (
     return apiMutator<FeatureFlagStatusResponseApi>(getFeatureFlagsStatusRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Test feature flag evaluation against a specific user at an optional point in time.
+
+This endpoint allows testing how a feature flag would evaluate for a specific user,
+optionally at a historical timestamp. When a timestamp is provided, both the flag
+conditions and person properties are evaluated as they existed at that time.
+ */
+export const getFeatureFlagsTestEvaluationCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/test_evaluation/`
+}
+
+export const featureFlagsTestEvaluationCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagTestEvaluationRequestApi: FeatureFlagTestEvaluationRequestApi,
+    options?: RequestInit
+): Promise<FeatureFlagTestEvaluationResponseApi> => {
+    return apiMutator<FeatureFlagTestEvaluationResponseApi>(getFeatureFlagsTestEvaluationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagTestEvaluationRequestApi),
     })
 }
 

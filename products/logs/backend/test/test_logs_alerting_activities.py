@@ -2,13 +2,13 @@ import json
 import time
 import asyncio
 import datetime as dt
-import threading
+import dataclasses
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
-import pytest
 import unittest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
 from hypothesis import (
@@ -25,16 +25,12 @@ from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBuck
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
-    CheckAlertsInput,
-    CheckAlertsOutput,
     _AlertCohort,
-    _check_alerts_sync,
     _derive_breaches,
     _dispatch_for_alert,
     _evaluate_single_alert,
     _finalize_alert,
     _save_cohort_outcomes,
-    check_alerts_activity,
 )
 
 
@@ -89,386 +85,6 @@ def _mock_batched_buckets(mock_run_batched: MagicMock, counts: list[int]) -> Non
         )
 
     mock_run_batched.side_effect = fake
-
-
-class TestCheckAlertsSync(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        # Stub the cycle-level CH queries and metric emitters so tests that aren't
-        # asserting on them don't hit a real ClickHouse or raise outside Temporal.
-        # fetch_live_logs_checkpoint must return None (not MagicMock) so the real
-        # date-resolution path can run with a well-typed sentinel.
-        checkpoint_patch = patch(
-            "products.logs.backend.temporal.activities.fetch_live_logs_checkpoint", return_value=None
-        )
-        checkpoint_patch.start()
-        self.addCleanup(checkpoint_patch.stop)
-        for target in (
-            "products.logs.backend.temporal.activities.record_checkpoint_lag",
-            "products.logs.backend.temporal.activities.increment_checkpoint_unavailable",
-            "products.logs.backend.temporal.activities.record_alerts_active",
-        ):
-            p = patch(target)
-            p.start()
-            self.addCleanup(p.stop)
-
-    def _make_alert(self, **kwargs) -> LogsAlertConfiguration:
-        defaults = {
-            "team": self.team,
-            "name": "Test Alert",
-            "threshold_count": 10,
-            "threshold_operator": "above",
-            "window_minutes": 5,
-            "filters": {"serviceNames": ["test-service"]},
-            "next_check_at": datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC),
-        }
-        defaults.update(kwargs)
-        return LogsAlertConfiguration.objects.create(**defaults)
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_no_alerts_returns_zero_stats(self, mock_run_batched):
-        result = _check_alerts_sync()
-        assert result == CheckAlertsOutput(alerts_checked=0, alerts_fired=0, alerts_resolved=0, alerts_errored=0)
-        mock_run_batched.assert_not_called()
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_skips_disabled_alerts(self, mock_run_batched):
-        self._make_alert(enabled=False)
-        result = _check_alerts_sync()
-        assert result.alerts_checked == 0
-        mock_run_batched.assert_not_called()
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_skips_snoozed_alerts(self, mock_run_batched):
-        self._make_alert(
-            state=LogsAlertConfiguration.State.SNOOZED,
-            snooze_until=datetime(2025, 1, 2, 0, 0, 0, tzinfo=UTC),
-        )
-        result = _check_alerts_sync()
-        assert result.alerts_checked == 0
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_skips_broken_alerts(self, mock_run_batched):
-        self._make_alert(state=LogsAlertConfiguration.State.BROKEN)
-        result = _check_alerts_sync()
-        assert result.alerts_checked == 0
-        mock_run_batched.assert_not_called()
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_picks_up_due_alert(self, mock_run_batched):
-        _mock_batched_buckets(mock_run_batched, [5])
-        self._make_alert()
-        result = _check_alerts_sync()
-        assert result.alerts_checked == 1
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_picks_up_null_next_check_at(self, mock_run_batched):
-        _mock_batched_buckets(mock_run_batched, [5])
-        self._make_alert(next_check_at=None)
-        result = _check_alerts_sync()
-        assert result.alerts_checked == 1
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_skips_future_next_check_at(self, mock_run_batched):
-        self._make_alert(next_check_at=datetime(2025, 1, 1, 1, 0, 0, tzinfo=UTC))
-        result = _check_alerts_sync()
-        assert result.alerts_checked == 0
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_clickhouse_error_records_errored_check(self, mock_run_batched):
-        mock_run_batched.side_effect = RuntimeError("boom")
-        self._make_alert()
-        result = _check_alerts_sync()
-        # ClickHouse error is caught inside _evaluate_single_alert, alert is still "checked"
-        assert result.alerts_checked == 1
-        assert result.alerts_errored == 1
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities._evaluate_single_alert", side_effect=RuntimeError("unexpected"))
-    def test_unexpected_error_increments_errored(self, _mock_evaluate):
-        self._make_alert()
-        result = _check_alerts_sync()
-        # Truly unexpected error caught by outer except — not "checked"
-        assert result.alerts_errored == 1
-        assert result.alerts_checked == 0
-
-    @parameterized.expand(
-        [
-            ("with_due_alerts", True, 2),
-            ("none_due", False, 0),
-        ]
-    )
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities.record_alerts_active")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_records_alerts_active_gauge(self, _name, seed_alerts, expected_count, mock_run_batched, mock_record_gauge):
-        if seed_alerts:
-            _mock_batched_buckets(mock_run_batched, [5])
-            self._make_alert()
-            self._make_alert(name="Second")
-            # Disabled and snoozed alerts should not count toward the gauge.
-            self._make_alert(name="Disabled", enabled=False)
-            self._make_alert(
-                name="Snoozed",
-                state=LogsAlertConfiguration.State.SNOOZED,
-                snooze_until=datetime(2025, 1, 2, 0, 0, 0, tzinfo=UTC),
-            )
-
-        _check_alerts_sync()
-
-        mock_record_gauge.assert_called_once_with(expected_count)
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities.record_checkpoint_lag")
-    @patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_fetches_checkpoint_once_and_passes_to_evaluator(
-        self, mock_run_batched, mock_fetch_checkpoint, mock_record_lag
-    ):
-        checkpoint = datetime(2025, 1, 1, 0, 0, 30, tzinfo=UTC)
-        mock_fetch_checkpoint.return_value = checkpoint
-        _mock_batched_buckets(mock_run_batched, [5])
-        self._make_alert()
-        self._make_alert(name="Second")
-
-        _check_alerts_sync()
-
-        # One checkpoint fetch per cycle, regardless of alert count.
-        mock_fetch_checkpoint.assert_called_once()
-        mock_record_lag.assert_called_once()
-        (now_arg, checkpoint_arg), _ = mock_record_lag.call_args
-        assert checkpoint_arg == checkpoint
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities.increment_checkpoint_unavailable")
-    @patch("products.logs.backend.temporal.activities.record_checkpoint_lag")
-    @patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint")
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_skips_checkpoint_fetch_when_no_due_alerts(
-        self, _mock_run_batched, mock_fetch_checkpoint, mock_record_lag, mock_unavailable
-    ):
-        _check_alerts_sync()
-
-        mock_fetch_checkpoint.assert_not_called()
-        mock_record_lag.assert_not_called()
-        mock_unavailable.assert_called_once()
-
-    @freeze_time("2025-01-01T00:01:00Z")
-    @patch("products.logs.backend.temporal.activities.increment_checkpoint_unavailable")
-    @patch("products.logs.backend.temporal.activities.record_checkpoint_lag")
-    @patch("products.logs.backend.temporal.activities.fetch_live_logs_checkpoint", side_effect=RuntimeError("CH down"))
-    @patch("products.logs.backend.temporal.activities._run_batched_query")
-    def test_checkpoint_fetch_failure_falls_back_to_wall_clock(
-        self, mock_run_batched, _mock_fetch, mock_record_lag, mock_unavailable
-    ):
-        _mock_batched_buckets(mock_run_batched, [5])
-        self._make_alert()
-
-        result = _check_alerts_sync()
-
-        # Alert still evaluated — failed checkpoint fetch must not block alerting.
-        assert result.alerts_checked == 1
-        mock_record_lag.assert_not_called()
-        mock_unavailable.assert_called_once()
-
-
-def _stub_one_cohort_per_alert(alerts, *, now, checkpoint):
-    """Wrap each MagicMock alert into its own single-alert cohort.
-
-    Used by concurrency tests so the cohort dispatch loop fires one cohort per
-    MagicMock alert — preserving the per-alert peak-concurrency assertions.
-    """
-    for a in alerts:
-        a.window_minutes = 5
-        a.evaluation_periods = 1
-    return [_AlertCohort(alerts=(a,), date_to=now, projection_eligible=True) for a in alerts]
-
-
-def _stub_run_batched_query_empty(cohort: _AlertCohort) -> BatchedBucketedResult:
-    """Return an empty BatchedBucketedResult — concurrency tests don't care about buckets, only call counts."""
-    return BatchedBucketedResult(per_alert={}, query_duration_ms=0)
-
-
-def _stub_save_cohort_outcomes_passthrough(dispatched, now):
-    """Return `(dispatched, [])` — concurrency tests bypass real PG access.
-
-    `_save_cohort_outcomes` returns `(saved, failed)`; orchestrator finalizes the
-    saved list. Pass-through treats every dispatched alert as saved.
-    """
-    return list(dispatched), []
-
-
-@pytest.mark.django_db
-class TestCheckAlertsActivityConcurrency(unittest.TestCase):
-    """Async path: bounded concurrency via asyncio.TaskGroup + Semaphore.
-
-    The orchestrator runs three phases per cohort (CH batched query → per-alert
-    eval (sequential) + Kafka dispatch (gathered) → bulk save → finalize). These
-    tests stub every phase except the one under test and assert on the final
-    aggregated `CheckAlertsOutput`. The single-alert eval logic is covered by
-    `TestEvaluateSingleAlert` and `TestEvaluateSingleAlertEndToEnd`; the
-    per-cycle DB read by `TestCheckAlertsSync`.
-
-    Marked `django_db` because `database_sync_to_async_pool` calls
-    `close_old_connections` even when the wrapped function is fully mocked.
-    """
-
-    @staticmethod
-    def _mock_alerts(n: int) -> list[MagicMock]:
-        return [MagicMock(id=f"alert-{i}", name=f"alert-{i}", team_id=1) for i in range(n)]
-
-    @parameterized.expand([("fired",), ("resolved",), ("errored",)])
-    def test_evaluates_all_alerts_and_aggregates_stats(self, outcome):
-        """The activity finalizes each alert exactly once and aggregates stats correctly."""
-        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
-        alerts = self._mock_alerts(4)
-
-        def fake_finalize(dispatched, elapsed_ms, stats):
-            stats["checked"] += 1
-            stats[outcome] += 1
-
-        with (
-            patch(
-                "products.logs.backend.temporal.activities._load_alerts_and_checkpoint",
-                return_value=(now, alerts, None),
-            ),
-            patch(
-                "products.logs.backend.temporal.activities._build_cohorts",
-                side_effect=_stub_one_cohort_per_alert,
-            ),
-            patch(
-                "products.logs.backend.temporal.activities._run_batched_query",
-                side_effect=_stub_run_batched_query_empty,
-            ),
-            patch("products.logs.backend.temporal.activities._evaluate_single_alert", return_value=MagicMock()),
-            patch("products.logs.backend.temporal.activities._dispatch_for_alert", return_value=MagicMock()),
-            patch(
-                "products.logs.backend.temporal.activities._save_cohort_outcomes",
-                side_effect=_stub_save_cohort_outcomes_passthrough,
-            ),
-            patch(
-                "products.logs.backend.temporal.activities._finalize_alert", side_effect=fake_finalize
-            ) as mock_finalize,
-        ):
-            result = asyncio.run(check_alerts_activity(CheckAlertsInput()))
-
-        assert mock_finalize.call_count == 4
-        assert result.alerts_checked == 4
-        assert getattr(result, f"alerts_{outcome}") == 4
-        for other in ("fired", "resolved", "errored"):
-            if other != outcome:
-                assert getattr(result, f"alerts_{other}") == 0
-
-    def test_bounded_concurrency_does_not_exceed_semaphore_limit(self):
-        """Force overlap; peak concurrent in-flight cohorts must equal the semaphore limit.
-
-        Concurrency is measured in `_dispatch_for_alert` because that's the phase
-        wrapped in `database_sync_to_async_pool` — its calls run on a thread pool
-        and thus overlap when multiple cohort tasks hold their semaphore slot.
-        Eval runs sequentially inside the event loop, so it can't be used to
-        observe cohort-level concurrency.
-        """
-        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
-        alerts = self._mock_alerts(10)
-
-        peak = 0
-        active = 0
-        lock = threading.Lock()
-
-        def fake_dispatch(evaluation, now, **_kwargs):
-            nonlocal peak, active
-            with lock:
-                active += 1
-                peak = max(peak, active)
-            time.sleep(0.05)
-            with lock:
-                active -= 1
-            return MagicMock()
-
-        def fake_finalize(dispatched, elapsed_ms, stats):
-            stats["checked"] += 1
-
-        with (
-            patch(
-                "products.logs.backend.temporal.activities._load_alerts_and_checkpoint",
-                return_value=(now, alerts, None),
-            ),
-            patch(
-                "products.logs.backend.temporal.activities._build_cohorts",
-                side_effect=_stub_one_cohort_per_alert,
-            ),
-            patch(
-                "products.logs.backend.temporal.activities._run_batched_query",
-                side_effect=_stub_run_batched_query_empty,
-            ),
-            patch("products.logs.backend.temporal.activities.MAX_CONCURRENT_ALERT_EVALS", 3),
-            patch("products.logs.backend.temporal.activities._evaluate_single_alert", return_value=MagicMock()),
-            patch("products.logs.backend.temporal.activities._dispatch_for_alert", side_effect=fake_dispatch),
-            patch(
-                "products.logs.backend.temporal.activities._save_cohort_outcomes",
-                side_effect=_stub_save_cohort_outcomes_passthrough,
-            ),
-            patch("products.logs.backend.temporal.activities._finalize_alert", side_effect=fake_finalize),
-        ):
-            result = asyncio.run(check_alerts_activity(CheckAlertsInput()))
-
-        assert peak <= 3, f"expected peak concurrency ≤ 3 (semaphore limit), got {peak}"
-        assert peak > 1, f"expected concurrency to be utilised (peak={peak}), check thread pool availability"
-        assert result.alerts_checked == 10
-
-    def test_unexpected_error_isolates_to_single_alert(self):
-        """One alert's eval raising must not block the others; the activity counts it as errored."""
-        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
-        alerts = self._mock_alerts(3)
-
-        call_count = 0
-        lock = threading.Lock()
-
-        def fake_eval(alert, now, **_kwargs):
-            nonlocal call_count
-            with lock:
-                call_count += 1
-                this_call = call_count
-            if this_call == 2:
-                raise RuntimeError("kaboom")
-            return MagicMock()
-
-        def fake_finalize(dispatched, elapsed_ms, stats):
-            stats["checked"] += 1
-
-        with (
-            patch(
-                "products.logs.backend.temporal.activities._load_alerts_and_checkpoint",
-                return_value=(now, alerts, None),
-            ),
-            patch(
-                "products.logs.backend.temporal.activities._build_cohorts",
-                side_effect=_stub_one_cohort_per_alert,
-            ),
-            patch(
-                "products.logs.backend.temporal.activities._run_batched_query",
-                side_effect=_stub_run_batched_query_empty,
-            ),
-            patch("products.logs.backend.temporal.activities._evaluate_single_alert", side_effect=fake_eval),
-            patch("products.logs.backend.temporal.activities._dispatch_for_alert", return_value=MagicMock()),
-            patch(
-                "products.logs.backend.temporal.activities._save_cohort_outcomes",
-                side_effect=_stub_save_cohort_outcomes_passthrough,
-            ),
-            patch("products.logs.backend.temporal.activities._finalize_alert", side_effect=fake_finalize),
-        ):
-            result = asyncio.run(check_alerts_activity(CheckAlertsInput()))
-
-        assert result.alerts_checked == 2
-        assert result.alerts_errored == 1
 
 
 class TestSaveCohortOutcomesFallback(APIBaseTest):
@@ -673,38 +289,6 @@ class TestRunCohortQueryFallback(unittest.TestCase):
             assert prefetched.buckets is not None and prefetched.buckets[0].count == i
             assert prefetched.query_duration_ms == 42
 
-    @patch("products.logs.backend.temporal.activities.MAX_ALERT_COHORT_SIZE", 2)
-    def test_build_cohorts_splits_oversized_groups(self):
-        # 5 alerts on the same grid at chunk size 2 → 3 cohorts of sizes (2, 2, 1).
-        # Each cohort runs as its own task in the activity, with the existing outer
-        # MAX_CONCURRENT_ALERT_EVALS semaphore as the only concurrency control —
-        # no nested chunking inside _run_cohort_query.
-        from products.logs.backend.temporal.activities import _build_cohorts
-
-        alerts = [
-            MagicMock(
-                id=f"alert-{i}",
-                team_id=1,
-                window_minutes=5,
-                evaluation_periods=1,
-                check_interval_minutes=5,
-                next_check_at=None,
-                filters={},
-            )
-            for i in range(5)
-        ]
-        now = datetime(2025, 1, 1, 0, 5, tzinfo=UTC)
-
-        with (
-            patch("products.logs.backend.temporal.activities.is_projection_eligible", return_value=True),
-            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
-        ):
-            cohorts = _build_cohorts(alerts, now=now, checkpoint=None)
-
-        assert sorted(len(c.alerts) for c in cohorts) == [1, 2, 2]
-        all_alert_ids = sorted(a.id for c in cohorts for a in c.alerts)
-        assert all_alert_ids == [f"alert-{i}" for i in range(5)]
-
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
     @patch("products.logs.backend.temporal.activities.classify_alert_error")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
@@ -712,7 +296,7 @@ class TestRunCohortQueryFallback(unittest.TestCase):
     def test_one_cohorts_failure_isolated_from_others(
         self, mock_batched, mock_alert_check_query_cls, mock_classify, _mock_fallback_counter
     ):
-        # With cohort splitting at _build_cohorts time, each post-split cohort is an
+        # With cohort splitting at _cohort_manifests_from_alerts time, each post-split cohort is an
         # independent unit. _run_cohort_query operates on one bounded cohort at a time.
         # This test confirms a single cohort's batched failure → per-alert fallback works
         # as before. Cross-cohort isolation is structural (separate tasks, separate calls).
@@ -1929,3 +1513,297 @@ class TestEvaluateSingleAlertEndToEnd(ClickhouseTestMixin, APIBaseTest):
         alert.refresh_from_db()
         assert alert.state == LogsAlertConfiguration.State.FIRING
         assert alert.next_check_at is not None  # activity advanced it
+
+
+class TestCohortManifest(unittest.TestCase):
+    def test_manifest_round_trips_through_json(self):
+        # CohortManifest must be JSON-serialisable for Temporal payload conversion.
+        # Datetimes get serialised as ISO strings; UUIDs stay as plain strings.
+        # Use list[str] (not tuple) for alert_ids — JSON arrays deserialise to
+        # lists and Temporal's default converter doesn't round-trip tuples.
+        import json
+
+        from products.logs.backend.temporal.activities import CohortManifest
+
+        manifest = CohortManifest(
+            team_id=42,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:00:00+00:00",
+            alert_ids=["019decab-1234-7000-8000-000000000001", "019decab-1234-7000-8000-000000000002"],
+        )
+
+        as_dict = dataclasses.asdict(manifest)
+        round_tripped = CohortManifest(**json.loads(json.dumps(as_dict)))
+
+        assert round_tripped.team_id == 42
+        assert round_tripped.alert_ids == manifest.alert_ids
+        assert round_tripped.date_to_iso == manifest.date_to_iso
+
+    def test_manifests_grouped_by_cohort_key(self):
+        # Three alerts: two share a key (same team, window, cadence, projection,
+        # date_to), one differs by window_minutes. Expect 2 manifests.
+        from products.logs.backend.temporal.activities import _cohort_manifests_from_alerts
+
+        rows = [
+            {
+                "id": "019dec00-0000-0000-0000-000000000001",
+                "team_id": 1,
+                "window_minutes": 5,
+                "evaluation_periods": 1,
+                "check_interval_minutes": 5,
+                "filters": {"serviceNames": ["a"]},
+                "next_check_at": None,
+            },
+            {
+                "id": "019dec00-0000-0000-0000-000000000002",
+                "team_id": 1,
+                "window_minutes": 5,
+                "evaluation_periods": 1,
+                "check_interval_minutes": 5,
+                "filters": {"serviceNames": ["b"]},
+                "next_check_at": None,
+            },
+            {
+                "id": "019dec00-0000-0000-0000-000000000003",
+                "team_id": 1,
+                "window_minutes": 15,  # different window → different cohort
+                "evaluation_periods": 1,
+                "check_interval_minutes": 5,
+                "filters": {"serviceNames": ["a"]},
+                "next_check_at": None,
+            },
+        ]
+        now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
+
+        with (
+            patch("products.logs.backend.temporal.activities.is_projection_eligible", return_value=True),
+            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+        ):
+            manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
+
+        assert len(manifests) == 2
+        sizes = sorted(len(m.alert_ids) for m in manifests)
+        assert sizes == [1, 2]
+
+    def test_manifests_split_oversized_groups(self):
+        # 5 alerts on the same grid at MAX_ALERT_COHORT_SIZE=2 → 3 manifests
+        # (sizes [1, 2, 2]).
+        from products.logs.backend.temporal.activities import _cohort_manifests_from_alerts
+
+        rows: list[dict[str, Any]] = [
+            {
+                "id": f"019dec00-0000-0000-0000-{i:012d}",
+                "team_id": 1,
+                "window_minutes": 5,
+                "evaluation_periods": 1,
+                "check_interval_minutes": 5,
+                "filters": {},
+                "next_check_at": None,
+            }
+            for i in range(5)
+        ]
+        now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
+
+        with (
+            patch("products.logs.backend.temporal.activities.is_projection_eligible", return_value=True),
+            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+            patch("products.logs.backend.temporal.activities.MAX_ALERT_COHORT_SIZE", 2),
+        ):
+            manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
+
+        assert sorted(len(m.alert_ids) for m in manifests) == [1, 2, 2]
+
+
+class TestDiscoverCohortsActivity(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @freeze_time("2026-05-05T10:00:00Z")
+    def test_returns_manifests_for_due_alerts_only(self):
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        # Two due (next_check_at=None), one not due (next_check_at in future).
+        for i in range(2):
+            LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name=f"due_{i}",
+                threshold_count=1,
+                threshold_operator="above",
+                window_minutes=5,
+                evaluation_periods=1,
+                filters={"serviceNames": [f"svc_{i}"]},
+                enabled=True,
+                next_check_at=None,
+            )
+        LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="future",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["svc_future"]},
+            enabled=True,
+            next_check_at=datetime(2026, 5, 5, 11, 0, tzinfo=UTC),  # future
+        )
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+
+        # Two due alerts share team + window + cadence → one cohort with 2 alert_ids.
+        # (One alert is in the future; not due, not discovered.)
+        assert len(result.manifests) == 1
+        assert len(result.manifests[0].alert_ids) == 2
+
+
+class TestCohortFromManifest(unittest.TestCase):
+    def test_reconstructs_cohort_from_manifest_and_alerts(self):
+        from products.logs.backend.temporal.activities import CohortManifest, _cohort_from_manifest
+
+        alert_a = MagicMock(id="alert-a", team_id=7)
+        alert_b = MagicMock(id="alert-b", team_id=7)
+        alerts_by_id = cast(dict[str, LogsAlertConfiguration], {"alert-a": alert_a, "alert-b": alert_b})
+
+        manifest = CohortManifest(
+            team_id=7,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:00:00+00:00",
+            alert_ids=["alert-a", "alert-b"],
+        )
+
+        cohort = _cohort_from_manifest(manifest, alerts_by_id)
+
+        assert len(cohort.alerts) == 2
+        assert cohort.alerts[0] is alert_a
+        assert cohort.alerts[1] is alert_b
+        assert cohort.date_to == datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
+        assert cohort.projection_eligible is True
+
+    def test_raises_if_manifest_alert_id_not_loaded(self):
+        # Defensive: if the evaluate activity's bulk-load missed an alert
+        # (e.g. it was deleted between discovery and evaluate), the manifest
+        # references an ID that's not in `alerts_by_id`. This is a programmer
+        # error / data race — fail loudly rather than silently dropping alerts.
+        from products.logs.backend.temporal.activities import CohortManifest, _cohort_from_manifest
+
+        manifest = CohortManifest(
+            team_id=7,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:00:00+00:00",
+            alert_ids=["missing-id"],
+        )
+
+        with self.assertRaises(KeyError):
+            _cohort_from_manifest(manifest, alerts_by_id={})
+
+
+class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @freeze_time("2026-05-05T10:05:00Z")
+    @patch("products.logs.backend.temporal.activities._run_cohort_query")
+    def test_loads_alerts_by_id_and_processes_each_cohort(self, mock_run_cohort_query):
+        from products.logs.backend.temporal.activities import (
+            CohortManifest,
+            EvaluateCohortBatchInput,
+            _CohortQueryResult,
+            _PrefetchedQuery,
+            evaluate_cohort_batch_activity,
+        )
+
+        # Two alerts on the same grid → one manifest with 2 IDs.
+        alerts = [
+            LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name=f"a{i}",
+                threshold_count=1,
+                threshold_operator="above",
+                window_minutes=5,
+                evaluation_periods=1,
+                filters={"serviceNames": [f"s{i}"]},
+                enabled=True,
+                next_check_at=None,
+            )
+            for i in range(2)
+        ]
+
+        # Mock the CH query so this is a pure orchestration test (per-cohort
+        # evaluation is covered by other test classes).
+        def _mock_query(cohort):
+            return _CohortQueryResult(per_alert={str(a.id): _PrefetchedQuery(buckets=[]) for a in cohort.alerts})
+
+        mock_run_cohort_query.side_effect = _mock_query
+
+        manifest = CohortManifest(
+            team_id=self.team.id,
+            projection_eligible=True,
+            date_to_iso="2026-05-05T10:05:00+00:00",
+            alert_ids=[str(a.id) for a in alerts],
+        )
+
+        result = asyncio.run(evaluate_cohort_batch_activity(EvaluateCohortBatchInput(manifests=[manifest])))
+
+        assert result.alerts_checked == 2
+        # _run_cohort_query was invoked exactly once (one cohort in this batch).
+        assert mock_run_cohort_query.call_count == 1
+
+    @freeze_time("2026-05-05T10:05:00Z")
+    @patch("products.logs.backend.temporal.activities._run_cohort_query")
+    def test_one_cohorts_failure_isolated_within_batch(self, mock_run_cohort_query):
+        # If one cohort raises, the remaining cohorts in the batch still run.
+        # (Failure isolation across BATCHES is structural — separate Temporal
+        # activities — so it's tested at workflow level, not here.)
+        from products.logs.backend.temporal.activities import (
+            CohortManifest,
+            EvaluateCohortBatchInput,
+            _CohortQueryResult,
+            _PrefetchedQuery,
+            evaluate_cohort_batch_activity,
+        )
+
+        alerts = [
+            LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name=f"a{i}",
+                threshold_count=1,
+                threshold_operator="above",
+                window_minutes=5,
+                evaluation_periods=1,
+                filters={"serviceNames": [f"s{i}"]},
+                enabled=True,
+                next_check_at=None,
+            )
+            for i in range(3)
+        ]
+
+        # First cohort errors, second succeeds.
+        call_count = {"n": 0}
+
+        def _mock_query(cohort):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise RuntimeError("boom")
+            return _CohortQueryResult(per_alert={str(a.id): _PrefetchedQuery(buckets=[]) for a in cohort.alerts})
+
+        mock_run_cohort_query.side_effect = _mock_query
+
+        # Two single-alert manifests so we can target one specific cohort to fail.
+        manifests = [
+            CohortManifest(
+                team_id=self.team.id,
+                projection_eligible=True,
+                date_to_iso="2026-05-05T10:05:00+00:00",
+                alert_ids=[str(alerts[0].id)],
+            ),
+            CohortManifest(
+                team_id=self.team.id,
+                projection_eligible=True,
+                date_to_iso="2026-05-05T10:05:00+00:00",
+                alert_ids=[str(alerts[1].id)],
+            ),
+        ]
+
+        result = asyncio.run(evaluate_cohort_batch_activity(EvaluateCohortBatchInput(manifests=manifests)))
+
+        assert mock_run_cohort_query.call_count == 2
+        # First cohort errored → counts as 1 errored. Second succeeded → 1 checked.
+        assert result.alerts_errored == 1
+        assert result.alerts_checked == 1

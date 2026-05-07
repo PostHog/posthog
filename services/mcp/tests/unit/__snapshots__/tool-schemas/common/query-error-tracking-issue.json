@@ -1,0 +1,49 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dateRange": {
+            "description": "Date range for issue impact and latest-event metadata. Defaults to the last 7 days.",
+            "properties": {
+                "date_from": {
+                    "description": "Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d.",
+                    "type": "string"
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "End of the date range as an ISO timestamp or relative date. Defaults to now when omitted."
+                }
+            },
+            "type": "object"
+        },
+        "filterTestAccounts": {
+            "default": true,
+            "description": "When true, exclude internal/test account data from results. Defaults to true.",
+            "type": "boolean"
+        },
+        "includeSparkline": {
+            "default": false,
+            "description": "Set true to include a compact numeric occurrence sparkline. Defaults to false.",
+            "type": "boolean"
+        },
+        "issueId": {
+            "description": "Error tracking issue ID.",
+            "type": "string"
+        },
+        "volumeResolution": {
+            "default": 0,
+            "description": "Volume buckets. Maximum 200.",
+            "maximum": 200,
+            "minimum": 0,
+            "type": "number"
+        }
+    },
+    "required": ["issueId"],
+    "type": "object"
+}

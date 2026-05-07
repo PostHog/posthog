@@ -42,6 +42,7 @@ export interface PauseResponseApi {
  * `in_progress` - In Progress
  * `pending_input` - Pending Input
  * `ready` - Ready
+ * `resolved` - Resolved
  * `failed` - Failed
  * `deleted` - Deleted
  * `suppressed` - Suppressed
@@ -54,6 +55,7 @@ export const SignalReportStatusEnumApi = {
     InProgress: 'in_progress',
     PendingInput: 'pending_input',
     Ready: 'ready',
+    Resolved: 'resolved',
     Failed: 'failed',
     Deleted: 'deleted',
     Suppressed: 'suppressed',

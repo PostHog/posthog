@@ -70,6 +70,74 @@ export const UsageMetricFiltersSchema = z
         'Filter definition. Pick exactly one branch: `data_warehouse` (set `source: "data_warehouse"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).'
     )
 
+const CategoricalScoreOptionSchema = z.object({
+    key: z
+        .string()
+        .min(1)
+        .max(128)
+        .describe(
+            'Stable option key — lowercase letters, numbers, underscores, hyphens. Sent back when this option is selected.'
+        ),
+    label: z.string().min(1).max(256).describe('Human-readable label shown in the review UI.'),
+})
+
+const CategoricalScoreDefinitionConfigSchema = z
+    .object({
+        options: z
+            .array(CategoricalScoreOptionSchema)
+            .min(1)
+            .refine(
+                (options) => new Set(options.map((option) => option.key)).size === options.length,
+                'Categorical option keys must be unique.'
+            )
+            .describe('Ordered categorical options. Must contain at least one option with unique keys.'),
+        selection_mode: z
+            .enum(['single', 'multiple'])
+            .optional()
+            .describe('Whether reviewers select one option or many. Defaults to "single".'),
+        min_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Minimum selections required. Only valid when selection_mode is "multiple".'),
+        max_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "categorical".')
+
+const NumericScoreDefinitionConfigSchema = z
+    .object({
+        min: z.number().optional().describe('Optional inclusive minimum score.'),
+        max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
+        step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "numeric".')
+
+const BooleanScoreDefinitionConfigSchema = z
+    .object({
+        true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
+        false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "boolean".')
+
+export const ScoreDefinitionConfigSchema = z
+    .union([
+        CategoricalScoreDefinitionConfigSchema,
+        NumericScoreDefinitionConfigSchema,
+        BooleanScoreDefinitionConfigSchema,
+    ])
+    .describe(
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+    )
+
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
     content: z
@@ -82,6 +150,65 @@ export const PromptListInputSchema = z.object({
 
 export const DocumentationSearchSchema = z.object({
     query: z.string(),
+})
+
+export const FeedbackSubmitSchema = z.object({
+    summary: z
+        .string()
+        .min(1)
+        .describe(
+            'A one-sentence headline summarising your feedback (e.g. "query-trends descriptions made it hard to choose between trends and funnels").'
+        ),
+    sentiment: z
+        .enum(['positive', 'negative', 'mixed'])
+        .describe(
+            'Your overall impression of the MCP server for this task. Use "positive" if it helped you, "negative" if it blocked you, "mixed" for a bit of both.'
+        ),
+    category: z
+        .enum([
+            'tool_correctness',
+            'tool_description',
+            'tool_input_schema',
+            'tool_output_format',
+            'missing_tool',
+            'instructions_clarity',
+            'performance',
+            'error_message',
+            'other',
+        ])
+        .describe(
+            'The single category that best describes the dominant theme of this feedback. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue.'
+        ),
+    task_completed: z
+        .boolean()
+        .describe(
+            'Were you able to complete the user\'s task using PostHog MCP tools? Be honest — "false" is just as useful as "true".'
+        ),
+    tools_used: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'The tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+        ),
+    friction_points: z
+        .string()
+        .optional()
+        .describe(
+            'Concrete points of friction, confusion, or surprise — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text where possible.'
+        ),
+    suggested_improvement: z
+        .string()
+        .optional()
+        .describe(
+            'The single most impactful change you would make to the MCP server right now. Be specific (e.g. "add a `filters` example to query-funnel\'s description").'
+        ),
+    user_request: z
+        .string()
+        .optional()
+        .describe(
+            'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
+        ),
+    details: z.string().optional().describe("Any additional context that doesn't fit the other fields."),
 })
 
 export const ExperimentResultsGetSchema = z.object({
@@ -314,7 +441,7 @@ export const ExperimentCreateSchema = z.object({
         .boolean()
         .optional()
         .describe(
-            'Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.'
+            "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it)."
         ),
 })
 
