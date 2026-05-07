@@ -716,7 +716,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         schema = schemas[0]
 
-        source_cdc_enabled = bool(source.job_inputs and source.job_inputs.get("cdc_enabled"))
+        source_cdc_enabled = bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
 
         data = {
