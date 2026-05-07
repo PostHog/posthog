@@ -1,4 +1,5 @@
 import os
+import json
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any, Optional, Union
@@ -13,6 +14,7 @@ from rest_framework import exceptions
 
 from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
 
+from ee.api.session_summaries import _NO_READY_SUMMARY_ERROR_SUBSTRING
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
     EnrichedSessionGroupSummaryPatternsList,
@@ -427,3 +429,310 @@ class TestSessionSummariesAPI(APIBaseTest):
         # And we should not have invoked the workflow for the missing session
         called_session_ids = {call.kwargs.get("session_id") for call in mock_execute.call_args_list}
         self.assertEqual(called_session_ids, {"session_1"})
+
+
+MOCK_SUMMARY_DATA: dict[str, Any] = {
+    "segments": [
+        {
+            "index": 0,
+            "name": "Login",
+            "start_event_id": "evt00001",
+            "end_event_id": "evt00002",
+            "meta": {
+                "duration": 30,
+                "duration_percentage": 1.0,
+                "events_count": 2,
+                "events_percentage": 1.0,
+                "key_action_count": 1,
+                "failure_count": 0,
+                "abandonment_count": 0,
+                "confusion_count": 0,
+                "exception_count": 0,
+            },
+        }
+    ],
+    "key_actions": [
+        {
+            "segment_index": 0,
+            "events": [
+                {
+                    "description": "Clicked login",
+                    "abandonment": False,
+                    "confusion": False,
+                    "exception": None,
+                    "event_id": "evt00001",
+                    "timestamp": "2024-01-01T10:00:00Z",
+                    "milliseconds_since_start": 0,
+                    "window_id": "w1",
+                    "current_url": "https://app.example.com/login",
+                    "event": "$autocapture",
+                    "event_type": "click",
+                    "event_index": 0,
+                    "session_id": "session1",
+                    "event_uuid": "00000000-0000-0000-0000-000000000001",
+                }
+            ],
+        }
+    ],
+    "segment_outcomes": [{"segment_index": 0, "summary": "User logged in successfully", "success": True}],
+    "session_outcome": {"description": "Successful login", "success": True},
+    "sentiment": {"frustration_score": 0.1, "outcome": "successful", "sentiment_signals": []},
+}
+
+
+def _parse_sse_events(content: bytes) -> list[dict[str, str]]:
+    """Parse SSE response bytes into a list of dicts with 'event' and 'data' keys."""
+    raw_blocks = content.decode().split("\n\n")
+    events = []
+    for block in raw_blocks:
+        block = block.strip()
+        if not block:
+            continue
+        parsed: dict[str, str] = {}
+        for line in block.splitlines():
+            if line.startswith("event:"):
+                parsed["event"] = line[len("event:") :].strip()
+            elif line.startswith("data:"):
+                parsed["data"] = line[len("data:") :].strip()
+        if parsed:
+            events.append(parsed)
+    return events
+
+
+class TestStreamSessionSummariesAPI(APIBaseTest):
+    environment_patches: list[Any]
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/environments/{self.team.id}/session_summaries/stream_batch/"
+
+        self.environment_patches = [
+            patch("ee.api.session_summaries.is_cloud", return_value=True),
+            patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}),
+        ]
+        for p in self.environment_patches:
+            p.start()
+
+    def tearDown(self) -> None:
+        super().tearDown()
+        for p in self.environment_patches:
+            p.stop()
+
+    def _make_streaming_request(self, session_ids: list[str], focus_area: Optional[str] = None) -> Any:
+        payload: dict[str, Any] = {"session_ids": session_ids}
+        if focus_area is not None:
+            payload["focus_area"] = focus_area
+        return self.client.post(self.url, payload, format="json")
+
+    def _get_sse_events(self, response: Any) -> list[dict[str, str]]:
+        content = b"".join(response.streaming_content)
+        return _parse_sse_events(content)
+
+    @parameterized.expand(
+        [
+            (
+                "all_success",
+                ["session_1"],
+                None,
+                {"summary", "done"},
+                ["session_1"],
+                [],
+            ),
+            (
+                "mixed_success_and_failure",
+                ["session_ok", "session_fail"],
+                {"session_fail"},
+                {"summary", "error", "done"},
+                ["session_ok"],
+                ["session_fail"],
+            ),
+            (
+                "all_failures",
+                ["s1", "s2"],
+                {"s1", "s2"},
+                {"error", "done"},
+                [],
+                ["s1", "s2"],
+            ),
+        ]
+    )
+    @patch("ee.api.session_summaries.capture_session_summary_generated")
+    @patch("ee.api.session_summaries.capture_session_summary_started")
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_stream_individually_emits_expected_events(
+        self,
+        _name: str,
+        session_ids: list[str],
+        failing_ids: Optional[set[str]],
+        expected_event_types: set[str],
+        expected_completed: list[str],
+        expected_failed: list[str],
+        mock_execute: Mock,
+        mock_capture_started: Mock,
+        mock_capture_generated: Mock,
+    ) -> None:
+        failing = failing_ids or set()
+
+        def side_effect(session_id: str, **_kwargs: Any) -> Any:
+            if session_id in failing:
+                raise Exception("summarization failed")
+            return get_mock_enriched_llm_json_response(session_id)
+
+        mock_execute.side_effect = side_effect
+
+        response = self._make_streaming_request(session_ids=session_ids)
+        self.assertEqual(response.status_code, 200)
+
+        events = self._get_sse_events(response)
+        event_types = {e["event"] for e in events}
+        self.assertEqual(event_types, expected_event_types)
+
+        done_event = next(e for e in events if e["event"] == "done")
+        done_data = json.loads(done_event["data"])
+        self.assertCountEqual(done_data["completed"], expected_completed)
+        self.assertCountEqual(done_data["failed"], expected_failed)
+
+        # Failed sessions surface as classified, sanitized error events
+        if expected_failed:
+            error_events = [e for e in events if e["event"] == "error"]
+            self.assertEqual(len(error_events), len(expected_failed))
+            for event in error_events:
+                error_data = json.loads(event["data"])
+                self.assertIn(error_data["session_id"], expected_failed)
+                self.assertEqual(error_data["error"], "summary_failed")
+                self.assertIn("Failed to generate", error_data["error_message"])
+
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_stream_individually_summary_event_includes_full_summary_shape(self, mock_execute: Mock) -> None:
+        # Smoke-tests that the serialized SessionSummary fields make it onto the wire.
+        mock_execute.side_effect = lambda session_id, **_kwargs: get_mock_enriched_llm_json_response(session_id)
+
+        response = self._make_streaming_request(session_ids=["session_1"])
+        events = self._get_sse_events(response)
+        summary_event = next(e for e in events if e["event"] == "summary")
+        summary_data = json.loads(summary_event["data"])
+
+        self.assertEqual(summary_data["session_id"], "session_1")
+        for field in ("segments", "key_actions", "segment_outcomes", "session_outcome"):
+            self.assertIn(field, summary_data["summary"])
+
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_stream_individually_response_headers(self, mock_execute: Mock) -> None:
+        mock_execute.side_effect = lambda session_id, **_kwargs: get_mock_enriched_llm_json_response(session_id)
+
+        response = self._make_streaming_request(session_ids=["session_1"])
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get("Content-Type"), "text/event-stream")
+        self.assertEqual(response.get("Cache-Control"), "no-cache")
+        self.assertEqual(response.get("X-Accel-Buffering"), "no")
+
+    @patch("ee.api.session_summaries.capture_session_summary_generated")
+    @patch("ee.api.session_summaries.capture_session_summary_started")
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_stream_individually_tracking_uses_single_stream_summary_type(
+        self,
+        mock_execute: Mock,
+        mock_capture_started: Mock,
+        mock_capture_generated: Mock,
+    ) -> None:
+        mock_execute.side_effect = lambda session_id, **_kwargs: get_mock_enriched_llm_json_response(session_id)
+
+        response = self._make_streaming_request(session_ids=["session_1", "session_2"])
+        b"".join(response.streaming_content)
+
+        mock_capture_started.assert_called_once()
+        started_kwargs = mock_capture_started.call_args[1]
+        self.assertEqual(started_kwargs["summary_type"], "single")
+        self.assertEqual(started_kwargs["summary_source"], "api")
+        self.assertEqual(started_kwargs["session_ids"], ["session_1", "session_2"])
+
+        mock_capture_generated.assert_called_once()
+        generated_kwargs = mock_capture_generated.call_args[1]
+        self.assertEqual(generated_kwargs["summary_type"], "single")
+        self.assertEqual(generated_kwargs["summary_source"], "api")
+        self.assertEqual(generated_kwargs["session_ids"], ["session_1", "session_2"])
+
+        self.assertEqual(started_kwargs["tracking_id"], generated_kwargs["tracking_id"])
+
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_stream_individually_error_payload_does_not_leak_exception_message(self, mock_execute: Mock) -> None:
+        sensitive_message = "openai key sk-internal-leak at /etc/secrets/prompt.txt"
+        mock_execute.side_effect = Exception(sensitive_message)
+
+        response = self._make_streaming_request(session_ids=["session_1"])
+
+        self.assertEqual(response.status_code, 200)
+        events = self._get_sse_events(response)
+        error_event = next(e for e in events if e["event"] == "error")
+        error_data = json.loads(error_event["data"])
+
+        self.assertEqual(error_data["error"], "summary_failed")
+        self.assertIn("Failed to generate", error_data["error_message"])
+        # Regression: the raw exception message must not leak through the SSE payload.
+        self.assertNotIn("sk-internal-leak", error_event["data"])
+        self.assertNotIn("/etc/secrets", error_event["data"])
+        self.assertNotIn(sensitive_message, error_event["data"])
+
+    @parameterized.expand(
+        [
+            ("missing_session_ids", {"focus_area": "login"}),
+            ("empty_session_ids", {"session_ids": []}),
+        ]
+    )
+    def test_stream_individually_invalid_payload_returns_400(self, _name: str, payload: dict[str, Any]) -> None:
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_stream_individually_unauthenticated_returns_401(self) -> None:
+        self.client.logout()
+        response = self._make_streaming_request(session_ids=["session_1"])
+        self.assertEqual(response.status_code, 401)
+
+    @patch("ee.api.session_summaries.is_cloud")
+    def test_stream_individually_not_cloud_returns_400(self, mock_is_cloud: Mock) -> None:
+        mock_is_cloud.return_value = False
+        response = self._make_streaming_request(session_ids=["session_1"])
+        self.assertEqual(response.status_code, 400)
+
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_stream_individually_bad_session_id_surfaces_as_per_session_error(self, mock_execute: Mock) -> None:
+        # Bad session IDs must NOT fail the whole batch — they should surface as per-session
+        # error events so callers can distinguish "skipped on purpose" from "tool broke".
+        mock_execute.side_effect = ValueError(f"{_NO_READY_SUMMARY_ERROR_SUBSTRING} for session nonexistent")
+        response = self._make_streaming_request(session_ids=["nonexistent"])
+        self.assertEqual(response.status_code, 200)
+        events = self._get_sse_events(response)
+        error_event = next(e for e in events if e["event"] == "error")
+        error_data = json.loads(error_event["data"])
+        self.assertEqual(error_data["session_id"], "nonexistent")
+        self.assertEqual(error_data["error"], "no_events_or_too_short")
+
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_stream_individually_with_focus_area_passes_extra_context(self, mock_execute: Mock) -> None:
+        mock_execute.side_effect = lambda session_id, **_kwargs: get_mock_enriched_llm_json_response(session_id)
+
+        response = self._make_streaming_request(session_ids=["session_1"], focus_area="checkout flow")
+        b"".join(response.streaming_content)
+
+        call_kwargs = mock_execute.call_args[1]
+        self.assertIsNotNone(call_kwargs.get("extra_summary_context"))
+        self.assertEqual(call_kwargs["extra_summary_context"].focus_area, "checkout flow")
+
+    @patch("ee.api.session_summaries.capture_session_summary_generated")
+    @patch("ee.api.session_summaries.capture_session_summary_started")
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_stream_individually_tracking_generated_success_false_when_all_fail(
+        self,
+        mock_execute: Mock,
+        mock_capture_started: Mock,
+        mock_capture_generated: Mock,
+    ) -> None:
+        mock_execute.side_effect = Exception("summarization failed")
+
+        response = self._make_streaming_request(session_ids=["session_1"])
+        b"".join(response.streaming_content)
+
+        mock_capture_generated.assert_called_once()
+        generated_kwargs = mock_capture_generated.call_args[1]
+        self.assertFalse(generated_kwargs["success"])

@@ -11,6 +11,9 @@ import { apiMutator } from '../../lib/api-orval-mutator'
 import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CIMDVerificationTokenApi,
+    CIMDVerificationTokenWithValueApi,
+    CimdVerificationTokensListParams,
     DashboardTemplateApi,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
@@ -27,6 +30,7 @@ import type {
     OrganizationInviteApi,
     OrganizationInviteDelegateApi,
     OrganizationsProjectsListParams,
+    PaginatedCIMDVerificationTokenListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
@@ -133,6 +137,120 @@ export const subscriptionsDeliveriesRetrieve = async (
     return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Manage CIMD verification tokens for an organization.
+
+A partner embeds the plaintext token in their CIMD metadata document under
+`posthog_verification_token`. When PostHog fetches the metadata, matching
+the token links the partner app to this organization and grants a higher
+default rate limit for account provisioning.
+
+The plaintext value is only available on creation; we store a hash.
+ */
+export const getCimdVerificationTokensListUrl = (organizationId: string, params?: CimdVerificationTokensListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/cimd_verification_tokens/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/cimd_verification_tokens/`
+}
+
+export const cimdVerificationTokensList = async (
+    organizationId: string,
+    params?: CimdVerificationTokensListParams,
+    options?: RequestInit
+): Promise<PaginatedCIMDVerificationTokenListApi> => {
+    return apiMutator<PaginatedCIMDVerificationTokenListApi>(getCimdVerificationTokensListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Manage CIMD verification tokens for an organization.
+
+A partner embeds the plaintext token in their CIMD metadata document under
+`posthog_verification_token`. When PostHog fetches the metadata, matching
+the token links the partner app to this organization and grants a higher
+default rate limit for account provisioning.
+
+The plaintext value is only available on creation; we store a hash.
+ */
+export const getCimdVerificationTokensCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/cimd_verification_tokens/`
+}
+
+export const cimdVerificationTokensCreate = async (
+    organizationId: string,
+    cIMDVerificationTokenApi: NonReadonly<CIMDVerificationTokenApi>,
+    options?: RequestInit
+): Promise<CIMDVerificationTokenWithValueApi> => {
+    return apiMutator<CIMDVerificationTokenWithValueApi>(getCimdVerificationTokensCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cIMDVerificationTokenApi),
+    })
+}
+
+/**
+ * Manage CIMD verification tokens for an organization.
+
+A partner embeds the plaintext token in their CIMD metadata document under
+`posthog_verification_token`. When PostHog fetches the metadata, matching
+the token links the partner app to this organization and grants a higher
+default rate limit for account provisioning.
+
+The plaintext value is only available on creation; we store a hash.
+ */
+export const getCimdVerificationTokensRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/cimd_verification_tokens/${id}/`
+}
+
+export const cimdVerificationTokensRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CIMDVerificationTokenApi> => {
+    return apiMutator<CIMDVerificationTokenApi>(getCimdVerificationTokensRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Manage CIMD verification tokens for an organization.
+
+A partner embeds the plaintext token in their CIMD metadata document under
+`posthog_verification_token`. When PostHog fetches the metadata, matching
+the token links the partner app to this organization and grants a higher
+default rate limit for account provisioning.
+
+The plaintext value is only available on creation; we store a hash.
+ */
+export const getCimdVerificationTokensDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/cimd_verification_tokens/${id}/`
+}
+
+export const cimdVerificationTokensDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCimdVerificationTokensDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
