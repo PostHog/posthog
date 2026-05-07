@@ -78,10 +78,20 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="host", label="Host", type=SourceFieldInputConfigType.TEXT, required=True, placeholder=""
+                        name="host",
+                        label="Host",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
-                        name="port", label="Port", type=SourceFieldInputConfigType.TEXT, required=True, placeholder=""
+                        name="port",
+                        label="Port",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="namespace",
@@ -89,6 +99,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="encryption_key",
@@ -96,6 +107,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="server_client_root_ca",
@@ -103,6 +115,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="client_certificate",
@@ -110,6 +123,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="client_private_key",
@@ -117,6 +131,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                 ],
             ),

@@ -1,1 +1,1 @@
-0003_hogflowschedule
+0006_drop_hogflowbatchjob_scheduled_at_column

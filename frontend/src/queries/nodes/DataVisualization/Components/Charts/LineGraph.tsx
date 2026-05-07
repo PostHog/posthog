@@ -29,12 +29,11 @@ import {
     TooltipModel,
 } from 'lib/Chart'
 import { resolveVariableColor } from 'lib/charts/utils/color'
-import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { createXAxisTickCallback } from 'lib/hog-charts'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { hexToRGBA, uuid } from 'lib/utils'
 import { unpinTooltip, useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
@@ -64,11 +63,22 @@ const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings 
     return GraphType.Line
 }
 
+const isAreaSeries = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): boolean => {
+    return chartType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
+}
+
+const axisLabelFont = {
+    family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+    size: 12,
+    weight: 'normal' as const,
+}
+
 const getYAxisSettings = (
     chartSettings: ChartSettings,
     settings: YAxisSettings | undefined,
     stacked: boolean,
     position: 'left' | 'right',
+    axisLabelColor: string | null,
     tickOptions: Partial<TickOptions>,
     gridOptions: Partial<GridLineOptions>
 ): ScaleOptionsByType<ChartTypeRegistry['line']['scales']> => {
@@ -82,6 +92,12 @@ const getYAxisSettings = (
         stacked: stacked,
         grid: mixedGridOptions,
         position,
+        title: {
+            display: !!settings?.label,
+            text: settings?.label ?? '',
+            color: axisLabelColor ?? undefined,
+            font: axisLabelFont,
+        },
         border: {
             display: chartSettings.showYAxisBorder ?? true,
         },
@@ -134,8 +150,6 @@ export const LineGraph = ({
         isPinnable: true,
     })
 
-    const { ref: containerRef, height } = useResizeObserver()
-
     const logicKey = useMemo(() => uuid(), [])
     const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
     const { setHoveredDatasetIndex } = useActions(lineGraphLogic({ key: logicKey }))
@@ -177,7 +191,8 @@ export const LineGraph = ({
 
         return ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
             const seriesColor = settings?.display?.color ?? getSeriesColor(index)
-            let backgroundColor = isAreaChart ? hexToRGBA(seriesColor, 0.5) : seriesColor
+            const hasAreaFill = isAreaSeries(visualizationType, settings)
+            let backgroundColor = hasAreaFill ? hexToRGBA(seriesColor, 0.5) : seriesColor
 
             // Dim non-hovered bars in stacked bar charts when shift is pressed
             if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
@@ -213,7 +228,7 @@ export const LineGraph = ({
                 hoverBorderWidth: graphType === GraphType.Bar ? 0 : 2,
                 hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
                 type: graphType,
-                fill: isAreaChart ? 'origin' : false,
+                fill: hasAreaFill ? 'origin' : false,
                 yAxisID,
                 ...(settings?.display?.trendLine && xData && yData && xData.data.length > 0 && seriesData.length > 0
                     ? {
@@ -231,7 +246,6 @@ export const LineGraph = ({
         ySeriesData,
         xData,
         yData,
-        isAreaChart,
         isHighlightBarMode,
         hoveredDatasetIndex,
         visualizationType,
@@ -285,7 +299,7 @@ export const LineGraph = ({
                                     annotationsList[`line${curIndex}`].label.content = `${
                                         cur.label
                                     }: ${cur.value.toLocaleString()}`
-                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    const tooltipEl = document.getElementById('InsightTooltipWrapper-hover')
 
                                     if (tooltipEl) {
                                         tooltipEl.classList.add('opacity-0', 'invisible')
@@ -304,7 +318,7 @@ export const LineGraph = ({
                                 if (annotationsList[`line${curIndex}`]) {
                                     annotationsList[`line${curIndex}`].label.content = cur.label
 
-                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    const tooltipEl = document.getElementById('InsightTooltipWrapper-hover')
                                     if (tooltipEl) {
                                         tooltipEl.classList.remove('opacity-0', 'invisible')
                                     }
@@ -419,49 +433,57 @@ export const LineGraph = ({
                             showTooltip()
 
                             if (tooltip.body) {
-                                const referenceDataPoint = tooltip.dataPoints[0]
+                                const { dataIndex, datasetIndex } = tooltip.dataPoints[0]
 
-                                // Filter series data based on highlight mode
-                                let filteredSeriesData = isHighlightBarMode
-                                    ? ySeriesData.filter((_, index) => index === referenceDataPoint.datasetIndex)
-                                    : ySeriesData
                                 const stackedSeriesTotalAtIndex =
                                     isStackedBarChart && chartSettings.stackBars100
-                                        ? ySeriesData.reduce(
-                                              (acc, series) => acc + (series.data[referenceDataPoint.dataIndex] ?? 0),
-                                              0
-                                          )
+                                        ? ySeriesData.reduce((acc, series) => acc + (series.data[dataIndex] ?? 0), 0)
                                         : null
 
-                                filteredSeriesData = filteredSeriesData.filter(
-                                    (series) => series.data[referenceDataPoint.dataIndex] !== null
-                                )
+                                // Iterate ySeriesData directly so seriesIndex stays as the original index —
+                                // bar colors are derived from it, so the tooltip ribbon must match.
+                                const tooltipData: {
+                                    series: string
+                                    data: ReturnType<typeof formatDataWithSettings>
+                                    rawData: number
+                                    dataIndex: number
+                                    seriesIndex: number
+                                    stackedSeriesTotalAtIndex: number | null
+                                }[] = []
 
-                                const tooltipData = filteredSeriesData
-                                    .map((series, index) => {
-                                        const seriesName =
-                                            series?.settings?.display?.label ||
-                                            ('column' in series ? series.column.name : series.name)
-                                        const seriesIndex = isHighlightBarMode ? referenceDataPoint.datasetIndex : index
-                                        return {
-                                            series: seriesName,
-                                            data: formatDataWithSettings(
-                                                series.data[referenceDataPoint.dataIndex],
-                                                series.settings
-                                            ),
-                                            rawData: series.data[referenceDataPoint.dataIndex],
-                                            dataIndex: referenceDataPoint.dataIndex,
-                                            seriesIndex: seriesIndex,
-                                            stackedSeriesTotalAtIndex,
-                                        }
+                                for (let seriesIndex = 0; seriesIndex < ySeriesData.length; seriesIndex++) {
+                                    if (isHighlightBarMode && seriesIndex !== datasetIndex) {
+                                        continue
+                                    }
+
+                                    const series = ySeriesData[seriesIndex]
+                                    const rawData = series.data[dataIndex]
+                                    if (rawData == null) {
+                                        continue
+                                    }
+
+                                    const settings = series.settings
+                                    const seriesName =
+                                        settings?.display?.label ||
+                                        ('column' in series ? series.column.name : series.name)
+
+                                    tooltipData.push({
+                                        series: seriesName,
+                                        data: formatDataWithSettings(rawData, settings),
+                                        rawData,
+                                        dataIndex,
+                                        seriesIndex,
+                                        stackedSeriesTotalAtIndex,
                                     })
-                                    .sort((a, b) => b.rawData! - a.rawData!)
+                                }
+
+                                if (tooltipData.length > 1 && !isHighlightBarMode) {
+                                    tooltipData.sort((a, b) => b.rawData - a.rawData)
+                                }
 
                                 let totalLabel: string | null = null
                                 const tooltipTotalData = ySeriesData.filter(
-                                    (n) =>
-                                        n.settings?.formatting?.style !== 'percent' &&
-                                        n.data[referenceDataPoint.dataIndex] !== null
+                                    (n) => n.settings?.formatting?.style !== 'percent' && n.data[dataIndex] !== null
                                 )
                                 if (
                                     tooltipTotalData.length > 1 &&
@@ -469,7 +491,7 @@ export const LineGraph = ({
                                     !isHighlightBarMode
                                 ) {
                                     const totalRawData = tooltipTotalData.reduce((acc, cur) => {
-                                        acc += cur.data[referenceDataPoint.dataIndex] ?? 0
+                                        acc += cur.data[dataIndex] ?? 0
                                         return acc
                                     }, 0)
                                     const firstSeriesSettings = tooltipTotalData[0]?.settings
@@ -481,7 +503,7 @@ export const LineGraph = ({
                                 tooltipRoot.render(
                                     <div className="InsightTooltip">
                                         <div className="flex items-center justify-between pl-5 pr-2 py-2 text-xs font-semibold border-b border-primary">
-                                            <span>{xSeriesData.data[referenceDataPoint.dataIndex]}</span>
+                                            <span>{xSeriesData.data[dataIndex]}</span>
                                             {pinTooltip && (
                                                 <button
                                                     type="button"
@@ -639,6 +661,12 @@ export const LineGraph = ({
                         border: {
                             display: chartSettings.showXAxisBorder ?? true,
                         },
+                        title: {
+                            display: !!chartSettings.xAxisLabel,
+                            text: chartSettings.xAxisLabel ?? '',
+                            color: colors.axisLabel ?? undefined,
+                            font: axisLabelFont,
+                        },
                     },
                     ...(hasLeftYAxis
                         ? {
@@ -647,6 +675,7 @@ export const LineGraph = ({
                                   chartSettings.leftYAxisSettings,
                                   isAreaChart || isStackedBarChart,
                                   'left',
+                                  colors.axisLabel,
                                   tickOptions,
                                   gridOptions
                               ),
@@ -659,6 +688,7 @@ export const LineGraph = ({
                                   chartSettings.rightYAxisSettings,
                                   isAreaChart || isStackedBarChart,
                                   'right',
+                                  colors.axisLabel,
                                   tickOptions,
                                   gridOptions
                               ),
@@ -691,21 +721,12 @@ export const LineGraph = ({
 
     return (
         <div
-            className={clsx(className, 'rounded bg-surface-primary relative flex flex-1 flex-col', {
+            className={clsx(className, 'rounded bg-surface-primary w-full grow relative overflow-hidden', {
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,
             })}
-            ref={containerRef}
         >
-            <div
-                className={clsx('flex flex-1 w-full overflow-hidden', {
-                    'h-full': !presetChartHeight,
-                })}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={height ? { height: `${height}px` } : {}}
-            >
-                <canvas ref={canvasRef} />
-            </div>
+            <canvas ref={canvasRef} />
         </div>
     )
 }

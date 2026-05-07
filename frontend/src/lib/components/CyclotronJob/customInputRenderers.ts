@@ -18,4 +18,7 @@ export const CUSTOM_INPUT_RENDERERS: Record<
     posthog_ticket_tags: lazy(
         () => import('products/conversations/frontend/components/TicketTags/CyclotronJobInputTicketTags')
     ),
+    posthog_business_hours: lazy(
+        () => import('products/conversations/frontend/components/SlaBusinessHours/CyclotronJobInputBusinessHours')
+    ),
 }

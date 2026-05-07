@@ -32,9 +32,20 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/inter';
 
+/* Edge-fade utilities (`scroll-mask-*`) for scrollable lists/popups. */
+@import 'tailwindcss-scroll-mask';
+
 /* Design tokens — CSS custom property values + the @theme inline block. */
 @import '@posthog/quill-tokens/color-system.css';
 @import '@posthog/quill-tokens/tailwind-lib.css';
+
+/*
+ * Materialize the `@theme inline` vars from tokens as real `:root` custom
+ * properties so primitive BEM CSS (which references them via `var()`) can
+ * resolve them. `@theme inline` only resolves during Tailwind utility
+ * generation; it does not emit on `:root`.
+ */
+@import '../../../packages/primitives/src/styles/layers.css';
 
 /*
  * Scan sources, not dist. Vite HMR forwards any .tsx change in these
@@ -49,6 +60,10 @@
 @layer base {
     * {
         @apply border-border outline-ring/50;
+    }
+
+    body {
+        @apply bg-background text-foreground;
     }
 }
 

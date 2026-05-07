@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.plugins import plugin_server_api
 
@@ -44,6 +45,7 @@ class MessagePreferencesSerializer(serializers.ModelSerializer):
 
 class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     @action(detail=False, methods=["get"])
     def opt_outs(self, request, **kwargs):

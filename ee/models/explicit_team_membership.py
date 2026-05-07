@@ -24,7 +24,7 @@ class ExplicitTeamMembership(UUIDTModel):
         related_name="explicit_team_memberships",
         related_query_name="explicit_team_membership",
     )
-    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

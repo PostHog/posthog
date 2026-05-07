@@ -28,7 +28,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     language: 'swift',
                                     file: 'AppDelegate.swift',
                                     code: dedent`
-                                        let config = PostHogConfig(apiKey: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
+                                        let config = PostHogConfig(projectToken: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
                                         config.captureScreenViews = true
                                         PostHogSDK.shared.setup(config)
                                     `,

@@ -262,5 +262,71 @@
     "created_at": "2026-02-25T10:15:18+00:00",
     "priority": "normal",
     "status": "open"
+  },
+  {
+    "id": "00025",
+    "subject": "Feature flag eval inconsistent — backend or JS SDK?",
+    "description": "Hi team, we've been chasing a flake for a couple of days and honestly can't tell whether the bug is on PostHog's side (backend evaluator) or in our posthog-js setup. Hoping someone here can help us pinpoint which codebase to dig into.\n\nThe flag in question is `new-onboarding-flow` — multivariate (control / variant_a / variant_b), gated on a property cohort.\n\nWhat's happening:\n- For some users, `posthog.getFeatureFlag('new-onboarding-flow')` returns a different variant on the initial page load vs. a subsequent navigation — same `distinct_id`, no logout, same browser session.\n- We hit `/decide` directly (curl, same payload) and the response is consistent across calls.\n- We tried seeding flags via `bootstrap` from our SSR layer and the inconsistency got *worse*, not better. Disabling bootstrap stabilizes things partially.\n- We rely on Person profiles for evaluation, and we set group properties via `posthog.group(...)` in a few places.\n\nWhat's making us unsure which side this is on:\n- Could be the SDK's local cache or `loaded` callback racing with the `/decide` response (sounds like a posthog-js issue).\n- Could be the backend evaluator returning different variants depending on whether group properties have landed yet (sounds like a posthog/decide issue).\n- We're on posthog-js 1.305.0, autocapture enabled, persistence is `localStorage`.\n\nIf this is on our integration we'll happily dig in and report back. If it's the backend evaluator we'd appreciate a hand reproducing. Either way we'd love to know which repo to look at first.\n\n-----\nKind: bug\nTarget area: feature-flags\nReport event: http://go/ticketByUUID/00000000-0000-0000-0000-000000000250\nAdmin: https://us.posthog.com/admin/posthog/user/000250/change/ (organization ID 00000000-0000-0000-0000-000000000025: Stark Industries, project ID 00250: Production)\nPersons-on-events mode for project: person_id_override_properties_on_events",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00025.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"escalated\",\"high\",\"org-checked\",\"feature_flags\",\"plan_teams\",\"priority_e_scale\"]",
+    "created_at": "2026-02-26T09:42:11+00:00",
+    "priority": "high",
+    "status": "open"
+  },
+  {
+    "id": "00026",
+    "subject": "Session replay crash on mobile — Android and iOS both affected, which SDK should we pin first?",
+    "description": "Hi team — after upgrading both our mobile apps (Android 4.2.0 → 4.3.0, iOS 3.18.0 → 3.19.0) at the same time, we started seeing crashes whenever session replay tries to start. Same calendar week, same release train.\n\nThe crash signature looks similar on both platforms — happens during replay setup, before the first masked frame is captured. Stack traces mention `SessionReplay` / replay-config classes on both. We've rolled both apps back to the previous version and the crashes stopped.\n\nWe need to ship a fix this sprint. Both teams are blocked. Which SDK should we look at first — is this a known issue on one of them, or do we need to investigate both repos in parallel? If you can point us at the repo where the regression most likely landed (e.g. recent replay-config refactor), that'd cut our investigation time in half.\n\n-----\nKind: bug\nTarget area: session-replay\nAdmin: https://us.posthog.com/admin/posthog/user/000260/change/ (organization ID 00000000-0000-0000-0000-000000000026: Tyrell Corp, project ID 00260: Production)",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00026.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"escalated\",\"high\",\"mobile\",\"org-checked\",\"plan_teams\",\"priority_e_scale\",\"session_replay\"]",
+    "created_at": "2026-02-27T11:18:42+00:00",
+    "priority": "high",
+    "status": "open"
+  },
+  {
+    "id": "00027",
+    "subject": "Events dropped on shutdown despite calling flush()",
+    "description": "We have a backend service that captures events to PostHog. On graceful shutdown we call `flush()` before exiting, but we still see ~5-10% of events from the last few seconds going missing in PostHog.\n\nReading the docs, it sounded like `flush()` should be synchronous and block until the queue is drained, but in practice the process exits and the events never arrive. We've tried `await flush()` (where it's a coroutine), tried adding a `sleep(2)` after the call, tried moving it into a SIGTERM handler. None of it fully closes the gap.\n\nThis is a long-running daemon that handles bursts of work and shuts down between bursts, so the shutdown path is exercised constantly. Losing 5-10% of events at every shutdown cycle is meaningful for our analytics.\n\nIs `flush()` truly blocking, or is there a separate method we should be calling? What's the right shutdown sequence to guarantee delivery?\n\n-----\nKind: support\nTarget area: sdk\nAdmin: https://us.posthog.com/admin/posthog/user/000270/change/ (organization ID 00000000-0000-0000-0000-000000000027: Massive Dynamic, project ID 00270: Production)",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00027.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"medium\",\"org-checked\",\"plan_teams\",\"priority_e_scale\",\"sdk\"]",
+    "created_at": "2026-02-28T08:54:09+00:00",
+    "priority": "normal",
+    "status": "open"
+  },
+  {
+    "id": "00028",
+    "subject": "Replay export missing on self-hosted FOSS — bug or feature-gated?",
+    "description": "We run self-hosted PostHog (latest FOSS build) for our small team. The 1.42 changelog mentions a new \"replay export\" feature that lets you download session recordings as MP4. I'd love to use it, but I can't find the option anywhere in the Settings page or the recording playback UI.\n\nIs this just not exposed in the FOSS edition, or is it a bug in our deployment? I checked the docs and they describe the feature unconditionally without mentioning a paid-only restriction. We've fully restarted the stack and re-pulled the image after the upgrade.\n\nIf it's intentionally cloud/paid-only, that's fine — but we'd want to file a feature request to surface that more clearly in the docs, and possibly a separate request to add it to FOSS. Which repo should we file each of those against?\n\n-----\nKind: support\nTarget area: self-hosted\nAdmin: https://us.posthog.com/admin/posthog/user/000280/change/ (organization ID 00000000-0000-0000-0000-000000000028: Cyberlife, project ID 00280: Self-hosted)",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00028.json",
+    "type": null,
+    "tags": "[\"community\",\"low\",\"org-checked\",\"plan_self-hosted\",\"priority_h_self-hosted\",\"self_hosted\"]",
+    "created_at": "2026-03-02T14:22:55+00:00",
+    "priority": "low",
+    "status": "open"
+  },
+  {
+    "id": "00029",
+    "subject": "Large captures (>256KB) silently dropped — server or SDK?",
+    "description": "Our Django service captures events using the PostHog backend SDK. After upgrading both PostHog server and the SDK last week, we noticed that events larger than around 256KB are being silently dropped. The SDK call returns successfully (no exception), but the events never appear in our PostHog instance.\n\nWe self-host PostHog. The server's ingestion logs don't show these requests at all — they look like they're being rejected at the edge before any business logic runs. But we can't rule out the SDK serializing them in a way that gets dropped before the network call either, since we don't see anything in the SDK's debug logs about a payload-size guard.\n\nSmaller events (< ~100KB) capture fine. The cutoff is somewhere around 256KB. We're sending one large event with a JSON property that contains a serialized graph of objects (not ideal, we know — we can refactor — but we'd like to understand the limit and where it's enforced).\n\nIs there a documented size limit? Is it on the server or the SDK side? Which repo should we look at to confirm the threshold?\n\n-----\nKind: bug\nTarget area: capture\nAdmin: https://us.posthog.com/admin/posthog/user/000290/change/ (organization ID 00000000-0000-0000-0000-000000000029: Aperture Science, project ID 00290: Self-hosted)",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00029.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"medium\",\"org-checked\",\"plan_self-hosted\",\"priority_h_self-hosted\",\"capture\",\"self_hosted\"]",
+    "created_at": "2026-03-04T09:30:18+00:00",
+    "priority": "normal",
+    "status": "open"
+  },
+  {
+    "id": "00030",
+    "subject": "Plugin throwing `runEventPipeline is not a function` after self-hosted upgrade — was it removed?",
+    "description": "Hi — we maintain a custom processing plugin that imports `runEventPipeline` from PostHog's plugin-server ingestion code. After upgrading our self-hosted instance from 1.40 to 1.43 last weekend, the plugin is now throwing `TypeError: runEventPipeline is not a function` at startup, and our event ingestion is silently broken (events accepted at the edge but never reaching ClickHouse).\n\nThe changelog between 1.40 and 1.43 mentions an ingestion overhaul — something about a new `EventPipelineRunner` class and a step-by-step restructure — but it doesn't say outright whether `runEventPipeline` was renamed, moved, or removed entirely. We need to know:\n\n1. Is `runEventPipeline` still exported from the plugin-server ingestion entrypoint, or has it been deleted? If you can actually look at the current source of the relevant file and confirm what's defined there now, that would unblock us — we don't trust the changelog alone.\n2. If it was renamed or moved, what's the new import path / function name in master today?\n3. We remember plugin-server used to live in its own repo (`PostHog/plugin-server`) and was later folded into the main repo. Which one currently owns this code in master?\n\nWe need to ship a hotfix today. Please confirm the current state of the function in the actual file (not just the changelog) and point us at the repo + path where the current `runEventPipeline` (or its replacement) is defined.\n\n-----\nKind: bug\nTarget area: ingestion\nAdmin: https://us.posthog.com/admin/posthog/user/000300/change/ (organization ID 00000000-0000-0000-0000-000000000030: Initech, project ID 00300: Self-hosted)",
+    "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00030.json",
+    "type": null,
+    "tags": "[\"ack_email_sent\",\"escalated\",\"high\",\"org-checked\",\"plan_self-hosted\",\"plugin_server\",\"priority_h_self-hosted\",\"self_hosted\"]",
+    "created_at": "2026-03-05T11:08:33+00:00",
+    "priority": "high",
+    "status": "open"
   }
 ]

@@ -1,6 +1,10 @@
 use crate::api::errors::FlagError;
 use crate::flags::flag_matching::EvaluationType;
-use crate::metrics::consts::FLAG_DB_OPERATIONS_PER_REQUEST;
+use crate::handler::phases::PhaseDurations;
+use crate::metrics::consts::{
+    FLAG_BODY_READ_TIME_MS, FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST,
+    FLAG_PHASE_DURATION_MS, FLAG_PRE_HANDLER_TIME_MS, FLAG_QUEUE_TIME_MS,
+};
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Instant;
@@ -194,6 +198,8 @@ pub struct FlagsCanonicalLogLine {
     pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
+    /// Flag keys that were overridden with custom definitions (for testing/historical evaluation)
+    pub flags_overridden: Option<Vec<String>>,
     /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
     pub flags_cache_source: Option<&'static str>,
 
@@ -255,6 +261,44 @@ pub struct FlagsCanonicalLogLine {
     /// None when the header is missing or the computed delta is negative.
     pub queue_time_ms: Option<i64>,
 
+    /// Synchronous pre-handler work in milliseconds: covers UA parse, IP
+    /// rate-limit, token extract, and token rate-limit. Subdivides
+    /// `queue_time_ms` so we can attribute spikes to the right tier. None
+    /// when the request was rejected before reaching the pre-handler stamp.
+    pub pre_handler_duration_ms: Option<u64>,
+
+    /// Time spent waiting for a permit on the tower
+    /// `ConcurrencyLimitLayer` (Phase F instrumentation). None until that
+    /// phase ships; while None, `emit_timing_metrics` skips emission.
+    pub concurrency_limit_wait_ms: Option<u64>,
+
+    /// Wall-clock duration of inbound request body buffering, in
+    /// milliseconds with sub-ms precision. Captured by the
+    /// `record_body_read` middleware shim, populated on the request
+    /// extensions, and seeded onto the canonical log at handler entry.
+    /// `None` only when the shim is absent on the route that reached the
+    /// handler (the production wiring installs it on `/flags|/decide`,
+    /// so this is the rollout-safety / test fallback path); the shim
+    /// itself records a duration for every method, including empty
+    /// bodies. `f64` (not `u64`) because `BODY_READ_BUCKETS_MS` has
+    /// sub-ms boundaries — integer-ms truncation would hide warm
+    /// in-memory POSTs in the bottom bucket.
+    pub body_read_ms: Option<f64>,
+
+    /// Per-phase wall-clock breakdown of `process_request_inner`.
+    /// Populated by [`crate::handler::phases::PhaseGuard`] drops; emitted
+    /// as a labeled histogram by [`Self::emit_phase_metrics`] once the
+    /// `team_id` is resolved.
+    pub phases: PhaseDurations,
+
+    /// Duration of the synchronous Redis HINCRBY billing increment in
+    /// milliseconds. Only populated from endpoints that run inside a canonical
+    /// log scope (currently `/flags` and `/decide`). `None` when billing was
+    /// skipped (no billable flags or `skip_writes`), or when called from an
+    /// endpoint that does not emit a canonical log line (e.g.
+    /// `/flags/definitions`).
+    pub billing_duration_ms: Option<u64>,
+
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
     pub team_cache_source: Option<&'static str>,
@@ -283,6 +327,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
+            flags_overridden: None,
             flags_cache_source: None,
             eval: EvalCounters::default(),
             db_property_fetches: 0,
@@ -302,6 +347,11 @@ impl Default for FlagsCanonicalLogLine {
             rate_limited: false,
             rate_limit_warned: false,
             queue_time_ms: None,
+            pre_handler_duration_ms: None,
+            concurrency_limit_wait_ms: None,
+            body_read_ms: None,
+            phases: PhaseDurations::default(),
+            billing_duration_ms: None,
             team_cache_source: None,
             http_status: 200,
             error_code: None,
@@ -344,6 +394,7 @@ impl FlagsCanonicalLogLine {
             flags_device_id_bucketing = self.eval.flags_device_id_bucketing,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
+            flags_overridden = ?self.flags_overridden,
             flags_cache_source = self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,
             person_queries = self.person_queries,
@@ -367,6 +418,10 @@ impl FlagsCanonicalLogLine {
             rate_limited = self.rate_limited,
             rate_limit_warned = self.rate_limit_warned,
             queue_time_ms = self.queue_time_ms,
+            pre_handler_duration_ms = self.pre_handler_duration_ms,
+            concurrency_limit_wait_ms = self.concurrency_limit_wait_ms,
+            body_read_ms = self.body_read_ms,
+            billing_duration_ms = self.billing_duration_ms,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             "canonical_log_line"
@@ -434,6 +489,88 @@ impl FlagsCanonicalLogLine {
         }
     }
 
+    /// Emit queue/pre-handler/concurrency-wait histograms with `team_id` labels.
+    ///
+    /// Owns the `flags_queue_time_ms` emission (replaces a previously-unlabeled
+    /// emission in `endpoint::flags`). Sibling metrics share the same label
+    /// shape so a dashboard can subtract them safely:
+    ///
+    ///   queue_time = pre_handler + concurrency_wait + (envoy + axum + non-tower)
+    ///
+    /// `concurrency_limit_wait_ms` intentionally omits `team_id` — permit-wait
+    /// is a property of pod-level load, not of any one team, and labeling
+    /// would mislead readers of the dashboard.
+    ///
+    /// Call once per request, after `team_id` has been resolved (i.e. after
+    /// `process_request` returns) and before `emit()`.
+    pub fn emit_timing_metrics(&self) {
+        let team_id_label = self
+            .team_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let team_id_labels = [("team_id".to_string(), team_id_label)];
+
+        if let Some(delta) = self.queue_time_ms {
+            // Filter out negative deltas defensively. The endpoint already
+            // filters them, but the field is i64 to preserve the original
+            // calculation; negative values would break the histogram.
+            if delta >= 0 {
+                common_metrics::histogram(FLAG_QUEUE_TIME_MS, &team_id_labels, delta as f64);
+            }
+        }
+
+        if let Some(duration) = self.pre_handler_duration_ms {
+            common_metrics::histogram(FLAG_PRE_HANDLER_TIME_MS, &team_id_labels, duration as f64);
+        }
+
+        if let Some(wait) = self.concurrency_limit_wait_ms {
+            common_metrics::histogram(FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, &[], wait as f64);
+        }
+
+        if let Some(body_read) = self.body_read_ms {
+            // No `team_id` label — body buffering happens before
+            // authentication, mirroring `concurrency_limit_wait_ms`.
+            common_metrics::histogram(FLAG_BODY_READ_TIME_MS, &[], body_read);
+        }
+    }
+
+    /// Emit `flags_phase_duration_ms` histograms for every phase that ran.
+    ///
+    /// Each entry is labeled `phase=<name>` and `team_id=<id>` (filtered
+    /// through the existing team allowlist; non-allowlisted teams collapse
+    /// to `unknown`). Phases that never ran on this request — e.g.
+    /// `record_billing` for a non-billable request, `cookieless` for a
+    /// quota-limited request — are silently skipped.
+    ///
+    /// Call once per request, after `team_id` has been resolved (i.e.
+    /// after `process_request` returns). Idempotent only in the trivial
+    /// sense: calling twice would double-count, so callers must not.
+    pub fn emit_phase_metrics(&self) {
+        let team_id_label_value = self
+            .team_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        for (phase, elapsed) in self.phases.iter() {
+            // The phase label varies per iteration; team_id is constant
+            // for the request. We have to go through `common_metrics::
+            // histogram` (rather than `metrics::histogram!` directly) to
+            // pick up the team-id allowlist filter — without it cardinality
+            // is `phase_count × every_team`, not `phase_count ×
+            // allowlist_size`. Allocations are bounded: ~four short
+            // `String`s per phase, ~28 per request total.
+            let labels = [
+                ("phase".to_string(), phase.name().to_string()),
+                ("team_id".to_string(), team_id_label_value.clone()),
+            ];
+            common_metrics::histogram(
+                FLAG_PHASE_DURATION_MS,
+                &labels,
+                elapsed.as_secs_f64() * 1000.0,
+            );
+        }
+    }
+
     /// Merge evaluation counters accumulated on a rayon thread back into this log.
     ///
     /// Delegates to [`EvalCounters::merge`], which uses an exhaustive destructuring
@@ -464,6 +601,40 @@ mod tests {
     use super::*;
     use crate::api::errors::{ClientFacingError, FlagError};
     use crate::utils::graph_utils::DependencyType;
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+    /// Shared metric-snapshot fixture for the `emit_*_metrics` test
+    /// modules below. Both modules need the same captured-sample shape
+    /// (name + sorted labels + raw value) and the same conversion from
+    /// `DebuggingRecorder`'s nested-tuple snapshot.
+    struct MetricSample {
+        name: String,
+        labels: Vec<(String, String)>,
+        #[allow(dead_code)]
+        value: DebugValue,
+    }
+
+    fn snapshot_metrics(recorder: &DebuggingRecorder) -> Vec<MetricSample> {
+        recorder
+            .snapshotter()
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .map(|(ckey, _, _, value)| {
+                let key = ckey.key();
+                let mut labels: Vec<(String, String)> = key
+                    .labels()
+                    .map(|l| (l.key().to_string(), l.value().to_string()))
+                    .collect();
+                labels.sort();
+                MetricSample {
+                    name: key.name().to_string(),
+                    labels,
+                    value,
+                }
+            })
+            .collect()
+    }
 
     #[test]
     fn test_new_creates_with_defaults() {
@@ -507,6 +678,8 @@ mod tests {
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
         assert!(log.queue_time_ms.is_none());
+        assert!(log.pre_handler_duration_ms.is_none());
+        assert!(log.concurrency_limit_wait_ms.is_none());
     }
 
     #[test]
@@ -551,6 +724,250 @@ mod tests {
         log.rate_limited = true;
         log.error_code = Some("rate_limited");
         log.emit();
+    }
+
+    mod emit_timing_metrics_tests {
+        use super::*;
+        use rstest::rstest;
+
+        fn set_queue_time(log: &mut FlagsCanonicalLogLine) {
+            log.queue_time_ms = Some(150);
+        }
+
+        fn set_pre_handler(log: &mut FlagsCanonicalLogLine) {
+            log.pre_handler_duration_ms = Some(3);
+        }
+
+        #[rstest]
+        #[case::queue_time(set_queue_time, "flags_queue_time_ms", 42)]
+        #[case::pre_handler(set_pre_handler, "flags_pre_handler_time_ms", 7)]
+        fn test_emits_timing_metric_with_team_id_label(
+            #[case] set_field: fn(&mut FlagsCanonicalLogLine),
+            #[case] metric_name: &str,
+            #[case] team_id: i32,
+        ) {
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                log.team_id = Some(team_id);
+                set_field(&mut log);
+                log.emit_timing_metrics();
+            });
+
+            let metrics = snapshot_metrics(&recorder);
+            let sample = metrics
+                .iter()
+                .find(|s| s.name == metric_name)
+                .unwrap_or_else(|| panic!("{metric_name} not emitted"));
+            let expected = team_id.to_string();
+            assert!(
+                sample
+                    .labels
+                    .iter()
+                    .any(|(k, v)| k == "team_id" && v == &expected),
+                "expected team_id={expected} label on {metric_name}, got {:?}",
+                sample.labels
+            );
+        }
+
+        #[test]
+        fn test_concurrency_wait_emitted_without_team_id_label() {
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                log.team_id = Some(99);
+                log.concurrency_limit_wait_ms = Some(12);
+                log.emit_timing_metrics();
+            });
+
+            let metrics = snapshot_metrics(&recorder);
+            let cw = metrics
+                .iter()
+                .find(|s| s.name == "flags_concurrency_limit_wait_ms")
+                .expect("flags_concurrency_limit_wait_ms not emitted");
+            // Must NOT carry team_id — permit-wait is pod-level, not per-team.
+            assert!(
+                !cw.labels.iter().any(|(k, _)| k == "team_id"),
+                "concurrency_limit_wait_ms should not carry team_id, got {:?}",
+                cw.labels
+            );
+        }
+
+        #[test]
+        fn test_unknown_team_id_when_team_unresolved() {
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                // team_id stays None — e.g. token extraction failed before auth.
+                log.queue_time_ms = Some(20);
+                log.emit_timing_metrics();
+            });
+
+            let metrics = snapshot_metrics(&recorder);
+            let queue = metrics
+                .iter()
+                .find(|s| s.name == "flags_queue_time_ms")
+                .expect("flags_queue_time_ms not emitted");
+            assert!(queue
+                .labels
+                .iter()
+                .any(|(k, v)| k == "team_id" && v == "unknown"));
+        }
+
+        #[test]
+        fn test_no_emission_when_field_is_none() {
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                log.emit_timing_metrics();
+            });
+
+            let metrics = snapshot_metrics(&recorder);
+            for name in [
+                "flags_queue_time_ms",
+                "flags_pre_handler_time_ms",
+                "flags_concurrency_limit_wait_ms",
+                "flags_body_read_ms",
+            ] {
+                assert!(
+                    !metrics.iter().any(|s| s.name == name),
+                    "did not expect {name} to be emitted with no data"
+                );
+            }
+        }
+
+        #[test]
+        fn test_negative_queue_time_is_skipped() {
+            // Defensive: the endpoint already filters negative deltas, but
+            // belt-and-suspenders since `queue_time_ms` is i64.
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                log.queue_time_ms = Some(-5);
+                log.emit_timing_metrics();
+            });
+            let metrics = snapshot_metrics(&recorder);
+            assert!(!metrics.iter().any(|s| s.name == "flags_queue_time_ms"));
+        }
+
+        #[test]
+        fn test_body_read_emitted_without_team_id_label() {
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                log.team_id = Some(123);
+                log.body_read_ms = Some(7.0);
+                log.emit_timing_metrics();
+            });
+
+            let metrics = snapshot_metrics(&recorder);
+            let sample = metrics
+                .iter()
+                .find(|s| s.name == "flags_body_read_ms")
+                .expect("flags_body_read_ms not emitted");
+            // Pod-level: must NOT carry team_id, mirroring concurrency_limit_wait_ms.
+            assert!(
+                !sample.labels.iter().any(|(k, _)| k == "team_id"),
+                "body_read_ms should not carry team_id, got {:?}",
+                sample.labels
+            );
+        }
+    }
+
+    mod emit_phase_metrics_tests {
+        use super::*;
+        use crate::handler::phases::Phase;
+        use std::time::Duration;
+
+        #[test]
+        fn test_emits_one_sample_per_recorded_phase() {
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                log.team_id = Some(42);
+                log.phases.record(Phase::Auth, Duration::from_millis(3));
+                log.phases
+                    .record(Phase::Evaluate, Duration::from_millis(50));
+                log.emit_phase_metrics();
+            });
+
+            let metrics = snapshot_metrics(&recorder);
+            let phase_samples: Vec<_> = metrics
+                .iter()
+                .filter(|s| s.name == "flags_phase_duration_ms")
+                .collect();
+            assert_eq!(phase_samples.len(), 2);
+
+            let phase_label_values: Vec<&str> = phase_samples
+                .iter()
+                .flat_map(|s| {
+                    s.labels
+                        .iter()
+                        .filter(|(k, _)| k == "phase")
+                        .map(|(_, v)| v.as_str())
+                })
+                .collect();
+            assert!(phase_label_values.contains(&"auth"));
+            assert!(phase_label_values.contains(&"evaluate"));
+        }
+
+        #[test]
+        fn test_phase_carries_team_id_label() {
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                log.team_id = Some(777);
+                log.phases
+                    .record(Phase::Cookieless, Duration::from_millis(1));
+                log.emit_phase_metrics();
+            });
+
+            let metrics = snapshot_metrics(&recorder);
+            let sample = metrics
+                .iter()
+                .find(|s| s.name == "flags_phase_duration_ms")
+                .expect("flags_phase_duration_ms not emitted");
+            assert!(sample
+                .labels
+                .iter()
+                .any(|(k, v)| k == "team_id" && v == "777"));
+            assert!(sample
+                .labels
+                .iter()
+                .any(|(k, v)| k == "phase" && v == "cookieless"));
+        }
+
+        #[test]
+        fn test_phase_unknown_team_when_unresolved() {
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                // team_id stays None (e.g. auth failed before team resolution).
+                log.phases.record(Phase::Auth, Duration::from_millis(2));
+                log.emit_phase_metrics();
+            });
+
+            let metrics = snapshot_metrics(&recorder);
+            let sample = metrics
+                .iter()
+                .find(|s| s.name == "flags_phase_duration_ms")
+                .expect("flags_phase_duration_ms not emitted");
+            assert!(sample
+                .labels
+                .iter()
+                .any(|(k, v)| k == "team_id" && v == "unknown"));
+        }
+
+        #[test]
+        fn test_no_emission_when_no_phases_recorded() {
+            let recorder = DebuggingRecorder::new();
+            metrics::with_local_recorder(&recorder, || {
+                let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+                log.emit_phase_metrics();
+            });
+            let metrics = snapshot_metrics(&recorder);
+            assert!(!metrics.iter().any(|s| s.name == "flags_phase_duration_ms"));
+        }
     }
 
     #[test]

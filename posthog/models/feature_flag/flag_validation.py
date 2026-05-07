@@ -121,8 +121,10 @@ def _exclude_realtime_backfilled_cohort_properties(
 def _base_query_for_aggregation(group_type_index: Optional[int], team_id: int) -> QuerySet:
     """Return the appropriate Person or Group queryset for a given aggregation type."""
     if group_type_index is None:
-        return Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(team_id=team_id)
-    return Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+        return Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(  # nosemgrep: no-direct-persons-db-orm
+            team_id=team_id
+        )  # nosemgrep: no-direct-persons-db-orm
+    return Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(  # nosemgrep: no-direct-persons-db-orm
         team_id=team_id, group_type_index=group_type_index
     )
 

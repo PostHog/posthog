@@ -68,8 +68,12 @@ export const actionsLogic = kea<actionsLogicType>([
             (s) => [s.actions, s.filterType, s.searchTerm, s.user],
             (actions, filterType, searchTerm, user) => {
                 let data: ActionType[] = actions
-                if (searchTerm) {
-                    data = actionsFuse.search(searchTerm).map((result) => result.item)
+                // Trim before handing the query to Fuse: a trailing space inflates the pattern
+                // length, which raises the effective edit budget (threshold × length) and lets
+                // unrelated items leak in (e.g. searching "mcp " matches "Map clicked").
+                const trimmedSearchTerm = searchTerm.trim()
+                if (trimmedSearchTerm) {
+                    data = actionsFuse.search(trimmedSearchTerm).map((result) => result.item)
                 }
                 if (filterType === 'me') {
                     data = data.filter((item) => item.created_by?.uuid === user?.uuid)

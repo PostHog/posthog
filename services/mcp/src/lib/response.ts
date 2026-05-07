@@ -2,17 +2,6 @@ import { encode } from '@toon-format/toon'
 
 const QUERY_PLACEHOLDER_PREFIX = '__QUERY_PLACEHOLDER_'
 
-// Claude MCP Directory requires max 25,000 tokens per tool result
-// Using ~3.5 chars per token estimate, 25k tokens ≈ 87.5k chars
-// We use 80k to leave room for the truncation message
-const MAX_RESPONSE_CHARS = 80_000
-const TRUNCATION_MESSAGE =
-    '\n\n[Response truncated - exceeded maximum length. Use more specific filters or pagination to get complete results.]'
-
-function truncate(text: string): string {
-    return text.length > MAX_RESPONSE_CHARS ? text.slice(0, MAX_RESPONSE_CHARS) + TRUNCATION_MESSAGE : text
-}
-
 function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placeholderId = { current: 0 }): any {
     if (obj === null || obj === undefined) {
         return obj
@@ -41,7 +30,7 @@ function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placehold
 
 export function formatResponse(data: any): string {
     if (typeof data === 'string') {
-        return truncate(data)
+        return data
     }
 
     const placeholderMap = new Map<string, string>()
@@ -52,5 +41,5 @@ export function formatResponse(data: any): string {
         result = result.replace(`${placeholder}`, jsonValue)
     }
 
-    return truncate(result)
+    return result
 }

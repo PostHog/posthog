@@ -488,9 +488,9 @@ export interface PropertyGroupFilterValueApi {
  * * `user` - user
  * `role` - role
  */
-export type Type079EnumApi = (typeof Type079EnumApi)[keyof typeof Type079EnumApi]
+export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
 
-export const Type079EnumApi = {
+export const AssigneeTypeEnumApi = {
     User: 'user',
     Role: 'role',
 } as const
@@ -500,7 +500,7 @@ export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: Type079EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -549,74 +549,33 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly updated_at?: string
 }
 
-export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof IntegrationKindApi]
-
-export const IntegrationKindApi = {
-    Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
-    Salesforce: 'salesforce',
-    Hubspot: 'hubspot',
-    GooglePubsub: 'google-pubsub',
-    GoogleCloudServiceAccount: 'google-cloud-service-account',
-    GoogleCloudStorage: 'google-cloud-storage',
-    GoogleAds: 'google-ads',
-    GoogleSheets: 'google-sheets',
-    LinkedinAds: 'linkedin-ads',
-    Snapchat: 'snapchat',
-    Intercom: 'intercom',
-    Email: 'email',
-    Twilio: 'twilio',
-    Linear: 'linear',
-    Github: 'github',
-    Gitlab: 'gitlab',
-    MetaAds: 'meta-ads',
-    Clickup: 'clickup',
-    RedditAds: 'reddit-ads',
-    Databricks: 'databricks',
-    TiktokAds: 'tiktok-ads',
-    BingAds: 'bing-ads',
-    Vercel: 'vercel',
-    AzureBlob: 'azure-blob',
-    Firebase: 'firebase',
-    Jira: 'jira',
-    PinterestAds: 'pinterest-ads',
-    CustomerioApp: 'customerio-app',
-    CustomerioWebhook: 'customerio-webhook',
-    CustomerioTrack: 'customerio-track',
-} as const
-
-export interface ErrorTrackingExternalReferenceIntegrationApi {
-    display_name: string
-    id: number
-    kind: IntegrationKindApi
+export interface ErrorTrackingExternalReferenceIntegrationResultApi {
+    readonly id: number
+    readonly kind: string
+    readonly display_name: string
 }
 
-export interface ErrorTrackingExternalReferenceApi {
-    external_url: string
-    id: string
-    integration: ErrorTrackingExternalReferenceIntegrationApi
+export interface ErrorTrackingExternalReferenceResultApi {
+    readonly id: string
+    readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
+    integration_id: number
+    config: unknown
+    issue: string
+    readonly external_url: string
 }
 
-export interface PaginatedErrorTrackingExternalReferenceListApi {
+export interface PaginatedErrorTrackingExternalReferenceResultListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingExternalReferenceApi[]
-}
-
-export interface PatchedErrorTrackingExternalReferenceApi {
-    readonly id?: string
-    readonly integration?: ErrorTrackingExternalReferenceIntegrationApi
-    integration_id?: number
-    config?: unknown
-    issue?: string
-    readonly external_url?: string
+    results: ErrorTrackingExternalReferenceResultApi[]
 }
 
 export interface ErrorTrackingFingerprintApi {
-    fingerprint: string
+    readonly id: string
+    readonly fingerprint: string
     readonly issue_id: string
     readonly created_at: string
 }
@@ -628,6 +587,15 @@ export interface PaginatedErrorTrackingFingerprintListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingFingerprintApi[]
+}
+
+export interface GitProviderFileLinkResolveResponseApi {
+    /** Whether a matching file URL was found. */
+    found: boolean
+    /** Resolved URL for the matching file. */
+    url?: string
+    /** Error message when input parameters are invalid. */
+    error?: string
 }
 
 /**
@@ -675,7 +643,7 @@ export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: Type079EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -768,7 +736,7 @@ export interface ErrorTrackingIssueFullApi {
     description?: string | null
     first_seen: string
     assignee: ErrorTrackingIssueAssignmentApi
-    external_issues: ErrorTrackingExternalReferenceApi[]
+    external_issues: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
     readonly cohort: ErrorTrackingIssueFullApiCohort
 }
@@ -799,7 +767,7 @@ export interface PatchedErrorTrackingIssueFullApi {
     description?: string | null
     first_seen?: string
     assignee?: ErrorTrackingIssueAssignmentApi
-    external_issues?: ErrorTrackingExternalReferenceApi[]
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
     readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
 }
@@ -835,16 +803,565 @@ export interface ErrorTrackingIssueSplitResponseApi {
     new_issue_ids: string[]
 }
 
+export interface ErrorTrackingDateRangeApi {
+    /** Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d. */
+    date_from?: string
+    /**
+     * End of the date range as an ISO timestamp or relative date. Defaults to now when omitted.
+     * @nullable
+     */
+    date_to?: string | null
+}
+
+export interface ErrorTrackingIssueQueryRequestApi {
+    /** Error tracking issue ID. */
+    issueId: string
+    /** Date range for issue impact and latest-event metadata. Defaults to the last 7 days. */
+    dateRange?: ErrorTrackingDateRangeApi
+    /** When true, exclude internal/test account data from results. Defaults to true. */
+    filterTestAccounts?: boolean
+    /**
+     * Volume buckets. Maximum 200.
+     * @minimum 0
+     * @maximum 200
+     */
+    volumeResolution?: number
+    /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
+    includeSparkline?: boolean
+}
+
+export interface ErrorTrackingAssigneeResponseApi {
+    /** Assignee user ID or role UUID. */
+    id?: string | number | null
+    /**
+     * Assignee type.
+     * @nullable
+     */
+    type?: string | null
+}
+
+export interface ErrorTrackingVolumeBucketApi {
+    /** Bucket timestamp label. */
+    label: string
+    /**
+     * Occurrence count for the bucket.
+     * @nullable
+     */
+    value?: number | null
+}
+
+export interface ErrorTrackingAggregationsApi {
+    /** Exception occurrence count. */
+    occurrences?: number
+    /** Unique user count. */
+    users?: number
+    /** Unique session count. */
+    sessions?: number
+    /** Occurrence counts per volume bucket. */
+    volumeRange?: number[]
+    /** Labeled volume buckets. */
+    volume_buckets?: ErrorTrackingVolumeBucketApi[]
+}
+
+export interface ErrorTrackingTopFrameApi {
+    /** Frame function name. */
+    function?: string
+    /** Frame source, filename, or module. */
+    source?: string
+    /** Line number. */
+    line?: number
+    /** Column number. */
+    column?: number
+    /** Whether the frame is an application frame. */
+    in_app?: boolean
+}
+
+export interface ErrorTrackingLatestReleaseApi {
+    /** Release version. */
+    version?: string
+    /** Release project/library. */
+    project?: string
+    /** Release timestamp. */
+    timestamp?: string
+    /** Git commit ID. */
+    commit_id?: string
+    /** Git branch. */
+    branch?: string
+    /** Git repository name. */
+    repo_name?: string
+}
+
+export interface ErrorTrackingImpactApi {
+    /** Exception occurrence count. */
+    occurrences?: number
+    /** Unique user count. */
+    users?: number
+    /** Unique session count. */
+    sessions?: number
+}
+
+export interface ErrorTrackingIssueDetailApi {
+    /** Error tracking issue ID. */
+    id: string
+    /**
+     * Issue name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Issue description.
+     * @nullable
+     */
+    description?: string | null
+    /** Issue status. */
+    status?: string
+    /**
+     * First seen timestamp.
+     * @nullable
+     */
+    first_seen?: string | null
+    /**
+     * Last seen timestamp.
+     * @nullable
+     */
+    last_seen?: string | null
+    /**
+     * SDK/library associated with the issue.
+     * @nullable
+     */
+    library?: string | null
+    /**
+     * Top source/file associated with the issue.
+     * @nullable
+     */
+    source?: string | null
+    /** Issue assignee. */
+    assignee?: ErrorTrackingAssigneeResponseApi | null
+    /** Aggregate counts. */
+    aggregations?: ErrorTrackingAggregationsApi | null
+    /**
+     * Top function associated with the issue.
+     * @nullable
+     */
+    function?: string | null
+    /** Top in_app application frame. */
+    top_in_app_frame?: ErrorTrackingTopFrameApi
+    /** Latest release metadata. */
+    latest_release?: ErrorTrackingLatestReleaseApi
+    /** Compact impact counts. */
+    impact?: ErrorTrackingImpactApi
+    /** Optional compact occurrence sparkline. */
+    sparkline?: number[]
+}
+
+/**
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
+ * `gt` - gt
+ * `lt` - lt
+ * `gte` - gte
+ * `lte` - lte
+ * `is_set` - is_set
+ * `is_not_set` - is_not_set
+ * `is_date_exact` - is_date_exact
+ * `is_date_after` - is_date_after
+ * `is_date_before` - is_date_before
+ * `in` - in
+ * `not_in` - not_in
+ */
+export type PropertyItemOperatorEnumApi = (typeof PropertyItemOperatorEnumApi)[keyof typeof PropertyItemOperatorEnumApi]
+
+export const PropertyItemOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Lt: 'lt',
+    Gte: 'gte',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateAfter: 'is_date_after',
+    IsDateBefore: 'is_date_before',
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
+ * * `event` - event
+ * `event_metadata` - event_metadata
+ * `feature` - feature
+ * `person` - person
+ * `cohort` - cohort
+ * `element` - element
+ * `static-cohort` - static-cohort
+ * `dynamic-cohort` - dynamic-cohort
+ * `precalculated-cohort` - precalculated-cohort
+ * `group` - group
+ * `recording` - recording
+ * `log_entry` - log_entry
+ * `behavioral` - behavioral
+ * `session` - session
+ * `hogql` - hogql
+ * `data_warehouse` - data_warehouse
+ * `data_warehouse_person_property` - data_warehouse_person_property
+ * `error_tracking_issue` - error_tracking_issue
+ * `log` - log
+ * `log_attribute` - log_attribute
+ * `log_resource_attribute` - log_resource_attribute
+ * `span` - span
+ * `span_attribute` - span_attribute
+ * `span_resource_attribute` - span_resource_attribute
+ * `revenue_analytics` - revenue_analytics
+ * `flag` - flag
+ * `workflow_variable` - workflow_variable
+ */
+export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
+
+export const PropertyFilterTypeEnumApi = {
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Feature: 'feature',
+    Person: 'person',
+    Cohort: 'cohort',
+    Element: 'element',
+    StaticCohort: 'static-cohort',
+    DynamicCohort: 'dynamic-cohort',
+    PrecalculatedCohort: 'precalculated-cohort',
+    Group: 'group',
+    Recording: 'recording',
+    LogEntry: 'log_entry',
+    Behavioral: 'behavioral',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+    RevenueAnalytics: 'revenue_analytics',
+    Flag: 'flag',
+    WorkflowVariable: 'workflow_variable',
+} as const
+
+export interface PropertyItemApi {
+    /** Key of the property you're filtering on. For example `email` or `$current_url` */
+    key: string
+    /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
+    value: string | number | boolean | (string | number)[]
+    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
+    type?: PropertyFilterTypeEnumApi | BlankEnumApi
+}
+
+/**
+ * * `ASC` - ASC
+ * `DESC` - DESC
+ */
+export type OrderDirectionEnumApi = (typeof OrderDirectionEnumApi)[keyof typeof OrderDirectionEnumApi]
+
+export const OrderDirectionEnumApi = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+/**
+ * * `summary` - summary
+ * `stack` - stack
+ * `raw` - raw
+ */
+export type VerbosityEnumApi = (typeof VerbosityEnumApi)[keyof typeof VerbosityEnumApi]
+
+export const VerbosityEnumApi = {
+    Summary: 'summary',
+    Stack: 'stack',
+    Raw: 'raw',
+} as const
+
+export interface ErrorTrackingIssueEventsQueryRequestApi {
+    /** Error tracking issue ID. */
+    issueId: string
+    /** Date range for sampled exception events. Defaults to the last 7 days. */
+    dateRange?: ErrorTrackingDateRangeApi
+    /** When true, exclude internal/test account data from results. Defaults to true. */
+    filterTestAccounts?: boolean
+    /** Advanced flat AND property filters applied to sampled events. HogQL filters are rejected. */
+    filterGroup?: PropertyItemApi[]
+    /**
+     * Search exception types, exception values, and current URL among sampled events.
+     * @maxLength 500
+     */
+    searchQuery?: string
+    /** Timestamp sort direction. Defaults to DESC.
+
+* `ASC` - ASC
+* `DESC` - DESC */
+    orderDirection?: OrderDirectionEnumApi
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+    /**
+     * Pagination offset.
+     * @minimum 0
+     */
+    offset?: number
+    /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
+
+* `summary` - summary
+* `stack` - stack
+* `raw` - raw */
+    verbosity?: VerbosityEnumApi
+    /** When true, include only stack frames marked in_app. Defaults to true. */
+    onlyAppFrames?: boolean
+}
+
+/**
+ * Normalized sampled exception event properties.
+ */
+export type ErrorTrackingEventApiProperties = { [key: string]: unknown }
+
+export interface ErrorTrackingEventApi {
+    /** Event UUID. */
+    uuid?: string
+    /** Event distinct ID. */
+    distinct_id?: string
+    /** Event timestamp. */
+    timestamp?: string
+    /** Normalized sampled exception event properties. */
+    properties?: ErrorTrackingEventApiProperties
+}
+
+export interface ErrorTrackingIssueEventsResponseApi {
+    /** Sampled exception events. */
+    results: ErrorTrackingEventApi[]
+    /** Whether more results are available. */
+    hasMore: boolean
+    /** Page size. */
+    limit: number
+    /** Current offset. */
+    offset: number
+    /** Offset to fetch the next page when hasMore is true. */
+    nextOffset?: number
+}
+
+/**
+ * * `archived` - archived
+ * `active` - active
+ * `resolved` - resolved
+ * `pending_release` - pending_release
+ * `suppressed` - suppressed
+ * `all` - all
+ */
+export type ErrorTrackingIssuesListQueryRequestStatusEnumApi =
+    (typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi)[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi]
+
+export const ErrorTrackingIssuesListQueryRequestStatusEnumApi = {
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
+    All: 'all',
+} as const
+
+export interface ErrorTrackingAssigneeApi {
+    /** User ID or role UUID to filter by. */
+    id: string | number
+    /** Assignee target type: user or role.
+
+* `user` - user
+* `role` - role */
+    type: AssigneeTypeEnumApi
+}
+
+/**
+ * * `last_seen` - last_seen
+ * `first_seen` - first_seen
+ * `occurrences` - occurrences
+ * `users` - users
+ * `sessions` - sessions
+ */
+export type ErrorTrackingIssueOrderByEnumApi =
+    (typeof ErrorTrackingIssueOrderByEnumApi)[keyof typeof ErrorTrackingIssueOrderByEnumApi]
+
+export const ErrorTrackingIssueOrderByEnumApi = {
+    LastSeen: 'last_seen',
+    FirstSeen: 'first_seen',
+    Occurrences: 'occurrences',
+    Users: 'users',
+    Sessions: 'sessions',
+} as const
+
+export interface ErrorTrackingIssuesListQueryRequestApi {
+    /** Date range for issue aggregates. Defaults to the last 7 days. */
+    dateRange?: ErrorTrackingDateRangeApi
+    /** Filter by issue status. Defaults to active.
+
+* `archived` - archived
+* `active` - active
+* `resolved` - resolved
+* `pending_release` - pending_release
+* `suppressed` - suppressed
+* `all` - all */
+    status?: ErrorTrackingIssuesListQueryRequestStatusEnumApi
+    /** Filter by issue assignee. Omit to include all assignees. */
+    assignee?: ErrorTrackingAssigneeApi | null
+    /** When true, exclude internal/test account data from results. Defaults to true. */
+    filterTestAccounts?: boolean
+    /**
+     * Free-text search across exception types, values, stack frames, and email fields.
+     * @maxLength 500
+     */
+    searchQuery?: string
+    /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected. */
+    filterGroup?: PropertyItemApi[]
+    /** Field used to sort issues. Defaults to occurrences.
+
+* `last_seen` - last_seen
+* `first_seen` - first_seen
+* `occurrences` - occurrences
+* `users` - users
+* `sessions` - sessions */
+    orderBy?: ErrorTrackingIssueOrderByEnumApi
+    /** Sort direction. Defaults to DESC.
+
+* `ASC` - ASC
+* `DESC` - DESC */
+    orderDirection?: OrderDirectionEnumApi
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Pagination offset.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Number of volume buckets. Defaults to 0 for compact aggregate counts.
+     * @minimum 0
+     * @maximum 200
+     */
+    volumeResolution?: number
+    /** Filter by SDK/library value from event $lib, for example posthog-js. */
+    library?: string | string[]
+    /**
+     * Filter by exact release ID, version, or git commit ID captured in $exception_releases.
+     * @maxLength 500
+     */
+    release?: string
+    /** Filter by exact exception fingerprint hash, not fuzzy search. */
+    fingerprint?: string | string[]
+    /**
+     * Search user/email text.
+     * @maxLength 500
+     */
+    user?: string
+    /** Filter by exact PostHog person UUID. */
+    personId?: string
+    /**
+     * Filter by current URL substring.
+     * @maxLength 1000
+     */
+    url?: string
+    /**
+     * Search stack-frame source/file path text.
+     * @maxLength 1000
+     */
+    filePath?: string
+}
+
+export interface ErrorTrackingIssueListItemApi {
+    /** Error tracking issue ID. */
+    id: string
+    /**
+     * Issue name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Issue description.
+     * @nullable
+     */
+    description?: string | null
+    /** Issue status. */
+    status?: string
+    /**
+     * First seen timestamp.
+     * @nullable
+     */
+    first_seen?: string | null
+    /**
+     * Last seen timestamp.
+     * @nullable
+     */
+    last_seen?: string | null
+    /**
+     * SDK/library associated with the issue.
+     * @nullable
+     */
+    library?: string | null
+    /**
+     * Top source/file associated with the issue.
+     * @nullable
+     */
+    source?: string | null
+    /** Issue assignee. */
+    assignee?: ErrorTrackingAssigneeResponseApi | null
+    /** Aggregate counts. */
+    aggregations?: ErrorTrackingAggregationsApi | null
+}
+
+export interface ErrorTrackingIssuesListResponseApi {
+    /** Issue rows. */
+    results: ErrorTrackingIssueListItemApi[]
+    /** Whether more results are available. */
+    hasMore: boolean
+    /** Page size. */
+    limit: number
+    /** Current offset. */
+    offset: number
+    /** Offset to fetch the next page when hasMore is true. */
+    nextOffset?: number
+}
+
+export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
+
 export interface ErrorTrackingRecommendationApi {
     readonly id: string
     readonly type: string
-    readonly meta: unknown
+    readonly meta: ErrorTrackingRecommendationApiMeta
+    readonly completed: boolean
     /** @nullable */
     readonly computed_at: string | null
     /** @nullable */
     readonly dismissed_at: string | null
-    /** @nullable */
-    readonly next_refresh_at: string | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -858,33 +1375,94 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown | null
-    version: string
-    project: string
+export interface ErrorTrackingSettingsApi {
+    /**
+     * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the project-wide rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_bucket_size_minutes?: number | null
+    /**
+     * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    per_issue_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the per-issue rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    per_issue_rate_limit_bucket_size_minutes?: number | null
 }
 
-export interface PaginatedErrorTrackingReleaseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingReleaseApi[]
+export interface PatchedErrorTrackingSettingsApi {
+    /**
+     * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the project-wide rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    project_rate_limit_bucket_size_minutes?: number | null
+    /**
+     * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+     * @minimum 1
+     * @nullable
+     */
+    per_issue_rate_limit_value?: number | null
+    /**
+     * Bucket window over which the per-issue rate limit applies, in minutes.
+     * @minimum 1
+     * @nullable
+     */
+    per_issue_rate_limit_bucket_size_minutes?: number | null
 }
 
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown | null
-    version?: string
-    project?: string
+export interface ErrorTrackingSpikeDetectionConfigApi {
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
+    snooze_duration_minutes: number
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
+    multiplier: number
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
+    threshold: number
+}
+
+export interface PatchedErrorTrackingSpikeDetectionConfigApi {
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
+    snooze_duration_minutes?: number
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
+    multiplier?: number
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
+    threshold?: number
 }
 
 export interface ErrorTrackingSpikeEventIssueApi {
@@ -910,6 +1488,16 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingSpikeEventApi[]
+}
+
+export interface ErrorTrackingReleaseApi {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown | null
+    version: string
+    project: string
 }
 
 export interface ErrorTrackingStackFrameApi {
@@ -956,6 +1544,17 @@ export interface PaginatedErrorTrackingSuppressionRuleListApi {
     results: ErrorTrackingSuppressionRuleApi[]
 }
 
+export interface ErrorTrackingSuppressionRuleCreateRequestApi {
+    /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
@@ -970,25 +1569,54 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly updated_at?: string
 }
 
+export interface PaginatedErrorTrackingReleaseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingReleaseApi[]
+}
+
+export interface PatchedErrorTrackingReleaseApi {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    metadata?: unknown | null
+    version?: string
+    project?: string
+}
+
 /**
- * Release associated with this symbol set
+ * Release associated with this symbol set, if any.
  * @nullable
  */
 export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
 
 export interface ErrorTrackingSymbolSetApi {
+    /** Unique symbol set ID. */
     readonly id: string
-    ref: string
+    /** Reference used to match stack frames to this symbol set. */
+    readonly ref: string
+    /** Project/team ID that owns this symbol set. */
     readonly team_id: number
+    /** When this symbol set row was created. */
     readonly created_at: string
-    /** @nullable */
-    last_used?: string | null
-    /** @nullable */
-    storage_ptr?: string | null
-    /** @nullable */
-    failure_reason?: string | null
     /**
-     * Release associated with this symbol set
+     * When this symbol set was last used to resolve a stack frame.
+     * @nullable
+     */
+    readonly last_used: string | null
+    /**
+     * Reason symbol lookup failed, if the source map is missing or invalid.
+     * @nullable
+     */
+    readonly failure_reason: string | null
+    /** Whether this symbol set has an uploaded source map file available to download. */
+    readonly has_uploaded_file: boolean
+    /**
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     readonly release: ErrorTrackingSymbolSetApiRelease
@@ -1004,27 +1632,91 @@ export interface PaginatedErrorTrackingSymbolSetListApi {
 }
 
 /**
- * Release associated with this symbol set
+ * Release associated with this symbol set, if any.
  * @nullable
  */
 export type PatchedErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
 
 export interface PatchedErrorTrackingSymbolSetApi {
+    /** Unique symbol set ID. */
     readonly id?: string
-    ref?: string
+    /** Reference used to match stack frames to this symbol set. */
+    readonly ref?: string
+    /** Project/team ID that owns this symbol set. */
     readonly team_id?: number
+    /** When this symbol set row was created. */
     readonly created_at?: string
-    /** @nullable */
-    last_used?: string | null
-    /** @nullable */
-    storage_ptr?: string | null
-    /** @nullable */
-    failure_reason?: string | null
     /**
-     * Release associated with this symbol set
+     * When this symbol set was last used to resolve a stack frame.
+     * @nullable
+     */
+    readonly last_used?: string | null
+    /**
+     * Reason symbol lookup failed, if the source map is missing or invalid.
+     * @nullable
+     */
+    readonly failure_reason?: string | null
+    /** Whether this symbol set has an uploaded source map file available to download. */
+    readonly has_uploaded_file?: boolean
+    /**
+     * Release associated with this symbol set, if any.
      * @nullable
      */
     readonly release?: PatchedErrorTrackingSymbolSetApiRelease
+}
+
+export interface _SymbolSetDownloadResponseApi {
+    /** Presigned URL to download the source map file. Use immediately; expires after one hour. */
+    url: string
+}
+
+export interface ErrorTrackingSymbolSetFinishUploadApi {
+    /** Hash of the uploaded symbol set content. */
+    content_hash: string
+}
+
+export interface ErrorTrackingSymbolSetBulkDeleteApi {
+    /** Symbol set IDs to delete. */
+    ids: string[]
+}
+
+/**
+ * Map of symbol set ID to uploaded content hash.
+ */
+export type ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes = { [key: string]: string }
+
+export interface ErrorTrackingSymbolSetBulkFinishUploadApi {
+    /** Map of symbol set ID to uploaded content hash. */
+    content_hashes: ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes
+}
+
+export interface ErrorTrackingSymbolSetUploadApi {
+    /** Symbol set reference to upload. */
+    chunk_id: string
+    /**
+     * Optional error tracking release ID associated with this symbol set.
+     * @nullable
+     */
+    release_id?: string | null
+    /**
+     * Optional hash of the symbol set content, used to skip unchanged uploads.
+     * @nullable
+     */
+    content_hash?: string | null
+}
+
+export interface ErrorTrackingSymbolSetBulkStartUploadApi {
+    /** Legacy list of symbol set references to upload, all associated with `release_id`. */
+    chunk_ids?: string[]
+    /**
+     * Optional error tracking release ID used with `chunk_ids`.
+     * @nullable
+     */
+    release_id?: string | null
+    /** Symbol sets to upload with per-symbol release IDs and content hashes. */
+    symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
+    /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+    force?: boolean
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
@@ -1060,6 +1752,52 @@ export type ErrorTrackingFingerprintsListParams = {
     offset?: number
 }
 
+export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
+}
+
+export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string
+}
+
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
@@ -1072,17 +1810,6 @@ export type ErrorTrackingIssuesListParams = {
 }
 
 export type ErrorTrackingRecommendationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -1126,6 +1853,17 @@ export type ErrorTrackingSuppressionRulesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
@@ -1135,26 +1873,39 @@ export type ErrorTrackingSymbolSetsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+ * Sort order for symbol sets. Prefix with `-` for descending order.
+
+* `created_at` - created_at
+* `-created_at` - -created_at
+* `ref` - ref
+* `-ref` - -ref
+* `last_used` - last_used
+* `-last_used` - -last_used
+ * @minLength 1
+ */
+    order_by?: string
+    /**
+     * Exact symbol set reference to filter by.
+     * @minLength 1
+     */
+    ref?: string
+    /**
+ * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
+
+* `all` - all
+* `valid` - valid
+* `invalid` - invalid
+ * @minLength 1
+ */
+    status?: ErrorTrackingSymbolSetsListStatus
 }
 
-export type ErrorTrackingReleasesList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
+export type ErrorTrackingSymbolSetsListStatus =
+    (typeof ErrorTrackingSymbolSetsListStatus)[keyof typeof ErrorTrackingSymbolSetsListStatus]
 
-export type ErrorTrackingSymbolSetsList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
+export const ErrorTrackingSymbolSetsListStatus = {
+    All: 'all',
+    Valid: 'valid',
+    Invalid: 'invalid',
+} as const

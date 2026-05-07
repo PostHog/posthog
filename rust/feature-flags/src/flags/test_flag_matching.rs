@@ -10,6 +10,7 @@ mod tests {
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::cohort_cache_manager::CohortCacheManager,
         flags::{
+            feature_flag_list::PreparedFlags,
             flag_group_type_mapping::GroupTypeCacheManager,
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
@@ -6399,13 +6400,13 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([1]);
 
         let flags = FeatureFlagList {
-            flags: vec![filtered_continuity_flag, active_normal_flag],
+            flags: PreparedFlags::seal(vec![filtered_continuity_flag, active_normal_flag]),
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -6493,12 +6494,12 @@ mod tests {
         );
 
         let flags = FeatureFlagList {
-            flags: vec![base_flag, dependent_flag],
-            evaluation_metadata: EvaluationMetadata {
+            flags: PreparedFlags::seal(vec![base_flag, dependent_flag]),
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -6597,13 +6598,13 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([1]);
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b],
+            flags: PreparedFlags::seal(vec![flag_a, flag_b]),
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -6696,13 +6697,13 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([1]);
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b],
+            flags: PreparedFlags::seal(vec![flag_a, flag_b]),
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -6888,9 +6889,9 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([2]);
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b, flag_c],
+            flags: PreparedFlags::seal(vec![flag_a, flag_b, flag_c]),
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2], vec![3]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -6898,7 +6899,7 @@ mod tests {
                     (2, HashSet::from([1])),
                     (3, HashSet::from([1, 2])),
                 ]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -8471,8 +8472,8 @@ mod tests {
         );
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b, flag_c],
-            evaluation_metadata: EvaluationMetadata {
+            flags: PreparedFlags::seal(vec![flag_a, flag_b, flag_c]),
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![3], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -8480,7 +8481,7 @@ mod tests {
                     (2, HashSet::from([3])),
                     (3, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -8564,12 +8565,12 @@ mod tests {
         );
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b],
-            evaluation_metadata: EvaluationMetadata {
+            flags: PreparedFlags::seal(vec![flag_a, flag_b]),
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![1],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
-            },
+            }),
             ..Default::default()
         };
 

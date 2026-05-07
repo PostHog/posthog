@@ -17,7 +17,7 @@ env:
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -39,10 +39,17 @@ jobs:
               with:
                   clean: false
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
@@ -57,14 +64,9 @@ jobs:
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Code quality (${{ matrix.runner }})
+        name: Node.js Code quality (depot-ubuntu-latest)
         needs: changes
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
@@ -72,7 +74,7 @@ jobs:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -103,14 +105,9 @@ jobs:
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Build (${{ matrix.runner }})
+        name: Node.js Build (depot-ubuntu-latest)
         needs: changes
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@v6
@@ -118,7 +115,7 @@ jobs:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -157,17 +154,14 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests ${{matrix.shard}}/3 (${{ matrix.runner }})
+        name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-latest-4)
         needs: changes
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30 # We know tests don't take this long
-
         strategy:
             fail-fast: false
             matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"shard":1,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":2,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":3,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":1,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true},{"shard":2,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true},{"shard":3,"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"shard":1,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":2,"runner":"depot-ubuntu-latest-4","is_shadow":false},{"shard":3,"runner":"depot-ubuntu-latest-4","is_shadow":false}]') }}
-
+                shard: [1, 2, 3]
         env:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
@@ -215,8 +209,7 @@ jobs:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  # Avoid cross-runner pollution: shadow restores but never saves
-                  save-cache: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
@@ -224,16 +217,15 @@ jobs:
                   toolchain: 1.91.1
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
-                  # Avoid cross-runner pollution: shadow restores but never saves
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               working-directory: rust
-              run: cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
+              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -246,7 +238,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py

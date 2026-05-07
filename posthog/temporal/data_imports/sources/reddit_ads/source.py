@@ -14,20 +14,21 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
-from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import reddit_ads_source
+from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsResumeConfig, reddit_ads_source
 from posthog.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
+class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.REDDITADS
@@ -41,7 +42,7 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
             name=SchemaExternalDataSourceType.REDDIT_ADS,
             label="Reddit Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Reddit Ads. Ensure you have granted PostHog access to your Reddit Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/reddit-ads).",
-            betaSource=True,
+            releaseStatus="beta",
             iconPath="/static/services/reddit.png",
             docsUrl="https://posthog.com/docs/cdp/sources/reddit-ads",
             fields=cast(
@@ -53,6 +54,7 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your Reddit Ads account ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="reddit_integration_id",
@@ -106,7 +108,15 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
 
         return schemas
 
-    def source_for_pipeline(self, config: RedditAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RedditAdsResumeConfig]:
+        return ResumableSourceManager[RedditAdsResumeConfig](inputs, RedditAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: RedditAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[RedditAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.reddit_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -118,6 +128,7 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             access_token=integration.access_token,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

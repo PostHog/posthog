@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -93,6 +93,21 @@ export const userLogic = kea<userLogicType>([
             enabled,
         }),
         updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
+        updateRealtimeNotificationForTeam: (type: string, teamId: number, enabled: boolean) => ({
+            type,
+            teamId,
+            enabled,
+        }),
+        updateRealtimeNotificationForProject: (teamId: number, types: string[], enabled: boolean) => ({
+            teamId,
+            types,
+            enabled,
+        }),
+        updateAllRealtimeNotifications: (teamIds: number[], types: string[], enabled: boolean) => ({
+            teamIds,
+            types,
+            enabled,
+        }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -235,14 +250,29 @@ export const userLogic = kea<userLogicType>([
             }
             cache.loggingOut = true
             posthog.reset()
+
+            const form = document.createElement('form')
+            form.method = 'POST'
+            form.action = '/logout'
+            form.style.display = 'none'
+
+            const csrfInput = document.createElement('input')
+            csrfInput.type = 'hidden'
+            csrfInput.name = 'csrfmiddlewaretoken'
+            csrfInput.value = getCookie('posthog_csrftoken') || ''
+            form.appendChild(csrfInput)
+
             if (preserveLocation) {
-                // Forward the current path so that after re-login the user lands back where they were
                 const { pathname, search, hash } = window.location
-                const path = pathname + search + hash
-                window.location.href = `/logout?next=${encodeURIComponent(path)}`
-            } else {
-                window.location.href = '/logout'
+                const nextInput = document.createElement('input')
+                nextInput.type = 'hidden'
+                nextInput.name = 'next'
+                nextInput.value = pathname + search + hash
+                form.appendChild(nextInput)
             }
+
+            document.body.appendChild(form)
+            form.submit()
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
@@ -429,6 +459,52 @@ export const userLogic = kea<userLogicType>([
                     ...values.user.notification_settings,
                     organization_member_join_email_disabled: organizationMemberJoinEmailDisabled,
                 },
+            })
+        },
+        updateRealtimeNotificationForTeam: ({ type, teamId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const typeMap = { ...current[type], [String(teamId)]: !enabled }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: { ...current, [type]: typeMap },
+                } as NotificationSettings,
+            })
+        },
+        updateRealtimeNotificationForProject: ({ teamId, types, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const next = { ...current }
+            for (const type of types) {
+                next[type] = { ...next[type], [String(teamId)]: !enabled }
+            }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: next,
+                } as NotificationSettings,
+            })
+        },
+        updateAllRealtimeNotifications: ({ teamIds, types, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const next = { ...current }
+            for (const type of types) {
+                const typeMap = { ...next[type] }
+                for (const teamId of teamIds) {
+                    typeMap[String(teamId)] = !enabled
+                }
+                next[type] = typeMap
+            }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: next,
+                } as NotificationSettings,
             })
         },
         updateDataPipelineErrorThreshold: async ({ threshold }, breakpoint) => {

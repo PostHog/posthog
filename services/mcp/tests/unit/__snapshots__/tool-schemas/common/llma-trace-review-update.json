@@ -1,0 +1,102 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "comment": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional comment or reasoning for the review."
+        },
+        "id": {
+            "description": "A UUID string identifying this trace review.",
+            "type": "string"
+        },
+        "queue_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared."
+        },
+        "scores": {
+            "description": "Full desired score set for this review. Omit scorers you want to leave blank.",
+            "items": {
+                "properties": {
+                    "boolean_value": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Boolean value selected for this score."
+                    },
+                    "categorical_values": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "maxLength": 128,
+                                    "type": "string"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Categorical option keys selected for this score."
+                    },
+                    "definition_id": {
+                        "description": "Stable scorer definition ID.",
+                        "type": "string"
+                    },
+                    "definition_version_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional immutable scorer version ID. Defaults to the scorer's current version."
+                    },
+                    "numeric_value": {
+                        "anyOf": [
+                            {
+                                "pattern": "^-?\\d{0,6}(?:\\.\\d{0,6})?$",
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Numeric value selected for this score."
+                    }
+                },
+                "required": ["definition_id"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "trace_id": {
+            "description": "Trace ID for the review. Only one active review can exist per trace and team.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

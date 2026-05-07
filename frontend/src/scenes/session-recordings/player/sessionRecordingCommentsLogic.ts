@@ -40,7 +40,12 @@ export const sessionRecordingCommentsLogic = kea<sessionRecordingCommentsLogicTy
                         return empty
                     }
 
-                    const response = await api.comments.list({ item_id: props.sessionRecordingId })
+                    // Pass scope so Postgres can use the (team_id, scope, item_id, ...) composite index.
+                    // All historical 'recording' comments were migrated to 'Replay' in migration 0870.
+                    const response = await api.comments.list({
+                        scope: 'Replay',
+                        item_id: props.sessionRecordingId,
+                    })
                     breakpoint()
 
                     return response.results || empty

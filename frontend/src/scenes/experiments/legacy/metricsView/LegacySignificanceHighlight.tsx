@@ -4,7 +4,12 @@ import { useValues } from 'kea'
 import { IconMinus, IconTrending } from '@posthog/icons'
 import { LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
-import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import {
+    getIsPrimaryMetricSignificant,
+    getIsSecondaryMetricSignificant,
+    getSignificanceDetails,
+    legacyExperimentLogic,
+} from '~/scenes/experiments/legacy'
 
 interface LegacySignificanceHighlightProps {
     displayOrder?: number
@@ -24,8 +29,7 @@ export function LegacySignificanceHighlight({
     isSecondary = false,
     className = '',
 }: LegacySignificanceHighlightProps): JSX.Element {
-    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant, significanceDetails, experiment } =
-        useValues(experimentLogic)
+    const { experiment, legacyPrimaryMetricsResults, legacySecondaryMetricsResults } = useValues(legacyExperimentLogic)
 
     // Convert displayOrder to UUID if UUID not provided
     let identifier = metricUuid
@@ -37,6 +41,10 @@ export function LegacySignificanceHighlight({
     if (!identifier) {
         return <div className={className} />
     }
+
+    const significanceDetails = getSignificanceDetails(legacyPrimaryMetricsResults, experiment)
+    const isPrimaryMetricSignificant = getIsPrimaryMetricSignificant(legacyPrimaryMetricsResults, experiment)
+    const isSecondaryMetricSignificant = getIsSecondaryMetricSignificant(legacySecondaryMetricsResults, experiment)
 
     const isSignificant = isSecondary
         ? isSecondaryMetricSignificant(identifier)

@@ -29,6 +29,9 @@ use crate::{
 pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub immediate_producer: FutureProducer<KafkaContext>,
+    // Dedicated producer for `cdp_internal_events`. Points at warpstream-cyclotron when
+    // `CYMBAL_CYCLOTRON_KAFKA_HOSTS` is set; otherwise falls back to `immediate_producer`.
+    pub cyclotron_producer: FutureProducer<KafkaContext>,
     pub posthog_pool: PgPool,
     pub catalog: Arc<Catalog>,
     pub symbol_resolver: Arc<dyn SymbolResolver>,
@@ -87,6 +90,24 @@ impl AppContext {
             .await;
         let immediate_producer =
             create_kafka_producer(&config.kafka, kafka_immediate_liveness).await?;
+
+        // Build the cyclotron producer if a separate broker list is configured; otherwise
+        // reuse the primary producer (so call sites can always target `cyclotron_producer`
+        // without branching).
+        let cyclotron_producer = match config.cyclotron_kafka_hosts.as_deref() {
+            Some(hosts) if !hosts.is_empty() => {
+                let mut cyclotron_config = config.kafka.clone();
+                cyclotron_config.kafka_hosts = hosts.to_string();
+                if let Some(tls) = config.cyclotron_kafka_tls {
+                    cyclotron_config.kafka_tls = tls;
+                }
+                let kafka_cyclotron_liveness = health_registry
+                    .register("cyclotron_kafka".to_string(), Duration::from_secs(30))
+                    .await;
+                create_kafka_producer(&cyclotron_config, kafka_cyclotron_liveness).await?
+            }
+            _ => immediate_producer.clone(),
+        };
 
         s3_client.ping_bucket(&config.object_storage_bucket).await?;
 
@@ -176,6 +197,7 @@ impl AppContext {
         Ok(Self {
             health_registry,
             immediate_producer,
+            cyclotron_producer,
             posthog_pool,
             catalog,
             config: config.clone(),

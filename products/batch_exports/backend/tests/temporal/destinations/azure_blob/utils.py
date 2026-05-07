@@ -43,7 +43,9 @@ async def download_blob(container: ContainerClient, name: str) -> bytes:
     """Download blob content as bytes."""
     blob_client = container.get_blob_client(name)
     stream = await blob_client.download_blob()
-    return await stream.readall()
+    data = await stream.readall()
+    assert isinstance(data, bytes)
+    return data
 
 
 def decompress(data: bytes, compression: str | None) -> bytes:

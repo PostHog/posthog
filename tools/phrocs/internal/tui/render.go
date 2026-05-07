@@ -108,6 +108,7 @@ func (m Model) renderSidebar() string {
 			iconColor: iconColor,
 			selected:  i == m.servicesCursor,
 			unread:    p.Unread(),
+			standby:   status.IsStandby(),
 			innerW:    innerW,
 			isDark:    m.isDark,
 		}))
@@ -177,6 +178,7 @@ func (m Model) renderGroupedSidebar(h, innerW int) string {
 			iconColor: iconColor,
 			selected:  i == m.entryCursor,
 			unread:    p.Unread(),
+			standby:   status.IsStandby(),
 			innerW:    innerW,
 			isDark:    m.isDark,
 		}))

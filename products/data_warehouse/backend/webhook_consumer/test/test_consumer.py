@@ -25,11 +25,9 @@ def _make_config(**kwargs) -> WebhookConsumerConfig:
 
 
 def _make_consumer(**kwargs) -> WebhookS3Sink:
-    defaults: dict = {
-        "config": _make_config(),
-        "kafka_hosts": ["localhost:9092"],
-        "kafka_security_protocol": "PLAINTEXT",
-    }
+    # Hosts + protocol are inherited from the routing DEFAULT profile
+    # (`["kafka:9092"]` / PLAINTEXT) unless explicitly injected via kwargs.
+    defaults: dict = {"config": _make_config()}
     defaults.update(kwargs)
     return WebhookS3Sink(**defaults)
 
@@ -80,16 +78,6 @@ class TestWebhookS3SinkConfig:
                 on_assign=consumer._on_assign,
                 on_revoke=consumer._on_revoke,
             )
-
-    def test_uses_provided_kafka_hosts(self):
-        consumer = _make_consumer(kafka_hosts=["host1:9092", "host2:9092"])
-
-        with patch("products.data_warehouse.backend.webhook_consumer.consumer.ConfluentConsumer") as mock_consumer_cls:
-            mock_consumer_cls.return_value = MagicMock()
-            consumer._create_consumer()
-
-            config = mock_consumer_cls.call_args[0][0]
-            assert config["bootstrap.servers"] == "host1:9092,host2:9092"
 
 
 class TestWebhookS3SinkMessageProcessing:
@@ -318,11 +306,7 @@ class TestWebhookS3SinkRunLoop:
         mock_kafka.consume.side_effect = consume_side_effect
 
         config = _make_config(flush_interval_seconds=0.0, poll_timeout_seconds=0.01)
-        consumer = WebhookS3Sink(
-            config=config,
-            kafka_hosts=["localhost:9092"],
-            kafka_security_protocol="PLAINTEXT",
-        )
+        consumer = WebhookS3Sink(config=config)
 
         # Stop after 3 iterations
         iteration = 0
@@ -362,11 +346,7 @@ class TestWebhookS3SinkRunLoop:
 
         # High flush interval so it won't trigger during the loop
         config = _make_config(flush_interval_seconds=9999, poll_timeout_seconds=0.01)
-        consumer = WebhookS3Sink(
-            config=config,
-            kafka_hosts=["localhost:9092"],
-            kafka_security_protocol="PLAINTEXT",
-        )
+        consumer = WebhookS3Sink(config=config)
 
         iteration = 0
 

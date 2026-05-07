@@ -10,12 +10,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedPauseStateResponseListApi,
+    PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    SignalReportApi,
     SignalSourceConfigApi,
+    SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
+    SignalsReportsListParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -100,6 +104,48 @@ export const signalsProcessingPauseDestroy = async (
     return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsListUrl = (projectId: string, params?: SignalsReportsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/`
+}
+
+export const signalsReportsList = async (
+    projectId: string,
+    params?: SignalsReportsListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalReportListApi> => {
+    return apiMutator<PaginatedSignalReportListApi>(getSignalsReportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/`
+}
+
+export const signalsReportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -224,8 +270,11 @@ export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
     return `/api/users/${userId}/signal_autonomy/`
 }
 
-export const usersSignalAutonomyRetrieve = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyRetrieveUrl(userId), {
+export const usersSignalAutonomyRetrieve = async (
+    userId: string,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyRetrieveUrl(userId), {
         ...options,
         method: 'GET',
     })
@@ -242,10 +291,16 @@ export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
     return `/api/users/${userId}/signal_autonomy/`
 }
 
-export const usersSignalAutonomyCreate = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyCreateUrl(userId), {
+export const usersSignalAutonomyCreate = async (
+    userId: string,
+    signalUserAutonomyConfigApi: NonReadonly<SignalUserAutonomyConfigApi>,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyCreateUrl(userId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalUserAutonomyConfigApi),
     })
 }
 

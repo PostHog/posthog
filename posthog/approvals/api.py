@@ -1,5 +1,5 @@
 import logging
-from typing import cast
+from typing import Any, cast
 
 from django.db.models import QuerySet
 
@@ -84,7 +84,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
                 {"error": "An error occurred while processing approval."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        response_data = {
+        response_data: dict[str, Any] = {
             "status": result.status,
             "message": result.message,
             "change_request": ChangeRequestSerializer(result.change_request, context={"request": request}).data,

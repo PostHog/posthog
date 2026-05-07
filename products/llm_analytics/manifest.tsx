@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from './frontend/clusters/constants'
 
 export const manifest: ProductManifest = {
     name: 'LLM Analytics',
@@ -43,7 +44,6 @@ export const manifest: ProductManifest = {
             description: 'Test and experiment with LLM prompts in a sandbox environment.',
             layout: 'app-full-scene-height',
             iconType: 'llm_playground',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsDatasets: {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetsScene'),
@@ -68,7 +68,6 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsEvaluation: {
             import: () => import('./frontend/evaluations/LLMAnalyticsEvaluation'),
@@ -77,7 +76,6 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
-            settingsSection: 'environment-llm-analytics',
         },
         LLMAnalyticsEvaluationTemplates: {
             import: () => import('./frontend/evaluations/EvaluationTemplates'),
@@ -86,7 +84,23 @@ export const manifest: ProductManifest = {
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
-            settingsSection: 'environment-llm-analytics',
+        },
+        LLMAnalyticsTags: {
+            import: () => import('./frontend/tags/LLMAnalyticsTagsScene'),
+            projectBased: true,
+            name: 'Tags',
+            description: 'Add custom tags to your LLM generations automatically.',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            iconType: 'llm_tags',
+        },
+        LLMAnalyticsTag: {
+            import: () => import('./frontend/tags/LLMAnalyticsTag'),
+            projectBased: true,
+            name: 'LLM analytics tag',
+            activityScope: 'LLMAnalytics',
+            layout: 'app-container',
+            iconType: 'llm_tags',
         },
         LLMAnalyticsPrompts: {
             import: () => import('./frontend/prompts/LLMPromptsScene'),
@@ -100,6 +114,21 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/prompts/LLMPromptScene'),
             projectBased: true,
             name: 'LLM analytics prompt',
+            layout: 'app-container',
+            iconType: 'llm_prompts',
+        },
+        LLMAnalyticsSkills: {
+            import: () => import('./frontend/skills/LLMSkillsScene'),
+            projectBased: true,
+            name: 'Skills',
+            description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
+            layout: 'app-container',
+            iconType: 'llm_prompts',
+        },
+        LLMAnalyticsSkill: {
+            import: () => import('./frontend/skills/LLMSkillScene'),
+            projectBased: true,
+            name: 'LLM analytics skill',
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
@@ -134,6 +163,8 @@ export const manifest: ProductManifest = {
         '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
         '/llm-analytics/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
         '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
+        '/llm-analytics/tags': ['LLMAnalyticsTags', 'llmAnalyticsTags'],
+        '/llm-analytics/tags/:id': ['LLMAnalyticsTag', 'llmAnalyticsTag'],
         '/llm-analytics/evaluations': ['LLMAnalyticsEvaluations', 'llmAnalyticsEvaluations'],
         '/llm-analytics/evaluations/offline/experiments': ['LLMAnalyticsEvaluations', 'llmAnalyticsOfflineEvaluations'],
         '/llm-analytics/evaluations/offline/experiments/:experimentId': [
@@ -144,9 +175,11 @@ export const manifest: ProductManifest = {
         '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
         '/llm-analytics/prompts': ['LLMAnalyticsPrompts', 'llmAnalyticsPrompts'],
         '/llm-analytics/prompts/:name': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
+        '/llm-analytics/skills': ['LLMAnalyticsSkills', 'llmAnalyticsSkills'],
+        '/llm-analytics/skills/:name': ['LLMAnalyticsSkill', 'llmAnalyticsSkill'],
         '/llm-analytics/clusters': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
         '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
-        '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
+        [LLM_ANALYTICS_CLUSTER_URL_PATTERN]: ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
     },
     redirects: {
         '/llm-analytics': (_params, searchParams, hashParams) =>
@@ -211,6 +244,8 @@ export const manifest: ProductManifest = {
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
         llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
             combineUrl(`/llm-analytics/datasets/${id}`, params).url,
+        llmAnalyticsTags: (): string => '/llm-analytics/tags',
+        llmAnalyticsTag: (id: string): string => `/llm-analytics/tags/${id}`,
         llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
         llmAnalyticsOfflineEvaluations: (): string => '/llm-analytics/evaluations/offline/experiments',
         llmAnalyticsOfflineEvaluationExperiment: (experimentId: string, encode: boolean = true): string =>
@@ -219,6 +254,8 @@ export const manifest: ProductManifest = {
         llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
         llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
         llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
+        llmAnalyticsSkills: (): string => '/llm-analytics/skills',
+        llmAnalyticsSkill: (name: string): string => `/llm-analytics/skills/${name}`,
         llmAnalyticsClusters: (runId?: string): string =>
             runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
         llmAnalyticsCluster: (runId: string, clusterId: number): string =>
@@ -288,6 +325,18 @@ export const manifest: ProductManifest = {
             sceneKey: 'LLMAnalyticsEvaluations',
         },
         {
+            path: 'Tags',
+            intents: [ProductKey.LLM_ANALYTICS],
+            category: ProductItemCategory.AI_ENGINEERING,
+            type: 'llm_tags',
+            iconType: 'llm_tags' as FileSystemIconType,
+            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+            href: urls.llmAnalyticsTags(),
+            flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
+            tags: ['alpha'],
+            sceneKey: 'LLMAnalyticsTags',
+        },
+        {
             path: 'Prompts',
             intents: [ProductKey.LLM_PROMPTS],
             category: ProductItemCategory.AI_ENGINEERING,
@@ -298,6 +347,18 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
             tags: ['beta'],
             sceneKey: 'LLMAnalyticsPrompts',
+        },
+        {
+            path: 'Skills',
+            intents: [ProductKey.LLM_PROMPTS],
+            category: ProductItemCategory.AI_ENGINEERING,
+            type: 'llm_skills',
+            iconType: 'llm_prompts' as FileSystemIconType,
+            iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
+            href: urls.llmAnalyticsSkills(),
+            flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
+            tags: ['beta'],
+            sceneKey: 'LLMAnalyticsSkills',
         },
     ],
 }

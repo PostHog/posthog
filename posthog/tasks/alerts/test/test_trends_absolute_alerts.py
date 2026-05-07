@@ -34,8 +34,8 @@ FROZEN_TIME = dateutil.parser.parse("2024-06-02T08:55:00.000Z")
 
 
 @freeze_time(FROZEN_TIME)
-@patch("posthog.tasks.alerts.checks.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.checks.send_notifications_for_breaches")
+@patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
+@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
 class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -160,7 +160,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (0) is less than lower threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (0) is less than lower threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_high_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
@@ -198,7 +200,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (2) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (2) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_no_threshold_breached(self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock) -> None:
@@ -309,7 +313,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up - Chrome) for previous week (2.0) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up - Chrome) for previous week (2.0) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_breakdown_low_threshold_breached(
@@ -355,7 +361,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up - Firefox) for previous week (1.0) is less than lower threshold (2.0)"]
+            ANY,
+            ["The insight value (signed_up - Firefox) for previous week (1.0) is less than lower threshold (2.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_breakdown_no_threshold_breached(
@@ -445,7 +453,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for current interval (3) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for current interval (3) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_aggregate_trend_with_breakdown_high_threshold_breached(
@@ -491,7 +501,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up - Chrome) for current interval (2) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up - Chrome) for current interval (2) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_current_interval_high_threshold_breached(
@@ -532,7 +544,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for current week (2) is more than upper threshold (1.0)"]
+            ANY,
+            ["The insight value (signed_up) for current week (2) is more than upper threshold (1.0)"],
+            idempotency_key=ANY,
         )
 
     def test_trend_current_interval_should_not_fallback_to_previous_high_threshold_breached(
@@ -657,7 +671,9 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (0) is less than lower threshold (2.0)"]
+            ANY,
+            ["The insight value (signed_up) for previous week (0) is less than lower threshold (2.0)"],
+            idempotency_key=ANY,
         )
 
     @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight", wraps=calculate_for_query_based_insight)

@@ -67,11 +67,6 @@ class DAGSerializer(serializers.ModelSerializer):
             validated_data["sync_frequency_interval"] = sync_frequency_to_sync_frequency_interval(sync_frequency)
         return super().update(instance, validated_data)
 
-    def validate_name(self, name: str) -> str:
-        if name.startswith("conflict"):
-            raise serializers.ValidationError("DAG names cannot start with 'conflict'.")
-        return name
-
 
 class DAGViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
@@ -80,9 +75,4 @@ class DAGViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "head", "options"]
 
     def safely_get_queryset(self, queryset):
-        return (
-            queryset.filter(team_id=self.team_id)
-            .exclude(name__startswith="conflict_")
-            .annotate(node_count=Count("node"))
-            .order_by("name")
-        )
+        return queryset.filter(team_id=self.team_id).annotate(node_count=Count("node")).order_by("name")

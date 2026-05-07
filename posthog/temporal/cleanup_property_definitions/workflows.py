@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from typing import Any
 
 from temporalio import common, workflow
 
@@ -42,7 +43,7 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
         """
         property_type_int = input.get_property_type_int()
 
-        result = {
+        result: dict[str, Any] = {
             "team_id": input.team_id,
             "pattern": input.pattern,
             "property_type": input.property_type,

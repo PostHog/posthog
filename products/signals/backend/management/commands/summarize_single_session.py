@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
 
 
 class Command(BaseCommand):
@@ -68,7 +68,7 @@ class Command(BaseCommand):
         self.stdout.write("")
 
         self.stdout.write(
-            self.style.WARNING("Starting SummarizeSingleSessionWorkflow with video_validation_enabled='full'...")
+            self.style.WARNING("Starting SummarizeSingleSessionWorkflow with video-based summarization...")
         )
         self.stdout.write("")
 
@@ -78,7 +78,7 @@ class Command(BaseCommand):
                     session_id=session_id,
                     user=user,
                     team=team,
-                    video_validation_enabled="full",
+                    video_based=True,
                 )
             )
 

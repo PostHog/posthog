@@ -253,6 +253,65 @@ describe('HogMasker', () => {
                 ).toHaveLength(1)
             })
 
+            describe('calendar day masking', () => {
+                it.each([
+                    {
+                        name: 'per person per day',
+                        example: HOG_MASK_EXAMPLES.personPerDay,
+                        globals: [{ person: { id: '1' } as any }, { person: { id: '2' } as any }],
+                    },
+                    {
+                        name: 'per person per event name per day',
+                        example: HOG_MASK_EXAMPLES.personPerEventPerDay,
+                        globals: [
+                            { person: { id: '1' } as any, event: { event: '$pageview' } as any },
+                            { person: { id: '1' } as any, event: { event: '$autocapture' } as any },
+                        ],
+                    },
+                ])('should deduplicate $name on the same calendar day', async ({ example, globals }) => {
+                    const hogFunction = createHogFunction({ ...example })
+                    const invocations = globals.map((g) =>
+                        createExampleInvocation(hogFunction, createHogExecutionGlobals(g))
+                    )
+
+                    // First call: all distinct invocations should fire
+                    const res1 = await masker.filterByMasking(invocations)
+                    expect(res1.notMasked).toHaveLength(invocations.length)
+                    expect(res1.masked).toHaveLength(0)
+
+                    // Second call same day: all should be masked
+                    const res2 = await masker.filterByMasking(invocations)
+                    expect(res2.notMasked).toHaveLength(0)
+                    expect(res2.masked).toHaveLength(invocations.length)
+                })
+
+                it('should allow events on different calendar days', async () => {
+                    const hogFunctionPersonPerDay = createHogFunction({
+                        ...HOG_MASK_EXAMPLES.personPerDay,
+                    })
+
+                    const globals = createHogExecutionGlobals({
+                        person: { id: '1' } as any,
+                    })
+                    const inv = createExampleInvocation(hogFunctionPersonPerDay, globals)
+
+                    // Day 1: should fire
+                    const res1 = await masker.filterByMasking([inv])
+                    expect(res1.notMasked).toHaveLength(1)
+
+                    // Same day: should be masked
+                    const res2 = await masker.filterByMasking([inv])
+                    expect(res2.notMasked).toHaveLength(0)
+
+                    // Advance to next calendar day (move time forward 24h)
+                    advanceTime(24 * 60 * 60 * 1000)
+
+                    // Next day: now() returns a different date, so the hash is different — should fire
+                    const res3 = await masker.filterByMasking([inv])
+                    expect(res3.notMasked).toHaveLength(1)
+                })
+            })
+
             describe('ttl constraints', () => {
                 const getRedisKeyTtl = async (): Promise<number> => {
                     const keys = await redis.useClient({ name: 'test-keys' }, async (client) => {
@@ -398,6 +457,34 @@ describe('HogMasker', () => {
                     expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
                     expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
                     expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
+                })
+
+                it('deduplicates hog flow per calendar day and resets on next day', async () => {
+                    const base: Partial<HogFlow> = {
+                        team_id: 1,
+                        name: 'Calendar Day Flow',
+                        version: 1,
+                        actions: [],
+                        status: 'active',
+                        trigger: { type: 'event', filters: { events: [] } },
+                        exit_condition: 'exit_only_at_end',
+                        edges: [],
+                    }
+                    const hogFlowPerDay = {
+                        ...base,
+                        id: 'hf_per_day',
+                        trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.oncePerCalendarDay.trigger_masking },
+                    } as HogFlow
+
+                    const inv = createExampleHogFlowInvocation(hogFlowPerDay)
+
+                    // Day 1: should fire
+                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
+                    // Same day: masked
+                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(0)
+                    // Next day: different date in hash — should fire again
+                    advanceTime(24 * 60 * 60 * 1000)
+                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
                 })
             })
         })

@@ -34,9 +34,8 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-experiments'
     | 'environment-error-tracking'
+    | 'environment-error-tracking-configuration'
     | 'environment-logs'
-    | 'environment-conversations'
-    | 'environment-visual-review'
     | 'environment-csp-reporting'
     | 'environment-max'
     | 'environment-posthog-code'
@@ -56,6 +55,7 @@ export type SettingSectionId =
     | 'organization-details'
     | 'organization-integrations'
     | 'organization-oauth-apps'
+    | 'organization-cimd-verification-tokens'
     | 'organization-members'
     | 'organization-roles'
     | 'organization-authentication'
@@ -64,8 +64,10 @@ export type SettingSectionId =
     | 'environment-approvals'
     | 'organization-danger-zone'
     | 'organization-billing'
+    | 'organization-legal-documents'
     | 'organization-startup-program'
     | 'user-profile'
+    | 'user-personal-integrations'
     | 'user-connected-apps'
     | 'user-api-keys'
     | 'user-notifications'
@@ -76,16 +78,9 @@ export type SettingSectionId =
     | 'mcp-servers'
 
 export type SettingId =
-    | 'conversations-api'
-    | 'conversations-api-key'
-    | 'conversations-email'
-    | 'conversations-email-channel'
+    | 'conversations-general'
+    | 'conversations-channels'
     | 'conversations-notifications'
-    | 'conversations-public-token'
-    | 'conversations-slack'
-    | 'conversations-widget'
-    | 'conversations-widget-config'
-    | 'conversations-workflows'
     | 'snippet-v2'
     | 'js-snippet-version'
     | 'replay-triggers'
@@ -130,6 +125,7 @@ export type SettingId =
     | 'environment-experiment-stats-method'
     | 'environment-experiment-confidence-level'
     | 'environment-experiment-recalculation-time'
+    | 'environment-experiment-matured-users'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-ingestion-controls'
@@ -141,6 +137,7 @@ export type SettingId =
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
     | 'error-tracking-spike-detection'
+    | 'error-tracking-rate-limits'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-posthog-code-slack'
@@ -156,6 +153,7 @@ export type SettingId =
     | 'organization-display-name'
     | 'organization-integrations-list'
     | 'organization-oauth-apps-list'
+    | 'organization-cimd-verification-tokens-list'
     | 'invites'
     | 'members'
     | 'authentication-domains'
@@ -171,8 +169,10 @@ export type SettingId =
     | '2fa'
     | 'passkeys'
     | 'connected-apps'
+    | 'personal-integrations'
     | 'personal-api-keys'
     | 'notifications'
+    | 'realtime-notifications'
     | 'feature-previews'
     | 'feature-previews-coming-soon'
     | 'optout'
@@ -218,12 +218,12 @@ export type SettingId =
     | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-alerting'
+    | 'logs-drop-rules'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
-    | 'visual-review-repos'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -265,12 +265,6 @@ export type Setting = {
 
     /** Platform/SDK availability rendered as badges to the right of the title */
     platformSupport?: PlatformSupportConfig
-
-    /**
-     * Optional sub-group label. Settings with the same `subGroup` within a section are rendered
-     * together under a sticky divider with the sub-group label, to aid scannability in long sections.
-     */
-    subGroup?: string
 }
 
 export interface SettingSection extends Pick<Setting, 'flag'> {

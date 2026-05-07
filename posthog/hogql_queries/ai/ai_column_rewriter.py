@@ -116,7 +116,11 @@ class AiColumnToPropertyRewriter(CloningVisitor):
 
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         new_node = super().visit_join_expr(node)
-        # Swap FROM posthog.ai_events -> FROM events (also handle aliased form)
+        # Swap FROM posthog.ai_events -> FROM events (also handle aliased form).
+        # String comparison is safe here because AiEventsTable is only mounted at the
+        # qualified `posthog.ai_events` path — there is no top-level `ai_events` form —
+        # and this rewriter runs pre-resolution without a database context.
+        # nosemgrep: hogql-no-string-table-chain
         if isinstance(new_node.table, ast.Field) and new_node.table.chain == ["posthog", "ai_events"]:
             new_node.table = ast.Field(chain=["events"])
             new_node.alias = None
@@ -124,10 +128,16 @@ class AiColumnToPropertyRewriter(CloningVisitor):
 
 
 def _has_ai_events_from(query: ast.SelectQuery) -> bool:
-    """Check if a SELECT query has FROM posthog.ai_events."""
+    """Check if a SELECT query has FROM posthog.ai_events.
+
+    AiEventsTable is only mounted at the `posthog.ai_events` path (no top-level form),
+    so string comparison here is unambiguous. The rewriter runs pre-resolution without
+    a database context, so we can't use isinstance here.
+    """
     return (
         query.select_from is not None
         and isinstance(query.select_from.table, ast.Field)
+        # nosemgrep: hogql-no-string-table-chain
         and query.select_from.table.chain == ["posthog", "ai_events"]
     )
 

@@ -1,14 +1,19 @@
+from typing import cast
+
 from django.db import transaction
+from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
 from .models import DesktopRecording
@@ -34,10 +39,16 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "desktop_recording"
     scope_object_read_actions = ["list", "retrieve"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "append_segments"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "append_segments",
+    ]
     queryset = DesktopRecording.objects.all()
 
-    def safely_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter recordings to current team"""
         queryset = queryset.filter(team=self.team)
 
@@ -65,7 +76,7 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Create a new recording and get Recall.ai upload token for the desktop SDK",
     )
     @transaction.atomic
-    def create(self, request, **kwargs):
+    def create(self, request: Request, **kwargs) -> Response:
         """
         RESTful POST /desktop_recordings/
 
@@ -98,7 +109,7 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         recording = DesktopRecording.objects.create(
             team=self.team,
-            created_by=request.user,
+            created_by=cast(User, request.user),
             sdk_upload_id=upload_response["id"],
             status=DesktopRecording.Status.RECORDING,
             platform=platform,
@@ -118,7 +129,7 @@ class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Append transcript segments (supports batched real-time streaming)",
     )
     @action(detail=True, methods=["POST"])
-    def append_segments(self, request, pk=None, **kwargs):
+    def append_segments(self, request: Request, pk: int | None = None, **kwargs) -> Response:
         """
         POST /recordings/{id}/append_segments/
 

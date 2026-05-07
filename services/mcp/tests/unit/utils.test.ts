@@ -1,9 +1,50 @@
 import { describe, expect, it } from 'vitest'
 
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
 import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
 
 describe('utils', () => {
+    describe('formatPrompt', () => {
+        it('substitutes placeholders with values', () => {
+            expect(formatPrompt('Hello {name}, welcome to {place}', { name: 'world', place: 'earth' })).toBe(
+                'Hello world, welcome to earth'
+            )
+        })
+
+        it('replaces all occurrences of a placeholder', () => {
+            expect(formatPrompt('{x} and {x} again', { x: 'A' })).toBe('A and A again')
+        })
+
+        it('trims the final output', () => {
+            expect(formatPrompt('  {x}  ', { x: 'A' })).toBe('A')
+        })
+
+        it('leaves unknown placeholders untouched', () => {
+            expect(formatPrompt('{known} {unknown}', { known: 'yes' })).toBe('yes {unknown}')
+        })
+
+        // Regression: String.prototype.replaceAll with a string replacement interprets
+        // $ escape sequences ($&, $$, $`, $'). Values from guidelines.md contain `$`
+        // (e.g. `$pageview`) and would splice the template prefix/suffix into the output.
+        // Using a function replacement bypasses $ interpretation.
+        it('treats $ sequences in values as literal text (regression)', () => {
+            expect(formatPrompt('PREFIX {v} SUFFIX', { v: '`$`' })).toBe('PREFIX `$` SUFFIX')
+            expect(formatPrompt('PREFIX {v} SUFFIX', { v: 'price is $5 and $$10' })).toBe(
+                'PREFIX price is $5 and $$10 SUFFIX'
+            )
+            expect(formatPrompt('PREFIX {v} SUFFIX', { v: '$& $`' })).toBe('PREFIX $& $` SUFFIX')
+            expect(formatPrompt('PREFIX {v} SUFFIX', { v: "$'" })).toBe("PREFIX $' SUFFIX")
+        })
+
+        it('does not splice the template prefix when a value contains $` (realistic PostHog case)', () => {
+            const template = 'Header text before {guidelines} and trailing bit'
+            const guidelinesValue = 'Events start with `$` (e.g., `$pageview`)'
+            expect(formatPrompt(template, { guidelines: guidelinesValue })).toBe(
+                'Header text before Events start with `$` (e.g., `$pageview`) and trailing bit'
+            )
+        })
+    })
+
     describe('sanitizeHeaderValue', () => {
         it.each([
             ['passthrough', 'posthog/wizard 1.0', 'posthog/wizard 1.0'],

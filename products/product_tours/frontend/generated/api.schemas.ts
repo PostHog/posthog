@@ -54,8 +54,6 @@ export interface MinimalFeatureFlagApi {
     active?: boolean
     /** @nullable */
     ensure_experience_continuity?: boolean | null
-    /** @nullable */
-    has_encrypted_payloads?: boolean | null
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -274,7 +272,7 @@ export type ProductToursListParams = {
      */
     offset?: number
     /**
-     * A search term.
+     * Fuzzy match against product tour `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string
 }

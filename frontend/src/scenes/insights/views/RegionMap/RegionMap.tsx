@@ -49,20 +49,20 @@ function useRegionMapTooltip(showPersonsModal: boolean): React.RefObject<HTMLDiv
     const { baseCurrency } = useValues(teamLogic)
 
     const containerRef = useRef<HTMLDivElement>(null)
-    const { getTooltip } = useInsightTooltip()
-    const [tooltipRoot, tooltipEl] = getTooltip()
+    const { getTooltip, showTooltip, hideTooltip, positionTooltipAt, resetTooltipPosition, measureTooltip } =
+        useInsightTooltip()
     const groupTypeLabel = aggregationLabel(series?.[0].math_group_type_index).plural
 
     useEffect(() => {
-        tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
-
         if (!isTooltipShown || !currentTooltip || !tooltipCoordinates) {
+            hideTooltip()
             return
         }
 
         const [subdivisionCode, subdivisionName, countryCode, regionSeries] = currentTooltip
         const aggregatedValue = getSeriesValue(regionSeries)
 
+        const [tooltipRoot] = getTooltip()
         tooltipRoot.render(
             <InsightTooltip
                 seriesData={[
@@ -93,6 +93,7 @@ function useRegionMapTooltip(showPersonsModal: boolean): React.RefObject<HTMLDiv
                 groupTypeLabel={groupTypeLabel}
             />
         )
+        showTooltip()
     }, [
         isTooltipShown,
         tooltipCoordinates,
@@ -100,30 +101,31 @@ function useRegionMapTooltip(showPersonsModal: boolean): React.RefObject<HTMLDiv
         breakdownFilter,
         trendsFilter,
         showPersonsModal,
-        tooltipRoot,
-        tooltipEl,
         groupTypeLabel,
         baseCurrency,
-    ])
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!isTooltipShown || !tooltipCoordinates || !currentTooltip) {
-            tooltipEl.style.left = 'revert'
-            tooltipEl.style.top = 'revert'
+            resetTooltipPosition()
             return
         }
 
         const containerRect = containerRef.current?.getBoundingClientRect()
-        const tooltipRect = tooltipEl.getBoundingClientRect()
+        const tooltipRect = measureTooltip()
+        if (!tooltipRect) {
+            return
+        }
         const [tooltipX, tooltipY] = tooltipCoordinates
         const shouldFlip =
             containerRect &&
             tooltipX + tooltipRect.width + REGION_MAP_TOOLTIP_OFFSET_PX > containerRect.x + containerRect.width
         const xOffset = shouldFlip ? -(tooltipRect.width + REGION_MAP_TOOLTIP_OFFSET_PX) : REGION_MAP_TOOLTIP_OFFSET_PX
 
-        tooltipEl.style.left = `${window.pageXOffset + tooltipX + xOffset}px`
-        tooltipEl.style.top = `${window.pageYOffset + tooltipY + REGION_MAP_TOOLTIP_OFFSET_PX}px`
-    }, [isTooltipShown, tooltipCoordinates, currentTooltip, tooltipEl])
+        const left = window.pageXOffset + tooltipX + xOffset
+        const top = window.pageYOffset + tooltipY + REGION_MAP_TOOLTIP_OFFSET_PX
+        positionTooltipAt(left, top)
+    }, [isTooltipShown, tooltipCoordinates, currentTooltip]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return containerRef
 }

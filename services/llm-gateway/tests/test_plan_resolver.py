@@ -5,7 +5,6 @@ import pytest
 
 from llm_gateway.services.plan_resolver import (
     PlanResolver,
-    _is_in_trial,
     get_billing_period_number,
     is_pro_plan,
 )
@@ -17,6 +16,8 @@ class TestIsProPlan:
         [
             ("posthog-code-200-20260301", True),
             ("posthog-code-200-20260501", True),
+            ("posthog-code-pro-200-20260301", True),
+            ("posthog-code-pro-0-20260422", True),
             ("posthog-code-free-20260301", False),
             ("posthog-code-free-20260501", False),
             ("some-other-plan", False),
@@ -26,30 +27,6 @@ class TestIsProPlan:
     )
     def test_is_pro_plan(self, plan_key: str | None, expected: bool) -> None:
         assert is_pro_plan(plan_key) is expected
-
-
-class TestIsInTrial:
-    def test_none_created_at_is_trial(self) -> None:
-        assert _is_in_trial(None) is True
-
-    def test_recent_date_is_trial(self) -> None:
-        recent = (datetime.now(tz=UTC) - timedelta(days=5)).isoformat()
-        assert _is_in_trial(recent) is True
-
-    def test_old_date_is_not_trial(self) -> None:
-        old = (datetime.now(tz=UTC) - timedelta(days=60)).isoformat()
-        assert _is_in_trial(old) is False
-
-    def test_exactly_30_days_is_not_trial(self) -> None:
-        boundary = (datetime.now(tz=UTC) - timedelta(days=30, seconds=1)).isoformat()
-        assert _is_in_trial(boundary) is False
-
-    def test_just_under_30_days_is_trial(self) -> None:
-        boundary = (datetime.now(tz=UTC) - timedelta(days=29, hours=23)).isoformat()
-        assert _is_in_trial(boundary) is True
-
-    def test_invalid_date_string_is_trial(self) -> None:
-        assert _is_in_trial("not-a-date") is True
 
 
 class TestGetBillingPeriodNumber:
@@ -83,6 +60,15 @@ class TestGetBillingPeriodNumber:
         created = (datetime.now(tz=UTC) - timedelta(days=29, hours=23)).isoformat()
         assert get_billing_period_number(created) == 0
 
+    def test_billing_period_start_overrides_seat_created_at(self) -> None:
+        old_seat = (datetime.now(tz=UTC) - timedelta(days=35)).isoformat()
+        recent_period = (datetime.now(tz=UTC) - timedelta(days=5)).isoformat()
+        assert get_billing_period_number(old_seat, billing_period_start=recent_period) == 0
+
+    def test_billing_period_start_none_falls_back_to_seat_created_at(self) -> None:
+        old_seat = (datetime.now(tz=UTC) - timedelta(days=35)).isoformat()
+        assert get_billing_period_number(old_seat, billing_period_start=None) == 1
+
 
 class TestPlanResolver:
     @pytest.fixture
@@ -100,10 +86,8 @@ class TestPlanResolver:
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = ""
             mock_settings.return_value.plan_cache_ttl = 300
-            mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key is None
-        assert result.in_trial_period is True
 
     async def test_returns_cached_plan(self, resolver_with_redis: PlanResolver) -> None:
         import json
@@ -111,9 +95,7 @@ class TestPlanResolver:
         cached = json.dumps({"plan_key": "posthog-code-200-20260301", "created_at": None})
         assert resolver_with_redis._redis is not None
         resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
-        with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
-            mock_settings.return_value.free_plan_trial_period_days = 30
-            result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+        result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key == "posthog-code-200-20260301"
 
     async def test_cached_null_plan_returns_none_plan_key(self, resolver_with_redis: PlanResolver) -> None:
@@ -122,50 +104,69 @@ class TestPlanResolver:
         cached = json.dumps({"plan_key": None, "created_at": None})
         assert resolver_with_redis._redis is not None
         resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
-        with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
-            mock_settings.return_value.free_plan_trial_period_days = 30
-            result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+        result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key is None
-        assert result.in_trial_period is True
 
-    async def test_cached_old_seat_is_not_trial(self, resolver_with_redis: PlanResolver) -> None:
+    async def test_cached_old_seat_returns_plan(self, resolver_with_redis: PlanResolver) -> None:
         import json
 
         old_date = (datetime.now(tz=UTC) - timedelta(days=60)).isoformat()
         cached = json.dumps({"plan_key": "posthog-code-free-20260301", "created_at": old_date})
         assert resolver_with_redis._redis is not None
         resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
-        with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
-            mock_settings.return_value.free_plan_trial_period_days = 30
-            result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+        result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key == "posthog-code-free-20260301"
-        assert result.in_trial_period is False
+        assert result.seat_created_at == old_date
 
     async def test_fetches_from_api_and_caches(self, resolver_with_redis: PlanResolver) -> None:
         created_at = datetime.now(tz=UTC).isoformat()
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = {"plan_key": "posthog-code-200-20260301", "created_at": created_at}
+        mock_resp.json.return_value = {
+            "plan_key": "posthog-code-pro-200-20260301",
+            "created_at": created_at,
+            "billing_period": {
+                "current_period_start": "2026-04-01T00:00:00+00:00",
+                "current_period_end": "2026-05-01T00:00:00+00:00",
+                "interval": "month",
+            },
+        }
         mock_resp.raise_for_status = MagicMock()
         resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
-            mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
 
-        assert result.plan_key == "posthog-code-200-20260301"
-        assert result.in_trial_period is True
+        assert result.plan_key == "posthog-code-pro-200-20260301"
+        assert result.billing_period is not None
+        assert result.billing_period.current_period_start == "2026-04-01T00:00:00+00:00"
+        assert result.billing_period.interval == "month"
         assert resolver_with_redis._redis is not None
         resolver_with_redis._redis.set.assert_called_once()  # type: ignore[attr-defined]
 
         resolver_with_redis._http.get.assert_called_once_with(
             "https://app.posthog.com/api/seats/me/",
-            params={"product_key": "posthog_code"},
+            params={"product_key": "posthog_code", "best": "true"},
             headers={"Authorization": "Bearer phx_test"},
             timeout=2.0,
         )
+
+    async def test_fetches_from_api_without_billing_period(self, resolver_with_redis: PlanResolver) -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"plan_key": "posthog-code-200-20260301", "created_at": None}
+        mock_resp.raise_for_status = MagicMock()
+        resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
+
+        with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
+            mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
+            mock_settings.return_value.plan_cache_ttl = 300
+            result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+
+        assert result.plan_key == "posthog-code-200-20260301"
+        assert result.billing_period is None
 
     async def test_forwards_auth_header(self, resolver: PlanResolver) -> None:
         mock_resp = MagicMock()
@@ -177,7 +178,6 @@ class TestPlanResolver:
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
-            mock_settings.return_value.free_plan_trial_period_days = 30
             await resolver.get_plan(user_id=1, auth_header="Bearer phx_mysecretkey")
 
         resolver._http.get.assert_called_once()
@@ -192,11 +192,9 @@ class TestPlanResolver:
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
-            mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
 
         assert result.plan_key is None
-        assert result.in_trial_period is True
 
     async def test_api_error_returns_none_plan(self, resolver: PlanResolver) -> None:
         resolver._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]
@@ -204,17 +202,44 @@ class TestPlanResolver:
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
-            mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
 
         assert result.plan_key is None
-        assert result.in_trial_period is True
 
     async def test_empty_auth_header_skips_fetch(self, resolver: PlanResolver) -> None:
         result = await resolver.get_plan(user_id=1, auth_header="")
         assert result.plan_key is None
-        assert result.in_trial_period is True
         resolver._http.get.assert_not_called()  # type: ignore[attr-defined]
+
+    async def test_cached_plan_with_billing_period(self, resolver_with_redis: PlanResolver) -> None:
+        import json
+
+        cached = json.dumps(
+            {
+                "plan_key": "posthog-code-pro-200-20260301",
+                "created_at": None,
+                "billing_period": {
+                    "current_period_start": "2026-04-01T00:00:00+00:00",
+                    "current_period_end": "2026-05-01T00:00:00+00:00",
+                    "interval": "month",
+                },
+            }
+        )
+        assert resolver_with_redis._redis is not None
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
+        result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+        assert result.billing_period is not None
+        assert result.billing_period.current_period_start == "2026-04-01T00:00:00+00:00"
+        assert result.billing_period.interval == "month"
+
+    async def test_cached_plan_without_billing_period(self, resolver_with_redis: PlanResolver) -> None:
+        import json
+
+        cached = json.dumps({"plan_key": "posthog-code-200-20260301", "created_at": None})
+        assert resolver_with_redis._redis is not None
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
+        result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+        assert result.billing_period is None
 
     async def test_api_error_not_cached(self, resolver_with_redis: PlanResolver) -> None:
         resolver_with_redis._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]
@@ -222,10 +247,8 @@ class TestPlanResolver:
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
             mock_settings.return_value.plan_cache_ttl = 300
-            mock_settings.return_value.free_plan_trial_period_days = 30
             result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
 
         assert result.plan_key is None
-        assert result.in_trial_period is True
         assert resolver_with_redis._redis is not None
         resolver_with_redis._redis.set.assert_not_called()  # type: ignore[attr-defined]

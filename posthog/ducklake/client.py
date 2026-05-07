@@ -7,7 +7,7 @@ import psycopg
 from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
 
-from posthog.ducklake.common import get_duckgres_config, sanitize_ducklake_identifier
+from posthog.ducklake.common import get_duckgres_config_for_org, is_dev_mode, sanitize_ducklake_identifier
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
@@ -31,8 +31,14 @@ class DuckLakeTableResult:
     file_size_delta_bytes: int = 0
 
 
-def _make_duckgres_conninfo(team_id: int) -> str:
-    config = get_duckgres_config(team_id)
+def make_duckgres_conninfo(team_id: int, *, organization_id: str | None = None) -> str:
+    from posthog.ducklake.common import _duckgres_dev_config, _get_org_id_for_team
+
+    if is_dev_mode():
+        config = _duckgres_dev_config()
+    else:
+        org_id = organization_id or _get_org_id_for_team(team_id)
+        config = get_duckgres_config_for_org(org_id)
     return make_conninfo(
         host=config["DUCKGRES_HOST"],
         port=int(config["DUCKGRES_PORT"]),
@@ -58,20 +64,28 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
     conn.execute(sql)
 
 
-def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, str]:
+def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, dict[str, object], str]:
     """Compile a HogQLQuery to Postgres-dialect SQL for DuckLake.
 
-    Returns (postgres_sql, hogql_pretty) tuple.
+    Returns ``(postgres_sql, values, hogql_pretty)``. The ``values`` dict holds
+    parameter bindings for ``psycopg``'s ``%(name)s`` placeholders embedded in
+    ``postgres_sql``; callers must pass it to ``cursor.execute(sql, values)`` or
+    the query will fail with an unbound-placeholder error.
     """
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.parser import parse_select
     from posthog.hogql.printer.utils import prepare_and_print_ast
 
     parsed = parse_select(query.query)
-    context = HogQLContext(team_id=team_id, enable_select_queries=True)
-    postgres_sql, _ = prepare_and_print_ast(parsed, context, dialect="postgres")
-    hogql_pretty, _ = prepare_and_print_ast(parsed, context, dialect="hogql")
-    return postgres_sql, hogql_pretty
+    # Separate context for the Postgres print — the HogQL round-trip below shouldn't
+    # contribute to ``postgres_context.values``.
+    postgres_context = HogQLContext(team_id=team_id, enable_select_queries=True)
+    postgres_sql, _ = prepare_and_print_ast(parsed, postgres_context, dialect="postgres")
+
+    hogql_context = HogQLContext(team_id=team_id, enable_select_queries=True)
+    hogql_pretty, _ = prepare_and_print_ast(parsed, hogql_context, dialect="hogql")
+
+    return postgres_sql, dict(postgres_context.values), hogql_pretty
 
 
 def execute_ducklake_query(
@@ -79,11 +93,15 @@ def execute_ducklake_query(
     *,
     sql: str | None = None,
     query: HogQLQuery | None = None,
+    organization_id: str | None = None,
 ) -> DuckLakeQueryResult:
     """Execute a query against a team's duckgres server.
 
     Accepts either raw SQL or a HogQLQuery (which gets compiled to
     Postgres-dialect SQL). Exactly one of `sql` or `query` must be provided.
+
+    Pass organization_id to skip the Team→Organization lookup when org
+    context is already available from the caller.
     """
     if sql and query:
         raise ValueError("Provide either sql or query, not both")
@@ -91,16 +109,17 @@ def execute_ducklake_query(
         raise ValueError("Provide either sql or query")
 
     hogql_pretty: str | None = None
+    values: dict[str, object] = {}
     if query:
-        sql, hogql_pretty = compile_hogql_to_ducklake_sql(team_id, query)
+        sql, values, hogql_pretty = compile_hogql_to_ducklake_sql(team_id, query)
 
     assert sql is not None
 
-    conninfo = _make_duckgres_conninfo(team_id)
+    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
     with psycopg.connect(conninfo) as conn:
         _set_search_path(conn)
         with conn.cursor() as cur:
-            cur.execute(sql)
+            cur.execute(sql, values or None)
             columns = [desc.name for desc in cur.description] if cur.description else []
             types = [str(desc.type_code) for desc in cur.description] if cur.description else []
             rows = cur.fetchall()
@@ -133,16 +152,31 @@ def _calculate_table_size(conninfo: str, safe_schema: str, safe_table: str) -> i
         return 0
 
 
-def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, table_name: str) -> DuckLakeTableResult:
+def execute_ducklake_create_table(
+    team_id: int,
+    sql: str,
+    schema_name: str,
+    table_name: str,
+    values: dict[str, object] | None = None,
+    *,
+    organization_id: str | None = None,
+) -> DuckLakeTableResult:
     """Execute a query via duckgres and materialize the result as a DuckLake table.
 
     Creates or replaces a table in the given schema using CREATE OR REPLACE TABLE ... AS.
     The table is stored natively in DuckLake (Parquet on S3 + Postgres catalog metadata).
+
+    Pass organization_id to skip the Team→Organization lookup when org
+    context is already available from the caller.
+
+    ``values`` carries parameter bindings for any ``%(name)s`` placeholders in ``sql``
+    (as produced by ``compile_hogql_to_ducklake_sql``). It is passed through to
+    ``psycopg`` so the SELECT body is executed with safe parameter binding.
     """
     safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
     safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
     qualified = psql.Identifier(safe_schema, safe_table)
-    conninfo = _make_duckgres_conninfo(team_id)
+    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
     # capture previous table size before replacing — best-effort, don't block materialization
     previous_file_size_bytes = _calculate_table_size(conninfo, safe_schema, safe_table)
     with psycopg.connect(conninfo) as conn:
@@ -155,7 +189,8 @@ def execute_ducklake_create_table(team_id: int, sql: str, schema_name: str, tabl
                     CREATE OR REPLACE TABLE {} AS (
                         {}
                     )
-                """).format(qualified, psql.SQL(sql))
+                """).format(qualified, psql.SQL(sql)),
+                values or None,
             )
     row_count = 0
     try:

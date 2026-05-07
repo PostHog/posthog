@@ -14,6 +14,7 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { TeamBasicType } from '~/types'
 
+import { pendingInvitesLogic } from './pendingInvitesLogic'
 import { ProjectCombobox } from './ProjectCombobox'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
@@ -25,6 +26,18 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     )
 }
 
+export function PendingInviteDot({ className }: { className?: string }): JSX.Element {
+    return (
+        <span
+            aria-label="Pending invitation"
+            className={cn('relative flex items-center justify-center size-1.5 shrink-0', className)}
+        >
+            <span className="absolute inset-0 rounded-full bg-accent opacity-60 animate-ping" />
+            <span className="relative size-1.5 rounded-full bg-accent" />
+        </span>
+    )
+}
+
 export function ProjectMenu({
     buttonProps = { className: 'font-semibold' },
 }: {
@@ -32,6 +45,8 @@ export function ProjectMenu({
 }): JSX.Element | null {
     const iconOnly = buttonProps?.iconOnly ?? false
     const { currentTeam } = useValues(teamLogic)
+    const { pendingInvites } = useValues(pendingInvitesLogic)
+    const hasPendingInvites = pendingInvites.length > 0
 
     return isAuthenticatedTeam(currentTeam) ? (
         <PopoverPrimitive>
@@ -41,7 +56,12 @@ export function ProjectMenu({
                     size={iconOnly ? 'base' : 'sm'}
                     iconOnly={iconOnly}
                     {...buttonProps}
-                    className={cn('max-w-fit min-w-[40px]', iconOnly ? 'min-w-auto' : '', buttonProps.className)}
+                    className={cn(
+                        'relative max-w-fit min-w-[40px]',
+                        iconOnly ? 'min-w-auto' : '',
+                        buttonProps.className
+                    )}
+                    tooltip={hasPendingInvites ? 'You have a pending invitation' : buttonProps.tooltip}
                 >
                     {iconOnly ? (
                         <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 dark:text-tertiary">
@@ -49,6 +69,9 @@ export function ProjectMenu({
                         </div>
                     ) : (
                         <span className="truncate">{currentTeam.name ?? 'Project'}</span>
+                    )}
+                    {hasPendingInvites && (
+                        <PendingInviteDot className={iconOnly ? 'absolute top-0.5 right-0.5' : 'ml-1'} />
                     )}
                     {!iconOnly && <MenuOpenIndicator className="ml-auto" />}
                 </ButtonPrimitive>
