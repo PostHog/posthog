@@ -27,6 +27,9 @@ const IDENTIFIER_URL_FALLBACKS: Record<string, string> = {
     people: '/persons',
     persons: '/persons',
     action: '/data-management/actions',
+    'product-analytics': '/insights',
+    insight: '/insights/new',
+    insights: '/insights',
 }
 
 export class Navigation {
