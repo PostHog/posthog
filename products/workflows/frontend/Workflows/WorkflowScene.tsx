@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -28,6 +29,15 @@ import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+
+function RelativeTime({ timestamp }: { timestamp: string }): JSX.Element {
+    const [, setTick] = useState(0)
+    useEffect(() => {
+        const interval = setInterval(() => setTick((t) => t + 1), 30000)
+        return () => clearInterval(interval)
+    }, [])
+    return <>{dayjs(timestamp).fromNow()}</>
+}
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -127,7 +137,9 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         sceneInset
                         rightSlot={
                             lastSavedAt ? (
-                                <span className="text-xs text-tertiary">Last saved {dayjs(lastSavedAt).fromNow()}</span>
+                                <span className="text-xs text-tertiary">
+                                    Last saved <RelativeTime timestamp={lastSavedAt} />
+                                </span>
                             ) : null
                         }
                         className={clsx({
