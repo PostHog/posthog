@@ -40,7 +40,7 @@ export interface CreateGroupApi {
 
 export type GroupsListParams = {
     /**
-     * The pagination cursor value.
+     * Pagination cursor returned in the `next` URL of a previous response
      */
     cursor?: string
     /**
@@ -50,7 +50,7 @@ export type GroupsListParams = {
     /**
      * Search the group name
      */
-    search: string
+    search?: string
 }
 
 export type GroupsActivityRetrieveParams = {
