@@ -1,0 +1,73 @@
+name: PR Leak Guard
+
+# Scans PR descriptions for sensitive data — slack threads, customer
+# names, internal tickets, secrets — that an agent may have copied
+# verbatim from prior context. Posts a redacted suggestion as a comment.
+#
+# This is a *nudge*, not a hard gate. The job exits 0 on findings and
+# only fails CI when block-severity (secret-shaped) content is detected.
+# Authors can opt out per-PR with the `pr-leak-guard:ignore` label.
+
+on:
+    pull_request:
+        types: [opened, edited, synchronize, ready_for_review]
+
+permissions:
+    contents: read
+    pull-requests: write
+
+concurrency:
+    # Only one scan in flight per PR. Edits cancel earlier runs because
+    # the description is the only input that matters; scanning the
+    # superseded body is wasted work.
+    group: pr-leak-guard-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+jobs:
+    scan:
+        name: Scan PR description for sensitive data
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        # Skip drafts — descriptions tend to be in flux. The scan
+        # fires again on `ready_for_review`.
+        if: github.event.pull_request.draft == false
+
+        steps:
+            - name: Checkout (sparse — only the leak-guard tool)
+              uses: actions/checkout@v6
+              with:
+                  sparse-checkout: |
+                      tools/pr-leak-guard
+                  sparse-checkout-cone-mode: false
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: false
+
+            - name: Run leak guard
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  uv run tools/pr-leak-guard/analyze_pr.py \
+                      "$PR_NUMBER" \
+                      --repo "$REPO" \
+                      --output-json /tmp/leak-guard.json \
+                      --fail-on-block
+
+            - name: Upload analysis artifact
+              # `if: always()` so the artifact is present even when
+              # --fail-on-block exits non-zero. Useful for debugging
+              # false positives without re-running the LLM.
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: pr-leak-guard-${{ github.event.pull_request.number }}
+                  path: /tmp/leak-guard.json
+                  retention-days: 14
+                  if-no-files-found: ignore

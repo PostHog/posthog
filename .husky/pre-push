@@ -4,10 +4,21 @@
 protected_branch='master'
 current_branch=$(git branch --show-current)
 
-if [ $protected_branch = $current_branch ]
-then
+if [ "$protected_branch" = "$current_branch" ]; then
     echo "Pushing to $protected_branch is a sin! Instead, create a pull request and repent."
     exit 1 # push will not execute
-else
-    exit 0 # push will execute
 fi
+
+# pr-leak-guard: scan newly-added comments for sensitive content (secrets,
+# slack permalinks, customer mentions, ticket URLs). Stdin from husky is
+# the same as git's pre-push hook stdin: `<local_ref> <local_sha> <remote_ref> <remote_sha>`.
+# The script is stdlib-only — no flox / uv required. Set
+# POSTHOG_LEAK_GUARD_DISABLE=1 to bypass without --no-verify.
+LEAK_GUARD="$(git rev-parse --show-toplevel)/tools/pr-leak-guard/pre_push_check.py"
+if [ -x "$LEAK_GUARD" ] || [ -f "$LEAK_GUARD" ]; then
+    if command -v python3 > /dev/null 2>&1; then
+        python3 "$LEAK_GUARD" || exit $?
+    fi
+fi
+
+exit 0
