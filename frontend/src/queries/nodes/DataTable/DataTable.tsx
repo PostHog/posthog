@@ -44,6 +44,8 @@ import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableView
 import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
+    orderByForSelectKey,
+    removeAsAlias,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -244,6 +246,12 @@ export function DataTable({
         const col = getContextColumn(colName, context?.columns)
         return !col?.queryContextColumn?.hidden
     })
+    const orderByForKey = (key: string): string => {
+        const rawSelect = sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
+            ? ((query.source as EventsQuery).select ?? [])
+            : []
+        return orderByForSelectKey(key, rawSelect)
+    }
     const rowFillFractionIndex = allColumns.findIndex((colName) => {
         const col = getContextColumn(colName, context?.columns)
         return col?.queryContextColumn?.isRowFillFraction
@@ -355,8 +363,11 @@ export function DataTable({
                                                 const source = query.source as EventsQuery
                                                 const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                                 const isAggregation = isHogQLAggregation(hogQl)
-                                                const isOrderBy = source.orderBy?.[0] === key
-                                                const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
+                                                const orderKey = orderByForKey(key)
+                                                const isOrderBy = source.orderBy?.[0] === orderKey
+                                                const isDescOrderBy =
+                                                    source.orderBy?.[0] === `${orderKey} DESC` ||
+                                                    source.orderBy?.[0] === `${orderKey}\n DESC`
                                                 setQuery({
                                                     ...query,
                                                     source: {
@@ -370,7 +381,11 @@ export function DataTable({
                                                             ),
                                                         orderBy:
                                                             isOrderBy || isDescOrderBy
-                                                                ? [isDescOrderBy ? `${hogQl} DESC` : hogQl]
+                                                                ? [
+                                                                      isDescOrderBy
+                                                                          ? `${removeAsAlias(hogQl)}\n DESC`
+                                                                          : removeAsAlias(hogQl),
+                                                                  ]
                                                                 : source.orderBy,
                                                     },
                                                 })
@@ -393,7 +408,7 @@ export function DataTable({
                                                 query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
                                                 query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'ASC')
-                                                    : [key]
+                                                    : [orderByForKey(key)]
                                             setQuery?.({
                                                 ...query,
                                                 source: {
@@ -413,7 +428,7 @@ export function DataTable({
                                                 query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
                                                 query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'DESC')
-                                                    : [`${key}\n DESC`]
+                                                    : [`${orderByForKey(key)}\n DESC`]
                                             setQuery?.({
                                                 ...query,
                                                 source: {
