@@ -877,7 +877,12 @@ def test_full_job_property_removal_subfield_only(
 
 
 def _add_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
-    """Add DEFAULT materialized columns to events tables for testing.
+    """Add materialized columns to events tables for testing.
+
+    Mirrors production: ``sharded_events`` gets the column with the ``DEFAULT``
+    expression but no comment, ``events`` (distributed) gets just the type plus
+    the ``column_materializer::`` comment. See ``materialize()`` in
+    ee/clickhouse/materialized_columns/columns.py.
 
     Each entry is (col_name, prop_name, col_type).
     """
@@ -886,14 +891,12 @@ def _add_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Clien
     db = settings.CLICKHOUSE_DATABASE
     for col_name, prop_name, col_type in col_defs:
         comment = f"column_materializer::properties::{prop_name}"
-        for table in ("sharded_events", "events"):
-            kw = f"COMMENT '{comment}'" if table == "events" else ""
-            client.execute(
-                f"ALTER TABLE {db}.{table} "
-                f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
-                f"DEFAULT JSONExtractRaw(properties, '{prop_name}') "
-                f"{kw}"
-            )
+        client.execute(
+            f"ALTER TABLE {db}.sharded_events "
+            f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
+            f"DEFAULT JSONExtractRaw(properties, '{prop_name}')"
+        )
+        client.execute(f"ALTER TABLE {db}.events ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} COMMENT '{comment}'")
 
 
 def _drop_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:

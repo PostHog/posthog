@@ -1084,10 +1084,14 @@ class TestSharedInsightsExecutionMode(BaseTest):
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             ),
             (
-                "unlisted_blocking_if_stale_falls_back_to_extended_async",
+                "blocking_if_stale_passes_through",
+                # Used by the shared-notebook inline query payload builder. Must pass through so
+                # cold-cache loads block and return real results — falling back to async would
+                # ship a CacheMissResponse to the frontend, which renders the "unsupported node"
+                # placeholder until a later reload picks up the warmed cache.
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 None,
-                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             ),
         ]
     )

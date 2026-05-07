@@ -3,8 +3,13 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { parseJSON } from '~/utils/json-parse'
 
-import { CyclotronJobInvocationResult } from '../../types'
-import { CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
+import {
+    CyclotronJobQueuePostgresV2,
+    extractActionId,
+    extractDistinctId,
+    extractPersonId,
+} from './job-queue-postgres-v2'
 
 jest.mock('../cyclotron-v2', () => ({
     CyclotronV2Manager: jest.fn(),
@@ -72,6 +77,70 @@ describe('CyclotronJobQueuePostgresV2', () => {
         }
     }
 
+    describe('extractDistinctId', () => {
+        const cases: Array<[string, any, string | null]> = [
+            [
+                'returns event.distinct_id when present',
+                { state: { event: { distinct_id: 'user-from-event' } } },
+                'user-from-event',
+            ],
+            ['returns null when state has no event', { state: { personId: 'p' } }, null],
+            ['returns null when state is null', { state: null }, null],
+            ['returns null when state is undefined', { state: undefined }, null],
+            ['returns null for empty event.distinct_id', { state: { event: { distinct_id: '' } } }, null],
+        ]
+        it.each(cases)('%s', (_desc, overrides, expected) => {
+            const invocation = { ...baseInvocation, id: uuidv4(), ...overrides } as CyclotronJobInvocation
+            expect(extractDistinctId(invocation)).toBe(expected)
+        })
+    })
+
+    describe('extractPersonId', () => {
+        const cases: Array<[string, any, string | null]> = [
+            [
+                'returns invocation.person.id when present (event-triggered)',
+                { person: { id: 'person-from-event' }, state: {} },
+                'person-from-event',
+            ],
+            [
+                'falls back to state.personId (batch-triggered)',
+                { state: { personId: 'person-from-batch' } },
+                'person-from-batch',
+            ],
+            [
+                'prefers invocation.person.id over state.personId',
+                { person: { id: 'person-from-event' }, state: { personId: 'person-from-batch' } },
+                'person-from-event',
+            ],
+            ['returns null when neither is present', { state: { globals: {} } }, null],
+            ['returns null when state is null', { state: null }, null],
+            ['returns null when state is undefined', { state: undefined }, null],
+            ['falls through empty person.id to state.personId', { person: { id: '' }, state: { personId: 'p' } }, 'p'],
+        ]
+        it.each(cases)('%s', (_desc, overrides, expected) => {
+            const invocation = { ...baseInvocation, id: uuidv4(), ...overrides } as CyclotronJobInvocation
+            expect(extractPersonId(invocation)).toBe(expected)
+        })
+    })
+
+    describe('extractActionId', () => {
+        const cases: Array<[string, Partial<CyclotronJobInvocation>, string | null]> = [
+            [
+                'returns currentAction.id when present',
+                { state: { currentAction: { id: 'action-uuid' } } as any },
+                'action-uuid',
+            ],
+            ['returns null when currentAction is absent', { state: { event: {} } as any }, null],
+            ['returns null when state is null', { state: null as any }, null],
+            ['returns null when state is undefined', { state: undefined as any }, null],
+            ['returns null when currentAction.id is empty', { state: { currentAction: { id: '' } } as any }, null],
+        ]
+        it.each(cases)('%s', (_desc, overrides, expected) => {
+            const invocation = { ...baseInvocation, id: uuidv4(), ...overrides } as CyclotronJobInvocation
+            expect(extractActionId(invocation)).toBe(expected)
+        })
+    })
+
     describe('queueInvocations', () => {
         it('should serialize state into a Buffer', async () => {
             const { queue, bulkCreateJobs } = createQueue()
@@ -105,6 +174,24 @@ describe('CyclotronJobQueuePostgresV2', () => {
             const stateBlob = parseJSON(bulkCreateJobs.mock.calls[0][0][0].state.toString('utf-8'))
             expect(stateBlob.queueParameters).toEqual({ type: 'fetch', url: 'https://example.com', method: 'GET' })
             expect(stateBlob.queueMetadata).toEqual({ retryCount: 2 })
+        })
+
+        it('forwards extracted distinctId, personId and actionId to bulkCreateJobs', async () => {
+            const { queue, bulkCreateJobs } = createQueue()
+            await queue.queueInvocations([
+                {
+                    ...baseInvocation,
+                    id: uuidv4(),
+                    person: { id: 'event-person' },
+                    state: { event: { distinct_id: 'd-1' }, currentAction: { id: 'a-1' } } as any,
+                } as any,
+                { ...baseInvocation, id: uuidv4(), state: { personId: 'batch-person' } as any },
+                { ...baseInvocation, id: uuidv4() },
+            ])
+            const jobs = bulkCreateJobs.mock.calls[0][0]
+            expect(jobs.map((j: any) => j.distinctId)).toEqual(['d-1', null, null])
+            expect(jobs.map((j: any) => j.personId)).toEqual(['event-person', 'batch-person', null])
+            expect(jobs.map((j: any) => j.actionId)).toEqual(['a-1', null, null])
         })
 
         it('should not call bulkCreateJobs for empty invocations', async () => {

@@ -135,6 +135,7 @@ export const textViewLogic = kea<textViewLogicType>([
 
                 try {
                     // Call Django API with timeout
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(
                         `api/environments/${props.teamId}/llm_analytics/text_repr/`,
                         requestData,

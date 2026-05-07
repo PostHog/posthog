@@ -3,8 +3,10 @@ import React, { useCallback, useMemo } from 'react'
 import { type BarChartPrivate, computeBarAtIndex, computeSeriesBars } from '../core/bar-layout'
 import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
+import { useChartLayout } from '../core/chart-context'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
+    type BarScaleSet,
     computePercentStackData,
     computeStackData,
     createBarScales,
@@ -24,10 +26,56 @@ import type {
     TooltipContext,
 } from '../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
+import { computeVisibleXLabels } from '../overlays/AxisLabels'
+import { DefaultTooltip } from '../overlays/DefaultTooltip'
 
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
     return start == null ? undefined : start + scales.band.bandwidth() / 2
+}
+
+function barContainsPoint(bar: BarRect, point: { x: number; y: number }): boolean {
+    return point.x >= bar.x && point.x <= bar.x + bar.width && point.y >= bar.y && point.y <= bar.y + bar.height
+}
+
+interface BarHitTestArgs {
+    series: readonly Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>[]
+    label: string
+    dataIndex: number
+    cursor: { x: number; y: number }
+    scales: BarScaleSet
+    layout: 'stacked' | 'grouped' | 'percent'
+    isHorizontal: boolean
+    stackedData?: Map<string, StackedBand>
+    topStackedKeyByAxis: Map<string, string>
+}
+
+/** Shared by drawHover and the tooltip wrapper so they can't drift. */
+function seriesKeysAtCursor(args: BarHitTestArgs): Set<string> {
+    const { series, label, dataIndex, cursor, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
+    const hits = new Set<string>()
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const stackedBand = stackedData?.get(s.key)
+        const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const isTopOfStack = topStackedKeyByAxis.get(axisId) === s.key
+        const bar = computeBarAtIndex({
+            series: s as Series,
+            label,
+            dataIndex,
+            scales,
+            layout,
+            isHorizontal,
+            stackedBand,
+            isTopOfStack,
+        })
+        if (bar && barContainsPoint(bar, cursor)) {
+            hits.add(s.key)
+        }
+    }
+    return hits
 }
 
 export interface BarChartProps<Meta = unknown> {
@@ -67,8 +115,9 @@ function BarChartInner<Meta = unknown>({
         yScaleType = 'linear',
         showGrid = false,
         barLayout = 'stacked',
-        barCornerRadius = 4,
+        barCornerRadius = 0,
         axisOrientation = 'vertical',
+        xTickFormatter,
     } = config ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
@@ -168,9 +217,26 @@ function BarChartInner<Meta = unknown>({
             }
 
             if (showGrid) {
+                // Align cross-axis grid with visible category labels, not every band.
+                let categoryTicks: number[] = []
+                if (isHorizontal) {
+                    for (const label of drawLabels) {
+                        const coord = bandCenter(d3Scales, label)
+                        if (coord != null && isFinite(coord)) {
+                            categoryTicks.push(coord)
+                        }
+                    }
+                } else {
+                    categoryTicks = computeVisibleXLabels(
+                        drawLabels,
+                        (label) => bandCenter(d3Scales, label),
+                        xTickFormatter
+                    ).map((entry) => entry.x)
+                }
                 drawGrid(baseDrawCtx, {
                     gridColor: theme.gridColor,
                     orientation: isHorizontal ? 'horizontal' : 'vertical',
+                    categoryTicks,
                 })
             }
 
@@ -198,19 +264,50 @@ function BarChartInner<Meta = unknown>({
                 )
             }
         },
-        [showGrid, stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
+        [showGrid, stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius, xTickFormatter]
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs) => {
+        ({
+            ctx,
+            scales,
+            series: coloredSeries,
+            labels: drawLabels,
+            hoverIndex,
+            hoverPosition,
+            theme,
+        }: ChartDrawArgs) => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
                 return
             }
-            const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.4)'
+            const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.2)'
             const hoveredLabel = drawLabels[hoverIndex]
+            // For grouped, narrow to the bars under the cursor. If the cursor sits in a gap
+            // (no hits), fall back to highlighting all — matches the tooltip narrower's
+            // gap-fallback so highlight and tooltip don't disagree about what's "active".
+            let hitKeys: Set<string> | null = null
+            if (barLayout === 'grouped' && hoverPosition) {
+                const hits = seriesKeysAtCursor({
+                    series: coloredSeries,
+                    label: hoveredLabel,
+                    dataIndex: hoverIndex,
+                    cursor: hoverPosition,
+                    scales: d3Scales,
+                    layout: barLayout,
+                    isHorizontal,
+                    stackedData,
+                    topStackedKeyByAxis,
+                })
+                if (hits.size > 0) {
+                    hitKeys = hits
+                }
+            }
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
+                    continue
+                }
+                if (hitKeys && !hitKeys.has(s.key)) {
                     continue
                 }
                 const stackedBand = stackedData?.get(s.key)
@@ -232,6 +329,20 @@ function BarChartInner<Meta = unknown>({
             }
         },
         [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
+    )
+
+    const wrappedTooltip = useCallback(
+        (ctx: TooltipContext<Meta>): React.ReactNode => (
+            <BarTooltipShell<Meta>
+                ctx={ctx}
+                userTooltip={tooltip}
+                stackedData={stackedData}
+                topStackedKeyByAxis={topStackedKeyByAxis}
+                layout={barLayout}
+                isHorizontal={isHorizontal}
+            />
+        ),
+        [tooltip, stackedData, topStackedKeyByAxis, barLayout, isHorizontal]
     )
 
     const resolveValue = useMemo(() => {
@@ -258,7 +369,7 @@ function BarChartInner<Meta = unknown>({
             createScales={createScales}
             drawStatic={drawStatic}
             drawHover={drawHover}
-            tooltip={tooltip}
+            tooltip={wrappedTooltip}
             onPointClick={onPointClick}
             className={className}
             dataAttr={dataAttr}
@@ -267,4 +378,61 @@ function BarChartInner<Meta = unknown>({
             {children}
         </Chart>
     )
+}
+
+interface BarTooltipShellProps<Meta> {
+    ctx: TooltipContext<Meta>
+    userTooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
+    stackedData: Map<string, StackedBand> | undefined
+    topStackedKeyByAxis: Map<string, string>
+    layout: 'stacked' | 'grouped' | 'percent'
+    isHorizontal: boolean
+}
+
+function BarTooltipShell<Meta>({
+    ctx,
+    userTooltip,
+    stackedData,
+    topStackedKeyByAxis,
+    layout,
+    isHorizontal,
+}: BarTooltipShellProps<Meta>): React.ReactElement {
+    const { scales } = useChartLayout()
+    const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+    // Stacked/percent: keep all rows so the tooltip mirrors the whole hovered column —
+    // matches the legacy chart.js bar tooltip's default `mode: 'nearest'` for stacked bars.
+    const narrowed =
+        layout === 'grouped' && d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0
+            ? narrowSeriesByCursor(ctx, d3Scales, layout, isHorizontal, stackedData, topStackedKeyByAxis)
+            : ctx
+    return <>{userTooltip ? userTooltip(narrowed) : DefaultTooltip(narrowed)}</>
+}
+
+function narrowSeriesByCursor<Meta>(
+    ctx: TooltipContext<Meta>,
+    scales: BarScaleSet,
+    layout: 'stacked' | 'grouped' | 'percent',
+    isHorizontal: boolean,
+    stackedData: Map<string, StackedBand> | undefined,
+    topStackedKeyByAxis: Map<string, string>
+): TooltipContext<Meta> {
+    const cursor = ctx.hoverPosition
+    if (!cursor) {
+        return ctx
+    }
+    const hits = seriesKeysAtCursor({
+        series: ctx.seriesData.map((entry) => entry.series),
+        label: ctx.label,
+        dataIndex: ctx.dataIndex,
+        cursor,
+        scales,
+        layout,
+        isHorizontal,
+        stackedData,
+        topStackedKeyByAxis,
+    })
+    if (hits.size === 0) {
+        return ctx
+    }
+    return { ...ctx, seriesData: ctx.seriesData.filter((entry) => hits.has(entry.series.key)) }
 }

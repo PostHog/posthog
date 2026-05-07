@@ -1,16 +1,8 @@
 import { cleanup, waitFor } from '@testing-library/react'
 
-import type { ChartTheme, Series, TooltipContext } from '../core/types'
+import type { BarChartConfig, ChartTheme, Series } from '../core/types'
 import { ReferenceLine } from '../overlays/ReferenceLine'
-import {
-    clickAtIndex,
-    getHogChartTooltip,
-    hoverAtIndex,
-    renderHogChart,
-    setupJsdom,
-    setupSyncRaf,
-    waitForHogChartTooltip,
-} from '../testing'
+import { clickAtIndex, hoverAtIndex, renderHogChart, setupJsdom, setupSyncRaf } from '../testing'
 import { BarChart } from './BarChart'
 
 const THEME: ChartTheme = {
@@ -167,8 +159,8 @@ describe('BarChart', () => {
         it('mounts a tooltip on hover', async () => {
             const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} />)
             hoverAtIndex(chart.element, 1, LABELS.length)
-            const tooltip = await waitForHogChartTooltip()
-            expect(tooltip.textContent).toContain('Tue')
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.element.textContent).toContain('Tue')
         })
 
         it('invokes onPointClick with the clicked column', async () => {
@@ -180,16 +172,23 @@ describe('BarChart', () => {
             expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 1, label: 'Tue' }))
         })
 
-        it('passes hovered seriesData to a custom tooltip render prop', async () => {
-            const tooltip = (ctx: TooltipContext): React.ReactNode => (
-                <div data-attr="custom-tooltip">{ctx.seriesData.length}</div>
-            )
-            const { chart } = renderHogChart(
-                <BarChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} />
-            )
+        it.each([
+            {
+                name: 'stacked layout carries every visible series in the tooltip',
+                config: undefined as BarChartConfig | undefined,
+                expectedKeys: ['a', 'b'],
+            },
+            {
+                name: 'grouped layout narrows to the bar under the cursor',
+                config: { barLayout: 'grouped' } as BarChartConfig,
+                // hoverAtIndex puts the cursor at band-center / mid-plot, which lands in `b`'s sub-band.
+                expectedKeys: ['b'],
+            },
+        ])('$name', async ({ config, expectedKeys }) => {
+            const { chart } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} config={config} />)
             hoverAtIndex(chart.element, 1, LABELS.length)
-            const node = await waitForHogChartTooltip()
-            expect(node.querySelector('[data-attr="custom-tooltip"]')?.textContent).toBe(String(SERIES.length))
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(expectedKeys)
         })
 
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {
@@ -197,21 +196,22 @@ describe('BarChart', () => {
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
             )
             hoverAtIndex(chart.element, 1, LABELS.length)
-            await waitForHogChartTooltip()
+            await chart.waitForTooltip()
             await clickAtIndex(chart.element, 1, LABELS.length)
-            expect(getHogChartTooltip()?.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.element.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
         })
 
-        it('omits a series from tooltip when visibility.fromTooltip is true', async () => {
+        it('omits a series from tooltip when visibility.tooltip is false', async () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { fromTooltip: true } },
+                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { tooltip: false } },
             ]
             const { chart } = renderHogChart(<BarChart series={series} labels={LABELS} theme={THEME} />)
             hoverAtIndex(chart.element, 1, LABELS.length)
-            const tooltip = await waitForHogChartTooltip()
-            expect(tooltip.textContent).toContain('A')
-            expect(tooltip.textContent).not.toContain('B')
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.element.textContent).toContain('A')
+            expect(tooltip.element.textContent).not.toContain('B')
         })
     })
 

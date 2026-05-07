@@ -393,6 +393,11 @@ def _build_inbound_violation_map() -> dict[str, int] | None:
             continue
         if "/migrations/" in file_path:
             continue
+        # Django admin's project-wide registry has to import each product's
+        # admin classes and the models they reference — there's no facade
+        # equivalent for `admin.site.register`.
+        if "/posthog/admin/" in file_path or file_path.startswith("posthog/admin/"):
+            continue
         if ".backend.facade" in import_text:
             continue
         if ".backend.presentation" in import_text:

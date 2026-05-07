@@ -68,7 +68,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     update_feature_flag_params: true,
 }).extend({
     parameters: ExperimentsCreateBody.shape['parameters'].describe(
-        'Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout.'
+        'Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout. HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant\'s `key` must be the literal string `control` (lowercase, no variations). It is the baseline used for analysis and the experiment runtime treats it specially. If the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`, `variant_a`, etc.).'
     ),
 })
 

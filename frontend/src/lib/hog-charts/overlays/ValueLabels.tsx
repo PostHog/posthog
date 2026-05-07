@@ -119,7 +119,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     if (isPercent) {
         return out
     }
-    const visible = series.filter((s) => !s.visibility?.excluded && !s.visibility?.fromValueLabels)
+    const visible = series.filter((s) => !s.visibility?.excluded && s.visibility?.valueLabel !== false)
     if (visible.length === 0) {
         return out
     }
@@ -159,7 +159,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
-        if (s.visibility?.excluded || s.visibility?.fromValueLabels) {
+        if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
             continue
         }
         const yScale = resolveYScale(s, scales)

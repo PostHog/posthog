@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "query_id": "__QUERY_ID__",
+  "branch_name": "__BRANCH_NAME__",
+  "workspace_root": "__WORKSPACE_ROOT__",
+  "primary_metric": {
+    "name": "__PRIMARY_METRIC__",
+    "unit": "__METRIC_UNIT__",
+    "direction": "__DIRECTION__",
+    "significant_improvement_pct": __SIGNIFICANT_IMPROVEMENT_PCT__
+  },
+  "secondary_metrics": [
+    "rows_read",
+    "bytes_read",
+    "peak_memory_mb"
+  ],
+  "review": {
+    "lane_stagnation_window": __LANE_STAGNATION_WINDOW__,
+    "campaign_stagnation_window": __CAMPAIGN_STAGNATION_WINDOW__,
+    "max_total_iterations": __MAX_TOTAL_ITERATIONS__,
+    "repair_budget_per_candidate": __REPAIR_BUDGET__
+  }
+}
