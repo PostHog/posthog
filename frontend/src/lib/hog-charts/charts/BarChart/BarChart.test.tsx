@@ -1,8 +1,8 @@
 import { cleanup, waitFor } from '@testing-library/react'
 
-import type { BarChartConfig, ChartTheme, Series } from '../core/types'
-import { ReferenceLine } from '../overlays/ReferenceLine'
-import { clickAtIndex, hoverAtIndex, renderHogChart, setupJsdom, setupSyncRaf } from '../testing'
+import type { BarChartConfig, ChartTheme, Series } from '../../core/types'
+import { ReferenceLine } from '../../overlays/ReferenceLine'
+import { clickAtIndex, hoverAtIndex, renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
 import { BarChart } from './BarChart'
 
 const THEME: ChartTheme = {
