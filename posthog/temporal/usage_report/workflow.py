@@ -4,10 +4,13 @@ for the billing service.
 The workflow runs ~50 gather queries (each as its own retriable activity),
 then a single aggregation activity reads them all back from S3, builds one
 `FullUsageReport` dict per organization, and writes those reports as gzipped
-JSONL chunks (≤10k orgs each) plus a manifest. A final
-`enqueue_pointer_message` activity sends a single SQS message to the billing
-service pointing at the S3 prefix; billing reads the chunks from S3 instead
-of receiving 50k+ per-org SQS messages.
+JSONL chunks (≤10k orgs each) plus a manifest.
+
+The final step — an `enqueue_pointer_message` activity that sends a single
+SQS pointer to billing — is currently disabled until the `usage_reports_v2`
+queue is provisioned in deployment. For now the workflow stops after the
+chunks and manifest are in S3; billing isn't notified yet. See the
+commented-out call below for re-enabling.
 
 This replaces the per-org SQS fan-out in
 `posthog/tasks/usage_report.py:send_all_org_usage_reports`. The Celery task
