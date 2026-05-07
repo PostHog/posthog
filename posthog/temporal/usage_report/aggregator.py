@@ -139,9 +139,14 @@ def get_org_user_counts() -> dict[str, int]:
     0. We keep this off the Celery path on purpose; that path still uses
     the per-org helper.
     """
+    # `.iterator()` skips Django's QuerySet result cache, so we don't hold
+    # the full list of rows alongside the dict we're building. `chunk_size`
+    # just tunes the server-side cursor batch.
     return {
         str(row["organization_id"]): row["count"]
-        for row in OrganizationMembership.objects.values("organization_id").annotate(count=Count("id"))
+        for row in OrganizationMembership.objects.values("organization_id")
+        .annotate(count=Count("id"))
+        .iterator(chunk_size=10_000)
     }
 
 
