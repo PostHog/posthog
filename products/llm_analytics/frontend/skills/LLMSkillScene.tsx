@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { lazy, Suspense, useCallback, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconChevronRight, IconColumns, IconDocument, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -255,8 +255,10 @@ export function LLMSkillScene(): JSX.Element {
 function SkillViewDetails(): JSX.Element {
     const { skill, isOutlineExpanded, isDiffVisible, canCompareVersions, compareVersionOptions } =
         useValues(llmSkillLogic)
+    const { searchParams } = useValues(router)
     const { toggleOutlineExpanded, setCompareVersion } = useActions(llmSkillLogic)
     const markdownContainerRef = useRef<HTMLDivElement | null>(null)
+    const selectedFilePath = typeof searchParams?.file === 'string' ? searchParams.file : null
 
     if (!skill || !isSkill(skill)) {
         return <></>
@@ -387,6 +389,7 @@ function SkillViewDetails(): JSX.Element {
                                 skillName={skill.name}
                                 file={file}
                                 version={skill.is_latest ? undefined : skill.version}
+                                autoOpen={selectedFilePath === file.path}
                             />
                         ))}
                     </div>
@@ -523,14 +526,35 @@ function SkillFileViewer({
     skillName,
     file,
     version,
+    autoOpen = false,
 }: {
     skillName: string
     file: LLMSkillFileManifestApi
     version?: number
+    autoOpen?: boolean
 }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
+    const [expanded, setExpanded] = useState(autoOpen)
     const [content, setContent] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
+    const containerRef = useRef<HTMLDivElement | null>(null)
+
+    const loadFileContent = useCallback(async () => {
+        setLoading(true)
+        try {
+            const fileData: LLMSkillFileApi = await llmSkillsNameFilesRetrieve(
+                String(ApiConfig.getCurrentTeamId()),
+                skillName,
+                file.path,
+                { version }
+            )
+            setContent(fileData.content)
+        } catch (e) {
+            console.error('Failed to load file content', e)
+            setContent('Failed to load file content.')
+        } finally {
+            setLoading(false)
+        }
+    }, [skillName, file.path, version])
 
     const toggleExpand = useCallback(async () => {
         if (expanded) {
@@ -538,30 +562,30 @@ function SkillFileViewer({
             return
         }
         if (content === null) {
-            setLoading(true)
-            try {
-                const fileData: LLMSkillFileApi = await llmSkillsNameFilesRetrieve(
-                    String(ApiConfig.getCurrentTeamId()),
-                    skillName,
-                    file.path,
-                    { version }
-                )
-                setContent(fileData.content)
-            } catch (e) {
-                console.error('Failed to load file content', e)
-                setContent('Failed to load file content.')
-            } finally {
-                setLoading(false)
-            }
+            await loadFileContent()
         }
         setExpanded(true)
-    }, [expanded, content, skillName, file.path, version])
+    }, [expanded, content, loadFileContent])
+
+    useEffect(() => {
+        if (!autoOpen) {
+            return
+        }
+        setExpanded(true)
+        if (content === null && !loading) {
+            void loadFileContent()
+        }
+        const id = requestAnimationFrame(() => {
+            containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+        return () => cancelAnimationFrame(id)
+    }, [autoOpen, content, loading, loadFileContent])
 
     const isMarkdown = file.content_type === 'text/markdown' || file.path.endsWith('.md')
     const codeLanguage = isMarkdown ? null : getFileLanguage(file.path, file.content_type)
 
     return (
-        <div className="rounded border">
+        <div ref={containerRef} className="rounded border">
             <button
                 type="button"
                 className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-3 py-2 text-left text-sm hover:bg-fill-secondary"

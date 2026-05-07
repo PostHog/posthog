@@ -255,7 +255,8 @@ export const manifest: ProductManifest = {
         llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
         llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
         llmAnalyticsSkills: (): string => '/llm-analytics/skills',
-        llmAnalyticsSkill: (name: string): string => `/llm-analytics/skills/${name}`,
+        llmAnalyticsSkill: (name: string, params?: { file?: string; version?: number }): string =>
+            combineUrl(`/llm-analytics/skills/${name}`, params).url,
         llmAnalyticsClusters: (runId?: string): string =>
             runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
         llmAnalyticsCluster: (runId: string, clusterId: number): string =>
