@@ -1,3 +1,25 @@
+<!-- PR authoring rules — read before filling the sections below.
+
+     PR title (conventional commits): <type>(<scope>): <description>
+       Both type and scope are required. Agents commonly skip them — do not.
+       Type: feat | fix | chore (chore covers docs, tests, config, CI, refactors).
+       Scope: the area touched (e.g. insights, cohorts, devex, ci, llma for LLM analytics).
+       Description: lowercase, no trailing period, under 72 chars, imperative mood.
+       ✅ feat(insights): add retention graph export
+       ✅ chore(ci): bump node to 24
+       ❌ Add retention export                — missing type and scope
+       ❌ feat: Add retention export.         — capitalized, trailing period, no scope
+
+     PR description: keep sections high-level. Focus on rationale and architecture
+     for the human reviewer, not a step-by-step replay of implementation work.
+
+     Public OSS repo: title and description must be safe for external readers.
+     No internal customer names, private incidents, private Slack threads, or
+     operational metrics (e.g. exact row counts, affected team counts).
+       ❌ fix: patches issue from acme-co prod
+       ❌ fix: works fine on our 12M-row table
+-->
+
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
@@ -29,20 +51,6 @@
 ## Docs update
 
 <!-- Add the `skip-inkeep-docs` label if this PR should not trigger an automatic docs update from the Inkeep agent. -->
-
-<!-- PR title format (conventional commits): <type>(<scope>): <description>
-     Both type and scope are required — agents skip them often, do not.
-     Type: feat (new functionality) | fix (bug fix) | chore (everything else: docs, tests, config, CI, refactors).
-     Scope: the area touched (e.g. insights, cohorts, devex, ci, llma for LLM analytics).
-     Description: lowercase, no trailing period, under 72 chars, imperative mood.
-     Public OSS repo — no internal customer names, private incidents, or operational metrics.
-     ✅ feat(insights): add retention graph export
-     ✅ chore(ci): bump node to 24
-     ✅ fix(cohorts): handle empty cohort in query builder
-     ❌ Add retention export                — missing type and scope
-     ❌ feat: Add retention export.         — capitalized, trailing period, no scope
-     ❌ fix: patches issue from acme-co     — references internal customer
--->
 
 ## 🤖 Agent context
 
