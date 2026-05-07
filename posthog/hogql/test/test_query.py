@@ -22,6 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql import query as hogql_query
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -333,6 +334,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(str(error.exception), "Invalid connectionId for this team")
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_debug_query_returns_clickhouse_generation_error_without_executing_empty_sql(self, mock_sync_execute):
+        original_prepare_ast_for_printing = hogql_query.prepare_ast_for_printing
+
+        def raise_clickhouse_generation_error(*args, **kwargs):
+            if kwargs.get("dialect") == "clickhouse":
+                raise ExposedHogQLError("real HogQL generation error")
+            return original_prepare_ast_for_printing(*args, **kwargs)
+
+        with patch("posthog.hogql.query.prepare_ast_for_printing", side_effect=raise_clickhouse_generation_error):
+            response = execute_hogql_query(
+                "select 1",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(debug=True),
+                pretty=False,
+            )
+
+        self.assertEqual(response.error, "real HogQL generation error")
+        self.assertEqual(response.clickhouse, "")
+        self.assertEqual(response.results, [])
         mock_sync_execute.assert_not_called()
 
     @pytest.mark.usefixtures("unittest_snapshot")

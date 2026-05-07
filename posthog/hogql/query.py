@@ -790,8 +790,17 @@ class HogQLQueryExecutor:
             )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
-    def _execute_clickhouse_query(self):
-        assert self.clickhouse_sql
+    def _execute_clickhouse_query(self) -> None:
+        if self.clickhouse_sql is None:
+            raise AssertionError("ClickHouse SQL must be generated before execution.")
+        if self.clickhouse_sql == "":
+            if self.debug:
+                self.results = []
+                if self.error is None:
+                    self.error = "Unknown error"
+                return
+            raise AssertionError("ClickHouse SQL must not be empty.")
+
         clickhouse_context = self.clickhouse_context
         assert clickhouse_context is not None
         timings_dict = self.timings.to_dict()
