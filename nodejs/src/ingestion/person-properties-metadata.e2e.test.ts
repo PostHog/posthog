@@ -21,7 +21,8 @@ import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '../typ
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { IngestionConsumer } from './ingestion-consumer'
+import { assembleAnalyticsConsumer } from './analytics/consumer'
+import { CommonIngestionConsumer } from './common/common-ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
@@ -137,7 +138,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
         name: string,
         config: { teamOverrides?: Partial<Team>; pluginServerConfig?: Partial<PluginsServerConfig> } = {},
         testFn: (
-            ingester: IngestionConsumer,
+            ingester: CommonIngestionConsumer,
             hub: Hub,
             team: Team,
             kafkaProducer: KafkaProducerWrapper
@@ -182,7 +183,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             }
 
             const outputs = createTestIngestionOutputs(kafkaProducer)
-            const ingester = new IngestionConsumer(hub, {
+            const ingester = assembleAnalyticsConsumer(hub, {
                 ...hub,
                 hogTransformer: createHogTransformerService(hub, {
                     ...hub,

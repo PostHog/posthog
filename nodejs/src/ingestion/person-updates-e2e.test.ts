@@ -27,7 +27,8 @@ import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } fr
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { IngestionConsumer } from './ingestion-consumer'
+import { assembleAnalyticsConsumer } from './analytics/consumer'
+import { CommonIngestionConsumer } from './common/common-ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
@@ -173,7 +174,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
     let clickhouse: Clickhouse
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
-    let ingester: IngestionConsumer
+    let ingester: CommonIngestionConsumer
     let team: Team
 
     beforeAll(async () => {
@@ -228,7 +229,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         currentToken = team.api_token
 
         const outputs = createTestIngestionOutputs(kafkaProducer)
-        ingester = new IngestionConsumer(hub, {
+        ingester = assembleAnalyticsConsumer(hub, {
             ...hub,
             hogTransformer: createHogTransformerService(hub, {
                 ...hub,

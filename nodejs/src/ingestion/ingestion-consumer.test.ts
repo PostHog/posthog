@@ -22,8 +22,15 @@ import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
+import {
+    AnalyticsConsumerDeps,
+    AnalyticsServerConfig,
+    buildAnalyticsConsumerDeps,
+    createAnalyticsConsumer,
+} from './analytics/consumer'
+import { CommonIngestionConsumer } from './common/common-ingestion-consumer'
+import { IngestionConsumerConfig } from './config'
 import { createPrepareEventStep } from './event-processing/prepare-event-step'
-import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -93,30 +100,36 @@ const createKafkaMessage = (event: PipelineEvent, token: string): Message => {
 }
 
 describe('IngestionConsumer', () => {
-    let ingester: IngestionConsumer
+    let ingester: CommonIngestionConsumer
+    let consumerDeps: AnalyticsConsumerDeps
     let hub: Hub
     let team: Team
     let team2: Team
     let fixedTime: DateTime
 
-    const createIngestionConsumer = async (
-        hub: Hub,
-        overrides?: ConstructorParameters<typeof IngestionConsumer>[2]
-    ) => {
+    type ConsumerOverrides = Partial<
+        Pick<
+            IngestionConsumerConfig,
+            | 'INGESTION_CONSUMER_GROUP_ID'
+            | 'INGESTION_CONSUMER_CONSUME_TOPIC'
+            | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
+            | 'INGESTION_CONSUMER_DLQ_TOPIC'
+        >
+    >
+
+    const createIngestionConsumer = async (hub: Hub, overrides?: ConsumerOverrides) => {
         const outputs = createTestIngestionOutputs(mockProducer)
-        const ingester = new IngestionConsumer(
-            hub,
-            {
+        const config: AnalyticsServerConfig = { ...hub, ...overrides }
+        consumerDeps = buildAnalyticsConsumerDeps(config, {
+            ...hub,
+            outputs,
+            clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+            hogTransformer: createHogTransformerService(hub, {
                 ...hub,
-                outputs,
-                clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
-                hogTransformer: createHogTransformerService(hub, {
-                    ...hub,
-                    monitoringOutputs: createTestMonitoringOutputs(mockProducer),
-                }),
-            },
-            overrides
-        )
+                monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+            }),
+        })
+        const ingester = createAnalyticsConsumer(config, consumerDeps)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -281,7 +294,7 @@ describe('IngestionConsumer', () => {
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
-                ;(ingester['overflowRedirectService'] as any)['rateLimiter'].consume(
+                ;(consumerDeps.overflowRedirectService as any)['rateLimiter'].consume(
                     `${team.api_token}:overflow-distinct-id`,
                     1000,
                     now()
@@ -309,7 +322,7 @@ describe('IngestionConsumer', () => {
 
                 // Overflow consumer doesn't have overflowRedirectService (overflowEnabled() returns false)
                 // so events are never redirected back to overflow
-                expect(overflowIngester['overflowRedirectService']).toBeUndefined()
+                expect(consumerDeps.overflowRedirectService).toBeUndefined()
 
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
                 await overflowIngester.handleKafkaBatch(overflowMessages)
@@ -337,7 +350,7 @@ describe('IngestionConsumer', () => {
                     })
 
                     // Verify TTL refresh service is created
-                    expect(overflowIngester['overflowLaneTTLRefreshService']).toBeDefined()
+                    expect(consumerDeps.overflowLaneTTLRefreshService).toBeDefined()
 
                     // Pre-seed Redis with overflow flags (simulating main lane has flagged these keys)
                     const redis = await hub.redisPool.acquire()
@@ -404,7 +417,7 @@ describe('IngestionConsumer', () => {
             })
 
             describe('force overflow', () => {
-                let ingester: IngestionConsumer
+                let ingester: CommonIngestionConsumer
 
                 afterEach(async () => {
                     await ingester.stop()
@@ -1277,9 +1290,9 @@ describe('IngestionConsumer', () => {
                 const localIngester = await createIngestionConsumer(hub)
 
                 // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
-                const observeResultsSpy = jest.spyOn(localIngester.hogTransformer['hogWatcher'], 'observeResults')
+                const fetchAndCacheSpy = jest.spyOn(consumerDeps.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(consumerDeps.hogTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(consumerDeps.hogTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher enabled
                 // in this stage we do not have the teamId on the event but the token is in kafka headers
@@ -1321,8 +1334,8 @@ describe('IngestionConsumer', () => {
                 const localIngester = await createIngestionConsumer(hub)
 
                 // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
+                const fetchAndCacheSpy = jest.spyOn(consumerDeps.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(consumerDeps.hogTransformer, 'clearHogFunctionStates')
 
                 // Process batch with hogwatcher disabled
                 const event = createEvent({
@@ -1480,10 +1493,10 @@ describe('IngestionConsumer', () => {
 
     describe('store flush behavior', () => {
         it('should flush stores exactly once per batch regardless of number of events', async () => {
-            const flushSpy = jest.spyOn(ingester['personsStore'], 'flush')
-            const groupFlushSpy = jest.spyOn(ingester['groupStore'], 'flush')
-            const reportBatchSpy = jest.spyOn(ingester['personsStore'], 'reportBatch')
-            const resetSpy = jest.spyOn(ingester['personsStore'], 'reset')
+            const flushSpy = jest.spyOn(consumerDeps.personsStore, 'flush')
+            const groupFlushSpy = jest.spyOn(consumerDeps.groupStore, 'flush')
+            const reportBatchSpy = jest.spyOn(consumerDeps.personsStore, 'reportBatch')
+            const resetSpy = jest.spyOn(consumerDeps.personsStore, 'reset')
 
             const events: PipelineEvent[] = [
                 {
@@ -1542,14 +1555,14 @@ describe('IngestionConsumer', () => {
         it('should call flush before reportBatch and reset', async () => {
             const callOrder: string[] = []
 
-            const flushSpy = jest.spyOn(ingester['personsStore'], 'flush').mockImplementation(() => {
+            const flushSpy = jest.spyOn(consumerDeps.personsStore, 'flush').mockImplementation(() => {
                 callOrder.push('flush')
                 return Promise.resolve([])
             })
-            const reportBatchSpy = jest.spyOn(ingester['personsStore'], 'reportBatch').mockImplementation(() => {
+            const reportBatchSpy = jest.spyOn(consumerDeps.personsStore, 'reportBatch').mockImplementation(() => {
                 callOrder.push('reportBatch')
             })
-            const resetSpy = jest.spyOn(ingester['personsStore'], 'reset').mockImplementation(() => {
+            const resetSpy = jest.spyOn(consumerDeps.personsStore, 'reset').mockImplementation(() => {
                 callOrder.push('reset')
             })
 

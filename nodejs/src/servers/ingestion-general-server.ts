@@ -15,6 +15,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import { AnalyticsServerConfig, AnalyticsServerDeps, assembleAnalyticsConsumer } from '../ingestion/analytics/consumer'
 import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import {
     KafkaIngestionProducerEnvConfig,
@@ -37,7 +38,6 @@ import {
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
-import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { PluginServerService, RedisPool } from '../types'
@@ -213,7 +213,7 @@ export class IngestionGeneralServer implements NodeServer {
             teamManager,
         }
 
-        const ingestionDeps: IngestionConsumerDeps = {
+        const ingestionDeps: AnalyticsServerDeps = {
             postgres: this.postgres,
             redisPool: this.redisPool,
             outputs: ingestionOutputs,
@@ -238,10 +238,12 @@ export class IngestionGeneralServer implements NodeServer {
 
             for (const consumerOption of consumersOptions) {
                 serviceLoaders.push(async () => {
-                    const consumer = new IngestionConsumer(this.config, ingestionDeps, {
+                    const consumerConfig: AnalyticsServerConfig = {
+                        ...this.config,
                         INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                         INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                    })
+                    }
+                    const consumer = assembleAnalyticsConsumer(consumerConfig, ingestionDeps)
                     await consumer.start()
                     return consumer.service
                 })
@@ -249,7 +251,7 @@ export class IngestionGeneralServer implements NodeServer {
         } else {
             // Production ingestion-v2: single consumer using config-provided topic
             serviceLoaders.push(async () => {
-                const consumer = new IngestionConsumer(this.config, ingestionDeps)
+                const consumer = assembleAnalyticsConsumer(this.config, ingestionDeps)
                 await consumer.start()
                 return consumer.service
             })

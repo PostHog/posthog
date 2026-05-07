@@ -18,7 +18,8 @@ import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { fetchDistinctIds } from '../worker/ingestion/persons/repositories/test-helpers'
-import { IngestionConsumer } from './ingestion-consumer'
+import { assembleAnalyticsConsumer } from './analytics/consumer'
+import { CommonIngestionConsumer } from './common/common-ingestion-consumer'
 
 // Mock the limiter so it always returns true
 jest.mock('~/utils/token-bucket', () => {
@@ -208,7 +209,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
         name: string,
         config: { teamOverrides?: Partial<Team>; pluginServerConfig?: Partial<PluginsServerConfig> } = {},
         testFn: (
-            ingester: IngestionConsumer,
+            ingester: CommonIngestionConsumer,
             hub: Hub,
             team: Team,
             kafkaProducer: KafkaProducerWrapper
@@ -254,7 +255,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             }
 
             const outputs = createTestIngestionOutputs(kafkaProducer)
-            const ingester = new IngestionConsumer(hub, {
+            const ingester = assembleAnalyticsConsumer(hub, {
                 ...hub,
                 hogTransformer: createHogTransformerService(hub, {
                     ...hub,
