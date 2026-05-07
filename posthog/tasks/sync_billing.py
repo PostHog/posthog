@@ -1,9 +1,11 @@
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
+from posthog.scoping_audit import skip_team_scope_audit
 
 
 @shared_task(ignore_result=True, rate_limit="5/s")
+@skip_team_scope_audit
 def sync_members_to_billing(organization_id: str) -> None:
     from posthog.models import Organization, OrganizationMembership
 
@@ -21,6 +23,7 @@ def sync_members_to_billing(organization_id: str) -> None:
 
 
 @shared_task(ignore_result=True, rate_limit="5/s")
+@skip_team_scope_audit
 def sync_from_billing(organization_id: str) -> None:
     from posthog.cloud_utils import get_cached_instance_license
     from posthog.models import Organization

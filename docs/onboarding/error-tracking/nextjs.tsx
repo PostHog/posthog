@@ -186,7 +186,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
             <>
                 <Markdown>
                     {dedent`
-                        Next.js enables you to both server-side render pages and add server-side functionality. To integrate PostHog into your Next.js app on the server-side, you can use the [Node SDK](/docs/libraries/node.md).
+                        Next.js enables you to both server-side render pages and add server-side functionality. To integrate PostHog into your Next.js app on the server-side, you can use the [Node SDK](https://posthog.com/docs/libraries/node).
 
                         First, install the \`posthog-node\` library:
                     `}
@@ -285,7 +285,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                         Importantly, you need to:
 
-                        1. Set up a \`posthog-node\` client in your server-side code. See our doc on [setting up Next.js server-side analytics](/docs/libraries/next-js#server-side-analytics.md) for more.
+                        1. Set up a \`posthog-node\` client in your server-side code. See our doc on [setting up Next.js server-side analytics](https://posthog.com/docs/libraries/next-js#server-side-analytics) for more.
                         2. Check the request is running in the \`nodejs\` runtime to ensure PostHog works. You can call \`posthog.debug()\` to get verbose logging.
                         3. Get the \`distinct_id\` from the cookie to connect the error to a specific user.
 
@@ -332,7 +332,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 />
                 <Markdown>
                     {dedent`
-                        You can find a full example of both this and client-side error tracking in our [Next.js error monitoring tutorial](/tutorials/nextjs-error-monitoring.md).
+                        You can find a full example of both this and client-side error tracking in our [Next.js error monitoring tutorial](https://posthog.com/tutorials/nextjs-error-monitoring).
                     `}
                 </Markdown>
             </>

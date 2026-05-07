@@ -1,1 +1,1 @@
-0249_property_values_kafka_named_collection
+0250_property_values_lowercase_text_index

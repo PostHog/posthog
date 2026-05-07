@@ -120,8 +120,13 @@ class TestSetRecorderScriptCommand(BaseTest):
         assert 30 < updated_teams < 70, f"Expected roughly 50 teams updated, got {updated_teams}"
 
     def test_bulk_updates_in_batches(self):
-        for i in range(2500):
-            Team.objects.create(organization=self.organization, name=f"Team {i}")
+        # Use bulk_create with a shared project to avoid 2500 individual
+        # Team.objects.create() calls (each of which also creates a Project
+        # in its own transaction). The test only cares that 2500 teams exist
+        # for the management command to iterate over.
+        Team.objects.bulk_create(
+            [Team(organization=self.organization, project=self.project, name=f"Team {i}") for i in range(2500)]
+        )
 
         out = StringIO()
         call_command(

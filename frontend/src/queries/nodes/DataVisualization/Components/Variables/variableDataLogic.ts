@@ -5,8 +5,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import { isSharedView } from '~/exporter/exporterViewLogic'
-
 import { Variable } from '../../types'
 import type { variableDataLogicType } from './variableDataLogicType'
 
@@ -17,9 +15,6 @@ export const variableDataLogic = kea<variableDataLogicType>([
             [] as Variable[],
             {
                 loadVariables: async () => {
-                    if (isSharedView()) {
-                        return []
-                    }
                     const insights = await api.insightVariables.list()
                     return insights.results
                 },

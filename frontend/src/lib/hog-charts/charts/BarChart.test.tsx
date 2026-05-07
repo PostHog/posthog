@@ -202,10 +202,10 @@ describe('BarChart', () => {
             expect(getHogChartTooltip()?.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
         })
 
-        it('omits a series from tooltip when visibility.fromTooltip is true', async () => {
+        it('omits a series from tooltip when visibility.tooltip is false', async () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { fromTooltip: true } },
+                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { tooltip: false } },
             ]
             const { chart } = renderHogChart(<BarChart series={series} labels={LABELS} theme={THEME} />)
             hoverAtIndex(chart.element, 1, LABELS.length)
