@@ -161,12 +161,15 @@ The rules are stored once per project — they are not insight-scoped.
 
 ## Common pitfalls
 
-- **No backreferences in `alias`** — `\1` will be inserted literally. To keep
-  parts of the path, write a regex that only matches the dynamic segment and
-  let the surrounding path pass through unchanged.
-- **Forgetting `$`** — `\d+` without an end anchor matches the first numeric
-  segment of any path, so `/blog/2024/post` becomes `/blog/<num>4/post`. Use
-  `\d+$` or `\d+(/|$)` depending on intent.
+- **Backreferences in `alias` need double-escaping** — ClickHouse's
+  `replaceRegexpAll` supports `\0` (whole match) and `\1`–`\9` (capture
+  groups). In a JSON field or SQL string literal the backslash must be
+  doubled, so use `\\1` in `path_cleaning_filters` / HogQL to get the `\1`
+  backreference at the ClickHouse layer.
+- **Forgetting `$`** — `\d+` without an end anchor matches every numeric run
+  in any path, so `/blog/2024-09-12/post` becomes
+  `/blog/<num>-<num>-<num>/post` when you only meant to match the year
+  segment. Use `\d+$` or `\d+(/|$)` depending on intent.
 - **Escaping `/`** — re2 does not require it. `\/` works but adds noise.
 - **Case sensitivity** — re2 is case-sensitive by default. Use `(?i)` at the
   start of the pattern for case-insensitive matching, e.g. `(?i)/users/\d+`.
