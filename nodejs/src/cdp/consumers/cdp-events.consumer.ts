@@ -54,12 +54,26 @@ export class CdpEventsConsumer<
             ttl: config.CDP_RATE_LIMITER_TTL,
         }
         this.hogRateLimiter = new HogRateLimiterService(rateLimiterConfig, this.redis)
-        // TEMPORARY: env-var toggle so we can flip the mirror between v2 (true mirror
-        // of the primary) and v3 (optimized lua) to compare. Defaults to v3.
-        const mirrorUseV3 = process.env.CDP_VALKEY_MIRROR_USE_V3 !== 'false'
         this.hogRateLimiterMirror = this.valkeyShadow
-            ? new HogRateLimiterService({ ...rateLimiterConfig, useV3: mirrorUseV3 }, this.valkeyShadow.writer)
+            ? new HogRateLimiterService(rateLimiterConfig, this.valkeyShadow.writer)
             : null
+    }
+
+    /**
+     * Coalesce duplicate ids (sum costs) and dispatch one multi-key V3 call.
+     * A batch of N events for M unique functions becomes 1 evalsha call total
+     * (vs N pipelined calls on the primary path). Returns undefined when the
+     * mirror is unconfigured so mirrorCall short-circuits.
+     */
+    private mirrorRateLimitMany(rateLimitInputs: [string, number][]): Promise<unknown> | undefined {
+        if (!this.hogRateLimiterMirror) {
+            return undefined
+        }
+        const coalesced = new Map<string, number>()
+        for (const [id, cost] of rateLimitInputs) {
+            coalesced.set(id, (coalesced.get(id) ?? 0) + cost)
+        }
+        return this.hogRateLimiterMirror.rateLimitManyMulti([...coalesced.entries()])
     }
 
     public async processBatch(
@@ -149,9 +163,7 @@ export class CdpEventsConsumer<
             instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
                 return await this.hogRateLimiter.rateLimitMany(rateLimitInputs)
             }),
-            mirrorCall('hog-rate-limiter.rateLimitMany', () =>
-                this.hogRateLimiterMirror?.rateLimitMany(rateLimitInputs)
-            ),
+            mirrorCall('hog-rate-limiter.rateLimitMany', () => this.mirrorRateLimitMany(rateLimitInputs)),
         ])
 
         const validInvocations: CyclotronJobInvocationHogFunction[] = []
@@ -316,9 +328,7 @@ export class CdpEventsConsumer<
             instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
                 return await this.hogRateLimiter.rateLimitMany(rateLimitInputs)
             }),
-            mirrorCall('hog-rate-limiter.rateLimitMany', () =>
-                this.hogRateLimiterMirror?.rateLimitMany(rateLimitInputs)
-            ),
+            mirrorCall('hog-rate-limiter.rateLimitMany', () => this.mirrorRateLimitMany(rateLimitInputs)),
         ])
         const validInvocations: CyclotronJobInvocation[] = []
 

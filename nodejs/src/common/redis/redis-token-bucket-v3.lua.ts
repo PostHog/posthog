@@ -1,6 +1,10 @@
 import { Redis } from 'ioredis'
 
-// V3 optimizations vs V2 (script CPU was ~95% of Redis cost in prod):
+import type { RedisClient } from './redis-v2'
+
+// V3 multi-key token-bucket script.
+//
+// Optimizations vs V2 (script CPU was ~95% of Redis cost in prod):
 //   1. ts + pool fetched in one HMGET (was two HGETs).
 //   2. ts + pool written in one multi-field HSET (was two HSETs).
 //   3. EXPIRE writes (expiry * 2) instead of expiry, and only on creation or
@@ -10,76 +14,116 @@ import { Redis } from 'ioredis'
 //      after 2 * expiry of no calls (vs 1 * expiry in V2). PTTL adds ~0.2 μs
 //      per call; we save ~95% of EXPIRE dispatches. Stale keys live 2x
 //      longer in exchange.
+//   4. Multi-key — applies the per-bucket logic to N independent buckets in
+//      ONE script invocation, amortizing the ~7 μs Lua-interpreter overhead
+//      across all of them. Keys are KEYS[1..N], ARGV is laid out 5 fields per
+//      bucket in the same order: now1, cost1, poolMax1, fillRate1, expiry1,
+//      now2, cost2, ...
+//
 // Public output (tokensBefore, tokensAfter) and stored-field semantics are
-// identical to V2; only the TTL ceiling and refresh cadence differ.
-const LUA_TOKEN_BUCKET_V3 = `
-local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local cost = tonumber(ARGV[2])
-local poolMax = tonumber(ARGV[3])
-local fillRate = tonumber(ARGV[4])
-local expiry = tonumber(ARGV[5])
+// identical to V2; only the TTL ceiling, refresh cadence, and call-shape differ.
+const LUA_TOKEN_BUCKET_V3_MANY = `
+local results = {}
+for i = 1, #KEYS do
+  local key = KEYS[i]
+  local argBase = (i - 1) * 5
+  local now = tonumber(ARGV[argBase + 1])
+  local cost = tonumber(ARGV[argBase + 2])
+  local poolMax = tonumber(ARGV[argBase + 3])
+  local fillRate = tonumber(ARGV[argBase + 4])
+  local expiry = tonumber(ARGV[argBase + 5])
 
-local existing = redis.call('hmget', key, 'ts', 'pool')
-local rawBefore = existing[1]
-local rawPool = existing[2]
+  local existing = redis.call('hmget', key, 'ts', 'pool')
+  local rawBefore = existing[1]
+  local rawPool = existing[2]
 
-local tokensBefore
-local before
-if rawBefore == false then
-  before = false
-  tokensBefore = poolMax
-else
-  before = tonumber(rawBefore)
-  local timeDiffSeconds = now - before
-  if timeDiffSeconds < 0 then
-    timeDiffSeconds = 0
-  end
-  local currentTokens
-  if rawPool == false then
-    currentTokens = poolMax
+  local tokensBefore
+  local before
+  if rawBefore == false then
+    before = false
+    tokensBefore = poolMax
   else
-    currentTokens = tonumber(rawPool)
+    before = tonumber(rawBefore)
+    local timeDiffSeconds = now - before
+    if timeDiffSeconds < 0 then
+      timeDiffSeconds = 0
+    end
+    local currentTokens
+    if rawPool == false then
+      currentTokens = poolMax
+    else
+      currentTokens = tonumber(rawPool)
+    end
+    -- tokensBefore is the uncapped accrued credit. A catch-up call after a long
+    -- silent period can therefore spend more than poolMax in one go. The cap is
+    -- applied below on tokensAfter so the *stored* pool can never exceed poolMax.
+    tokensBefore = currentTokens + (timeDiffSeconds * fillRate)
   end
-  -- tokensBefore is the uncapped accrued credit. A catch-up call after a long
-  -- silent period can therefore spend more than poolMax in one go. The cap is
-  -- applied below on tokensAfter so the *stored* pool can never exceed poolMax.
-  tokensBefore = currentTokens + (timeDiffSeconds * fillRate)
+
+  local tokensAfter
+  if tokensBefore - cost >= 0 then
+    tokensAfter = math.min(tokensBefore - cost, poolMax)
+  else
+    tokensAfter = -1
+  end
+
+  -- Don't regress ts when now < before; otherwise advance to now.
+  local tsToWrite
+  if before ~= false and now < before then
+    tsToWrite = before
+  else
+    tsToWrite = now
+  end
+
+  redis.call('hset', key, 'ts', tsToWrite, 'pool', tokensAfter)
+
+  -- Set TTL ceiling at (expiry * 2) on creation, then refresh when remaining
+  -- TTL drops below expiry/2. PTTL returns -1 (no TTL) and -2 (missing key)
+  -- which are both < any positive threshold, so the refresh fires defensively
+  -- if the TTL is ever lost.
+  if before == false or redis.call('pttl', key) < (expiry * 500) then
+    redis.call('expire', key, expiry * 2)
+  end
+
+  results[i] = {tokensBefore, tokensAfter}
 end
-
-local tokensAfter
-if tokensBefore - cost >= 0 then
-  tokensAfter = math.min(tokensBefore - cost, poolMax)
-else
-  tokensAfter = -1
-end
-
--- Don't regress ts when now < before; otherwise advance to now.
-local tsToWrite
-if before ~= false and now < before then
-  tsToWrite = before
-else
-  tsToWrite = now
-end
-
-redis.call('hset', key, 'ts', tsToWrite, 'pool', tokensAfter)
-
--- Set TTL ceiling at (expiry * 2) on creation, then refresh when remaining
--- TTL drops below expiry/2. Net: 2x safety margin over V2 (key only dies
--- after 2*expiry of no calls). PTTL returns ms; expiry is seconds, so the
--- threshold is (expiry * 500). PTTL also returns -1 (no TTL) and -2 (missing
--- key) which are both < any positive threshold, so the refresh fires
--- defensively if the TTL is ever lost.
-if before == false or redis.call('pttl', key) < (expiry * 500) then
-  redis.call('expire', key, expiry * 2)
-end
-
-return {tokensBefore, tokensAfter}
+return results
 `
 
 export const defineLuaTokenBucketV3 = (client: Redis) => {
-    client.defineCommand('checkRateLimitV3', {
-        numberOfKeys: 1,
-        lua: LUA_TOKEN_BUCKET_V3,
+    // numberOfKeys is dynamic — first call argument carries the keys count.
+    client.defineCommand('checkRateLimitV3Many', {
+        lua: LUA_TOKEN_BUCKET_V3_MANY,
     })
+}
+
+export type RateLimitBucket = {
+    key: string
+    now: number
+    cost: number
+    poolMax: number
+    fillRate: number
+    expiry: number
+}
+
+/**
+ * Typed wrapper for the multi-key V3 token bucket script. Encodes the
+ * (numKeys, ...keys, ...args) ioredis dynamic-keys calling convention so
+ * call sites stay readable.
+ */
+export async function checkRateLimitV3Many(
+    client: RedisClient,
+    buckets: RateLimitBucket[]
+): Promise<Array<[number, number]>> {
+    if (buckets.length === 0) {
+        return []
+    }
+    const argv: Array<string | number> = [buckets.length]
+    for (const b of buckets) {
+        argv.push(b.key)
+    }
+    for (const b of buckets) {
+        argv.push(b.now, b.cost, b.poolMax, b.fillRate, b.expiry)
+    }
+    return await client.checkRateLimitV3Many(...argv)
 }

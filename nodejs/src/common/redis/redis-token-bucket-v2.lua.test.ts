@@ -2,61 +2,16 @@ import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { deleteKeysWithPrefix } from '../../cdp/_tests/redis'
-import { RedisClient, RedisClientPipeline, RedisV2, createRedisV2PoolFromConfig } from './redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from './redis-v2'
 
-const TEST_KEY_PREFIX = '@posthog/redis-v2-test/'
+const TEST_KEY_PREFIX = '@posthog/redis-v2-test/v2/'
 
-type CheckRateLimitClientFn = (
-    client: RedisClient,
-    key: string,
-    now: number,
-    cost: number,
-    poolMax: number,
-    fillRate: number,
-    expiry: number
-) => Promise<[number, number]>
-
-type CheckRateLimitPipelineFn = (
-    pipeline: RedisClientPipeline,
-    key: string,
-    now: number,
-    cost: number,
-    poolMax: number,
-    fillRate: number,
-    expiry: number
-) => void
-
-type Version = {
-    label: 'v2' | 'v3'
-    onClient: CheckRateLimitClientFn
-    onPipeline: CheckRateLimitPipelineFn
-}
-
-const versions: Version[] = [
-    {
-        label: 'v2',
-        onClient: (client, key, now, cost, poolMax, fillRate, expiry) =>
-            client.checkRateLimitV2(key, now, cost, poolMax, fillRate, expiry),
-        onPipeline: (pipeline, key, now, cost, poolMax, fillRate, expiry) => {
-            pipeline.checkRateLimitV2(key, now, cost, poolMax, fillRate, expiry)
-        },
-    },
-    {
-        label: 'v3',
-        onClient: (client, key, now, cost, poolMax, fillRate, expiry) =>
-            client.checkRateLimitV3(key, now, cost, poolMax, fillRate, expiry),
-        onPipeline: (pipeline, key, now, cost, poolMax, fillRate, expiry) => {
-            pipeline.checkRateLimitV3(key, now, cost, poolMax, fillRate, expiry)
-        },
-    },
-]
-
-describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPipeline }) => {
+describe('redis token bucket v2 (single-key)', () => {
     jest.retryTimes(3)
 
     let hub: Hub
     let redis: RedisV2
-    const key = `${TEST_KEY_PREFIX}${label}/bucket-1`
+    const key = `${TEST_KEY_PREFIX}bucket-1`
 
     beforeEach(async () => {
         hub = await createHub()
@@ -92,7 +47,7 @@ describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPip
         targetKey: string = key
     ): Promise<[number, number]> => {
         const result = await redis.useClient({ name: 'test' }, async (client) => {
-            return await onClient(client, targetKey, nowSec, cost, poolMax, fillRate, expirySec)
+            return await client.checkRateLimitV2(targetKey, nowSec, cost, poolMax, fillRate, expirySec)
         })
         if (!result) {
             throw new Error('useClient returned null')
@@ -121,8 +76,6 @@ describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPip
             expect(stored.ts).toBe('1000')
             expect(stored.pool).toBe('95')
 
-            // Exact TTL bound is version-specific (v2: <= expiry, v3: <= 2*expiry)
-            // and asserted in the per-version `expiry` describe block below.
             const ttl = await redis.useClient({ name: 'ttl-check' }, async (client) => client.ttl(key))
             expect(ttl).toBeGreaterThan(0)
         })
@@ -238,54 +191,20 @@ describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPip
     })
 
     describe('expiry', () => {
-        if (label === 'v2') {
-            it('refreshes the TTL on every call (v2)', async () => {
-                await tick(1000, 5, 100, 10, 60)
-                await tick(1001, 5, 100, 10, 600)
+        it('refreshes the TTL on every call', async () => {
+            await tick(1000, 5, 100, 10, 60)
+            await tick(1001, 5, 100, 10, 600)
 
-                const ttl = await redis.useClient({ name: 'ttl-check' }, async (client) => client.ttl(key))
-                expect(ttl).toBeGreaterThan(60)
-                expect(ttl).toBeLessThanOrEqual(600)
-            })
-        } else {
-            // v3 sets TTL to 2*expiry on creation, then only refreshes when the
-            // remaining TTL drops below expiry/2. The 2x ceiling gives a 2x safety
-            // margin over V2. Verify both halves deterministically.
-            it('sets TTL to 2x expiry on creation (v3)', async () => {
-                await tick(1000, 5, 100, 10, 60)
-                const initialTtl = await redis.useClient({ name: 'ttl-check' }, async (client) => await client.ttl(key))
-                expect(initialTtl).toBeGreaterThan(60)
-                expect(initialTtl).toBeLessThanOrEqual(120)
-            })
-
-            it('does NOT refresh TTL on a call while remaining TTL is above expiry/2 (v3)', async () => {
-                await tick(1000, 1, 100, 10, 60)
-                // Force PTTL to ~50s — well above the 30s threshold (expiry/2).
-                await redis.useClient({ name: 'pexpire' }, async (client) => await client.pexpire(key, 50_000))
-                await tick(1001, 1, 100, 10, 60)
-                const ttl = await redis.useClient({ name: 'pttl-check' }, async (client) => await client.pttl(key))
-                // TTL should still be ~50s, not refreshed back to 120s.
-                expect(ttl).toBeGreaterThan(0)
-                expect(ttl).toBeLessThanOrEqual(50_000)
-            })
-
-            it('refreshes TTL to 2x expiry once remaining drops below expiry/2 (v3)', async () => {
-                await tick(1000, 1, 100, 10, 60)
-                // Force PTTL to ~10s — well below the 30s threshold.
-                await redis.useClient({ name: 'pexpire' }, async (client) => await client.pexpire(key, 10_000))
-                await tick(1001, 1, 100, 10, 60)
-                const ttl = await redis.useClient({ name: 'pttl-check' }, async (client) => await client.pttl(key))
-                // Refresh fired — TTL should be back near 120s (2 * expiry).
-                expect(ttl).toBeGreaterThan(60_000)
-                expect(ttl).toBeLessThanOrEqual(120_000)
-            })
-        }
+            const ttl = await redis.useClient({ name: 'ttl-check' }, async (client) => client.ttl(key))
+            expect(ttl).toBeGreaterThan(60)
+            expect(ttl).toBeLessThanOrEqual(600)
+        })
     })
 
     describe('isolation', () => {
         it('keeps separate buckets for separate keys', async () => {
-            const [, afterA] = await tick(1000, 10, 100, 10, 60, `${TEST_KEY_PREFIX}${label}/a`)
-            const [, afterB] = await tick(1000, 30, 100, 10, 60, `${TEST_KEY_PREFIX}${label}/b`)
+            const [, afterA] = await tick(1000, 10, 100, 10, 60, `${TEST_KEY_PREFIX}a`)
+            const [, afterB] = await tick(1000, 30, 100, 10, 60, `${TEST_KEY_PREFIX}b`)
             expect(afterA).toBe(90)
             expect(afterB).toBe(70)
         })
@@ -294,9 +213,9 @@ describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPip
     describe('pipeline', () => {
         it('returns one [before, after] pair per pipelined call in order', async () => {
             const results = await redis.usePipeline({ name: 'pipeline-test' }, (pipeline) => {
-                onPipeline(pipeline, key, 1000, 10, 100, 10, 60)
-                onPipeline(pipeline, key, 1000, 30, 100, 10, 60)
-                onPipeline(pipeline, key, 1000, 5, 100, 10, 60)
+                pipeline.checkRateLimitV2(key, 1000, 10, 100, 10, 60)
+                pipeline.checkRateLimitV2(key, 1000, 30, 100, 10, 60)
+                pipeline.checkRateLimitV2(key, 1000, 5, 100, 10, 60)
             })
 
             expect(results).not.toBeNull()
@@ -313,10 +232,10 @@ describe.each(versions)('redis token bucket ($label)', ({ label, onClient, onPip
 
         it('threads state through the rate-limit boundary in a single pipeline', async () => {
             const results = await redis.usePipeline({ name: 'pipeline-rate-limit' }, (pipeline) => {
-                onPipeline(pipeline, key, 1000, 90, 100, 10, 60) // 100 -> 10
-                onPipeline(pipeline, key, 1000, 9, 100, 10, 60) //  10 -> 1
-                onPipeline(pipeline, key, 1000, 2, 100, 10, 60) //   1 -> -1 (rate-limited)
-                onPipeline(pipeline, key, 1000, 1, 100, 10, 60) //  -1 -> -1 (still rate-limited)
+                pipeline.checkRateLimitV2(key, 1000, 90, 100, 10, 60) // 100 -> 10
+                pipeline.checkRateLimitV2(key, 1000, 9, 100, 10, 60) //  10 -> 1
+                pipeline.checkRateLimitV2(key, 1000, 2, 100, 10, 60) //   1 -> -1 (rate-limited)
+                pipeline.checkRateLimitV2(key, 1000, 1, 100, 10, 60) //  -1 -> -1 (still rate-limited)
             })
 
             expect(results).not.toBeNull()

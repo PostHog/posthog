@@ -8,15 +8,22 @@ import { captureException } from '../../utils/posthog'
 import { defineLuaTokenBucketV2 } from './redis-token-bucket-v2.lua'
 import { defineLuaTokenBucketV3 } from './redis-token-bucket-v3.lua'
 
-type WithCheckRateLimit<TV2, TV3> = {
+type WithCheckRateLimit<TV2> = {
     checkRateLimitV2: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV2
-    checkRateLimitV3: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV3
 }
 
-export type RedisClientPipeline = Pipeline & WithCheckRateLimit<[number, number], [number, number]>
+// Multi-key V3 variant. ioredis dynamic-keys calling convention: first arg is
+// the numKeys, followed by the keys, followed by 5N argv values. Prefer the
+// `checkRateLimitV3Many` helper in redis-token-bucket-v3.lua.ts to encode this.
+type WithCheckRateLimitMany = {
+    checkRateLimitV3Many: (...args: (string | number)[]) => Promise<Array<[number, number]>>
+}
+
+export type RedisClientPipeline = Pipeline & WithCheckRateLimit<[number, number]>
 
 export type RedisClient = Omit<Redis, 'pipeline'> &
-    WithCheckRateLimit<Promise<[number, number]>, Promise<[number, number]>> & {
+    WithCheckRateLimit<Promise<[number, number]>> &
+    WithCheckRateLimitMany & {
         pipeline: () => RedisClientPipeline
     }
 

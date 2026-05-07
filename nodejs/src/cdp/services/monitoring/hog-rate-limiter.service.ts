@@ -1,12 +1,11 @@
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 
+import { checkRateLimitV3Many } from '../../../common/redis/redis-token-bucket-v3.lua'
+
 export interface HogRateLimiterConfig {
     bucketSize: number
     refillRate: number
     ttl: number
-    // When true, dispatches to checkRateLimitV3 (optimized lua: HMGET, multi-field
-    // HSET, conditional EXPIRE refresh). Default: V2.
-    useV3?: boolean
 }
 
 export const BASE_REDIS_KEY =
@@ -38,15 +37,9 @@ export class HogRateLimiterService {
     }
 
     public async rateLimitMany(idCosts: [string, number][]): Promise<[string, HogRateLimit][]> {
-        const useV3 = this.config.useV3 ?? false
         const res = await this.redis.usePipeline({ name: 'hog-rate-limiter', failOpen: true }, (pipeline) => {
             idCosts.forEach(([id, cost]) => {
-                const args = this.rateLimitArgs(id, cost)
-                if (useV3) {
-                    pipeline.checkRateLimitV3(...args)
-                } else {
-                    pipeline.checkRateLimitV2(...args)
-                }
+                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost))
             })
         })
 
@@ -56,8 +49,44 @@ export class HogRateLimiterService {
 
         return idCosts.map(([id], index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            // checkRateLimit returns [tokensBefore, tokensAfter] for both V2 and V3.
+            // checkRateLimitV2 returns [tokensBefore, tokensAfter].
             const tokensAfter = tokenRes[1]?.[1] ?? this.config.bucketSize
+            return [
+                id,
+                {
+                    tokens: Number(tokensAfter),
+                    isRateLimited: Number(tokensAfter) <= 0,
+                },
+            ]
+        })
+    }
+
+    /**
+     * Single-script multi-key variant: collapses N pipelined evalsha calls into
+     * one, amortizing the Lua-interpreter overhead across all buckets. Requires
+     * the V3 multi-key script (`checkRateLimitV3Many`) to be available on the
+     * client. Currently used only on the Valkey mirror path — see
+     * cdp-events.consumer.ts.
+     */
+    public async rateLimitManyMulti(idCosts: [string, number][]): Promise<[string, HogRateLimit][]> {
+        if (idCosts.length === 0) {
+            return []
+        }
+        const buckets = idCosts.map(([id, cost]) => {
+            const [key, now, costN, poolMax, fillRate, expiry] = this.rateLimitArgs(id, cost)
+            return { key, now, cost: costN, poolMax, fillRate, expiry }
+        })
+        const tuples = await this.redis.useClient(
+            { name: 'hog-rate-limiter-multi', failOpen: true },
+            async (client) => {
+                return await checkRateLimitV3Many(client, buckets)
+            }
+        )
+        if (!tuples) {
+            throw new Error('Failed to rate limit (multi)')
+        }
+        return idCosts.map(([id], index) => {
+            const tokensAfter = tuples[index]?.[1] ?? this.config.bucketSize
             return [
                 id,
                 {

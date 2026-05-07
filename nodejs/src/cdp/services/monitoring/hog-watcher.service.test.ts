@@ -621,4 +621,53 @@ describe('HogWatcher', () => {
             )
         })
     })
+
+    // The mirror Valkey path runs observeResults with useMulti=true (one
+    // multi-key V3 script call instead of N pipelined V2 calls). Behavior
+    // must match — these tests exercise the same observe → token-deduct →
+    // state-transition flow to lock that contract in.
+    describe('useMulti equivalence (mirror path)', () => {
+        let multiWatcher: HogWatcherService
+
+        beforeEach(() => {
+            multiWatcher = new HogWatcherService(hub.teamManager, { ...watcherConfig, useMulti: true }, redis, redis)
+        })
+
+        it('deducts tokens identically to the V2 pipelined path', async () => {
+            const results = Array(10).fill(createResult({ duration: 1000, kind: 'hog' }))
+
+            await multiWatcher.observeResults(results)
+            const state = await multiWatcher.getPersistedState(hogFunctionId)
+
+            // Reset and run the same input through the default (V2) watcher.
+            await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+            await watcher.observeResults(results)
+            const v2State = await watcher.getPersistedState(hogFunctionId)
+
+            expect(state).toEqual(v2State)
+        })
+
+        it('triggers state changes via the same threshold logic', async () => {
+            await multiWatcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
+            const state = await multiWatcher.getPersistedState(hogFunctionId)
+            // Heavy-cost flow should drive the bucket below the disabled threshold.
+            expect(state.state).toBe(HogWatcherState.disabled)
+        })
+
+        it('handles batches with multiple distinct function ids in one script call', async () => {
+            const otherId = 'hog-function-id-2'
+            await multiWatcher.observeResults([
+                createResult({ id: hogFunctionId, duration: 1000, kind: 'hog' }),
+                createResult({ id: otherId, duration: 1000, kind: 'hog' }),
+            ])
+
+            const stateA = await multiWatcher.getPersistedState(hogFunctionId)
+            const stateB = await multiWatcher.getPersistedState(otherId)
+
+            expect(stateA.tokens).toBeLessThan(watcherConfig.bucketSize)
+            expect(stateB.tokens).toBeLessThan(watcherConfig.bucketSize)
+            // Each function's bucket is independent.
+            expect(stateA.tokens).toEqual(stateB.tokens)
+        })
+    })
 })

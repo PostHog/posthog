@@ -1,5 +1,6 @@
 import { Counter } from 'prom-client'
 
+import { checkRateLimitV3Many } from '~/common/redis/redis-token-bucket-v3.lua'
 import { RedisClientPipeline, RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
@@ -30,10 +31,11 @@ export interface HogWatcherConfig {
     stateLockTtl: number
     observeResultsBufferTimeMs: number
     observeResultsBufferMaxResults: number
-    // When true, dispatches the token-bucket pipeline call to checkRateLimitV3
-    // (optimized lua: HMGET, multi-field HSET, conditional EXPIRE refresh).
-    // Default: V2.
-    useV3?: boolean
+    // When true, folds the token-bucket calls into ONE multi-key V3 script
+    // invocation (HMGET + multi-field HSET + conditional EXPIRE refresh,
+    // amortized Lua overhead). Default: V2 pipelined per-bucket. Currently
+    // set on the Valkey shadow path only.
+    useMulti?: boolean
 }
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
@@ -445,22 +447,37 @@ export class HogWatcherService {
                 return { states, locks }
             })
 
+        // Token-bucket fetch path. Default: V2 pipelined per-bucket. When
+        // useMulti is set (Valkey mirror only today), one multi-key V3 script
+        // call replaces the pipeline.
+        const useMulti = this.config.useMulti ?? false
+        const runTokenBucket = async (): Promise<Array<[number, number]> | null> => {
+            if (useMulti) {
+                const buckets = functionCostEntries.map((fc) => {
+                    const [key, now, cost, poolMax, fillRate, expiry] = this.rateLimitArgs(fc.functionId, fc.cost)
+                    return { key, now, cost, poolMax, fillRate, expiry }
+                })
+                return await this.redis.useClient({ name: 'updateRateLimitsMulti' }, (client) =>
+                    checkRateLimitV3Many(client, buckets)
+                )
+            }
+            const pipelineRes = await this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
+                for (const fc of functionCostEntries) {
+                    pipeline.checkRateLimitV2(...this.rateLimitArgs(fc.functionId, fc.cost))
+                }
+            })
+            if (!pipelineRes) {
+                return null
+            }
+            return pipelineRes.map(([_err, val]) => val as [number, number])
+        }
+
         const [stateRes, tokenRes] = await Promise.all([
             readStates(this.redisReader).catch((err) => {
                 logger.warn('🔀', '[HogWatcher] reader readStatesForObserve failed, falling back to writer', { err })
                 return readStates(this.redis)
             }),
-            this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
-                const useV3 = this.config.useV3 ?? false
-                for (const functionCost of functionCostEntries) {
-                    const args = this.rateLimitArgs(functionCost.functionId, functionCost.cost)
-                    if (useV3) {
-                        pipeline.checkRateLimitV3(...args)
-                    } else {
-                        pipeline.checkRateLimitV2(...args)
-                    }
-                }
-            }),
+            runTokenBucket(),
         ])
 
         if (!stateRes || !tokenRes) {
@@ -471,11 +488,11 @@ export class HogWatcherService {
 
         // Calculate all those that have changed state
         functionCostEntries.map((functionCost, index) => {
-            const tokenResult = tokenRes[index]
+            const tokenTuple = tokenRes[index]
 
             const currentState: HogWatcherState = Number(stateRes.states[index] ?? HogWatcherState.healthy)
-            // checkRateLimit returns [tokensBefore, tokensAfter] for both V2 and V3.
-            const tokens = Number(tokenResult?.[1]?.[1] ?? this.config.bucketSize)
+            // [tokensBefore, tokensAfter] for both V2 and V3 (single + multi).
+            const tokens = Number(tokenTuple?.[1] ?? this.config.bucketSize)
             const newState = this.calculateNewState(tokens)
 
             if (currentState !== newState) {
