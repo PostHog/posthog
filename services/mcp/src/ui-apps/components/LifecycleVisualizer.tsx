@@ -61,7 +61,8 @@ function groupByStatus(results: LifecycleResultItem[]): {
 
 function computeBounds(
     byStatus: Map<LifecycleStatus, SeriesByStatus>,
-    dataLength: number
+    dataLength: number,
+    isVisible: (status: LifecycleStatus) => boolean
 ): { max: number; min: number } {
     let max = 0
     let min = 0
@@ -69,12 +70,18 @@ function computeBounds(
         let positiveStack = 0
         let negativeStack = 0
         for (const status of POSITIVE_STATUSES) {
+            if (!isVisible(status)) {
+                continue
+            }
             const value = byStatus.get(status)?.data[i] ?? 0
             if (value > 0) {
                 positiveStack += value
             }
         }
         for (const status of NEGATIVE_STATUSES) {
+            if (!isVisible(status)) {
+                continue
+            }
             const value = byStatus.get(status)?.data[i] ?? 0
             if (value < 0) {
                 negativeStack += value
@@ -101,7 +108,15 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
         return <EmptyState icon="chart" description="No data available" />
     }
 
-    const { max, min } = computeBounds(byStatus, dataLength)
+    // `toggledLifecycles` is a client-side filter in the main app: the backend always returns
+    // all four buckets and the UI hides the toggled-off ones. Mirror that here.
+    const toggledLifecycles = query?.lifecycleFilter?.toggledLifecycles
+    const isVisible = (status: LifecycleStatus): boolean =>
+        byStatus.has(status) && (!toggledLifecycles || toggledLifecycles.includes(status))
+    const visibleBuckets = ALL_STATUSES.filter(isVisible)
+    const showLegend = query?.lifecycleFilter?.showLegend ?? true
+
+    const { max, min } = computeBounds(byStatus, dataLength, isVisible)
     const range = Math.max(max - min, 1)
 
     const innerWidth = CHART_WIDTH - PADDING.left - PADDING.right
@@ -110,8 +125,6 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
     const valueToY = (value: number): number => zeroY - (value / range) * innerHeight
     const barGroupWidth = innerWidth / dataLength
     const barWidth = Math.min(barGroupWidth * 0.7, 36)
-    const visibleBuckets = ALL_STATUSES.filter((status) => byStatus.has(status))
-    const showLegend = query?.lifecycleFilter?.showLegend ?? true
 
     // Tick values: 0 plus a few evenly-spaced positions above and below.
     const positiveTicks = [0.25, 0.5, 0.75, 1].map((ratio) => max * ratio).filter((v) => v > 0)
@@ -120,7 +133,7 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
 
     return (
         <div>
-            <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} style={{ width: '100%', height: '420px' }}>
+            <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} style={{ width: '100%' }}>
                 {/* Y-axis grid + labels */}
                 {ticks.map((value) => {
                     const y = valueToY(value)
@@ -177,6 +190,9 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
                     return (
                         <g key={i}>
                             {POSITIVE_STATUSES.map((status) => {
+                                if (!isVisible(status)) {
+                                    return null
+                                }
                                 const series = byStatus.get(status)
                                 const value = series?.data[i] ?? 0
                                 if (value <= 0) {
@@ -197,6 +213,9 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
                                 )
                             })}
                             {NEGATIVE_STATUSES.map((status) => {
+                                if (!isVisible(status)) {
+                                    return null
+                                }
                                 const series = byStatus.get(status)
                                 const value = series?.data[i] ?? 0
                                 if (value >= 0) {
