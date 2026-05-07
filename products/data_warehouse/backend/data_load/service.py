@@ -400,6 +400,10 @@ def _discover_schemas_offset(source_id: str, interval: timedelta) -> timedelta:
 
 def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
     """Build a Temporal Schedule for the per-source schema-discovery workflow."""
+    # Inline import breaks a circular dependency: `sync_new_schemas` needs
+    # `delete_external_data_schedule` and `_get_discover_schemas_schedule_id` from this
+    # module for self-cleanup when the source vanishes, so it imports from us at module
+    # load time. Hoisting this import would deadlock the loader.
     from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import SyncNewSchemasActivityInputs
 
     inputs = SyncNewSchemasActivityInputs(source_id=str(source.id), team_id=source.team_id)
