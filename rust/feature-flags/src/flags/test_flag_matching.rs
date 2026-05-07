@@ -253,6 +253,8 @@ mod tests {
             None => HashMap::new(),
         };
 
+        reset_fetch_calls_count();
+
         let result = matcher
             .evaluate_all_feature_flags(
                 flag_list_with_metadata(vec![flag.clone()]),
@@ -269,6 +271,11 @@ mod tests {
         assert_eq!(
             result.flags.get("test_flag").unwrap().to_value(),
             FlagValue::Boolean(true)
+        );
+        assert_eq!(
+            get_fetch_calls_count(),
+            0,
+            "distinct_id-only filter should evaluate without a DB property fetch"
         );
     }
 
