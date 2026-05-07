@@ -408,6 +408,41 @@ class TimeSensitiveActionPermission(BasePermission):
         return True
 
 
+# The single org-level field that project-scoped OAuth tokens are allowed to
+# toggle, so that PostHog Code's onboarding can flip AI data processing
+# approval inline. Anything beyond this exact key (and only in isolation) goes
+# through the normal `scoped_teams` enforcement path.
+_AI_CONSENT_TOGGLE_FIELD = "is_ai_data_processing_approved"
+
+
+def _is_narrow_ai_consent_toggle(request, view) -> bool:
+    """Whether this request is the AI data processing approval toggle on the OrganizationViewSet.
+
+    Matches a PATCH/PUT to `OrganizationViewSet` whose body contains *only*
+    the `is_ai_data_processing_approved` field. The narrowness is deliberate —
+    we don't want this exemption to silently widen if a request body grows.
+    """
+    if request.method not in ("PATCH", "PUT"):
+        return False
+
+    if getattr(view, "basename", None) != "organizations":
+        return False
+
+    action = getattr(view, "action", None)
+    if action not in ("update", "partial_update"):
+        return False
+
+    try:
+        data = request.data
+    except Exception:
+        return False
+
+    if not isinstance(data, dict):
+        return False
+
+    return set(data.keys()) == {_AI_CONSENT_TOGGLE_FIELD}
+
+
 class ScopeBasePermission(BasePermission):
     """
     Base class for shared functionality between APIScopePermission and AccessControlPermission
@@ -545,6 +580,22 @@ class APIScopePermission(ScopeBasePermission):
         else:
             raise ValueError("Unexpected authentication type")
 
+        # Narrow exemption for the AI-data-processing-approval toggle on the org
+        # viewset. PostHog Code (and other first-party clients that authenticate
+        # with project-scoped OAuth tokens) need this single org-level boolean
+        # to be flippable inline during onboarding — without this exemption,
+        # `scoped_teams` enforcement below 403s the request on a non-project
+        # endpoint and forces the user to leave the app to flip the toggle on
+        # the web. Personal API keys, broader updates, and unrelated org
+        # endpoints remain fully gated. The wider question of giving the
+        # PostHog Code OAuth client carte-blanche org access is still open.
+        # See: posthog-code/allow-code-app-org-ai-toggle.
+        if _is_narrow_ai_consent_toggle(request, view) and isinstance(
+            request.successful_authenticator, OAuthAccessTokenAuthentication
+        ):
+            self._enforce_ai_consent_toggle_team_membership(request, view, scoped_teams, scoped_organizations)
+            return
+
         if scoped_teams and not skip_team_and_org:
             # Views that aren't project-nested but still need to accept
             # scoped_teams tokens can set `dangerously_skip_scoped_team_enforcement = True`
@@ -570,6 +621,36 @@ class APIScopePermission(ScopeBasePermission):
             except ValueError:
                 # Indicates this is not an organization scoped view
                 pass
+
+    def _enforce_ai_consent_toggle_team_membership(
+        self,
+        request,
+        view,
+        scoped_teams: list[int] | None,
+        scoped_organizations: list[str] | None,
+    ) -> None:
+        """
+        For the narrow AI-consent-toggle exemption, we still verify the token
+        actually has access to the target organization — either via at least
+        one team that belongs to it, or via `scoped_organizations` directly.
+        """
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return
+
+        if scoped_organizations and str(organization.id) in scoped_organizations:
+            return
+
+        if scoped_teams:
+            if Team.objects.filter(id__in=scoped_teams, organization_id=organization.id).exists():
+                return
+            raise PermissionDenied(
+                f"API key does not have access to the requested organization: ID {organization.id}."
+            )
+
+        # Token is not project- or org-scoped, fall through to the normal
+        # admin/membership checks higher up the permission chain.
 
     def _check_organization_personal_api_key_restrictions(self, request, view) -> None:
         """

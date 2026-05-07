@@ -327,6 +327,88 @@ class TestOrganizationAPI(APIBaseTest):
             "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
         }
     )
+    def test_project_scoped_oauth_token_can_toggle_ai_data_processing_approval(self):
+        """
+        PostHog Code uses project-scoped OAuth tokens. The narrow exemption in
+        APIScopePermission lets such tokens flip is_ai_data_processing_approved
+        on the parent org without leaving the desktop app, while every other
+        org-level update is still blocked.
+        """
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        oauth_app = OAuthApplication.objects.create(
+            name="PostHog Code (test)",
+            client_id="test_posthog_code_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="test_project_scoped_token",
+            scope="organization:write",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+
+        # The narrow toggle is allowed.
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"is_ai_data_processing_approved": True},
+            headers={"authorization": f"Bearer {access_token.token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_ai_data_processing_approved)
+
+        # Other org-level updates remain blocked for project-scoped tokens.
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"name": "should-not-update"},
+            headers={"authorization": f"Bearer {access_token.token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.organization.refresh_from_db()
+        self.assertNotEqual(self.organization.name, "should-not-update")
+
+        # Mixed payloads must NOT slip through the narrow exemption either.
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"is_ai_data_processing_approved": False, "name": "should-not-update"},
+            headers={"authorization": f"Bearer {access_token.token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_ai_data_processing_approved)
+        self.assertNotEqual(self.organization.name, "should-not-update")
+
+        # Token scoped to a team that doesn't belong to this org must still 403.
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        access_token_other_org = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="test_project_scoped_token_other_org",
+            scope="organization:write",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[other_team.id],
+        )
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/",
+            {"is_ai_data_processing_approved": False},
+            headers={"authorization": f"Bearer {access_token_other_org.token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
     def test_projects_outside_oauth_scoped_organizations_causes_401(self):
         # TODO: This should filter out the organizations to the scoped organizations, but it causes a 401 due to a bug in APIScopePermission for list endpoints.
         other_org, _, _ = Organization.objects.bootstrap(self.user)
