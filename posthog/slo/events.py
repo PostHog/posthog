@@ -82,6 +82,9 @@ def emit_slo_started(
         all_properties["deploy_sha"] = get_git_commit_short()
         if extra_properties:
             all_properties.update(extra_properties)
+        # Only stamp sample_rate when sampling is on; dashboards coalesce missing values to 1.0.
+        if sample_rate < 1.0:
+            all_properties["sample_rate"] = sample_rate
 
         _capture = capture or posthoganalytics.capture
         _capture(
@@ -115,6 +118,9 @@ def emit_slo_completed(
         all_properties["deploy_sha"] = get_git_commit_short()
         if extra_properties:
             all_properties.update(extra_properties)
+        # Only stamp sample_rate when sampling is on; dashboards coalesce missing values to 1.0.
+        if sample_rate < 1.0:
+            all_properties["sample_rate"] = sample_rate
 
         _capture = capture or posthoganalytics.capture
         _capture(

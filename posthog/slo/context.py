@@ -123,11 +123,6 @@ def slo_operation(
     handle = SloHandle()
     base_properties = dict(properties or {})
     base_properties["correlation_id"] = str(uuid4())
-    # Stamp the sample rate on events only when sampling is on, so unsampled
-    # operations don't accumulate a noise property. Dashboards coalesce missing
-    # sample_rate to 1.0 when reconstructing weighted counts.
-    if spec.sample_rate < 1.0:
-        base_properties["sample_rate"] = spec.sample_rate
     # One coin flip per operation: started+completed share fate, so a sampled
     # operation never emits a half-pair.
     should_emit = spec.sample_rate >= 1.0 or random.random() < spec.sample_rate

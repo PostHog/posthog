@@ -336,14 +336,8 @@ def test_slo_operation_respects_sample_rate(
     if expect_emit:
         mock_emit_slo_started.assert_called_once()
         mock_emit_slo_completed.assert_called_once()
-        started_extra = mock_emit_slo_started.call_args.kwargs["extra_properties"]
-        completed_extra = mock_emit_slo_completed.call_args.kwargs["extra_properties"]
-        if sample_rate < 1.0:
-            assert started_extra["sample_rate"] == sample_rate
-            assert completed_extra["sample_rate"] == sample_rate
-        else:
-            assert "sample_rate" not in started_extra
-            assert "sample_rate" not in completed_extra
+        assert mock_emit_slo_started.call_args.kwargs["sample_rate"] == sample_rate
+        assert mock_emit_slo_completed.call_args.kwargs["sample_rate"] == sample_rate
     else:
         mock_emit_slo_started.assert_not_called()
         mock_emit_slo_completed.assert_not_called()
