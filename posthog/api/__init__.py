@@ -132,6 +132,7 @@ from . import (
     annotation,
     async_migration,
     authentication,
+    cimd_verification_token,
     cli_auth,
     comments,
     dead_letter_queue,
@@ -676,6 +677,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"cimd_verification_tokens",
+    cimd_verification_token.CIMDVerificationTokenViewSet,
+    "organization_cimd_verification_tokens",
     ["organization_id"],
 )
 organizations_router.register(
