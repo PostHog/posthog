@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonModal, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -10,6 +11,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { BUBBLE_UP_COLUMN_TOOLTIPS, BUBBLE_UP_MODAL_TOOLTIP } from './bubbleUpCopy'
 import { formatDuration, TraceFlameChart } from './TraceFlameChart'
 import { TracingChartPanel } from './TracingChartPanel'
 import { TracingFilterBar } from './TracingFilterBar'
@@ -25,6 +27,17 @@ export const scene: SceneExport = {
 
 function isRootSpan(span: Span): boolean {
     return !span.parent_span_id
+}
+
+function BubbleUpColumnTitle({ label, tooltip }: { label: string; tooltip: string }): JSX.Element {
+    return (
+        <span className="inline-flex items-center gap-1">
+            {label}
+            <Tooltip title={tooltip}>
+                <IconInfo className="text-muted cursor-help shrink-0" />
+            </Tooltip>
+        </span>
+    )
 }
 
 const columns: LemonTableColumns<Span> = [
@@ -141,8 +154,15 @@ export default function TracingScene(): JSX.Element {
                 </div>
             </LemonModal>
             <LemonModal
-                title="BubbleUp"
-                description="Attributes enriched in your selection versus the baseline."
+                title={
+                    <span className="inline-flex items-center gap-2">
+                        BubbleUp
+                        <Tooltip title={BUBBLE_UP_MODAL_TOOLTIP}>
+                            <IconInfo className="text-muted cursor-help shrink-0" />
+                        </Tooltip>
+                    </span>
+                }
+                description="Attributes enriched in your heatmap selection versus the baseline for this chart period."
                 isOpen={bubbleUpModalOpen}
                 onClose={() => clearBubbleUp()}
                 width="800px"
@@ -154,12 +174,40 @@ export default function TracingScene(): JSX.Element {
                         loading={false}
                         dataSource={bubbleUpRows ?? []}
                         columns={[
-                            { title: 'Key', dataIndex: 'attribute_key' },
-                            { title: 'Value', dataIndex: 'attribute_value' },
-                            { title: 'Type', dataIndex: 'attribute_type' },
-                            { title: 'Lift', dataIndex: 'lift' },
-                            { title: 'In selection', dataIndex: 'inset_count' },
-                            { title: 'Baseline', dataIndex: 'baseline_count' },
+                            {
+                                title: <BubbleUpColumnTitle label="Key" tooltip={BUBBLE_UP_COLUMN_TOOLTIPS.key} />,
+                                dataIndex: 'attribute_key',
+                            },
+                            {
+                                title: <BubbleUpColumnTitle label="Value" tooltip={BUBBLE_UP_COLUMN_TOOLTIPS.value} />,
+                                dataIndex: 'attribute_value',
+                            },
+                            {
+                                title: <BubbleUpColumnTitle label="Type" tooltip={BUBBLE_UP_COLUMN_TOOLTIPS.type} />,
+                                dataIndex: 'attribute_type',
+                            },
+                            {
+                                title: <BubbleUpColumnTitle label="Lift" tooltip={BUBBLE_UP_COLUMN_TOOLTIPS.lift} />,
+                                dataIndex: 'lift',
+                            },
+                            {
+                                title: (
+                                    <BubbleUpColumnTitle
+                                        label="In selection"
+                                        tooltip={BUBBLE_UP_COLUMN_TOOLTIPS.inset}
+                                    />
+                                ),
+                                dataIndex: 'inset_count',
+                            },
+                            {
+                                title: (
+                                    <BubbleUpColumnTitle
+                                        label="Baseline"
+                                        tooltip={BUBBLE_UP_COLUMN_TOOLTIPS.baseline}
+                                    />
+                                ),
+                                dataIndex: 'baseline_count',
+                            },
                         ]}
                         rowKey={(row) => `${row.attribute_key}:${row.attribute_value}:${row.attribute_type}`}
                     />

@@ -10,6 +10,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
+import { BUBBLE_UP_BUTTON_TOOLTIP } from './bubbleUpCopy'
 import { formatDuration } from './TraceFlameChart'
 import type { HeatmapCellRow } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
@@ -282,6 +283,7 @@ export function TracingLatencyHeatmap({
                         type="secondary"
                         disabled={!selectedRegion}
                         onClick={() => selectedRegion && runBubbleUp(selectedRegion)}
+                        tooltip={BUBBLE_UP_BUTTON_TOOLTIP}
                     >
                         BubbleUp
                     </LemonButton>
