@@ -5,7 +5,6 @@ import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { scheduleSharedDashboardStaleAutoForceIfEligible } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
@@ -23,22 +22,16 @@ function SharedDashboardAutoRefresh({
     // (loadDashboardSuccess) instead of firing an unauthenticated loadDashboard,
     // matching the props <Dashboard> binds with via BindLogic.
     const logic = dashboardLogic({ id: dashboardId, placement: DashboardPlacement.Public, dashboard })
-    const { setAutoRefresh, setPageVisibility, triggerDashboardRefresh } = useActions(logic)
+    const { setAutoRefresh, setPageVisibility, forceRefreshIfStale } = useActions(logic)
 
-    // Read `logic.values.effectiveLastRefresh` inside the callback so we always see the
-    // live value when the tab regains focus — Chrome throttles background timers, so a
-    // captured/closed-over value could be stale by the time visibility flips.
     const onVisibilityChange = useCallback(
         (visible: boolean) => {
             setPageVisibility(visible)
             if (visible) {
-                scheduleSharedDashboardStaleAutoForceIfEligible({
-                    effectiveLastRefresh: logic.values.effectiveLastRefresh,
-                    triggerDashboardRefresh: () => void triggerDashboardRefresh(),
-                })
+                forceRefreshIfStale()
             }
         },
-        [setPageVisibility, triggerDashboardRefresh, logic]
+        [setPageVisibility, forceRefreshIfStale]
     )
     usePageVisibilityCb(onVisibilityChange)
 

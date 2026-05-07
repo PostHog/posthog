@@ -142,23 +142,6 @@ export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh:
     return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
 }
 
-/**
- * Trigger one force_blocking refresh on initial shared-dashboard load if the stalest tile is too old.
- * Idempotent across reloads since the follow-up run uses `forceRefresh` + non-initial action.
- */
-export function scheduleSharedDashboardStaleAutoForceIfEligible(options: {
-    effectiveLastRefresh: Dayjs | null
-    triggerDashboardRefresh: () => void
-}): void {
-    const { effectiveLastRefresh, triggerDashboardRefresh } = options
-    if (!shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh)) {
-        return
-    }
-    queueMicrotask(() => {
-        triggerDashboardRefresh()
-    })
-}
-
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 

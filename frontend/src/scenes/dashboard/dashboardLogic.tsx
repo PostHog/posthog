@@ -103,7 +103,7 @@ import {
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
-    scheduleSharedDashboardStaleAutoForceIfEligible,
+    shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -218,6 +218,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardRefresh: (payload?: { withAnalysis?: boolean }) => ({
             withAnalysis: payload?.withAnalysis ?? false,
         }),
+        /**
+         * If the latest tile data is older than SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
+         * queue a single force-blocking refresh on the next microtask. Reads
+         * `effectiveLastRefresh` from values, so always sees the live age — no closure.
+         */
+        forceRefreshIfStale: true,
         /** Manually refresh a single insight from the insight card on the dashboard. */
         refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
         /** Refresh tiles of a loaded dashboard e.g. stale tiles after initial load, previewed tiles after applying filters, etc. */
@@ -1925,6 +1931,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
             }
         },
+        forceRefreshIfStale: () => {
+            if (!shouldSharedDashboardAutoForceForStaleTime(values.effectiveLastRefresh)) {
+                return
+            }
+            queueMicrotask(() => {
+                void actions.triggerDashboardRefresh()
+            })
+        },
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
         triggerDashboardRefresh: async ({ withAnalysis }, breakpoint) => {
             actions.resetInterval()
@@ -2206,12 +2220,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 tilesAbortedCount === 0 &&
                 values.placement === DashboardPlacement.Public
             ) {
-                scheduleSharedDashboardStaleAutoForceIfEligible({
-                    effectiveLastRefresh: values.effectiveLastRefresh,
-                    triggerDashboardRefresh: () => {
-                        void actions.triggerDashboardRefresh()
-                    },
-                })
+                actions.forceRefreshIfStale()
             }
         },
         saveEditModeChanges: () => {
