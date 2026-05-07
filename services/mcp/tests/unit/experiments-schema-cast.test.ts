@@ -39,83 +39,70 @@ function parseWith(schema: z.ZodTypeAny, input: unknown): Record<string, unknown
     return schema.parse(input) as Record<string, unknown>
 }
 
-describe('experiment tool schemas — id/limit cast', () => {
-    describe('experiment-get', () => {
-        const schema = getToolSchema('experiment-get')
+/**
+ * One row per lifecycle tool that has `param_overrides: { id: { cast: 'string-int' } }`
+ * in tools.yaml. The `extras` map captures each tool's *additional* required-input
+ * fields beyond `id`/`project_id`, so the parameterised assertion can build a minimal
+ * valid input for every shape. Adding a new cast'd lifecycle tool means appending
+ * one row here — the test will then cover it automatically.
+ */
+const LIFECYCLE_TOOLS_WITH_ID_CAST = [
+    ['experiment-archive', {}],
+    ['experiment-delete', {}],
+    ['experiment-duplicate', { name: 'A duplicate', feature_flag_key: 'duplicated-flag' }],
+    ['experiment-end', {}],
+    ['experiment-get', {}],
+    ['experiment-launch', {}],
+    ['experiment-pause', {}],
+    ['experiment-reset', {}],
+    ['experiment-resume', {}],
+    ['experiment-ship-variant', { variant_key: 'test' }],
+    ['experiment-timeseries-results', { metric_uuid: 'metric-uuid', fingerprint: 'fp' }],
+    ['experiment-unarchive', {}],
+    ['experiment-update', {}],
+] as const satisfies ReadonlyArray<readonly [keyof typeof GENERATED_TOOLS, Record<string, unknown>]>
 
-        it('accepts id as a stringified integer and casts it', () => {
-            const parsed = parseWith(schema, { id: '123', project_id: PROJECT_ID })
-            expect(parsed.id).toBe(123)
-            expect(typeof parsed.id).toBe('number')
-        })
-
-        it('still accepts id as a plain number', () => {
-            const parsed = parseWith(schema, { id: 123, project_id: PROJECT_ID })
-            expect(parsed.id).toBe(123)
-        })
-
-        // Safety: we explicitly DO NOT want `z.coerce.number()` semantics, where
-        // `true → 1`, `null → 0`, etc. These should still reject so genuine
-        // type errors surface honestly instead of silently 404-ing the API.
-        it.each([
-            ['boolean true', true],
-            ['null', null],
-            ['empty string', ''],
-            ['decimal string', '1.5'],
-            ['non-numeric string', 'abc'],
-        ] as const)('rejects unsafe input: %s', (_label, badId) => {
-            expect(() => schema.parse({ id: badId, project_id: PROJECT_ID })).toThrow()
-        })
+describe('experiment lifecycle tools — id cast', () => {
+    it.each(LIFECYCLE_TOOLS_WITH_ID_CAST)('%s accepts a stringified id', (toolName, extras) => {
+        const parsed = parseWith(getToolSchema(toolName), { id: '123', project_id: PROJECT_ID, ...extras })
+        expect(parsed.id).toBe(123)
+        expect(typeof parsed.id).toBe('number')
     })
 
-    describe('experiment-update', () => {
-        const schema = getToolSchema('experiment-update')
-
-        it('accepts id as a stringified integer', () => {
-            const parsed = parseWith(schema, { id: '456', project_id: PROJECT_ID })
-            expect(parsed.id).toBe(456)
-            expect(typeof parsed.id).toBe('number')
-        })
+    it.each(LIFECYCLE_TOOLS_WITH_ID_CAST)('%s still accepts a plain numeric id', (toolName, extras) => {
+        const parsed = parseWith(getToolSchema(toolName), { id: 123, project_id: PROJECT_ID, ...extras })
+        expect(parsed.id).toBe(123)
     })
+})
 
-    describe('experiment-duplicate', () => {
-        const schema = getToolSchema('experiment-duplicate')
-
-        it('accepts id as a stringified integer', () => {
-            // Duplicate requires `name` and `feature_flag_key` on top of the id.
-            const parsed = parseWith(schema, {
-                id: '789',
-                project_id: PROJECT_ID,
-                name: 'A duplicate',
-                feature_flag_key: 'duplicated-flag',
-            })
-            expect(parsed.id).toBe(789)
-            expect(typeof parsed.id).toBe('number')
-        })
+describe('experiment-get — safety: must still reject non-int input', () => {
+    // We explicitly DO NOT want `z.coerce.number()` semantics, where `true → 1`,
+    // `null → 0`, etc. These should still reject so genuine type errors surface
+    // honestly instead of silently 404-ing the API. Asserted on `experiment-get`
+    // since the cast helper is shared, so one tool's safety contract covers all.
+    const schema = getToolSchema('experiment-get')
+    it.each([
+        ['boolean true', true],
+        ['null', null],
+        ['empty string', ''],
+        ['decimal string', '1.5'],
+        ['non-numeric string', 'abc'],
+    ] as const)('rejects unsafe input: %s', (_label, badId) => {
+        expect(() => schema.parse({ id: badId, project_id: PROJECT_ID })).toThrow()
     })
+})
 
-    describe('experiment-list', () => {
-        const schema = getToolSchema('experiment-list')
+describe('experiment-list — query-param casts', () => {
+    const schema = getToolSchema('experiment-list')
 
-        it('accepts limit as a stringified integer', () => {
-            const parsed = parseWith(schema, { limit: '50' })
-            expect(parsed.limit).toBe(50)
-            expect(typeof parsed.limit).toBe('number')
-        })
-
-        it('accepts offset as a stringified integer', () => {
-            const parsed = parseWith(schema, { offset: '100' })
-            expect(parsed.offset).toBe(100)
-        })
-
-        it('accepts created_by_id as a stringified integer', () => {
-            const parsed = parseWith(schema, { created_by_id: '42' })
-            expect(parsed.created_by_id).toBe(42)
-        })
-
-        it('accepts feature_flag_id as a stringified integer', () => {
-            const parsed = parseWith(schema, { feature_flag_id: '7' })
-            expect(parsed.feature_flag_id).toBe(7)
-        })
+    it.each([
+        ['limit', '50', 50],
+        ['offset', '100', 100],
+        ['created_by_id', '42', 42],
+        ['feature_flag_id', '7', 7],
+    ] as const)('casts stringified %s', (field, raw, expected) => {
+        const parsed = parseWith(schema, { [field]: raw })
+        expect(parsed[field]).toBe(expected)
+        expect(typeof parsed[field]).toBe('number')
     })
 })
