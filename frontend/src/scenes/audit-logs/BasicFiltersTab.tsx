@@ -20,11 +20,10 @@ export const BasicFiltersTab = (): JSX.Element => {
         availableFiltersLoading,
         showMoreFilters,
         activeAdvancedFiltersCount,
-        view,
+        isOrganizationView,
         teamsById,
     } = useValues(advancedActivityLogsLogic)
     const { setFilters, setShowMoreFilters } = useActions(advancedActivityLogsLogic)
-    const isOrganizationView = view === 'organization'
     const projectOptions = Object.entries(teamsById)
         .map(([id, name]) => ({ key: id, label: name as string }))
         .sort((a, b) => a.label.localeCompare(b.label))

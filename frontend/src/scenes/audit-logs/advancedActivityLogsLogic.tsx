@@ -92,6 +92,26 @@ const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
 
 const ADVANCED_FILTERS = ['was_impersonated', 'is_system', 'item_ids', 'clients', 'detail_filters'] as const
 
+function parseListSearchParam(raw: unknown): string[] {
+    if (raw === undefined || raw === null || raw === '') {
+        return []
+    }
+    if (Array.isArray(raw)) {
+        return raw.map(String)
+    }
+    if (typeof raw === 'string') {
+        return raw.split(',').filter((v) => v.length > 0)
+    }
+    return [String(raw)]
+}
+
+function parseBooleanSearchParam(raw: unknown): boolean | undefined {
+    if (raw === undefined || raw === null) {
+        return undefined
+    }
+    return raw === 'true' || raw === true
+}
+
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
     connect(() => ({
@@ -212,7 +232,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     values.filters.activities?.forEach((activity) => params.append('activities', activity))
                     values.filters.clients?.forEach((client) => params.append('clients', client))
                     values.filters.item_ids?.forEach((item_id) => params.append('item_ids', item_id))
-                    if (values.view === 'organization') {
+                    if (values.isOrganizationView) {
                         values.filters.team_ids?.forEach((team_id: number) =>
                             params.append('team_ids', String(team_id))
                         )
@@ -261,10 +281,12 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     })),
 
     selectors({
+        isOrganizationView: [(s) => [s.view], (view: ActivityLogsView): boolean => view === 'organization'],
+
         advancedActivityLogsBaseUrl: [
-            (s) => [s.view, s.currentProjectId, s.currentOrganizationId],
-            (view: ActivityLogsView, currentProjectId: number | string, currentOrganizationId: string): string =>
-                view === 'organization'
+            (s) => [s.isOrganizationView, s.currentProjectId, s.currentOrganizationId],
+            (isOrganizationView: boolean, currentProjectId: number | string, currentOrganizationId: string): string =>
+                isOrganizationView
                     ? `api/organizations/${currentOrganizationId}/advanced_activity_logs`
                     : `api/projects/${currentProjectId}/advanced_activity_logs`,
         ],
@@ -285,8 +307,8 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         ],
 
         hasActiveFilters: [
-            (s) => [s.filters, s.view],
-            (filters: AdvancedActivityLogFilters, view: ActivityLogsView): boolean => {
+            (s) => [s.filters, s.isOrganizationView],
+            (filters: AdvancedActivityLogFilters, isOrganizationView: boolean): boolean => {
                 return Boolean(
                     filters.start_date ||
                     filters.end_date ||
@@ -295,7 +317,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     filters.activities?.length ||
                     filters.clients?.length ||
                     filters.item_ids?.length ||
-                    (view === 'organization' && filters.team_ids?.length) ||
+                    (isOrganizationView && filters.team_ids?.length) ||
                     filters.was_impersonated !== undefined ||
                     filters.is_system !== undefined ||
                     (filters.detail_filters && Object.keys(filters.detail_filters).length > 0)
@@ -341,19 +363,18 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         ],
 
         urlSearchParams: [
-            (s) => [s.filters, s.view],
-            (filters: AdvancedActivityLogFilters, view: ActivityLogsView) => {
+            (s) => [s.filters, s.isOrganizationView],
+            (filters: AdvancedActivityLogFilters, isOrganizationView: boolean) => {
                 return objectClean({
                     ...router.values.searchParams,
-                    view: view === 'organization' ? 'organization' : undefined,
+                    view: isOrganizationView ? 'organization' : undefined,
                     start_date: filters.start_date,
                     end_date: filters.end_date,
                     users: filters.users?.length ? filters.users.join(',') : undefined,
                     scopes: filters.scopes?.length ? filters.scopes.join(',') : undefined,
                     activities: filters.activities?.length ? filters.activities.join(',') : undefined,
                     clients: filters.clients?.length ? filters.clients.join(',') : undefined,
-                    team_ids:
-                        view === 'organization' && filters.team_ids?.length ? filters.team_ids.join(',') : undefined,
+                    team_ids: isOrganizationView && filters.team_ids?.length ? filters.team_ids.join(',') : undefined,
                     item_ids: filters.item_ids?.length ? filters.item_ids.join(',') : undefined,
                     was_impersonated: filters.was_impersonated?.toString(),
                     is_system: filters.is_system?.toString(),
@@ -397,7 +418,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
 
         setActiveTab: ({ tab }) => {
-            if (tab === 'exports' && values.view !== 'organization') {
+            if (tab === 'exports' && !values.isOrganizationView) {
                 // Start polling when switching to exports tab (project view only)
                 actions.loadExports()
                 cache.disposables.add(() => {
@@ -506,7 +527,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
 
         exportLogs: async ({ format }) => {
-            if (values.view === 'organization') {
+            if (values.isOrganizationView) {
                 lemonToast.info('Export is not yet available for organization-wide activity logs.')
                 return
             }
@@ -545,32 +566,20 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         },
     })),
 
-    actionToUrl(({ values }) => ({
-        setFilters: () => [
+    actionToUrl(({ values }) => {
+        const replaceUrl = (): [string, Record<string, any>, Record<string, any>, { replace: true }] => [
             router.values.location.pathname,
             values.urlSearchParams,
             router.values.hashParams,
             { replace: true },
-        ],
-        setPage: () => [
-            router.values.location.pathname,
-            values.urlSearchParams,
-            router.values.hashParams,
-            { replace: true },
-        ],
-        setView: () => [
-            router.values.location.pathname,
-            values.urlSearchParams,
-            router.values.hashParams,
-            { replace: true },
-        ],
-        clearAllFilters: () => [
-            router.values.location.pathname,
-            values.urlSearchParams,
-            router.values.hashParams,
-            { replace: true },
-        ],
-    })),
+        ]
+        return {
+            setFilters: replaceUrl,
+            setPage: replaceUrl,
+            setView: replaceUrl,
+            clearAllFilters: replaceUrl,
+        }
+    }),
 
     urlToAction(({ actions, values }) => ({
         '/activity-logs': (_, searchParams) => {
@@ -596,42 +605,45 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             if (searchParams.end_date) {
                 urlFilters.end_date = searchParams.end_date
             }
-            if (searchParams.users) {
-                urlFilters.users = Array.isArray(searchParams.users)
-                    ? searchParams.users
-                    : searchParams.users?.split(',') || []
+
+            const users = parseListSearchParam(searchParams.users)
+            if (users.length) {
+                urlFilters.users = users
             }
-            if (searchParams.scopes) {
-                urlFilters.scopes = (
-                    Array.isArray(searchParams.scopes) ? searchParams.scopes : searchParams.scopes?.split(',') || []
-                ) as ActivityScope[]
+            const scopes = parseListSearchParam(searchParams.scopes)
+            if (scopes.length) {
+                urlFilters.scopes = scopes as ActivityScope[]
             }
-            if (searchParams.activities) {
-                urlFilters.activities = Array.isArray(searchParams.activities)
-                    ? searchParams.activities
-                    : searchParams.activities?.split(',') || []
+            const activities = parseListSearchParam(searchParams.activities)
+            if (activities.length) {
+                urlFilters.activities = activities
             }
-            if (searchParams.clients) {
-                urlFilters.clients = Array.isArray(searchParams.clients)
-                    ? searchParams.clients
-                    : searchParams.clients?.split(',') || []
+            const clients = parseListSearchParam(searchParams.clients)
+            if (clients.length) {
+                urlFilters.clients = clients
             }
-            if (searchParams.team_ids && desiredView === 'organization') {
-                const raw: string[] = Array.isArray(searchParams.team_ids)
-                    ? searchParams.team_ids
-                    : searchParams.team_ids.split?.(',') || [String(searchParams.team_ids)]
-                urlFilters.team_ids = raw.map((v) => parseInt(v, 10)).filter((v) => !Number.isNaN(v))
+            const itemIds = parseListSearchParam(searchParams.item_ids)
+            if (itemIds.length) {
+                urlFilters.item_ids = itemIds
             }
-            if (searchParams.item_ids) {
-                urlFilters.item_ids = searchParams.item_ids.split?.(',') || [searchParams.item_ids]
+            if (desiredView === 'organization') {
+                const teamIds = parseListSearchParam(searchParams.team_ids)
+                    .map((v) => parseInt(v, 10))
+                    .filter((v) => !Number.isNaN(v))
+                if (teamIds.length) {
+                    urlFilters.team_ids = teamIds
+                }
             }
-            if (searchParams.was_impersonated !== undefined) {
-                urlFilters.was_impersonated =
-                    searchParams.was_impersonated === 'true' || searchParams.was_impersonated === true
+
+            const wasImpersonated = parseBooleanSearchParam(searchParams.was_impersonated)
+            if (wasImpersonated !== undefined) {
+                urlFilters.was_impersonated = wasImpersonated
             }
-            if (searchParams.is_system !== undefined) {
-                urlFilters.is_system = searchParams.is_system === 'true' || searchParams.is_system === true
+            const isSystem = parseBooleanSearchParam(searchParams.is_system)
+            if (isSystem !== undefined) {
+                urlFilters.is_system = isSystem
             }
+
             if (searchParams.detail_filters) {
                 try {
                     urlFilters.detail_filters = JSON.parse(searchParams.detail_filters)

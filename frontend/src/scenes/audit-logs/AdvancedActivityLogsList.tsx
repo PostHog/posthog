@@ -9,7 +9,7 @@ import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import { AuditLogTable } from './AuditLogTable'
 
 export function AdvancedActivityLogsList(): JSX.Element {
-    const { advancedActivityLogs, advancedActivityLogsLoading, pagination, view, teamsById } =
+    const { advancedActivityLogs, advancedActivityLogsLoading, pagination, isOrganizationView, teamsById } =
         useValues(advancedActivityLogsLogic)
 
     const humanizedLogs = advancedActivityLogs?.results ? humanize(advancedActivityLogs.results, describerFor) : []
@@ -26,7 +26,7 @@ export function AdvancedActivityLogsList(): JSX.Element {
         <AuditLogTable
             logItems={humanizedLogs}
             pagination={pagination}
-            teamsById={view === 'organization' ? teamsById : undefined}
+            teamsById={isOrganizationView ? teamsById : undefined}
         />
     )
 }

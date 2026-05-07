@@ -26,15 +26,14 @@ export const scene: SceneExport = {
 }
 
 export function AdvancedActivityLogsScene(): JSX.Element | null {
-    const { activeTab, view, canViewOrganization } = useValues(advancedActivityLogsLogic)
+    const { activeTab, view, canViewOrganization, isOrganizationView } = useValues(advancedActivityLogsLogic)
     const { setActiveTab, setView } = useActions(advancedActivityLogsLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
     const includesOrgLevelLogs = currentTeam?.receive_org_level_activity_logs
-    const inOrganizationView = view === 'organization'
 
-    const tabs = inOrganizationView
+    const tabs = isOrganizationView
         ? [
               {
                   key: 'logs',
@@ -96,7 +95,7 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
             />
             <PayGateMini feature={AvailableFeature.AUDIT_LOGS}>
                 <LemonTabs
-                    activeKey={inOrganizationView ? 'logs' : activeTab}
+                    activeKey={isOrganizationView ? 'logs' : activeTab}
                     onChange={(key) => setActiveTab(key as 'logs' | 'exports')}
                     tabs={tabs}
                     sceneInset

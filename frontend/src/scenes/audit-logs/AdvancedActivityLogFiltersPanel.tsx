@@ -12,12 +12,11 @@ import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import { BasicFiltersTab } from './BasicFiltersTab'
 
 export function AdvancedActivityLogFiltersPanel(): JSX.Element {
-    const { hasActiveFilters, exportsLoading, filters, view } = useValues(advancedActivityLogsLogic)
+    const { hasActiveFilters, exportsLoading, filters, isOrganizationView } = useValues(advancedActivityLogsLogic)
     const { clearAllFilters, exportLogs } = useActions(advancedActivityLogsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { properties: subscribeProperties } = advancedActivityFiltersToHogProperties(filters)
-    const isOrganizationView = view === 'organization'
 
     return (
         <div className="border rounded-md p-4 bg-bg-light">
