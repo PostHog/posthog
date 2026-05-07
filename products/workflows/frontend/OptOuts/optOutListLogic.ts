@@ -5,7 +5,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { downloadBlob } from 'lib/components/ExportButton/exporter'
-import { dayjs } from 'lib/dayjs'
 
 import { MessageCategory } from './optOutCategoriesLogic'
 import type { optOutListLogicType } from './optOutListLogicType'
@@ -123,9 +122,8 @@ export const optOutListLogic = kea<optOutListLogicType>([
         exportCsv: async () => {
             actions.setCsvExporting(true)
             try {
-                const blob = await api.messaging.exportMessageOptOuts(props.category?.key)
-                const slug = props.category?.key ?? 'marketing'
-                downloadBlob(blob, `opt-outs-${slug}-${dayjs().format('YYYY-MM-DD')}.csv`)
+                const { blob, filename } = await api.messaging.exportMessageOptOuts(props.category?.key)
+                downloadBlob(blob, filename)
             } catch {
                 lemonToast.error('Failed to export opt-outs')
             } finally {

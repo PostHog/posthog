@@ -15,14 +15,8 @@ import type { OptOutEntry } from './types'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
-    const {
-        setSelectedIdentifier,
-        openPreferencesPage,
-        loadNextPage,
-        loadPreviousPage,
-        loadOptOutPersons,
-        exportCsv,
-    } = useActions(logic)
+    const { setSelectedIdentifier, openPreferencesPage, loadNextPage, loadPreviousPage, loadOptOutPersons, exportCsv } =
+        useActions(logic)
     const {
         selectedIdentifier,
         optOutPersons,
@@ -104,7 +98,9 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     type="secondary"
                     onClick={exportCsv}
                     loading={csvExporting}
-                    disabledReason={optOutPersons.count === 0 ? 'No opt-outs to export' : undefined}
+                    disabledReason={
+                        !optOutPersonsLoading && optOutPersons.count === 0 ? 'No opt-outs to export' : undefined
+                    }
                 >
                     Export to CSV
                 </LemonButton>

@@ -6107,7 +6107,7 @@ const api = {
                 })
                 .get()
         },
-        async exportMessageOptOuts(categoryKey?: string): Promise<Blob> {
+        async exportMessageOptOuts(categoryKey?: string): Promise<{ blob: Blob; filename: string }> {
             const response = await new ApiRequest()
                 .messagingPreferencesExportOptOuts()
                 .withQueryString(categoryKey ? { category_key: categoryKey } : {})
@@ -6115,7 +6115,11 @@ const api = {
             if (!response.ok) {
                 throw new Error(`Failed to export opt-outs: ${response.status}`)
             }
-            return await response.blob()
+            const blob = await response.blob()
+            const disposition = response.headers.get('Content-Disposition') || ''
+            const match = disposition.match(/filename="?([^"]+)"?/)
+            const filename = match?.[1] || 'opt-outs.csv'
+            return { blob, filename }
         },
     },
     hogFlows: {
