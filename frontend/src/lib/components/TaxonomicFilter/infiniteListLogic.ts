@@ -807,8 +807,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
                 const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
-                const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
                 // Lift the host's pinned current-selection above recents/pinned so it always
                 // anchors the top of the Suggested-filters tab.
                 const isCurrentSelectionItem = (item: TaxonomicDefinitionTypes): boolean =>
@@ -820,6 +818,34 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const localItemsWithoutCurrentSelection = isSuggested
                     ? localItems.results.filter((item) => !isCurrentSelectionItem(item))
                     : localItems.results
+                // Build a set of "groupType:value" keys for the current selection, so the same
+                // series doesn't also appear in the recents/pinned prefixes below.
+                const currentSelectionKeys = new Set(
+                    currentSelectionItems.map((item) => {
+                        const cs = item as { group?: TaxonomicFilterGroupType; id?: string | number | null }
+                        return `${cs.group}:${cs.id ?? ''}`
+                    })
+                )
+                const dropDuplicateOfCurrentSelection = (item: TaxonomicDefinitionTypes): boolean => {
+                    if (!hasRecentContext(item) && !hasPinnedContext(item)) {
+                        return true
+                    }
+                    const sourceGroupType = hasRecentContext(item)
+                        ? item._recentContext.sourceGroupType
+                        : hasPinnedContext(item)
+                          ? item._pinnedContext.sourceGroupType
+                          : undefined
+                    const itemValue = 'id' in item ? item.id : 'name' in item ? item.name : undefined
+                    return !currentSelectionKeys.has(`${sourceGroupType}:${itemValue ?? ''}`)
+                }
+                const recentPrefix =
+                    isSuggested && !searchQuery
+                        ? (contextFilteredRecentItems || []).filter(dropDuplicateOfCurrentSelection).slice(0, 3)
+                        : []
+                const pinnedPrefix =
+                    isSuggested && !searchQuery
+                        ? (contextFilteredPinnedItems || []).filter(dropDuplicateOfCurrentSelection).slice(0, 3)
+                        : []
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
                 // see the autocapture/event-type shortcut prominently and pressing Enter picks it.
                 // Real events with the same name remain accessible below the shortcut.
