@@ -96,18 +96,22 @@ snapshots:
         hash: v1.k794b7964.b1d9dcf611e6103856c1e579471fcc8d15e5ede8d778f58119af30defd021088.yuhFcITo9oT9yqz-ilwd1uzRK-Q9jRg3C9olYPw_hu4
     components-alerts-quiet-hours-fields--default--light:
         hash: v1.k794b7964.a2293bde4bb0b7ca27dfd7ee41226407780d9848000a22b9ccd5903674163749.AY5DM6ohNxpR3I4WEpxtTkkrtEij5AAL_VJOYjJXkko
-    components-bulkupdatetagspopover--add-mode--dark:
-        hash: v1.k794b7964.c5a3ec413ef4ad2ee955fd467ab59482f7c20aca2e7cc9856472c9245119f6fb.9oSSrwMTUQDjDNYoTidpTv1r8_5TdKnP0j5_Wbc24lc
-    components-bulkupdatetagspopover--add-mode--light:
-        hash: v1.k794b7964.1f8c2007bc78ae1258bc950f9e120a51972545ccd2f74e92a5008a41e25e77f3.APyQYtd6ozQYv9TNxr-ux25ikKYl8D2oqxUL5tv2X04
-    components-bulkupdatetagspopover--remove-mode--dark:
-        hash: v1.k794b7964.08255603facd8f9690777650572946568a8a67cf1f60ae9107a5e57c4ae2448f.6ZaA7NYuOFxWr4unq-LXQvKiLdSRg7RiYEIX-8q57_E
-    components-bulkupdatetagspopover--remove-mode--light:
-        hash: v1.k794b7964.7735bb23d9df03eb1b96d60eb641d9630988d2d95f5eb7f3801555b03be4fcd4.qS5NlT8yovIICCy02HdKal4hScC6b1yn-7LtjwiC7U8
-    components-bulkupdatetagspopover--replace-mode--dark:
-        hash: v1.k794b7964.3f3babb0eaa296f54fc0decb47682d561e9c49dd57adf2b60149e8b4cb4aec2f.WIzr4OnalGzurLAw9cBJcGMrK9pHzvhLhTjs5W4nQQo
-    components-bulkupdatetagspopover--replace-mode--light:
-        hash: v1.k794b7964.91e36b28d1e3844c5fb498aa4cc30bec73f3c85ed7c5be07221505657d80ef40.T9utABklZMumF-GSALbzQdypSq0ababXP3T7Lv68sdQ
+    components-bulkupdatetagsbutton--add-mode--dark:
+        hash: v1.k794b7964.ba66e3fd796ded95414954112b8e8ad07474b5be373cb4e98ecf3e56d8f61aab.jgsY9nY4c4c5rgf0ML5534zPOMlCIbIubJMaH2hRaig
+    components-bulkupdatetagsbutton--add-mode--light:
+        hash: v1.k794b7964.bdeff3ffa5f086ef81b099aa68f8343e086561c8c16003f7111b0c857c301f98.0RvnQ-YB-KABmt75anXwk3txhnet53EYQUCqfJ0VbU8
+    components-bulkupdatetagsbutton--closed--dark:
+        hash: v1.k794b7964.8a24fb21a71abb594a602f884319369622e9ff6bc8bcf7eb3a98150f231c7f11.GW8aRN4_mLjZn6I8wj0M7kbJsHNsz2mRzpsxqy9J3js
+    components-bulkupdatetagsbutton--closed--light:
+        hash: v1.k794b7964.b02dec65fc27f9a3d595eb121034a53017ffc06f4626b2b3a322087774e4f5c0.6QbrqTlrOcPu_36qRGXdxPGDwMj7IlaXj7lPg4r1ylg
+    components-bulkupdatetagsbutton--remove-mode--dark:
+        hash: v1.k794b7964.e495160ca5fae1981bcfacb0fd03325272706856074445fcaae33fa8eac28540.muBxDo_TfsAtT-b5xg72MXQ09P7N5emaTx2cRSfaiAY
+    components-bulkupdatetagsbutton--remove-mode--light:
+        hash: v1.k794b7964.d60627ec07354d5f52a684ac086b7a79c1f80e69922ad8045a9646f6212f7d2b.NocLOei5AdVpcSp5Z__ESfeJckSYWNgyFiOx0x8QiaU
+    components-bulkupdatetagsbutton--replace-mode--dark:
+        hash: v1.k794b7964.f04904fa63c957d681811fa5169ef3c8ae91c586248d1d288ad212e355ccf2fe.YcxQ1_WnvIYVrLew9xyurIg3yC5FFvr3XkVyOBFq0EE
+    components-bulkupdatetagsbutton--replace-mode--light:
+        hash: v1.k794b7964.379cf8e29d15c49e9dced0e75d7dc6c25936204286649beef587801633564121.wYCp32fZHjbDeJb5u_l7qYy823rCGHUMZIBfMRYfMYY
     components-cards-button-tile-card--template--dark:
         hash: v1.k794b7964.ea8f8f9e593a467027450a8ba4241c3b3160387a41dcbd2a7fa6fc3e3299fffa.AE40xjOLMiJfje4e2EC8Mpc00oXcDCL9gVW8xqGnblQ
     components-cards-button-tile-card--template--light:
@@ -2960,6 +2964,14 @@ snapshots:
         hash: v1.k794b7964.2496b73d402ac7675459ba9c4907611190b909e72f5688c59d653948466fdf4e.xytn22NqQA2ZtUpc7Kdh0aS9DN_cPBH8YGnTTUhmF0I
     lemon-ui-lemon-table--stealth--light:
         hash: v1.k794b7964.2f8811ffba12b3a41728553bd97cb50df586aa2fc6f39fdbe27fb1a3b05f515c.rT3cQl-y4vzpsRiRzKqRgpOHLkRjka1C4IfdNNLDeBM
+    lemon-ui-lemon-table--with-bulk-selection-nothing-selected--dark:
+        hash: v1.k794b7964.d8a3ded706df19e45d084dd4e38e23934b7256367324a3c12ca784ef278d007f._oX-4LZqneMp4U_fbgaiJKBvz-qexiYALGMEhvVwwyc
+    lemon-ui-lemon-table--with-bulk-selection-nothing-selected--light:
+        hash: v1.k794b7964.6b787b98404bc74f827fa3e78dc087d54d9e313b7eea1a0735388a926b31378f.ZEKrOFkieiHabBPgQsz8wdwZYyJOCXTDewNLK6apEEE
+    lemon-ui-lemon-table--with-bulk-selection-two-selected--dark:
+        hash: v1.k794b7964.d144bbfd3cf2dedfa4fa2d33982b141beeaa1d5ed9c671ea6ad6af0412410d51.r7vMxzq__W1_0hyNVO-RTDAzi3DFnAkFf2KE_xMUBH8
+    lemon-ui-lemon-table--with-bulk-selection-two-selected--light:
+        hash: v1.k794b7964.ccf8678c7587aac626871864be691994e48657cba88e5e3d09e84a7824f80860.SOwODJorbbCNh1BtzcxJjpdfoAvx0zNcACj94NjCOUg
     lemon-ui-lemon-table--with-cell-actions--dark:
         hash: v1.k794b7964.ff9c32e64b48b9c8cd6b7aee426ad871750504c61826e5c4e0d1c3624fdf1802.ubsc393AEuOfe9hpCM2OBWvHNSuD2SUENLS7BH-gnZ8
     lemon-ui-lemon-table--with-cell-actions--light:
