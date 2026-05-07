@@ -204,7 +204,7 @@
                                     "items": {
                                         "properties": {
                                             "key": {
-                                                "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                                                "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
                                                 "type": "string"
                                             },
                                             "name": {
@@ -253,7 +253,7 @@
                                 }
                             ],
                             "default": null,
-                            "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split."
+                            "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
                         },
                         "minimum_detectable_effect": {
                             "anyOf": [
@@ -286,7 +286,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout."
+            "description": "Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout. HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant's `key` must be the literal string `control` (lowercase, no variations). It is the baseline used for analysis and the experiment runtime treats it specially. If the user describes variants as \"A/B\", \"old/new\", \"original/redesign\", or any other natural-language pair, map the baseline to `key: \"control\"` — not \"A\", \"Control\", \"old\", \"original\", or \"baseline\". Other variants can use any key (`test`, `variant_a`, etc.)."
         },
         "stats_config": {}
     },

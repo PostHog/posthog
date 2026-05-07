@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
 from django.db.models import Prefetch
-from django.shortcuts import get_object_or_404
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -39,7 +38,7 @@ from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
+from posthog.api.utils import action, format_paginated_url, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
@@ -446,12 +445,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person_id = self.kwargs[self.lookup_field]
 
         try:
-            queryset = get_pk_or_uuid(queryset, person_id)
+            uuid.UUID(str(person_id))
         except ValueError:
-            raise ValidationError(
-                f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
-            )
-        return get_object_or_404(queryset)
+            try:
+                int(person_id)
+            except (ValueError, TypeError):
+                raise ValidationError(
+                    f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
+                )
+
+        return get_person_by_pk_or_uuid(self.team_id, str(person_id))
 
     @extend_schema(
         parameters=[
@@ -935,8 +938,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        person = get_pk_or_uuid(self.get_queryset(), request.GET["person_id"]).get()
-        cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
+        person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"])
+        if person is None:
+            raise NotFound()
+        cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team.pk)
 
         # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from team-scoped ClickHouse query)
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)

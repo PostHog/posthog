@@ -2475,25 +2475,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
-        user = request.user
-
-        # Check feature flag if we can resolve an org
-        org = getattr(user, "organization", None)
-        if org is not None:
-            org_id = str(org.id)
-            flag_enabled = posthoganalytics.feature_enabled(
-                "tasks",
-                user.distinct_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-            if flag_enabled:
-                return Response({"has_access": True})
-
-        # Fallback: check invite code redemption
-        has_redeemed = CodeInviteRedemption.objects.filter(user=user).exists()
+        has_redeemed = CodeInviteRedemption.objects.filter(user=request.user).exists()
         return Response({"has_access": has_redeemed})
 
 
