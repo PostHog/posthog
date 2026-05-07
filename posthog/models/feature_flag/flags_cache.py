@@ -618,8 +618,8 @@ def verify_team_flags(
         if flag_id in cached_flags_by_id:
             db_flag = db_flags_by_id[flag_id]
             cached_flag = cached_flags_by_id[flag_id]
-            if db_flag != cached_flag:
-                field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            if field_diffs:
                 diff = {
                     "type": "FIELD_MISMATCH",
                     "flag_id": flag_id,
@@ -674,12 +674,18 @@ def verify_team_flags(
 
 
 def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
-    """Compare field values between DB and cached versions of a flag."""
-    field_diffs = []
-    all_keys = set(db_flag.keys()) | set(cached_flag.keys())
+    """Compare field values between DB and cached versions of a flag.
 
-    for key in all_keys:
-        db_val = db_flag.get(key)
+    The DB serialization is treated as the source of truth: only keys present in
+    ``db_flag`` are compared. Extra keys in ``cached_flag`` (e.g. fields that
+    were removed from the serializer but still linger in pre-existing cache
+    entries) are ignored so that benign serializer field removals do not flag
+    every team's cache as mismatched.
+    """
+    field_diffs = []
+
+    for key in db_flag.keys():
+        db_val = db_flag[key]
         cached_val = cached_flag.get(key)
 
         if db_val != cached_val:

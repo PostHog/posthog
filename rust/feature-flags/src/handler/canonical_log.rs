@@ -197,6 +197,8 @@ pub struct FlagsCanonicalLogLine {
     pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
+    /// Flag keys that were overridden with custom definitions (for testing/historical evaluation)
+    pub flags_overridden: Option<Vec<String>>,
     /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
     pub flags_cache_source: Option<&'static str>,
 
@@ -269,11 +271,12 @@ pub struct FlagsCanonicalLogLine {
     /// phase ships; while None, `emit_timing_metrics` skips emission.
     pub concurrency_limit_wait_ms: Option<u64>,
 
-    /// Duration of the Redis HINCRBY billing increment call in milliseconds.
-    /// Only populated from endpoints that run inside a canonical log scope
-    /// (currently `/flags` and `/decide`). `None` when billing was skipped
-    /// (no billable flags or `skip_writes`), or when called from an endpoint
-    /// that does not emit a canonical log line (e.g. `/flags/definitions`).
+    /// Duration of the synchronous Redis HINCRBY billing increment in
+    /// milliseconds. Only populated from endpoints that run inside a canonical
+    /// log scope (currently `/flags` and `/decide`). `None` when billing was
+    /// skipped (no billable flags or `skip_writes`), or when called from an
+    /// endpoint that does not emit a canonical log line (e.g.
+    /// `/flags/definitions`).
     pub billing_duration_ms: Option<u64>,
 
     // Cache sources (populated during data fetching)
@@ -304,6 +307,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
+            flags_overridden: None,
             flags_cache_source: None,
             eval: EvalCounters::default(),
             db_property_fetches: 0,
@@ -368,6 +372,7 @@ impl FlagsCanonicalLogLine {
             flags_device_id_bucketing = self.eval.flags_device_id_bucketing,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
+            flags_overridden = ?self.flags_overridden,
             flags_cache_source = self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,
             person_queries = self.person_queries,

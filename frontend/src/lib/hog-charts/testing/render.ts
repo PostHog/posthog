@@ -1,12 +1,41 @@
-import { render, type RenderResult } from '@testing-library/react'
-import type { ReactElement } from 'react'
+import { cleanup, render, type RenderResult } from '@testing-library/react'
+import React, { type ReactElement, type ReactNode } from 'react'
 
+import type { TooltipContext } from '../core/types'
+import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { getHogChart, type HogChart } from './accessor'
+import { ensureJsdom } from './jsdom'
+import { HOG_CHARTS_TOOLTIP_SELECTOR } from './tooltip'
 
-/** Render a hog-charts component and return Testing Library's `RenderResult`
- *  with a `chart` accessor attached. Throws if the rendered component doesn't
- *  emit a hog-charts canvas — use plain `render` for non-chart components. */
-export function renderHogChart(ui: ReactElement): RenderResult & { chart: HogChart } {
-    const result = render(ui)
-    return { ...result, chart: getHogChart(result.container) }
+/** Render a hog-charts component and return Testing Library's `RenderResult` with a `chart`
+ *  accessor attached. Throws if the rendered tree doesn't contain a hog-charts canvas.
+ *
+ *  Sets up the jsdom mocks + sync RAF on first call (idempotent), so tests don't need a
+ *  beforeEach for those. Also calls `cleanup()` and removes any leftover tooltip portal
+ *  before each render — RTL's auto-cleanup doesn't always reach `FloatingPortal` children. */
+export function renderHogChart<Meta = unknown>(ui: ReactElement): RenderResult & { chart: HogChart<Meta> } {
+    ensureJsdom()
+    cleanup()
+    document.querySelectorAll(HOG_CHARTS_TOOLTIP_SELECTOR).forEach((el) => el.remove())
+
+    // Intercept the (optional) `tooltip` render prop so `chart.waitForTooltip()` can return
+    // the structured `TooltipContext` the chart computed. When the consumer passes a tooltip
+    // we still call it for the rendered DOM; otherwise we fall through to DefaultTooltip,
+    // matching the chart's natural default.
+    let lastTooltipContext: TooltipContext<Meta> | null = null
+    const props = ui.props as { tooltip?: (ctx: TooltipContext<Meta>) => ReactNode; labels?: string[] }
+    const userTooltip = props.tooltip
+    const captureTooltip = (ctx: TooltipContext<Meta>): ReactNode => {
+        lastTooltipContext = ctx
+        return userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx as TooltipContext)
+    }
+    const wrapped = React.cloneElement(ui, { tooltip: captureTooltip })
+    const result = render(wrapped)
+    return {
+        ...result,
+        chart: getHogChart<Meta>(result.container, {
+            getLastTooltipContext: () => lastTooltipContext,
+            totalLabels: props.labels?.length,
+        }),
+    }
 }

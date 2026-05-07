@@ -9,12 +9,10 @@ from posthog.schema import (
     ArtifactSource,
     AssistantDataVisualizationChartSettings,
     AssistantDataVisualizationDisplayType,
-    AssistantHogQLQuery,
     AssistantToolCallMessage,
     ChartDisplayType,
     ChartSettings,
     DataVisualizationNode,
-    HogQLQuery,
     VisualizationArtifactContent,
 )
 
@@ -101,7 +99,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except PydanticOutputParserException as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
-        artifact_query: AssistantHogQLQuery | DataVisualizationNode = parsed_query.query
+        artifact_query = parsed_query.query
         if display or chart_settings:
             if isinstance(chart_settings, AssistantDataVisualizationChartSettings):
                 chart_settings_data = chart_settings.model_dump(mode="json", exclude_none=True)
@@ -113,7 +111,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                 chart_settings_data = None
 
             artifact_query = DataVisualizationNode(
-                source=HogQLQuery(**parsed_query.query.model_dump(mode="json", exclude_none=True)),
+                source=parsed_query.query.source,
                 display=ChartDisplayType(display) if display else None,
                 chartSettings=ChartSettings.model_validate(chart_settings_data) if chart_settings_data else None,
             )
@@ -152,7 +150,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
                     content=result,
                     id=str(uuid4()),
                     tool_call_id=self.tool_call_id,
-                    ui_payload={self.get_name(): parsed_query.query.query},
+                    ui_payload={self.get_name(): parsed_query.query.source.query},
                 ),
             ]
         )

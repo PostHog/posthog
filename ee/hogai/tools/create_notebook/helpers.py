@@ -78,7 +78,10 @@ async def save_notebook_to_db(
             if not query:
                 continue
             kind = query.get("kind", "")
-            if kind == "HogQLQuery" or "HogQL" in kind:
+            if kind == "DataVisualizationNode":
+                # Already a top-level SQL chart node, do not double-wrap.
+                notebook_query = query
+            elif kind == "HogQLQuery" or "HogQL" in kind:
                 notebook_query = {"kind": "DataVisualizationNode", "source": query}
             else:
                 notebook_query = {"kind": "InsightVizNode", "source": query}
