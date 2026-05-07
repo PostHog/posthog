@@ -8,8 +8,10 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -53,7 +55,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow } = useValues(logic)
+    const { workflowLoading, originalWorkflow, autoSaveStatus, lastSavedAt } = useValues(logic)
 
     const showBlockedRuns = useFeatureFlag('WORKFLOWS_REPLAY_BLOCKED_RUNS')
 
@@ -124,6 +126,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                         tabs={tabs}
                         sceneInset
+                        rightSlot={
+                            autoSaveStatus === 'saving' ? (
+                                <span className="flex items-center gap-1 text-xs text-tertiary">
+                                    Saving <Spinner textColored className="size-3" />
+                                </span>
+                            ) : lastSavedAt ? (
+                                <span className="text-xs text-tertiary">Last saved {dayjs(lastSavedAt).fromNow()}</span>
+                            ) : null
+                        }
                         className={clsx({
                             'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
                         })}
