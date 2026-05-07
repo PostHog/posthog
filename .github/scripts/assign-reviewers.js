@@ -31,6 +31,84 @@ function parseCodeowners(codeownersPath) {
     return rules
 }
 
+// Minimal parser for the `owners:` list in products/<name>/product.yaml.
+// We don't depend on a YAML library because this script runs from a bare CI
+// checkout; the schema is simple and validated elsewhere by hogli.
+function parseOwnersFromProductYaml(content) {
+    const owners = []
+    let inOwners = false
+
+    for (const rawLine of content.split('\n')) {
+        const line = rawLine.replace(/\s+#.*$/, '').trimEnd()
+
+        if (!line.trim()) {
+            continue
+        }
+
+        if (/^owners\s*:\s*$/.test(line)) {
+            inOwners = true
+            continue
+        }
+
+        if (!inOwners) {
+            continue
+        }
+
+        const listMatch = line.match(/^\s+-\s+(.+?)$/)
+        if (listMatch) {
+            owners.push(listMatch[1].replace(/^["']|["']$/g, '').trim())
+            continue
+        }
+
+        // A new top-level key terminates the owners block.
+        if (/^\S/.test(rawLine)) {
+            inOwners = false
+        }
+    }
+
+    return owners
+}
+
+function loadProductYamlRules(productsDir = 'products') {
+    const rules = []
+
+    if (!fs.existsSync(productsDir)) {
+        return rules
+    }
+
+    const entries = fs.readdirSync(productsDir, { withFileTypes: true })
+
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue
+        }
+
+        const yamlPath = `${productsDir}/${entry.name}/product.yaml`
+        if (!fs.existsSync(yamlPath)) {
+            continue
+        }
+
+        const content = fs.readFileSync(yamlPath, 'utf8')
+        const slugs = parseOwnersFromProductYaml(content)
+
+        const owners = []
+        for (const slug of slugs) {
+            if (!slug || slug === 'team-CHANGEME') {
+                continue
+            }
+            owners.push(`@PostHog/${slug}`)
+        }
+
+        if (owners.length === 0) {
+            continue
+        }
+
+        rules.push({ pattern: `${productsDir}/${entry.name}/**`, owners })
+    }
+
+    return rules
+}
+
 function globToRegex(pattern) {
     let regex = pattern
         .replace(/[.+^${}()|[\]\\]/g, '\\$&')
@@ -116,7 +194,10 @@ function parseOwners(owners) {
 
 async function getReviewersForChangedFiles() {
     const codeownersPath = '.github/CODEOWNERS-soft'
-    const rules = parseCodeowners(codeownersPath)
+    // products/<name>/product.yaml is the source of truth for product team
+    // ownership; we layer those rules on top of CODEOWNERS-soft so the file
+    // only needs to carry sub-folder overrides and secondary reviewers.
+    const rules = [...parseCodeowners(codeownersPath), ...loadProductYamlRules()]
     const changedFiles = await getChangedFiles()
 
     console.info(`Found ${changedFiles.length} changed files:`)
