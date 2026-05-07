@@ -103,49 +103,24 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
     def trigger_compact_delta_table(self, request, queryset):
         """Queue one Temporal workflow per selected schema. Compaction runs
         asynchronously — the admin response returns immediately with a count
-        of workflows started.
-
-        Uses `async_to_sync(temporal.start_workflow)` rather than
-        `asyncio.run(...)` because the admin can be served under an ASGI
-        runtime (Granian) where a running event loop in the calling thread
-        would make `asyncio.run` raise. `async_to_sync` runs the coroutine
-        in its own dedicated thread + loop and is safe under both WSGI and
-        ASGI.
-        """
+        of workflows started."""
         temporal = sync_connect()
         started = 0
         failed: list[tuple[str, str]] = []
 
         for schema in queryset:
-            workflow_id = f"compact-delta-{schema.id}-{uuid.uuid4()}"
-            inputs = CompactDeltaTableWorkflowInputs(
-                team_id=schema.team_id,
-                schema_id=str(schema.id),
+            ok, err = queue_compact_for_schema(
+                temporal=temporal,
+                schema=schema,
+                request=request,
+                audit_item_id=schema.id,
+                audit_scope="ExternalDataSchema",
+                audit_name=schema.name,
             )
-            try:
-                _start_compact_workflow(temporal, asdict(inputs), workflow_id)
+            if ok:
                 started += 1
-            except Exception as e:
-                failed.append((str(schema.id), str(e)))
-                continue
-
-            # Audit log the manual trigger so we can trace who kicked off
-            # which compaction. `log_activity` swallows its own errors so
-            # this never blocks the workflow that already started.
-            log_activity(
-                organization_id=schema.team.organization_id,
-                team_id=schema.team_id,
-                user=request.user,
-                was_impersonated=False,
-                item_id=schema.id,
-                scope="ExternalDataSchema",
-                activity="admin_compact_triggered",
-                detail=Detail(
-                    name=schema.name,
-                    short_id=str(schema.id),
-                    type="admin_compact_delta",
-                ),
-            )
+            else:
+                failed.append((str(schema.id), err or "unknown error"))
 
         if started:
             self.message_user(
@@ -155,6 +130,55 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             )
         for schema_id, err in failed:
             self.message_user(request, f"Failed to queue compaction for {schema_id}: {err}", level=messages.ERROR)
+
+
+def queue_compact_for_schema(
+    *,
+    temporal: Any,
+    schema: ExternalDataSchema,
+    request,
+    audit_item_id,
+    audit_scope: str,
+    audit_name: str,
+) -> tuple[bool, str | None]:
+    """Queue one compaction workflow for a schema and write an audit log row.
+
+    Shared helper so both ExternalDataSchemaAdmin and DataWarehouseTableAdmin
+    can trigger the same workflow without duplicating the start + audit
+    bookkeeping. The two admins exist as separate operator entry points
+    (schema list vs table list) — they only differ in the audit `scope` /
+    `item_id` they record, which is what makes the trigger surface
+    discoverable from either admin section.
+
+    Returns `(True, None)` on success, `(False, error_message)` on failure.
+    Audit log is only written on success — we don't want half-trigger noise
+    in the audit trail.
+    """
+    workflow_id = f"compact-delta-{schema.id}-{uuid.uuid4()}"
+    inputs = CompactDeltaTableWorkflowInputs(
+        team_id=schema.team_id,
+        schema_id=str(schema.id),
+    )
+    try:
+        _start_compact_workflow(temporal, asdict(inputs), workflow_id)
+    except Exception as e:
+        return False, str(e)
+
+    log_activity(
+        organization_id=schema.team.organization_id,
+        team_id=schema.team_id,
+        user=request.user,
+        was_impersonated=False,
+        item_id=audit_item_id,
+        scope=audit_scope,
+        activity="admin_compact_triggered",
+        detail=Detail(
+            name=audit_name,
+            short_id=str(audit_item_id),
+            type="admin_compact_delta",
+        ),
+    )
+    return True, None
 
 
 def _start_compact_workflow(temporal: Any, inputs_dict: dict, workflow_id: str) -> None:
