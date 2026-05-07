@@ -82,6 +82,106 @@ export interface PaginatedSubscriptionDeliveryListApi {
     results: SubscriptionDeliveryApi[]
 }
 
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+}
+
+export interface CIMDVerificationTokenApi {
+    readonly id: string
+    /** @maxLength 40 */
+    label: string
+    /** @nullable */
+    readonly mask_value: string | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly last_used_at: string | null
+}
+
+export interface PaginatedCIMDVerificationTokenListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CIMDVerificationTokenApi[]
+}
+
+/**
+ * Create-response variant that includes the plaintext token.
+
+Only emitted from the create endpoint - storage-side we only persist the
+hash, so subsequent reads use the base serializer.
+ */
+export interface CIMDVerificationTokenWithValueApi {
+    readonly id: string
+    /** @maxLength 40 */
+    label: string
+    /** @nullable */
+    readonly mask_value: string | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly last_used_at: string | null
+    /** Plaintext token, only returned on creation */
+    readonly value: string
+}
+
 export interface OrganizationDomainApi {
     readonly id: string
     /** @maxLength 128 */
@@ -174,65 +274,6 @@ export const OrganizationMembershipLevelEnumApi = {
     Number8: 8,
     Number15: 15,
 } as const
-
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
-}
 
 export interface OrganizationInviteApi {
     readonly id: string
@@ -2617,6 +2658,8 @@ export interface SubscriptionApi {
     readonly created_by: UserBasicApi
     /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
     deleted?: boolean
+    /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
+    enabled?: boolean
     /**
      * Human-readable name for this subscription.
      * @maxLength 100
@@ -2723,6 +2766,8 @@ export interface PatchedSubscriptionApi {
     readonly created_by?: UserBasicApi
     /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
     deleted?: boolean
+    /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
+    enabled?: boolean
     /**
      * Human-readable name for this subscription.
      * @maxLength 100
@@ -3206,6 +3251,17 @@ export const SubscriptionsDeliveriesListStatus = {
     Skipped: 'skipped',
     Starting: 'starting',
 } as const
+
+export type CimdVerificationTokensListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type DomainsListParams = {
     /**

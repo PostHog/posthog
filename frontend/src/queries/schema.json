@@ -468,6 +468,9 @@
         "AnyAssistantGeneratedQuery": {
             "anyOf": [
                 {
+                    "$ref": "#/definitions/DataVisualizationNode"
+                },
+                {
                     "$ref": "#/definitions/AssistantTrendsQuery"
                 },
                 {
@@ -1791,6 +1794,45 @@
             },
             "type": "object"
         },
+        "AssistantFunnelsGroupNode": {
+            "additionalProperties": false,
+            "description": "Defines a funnel step that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the combined step.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                            }
+                        ]
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "operator": {
+                    "const": "OR",
+                    "description": "Only `OR` is supported.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "operator", "nodes"],
+            "type": "object"
+        },
         "AssistantFunnelsMath": {
             "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
@@ -1802,6 +1844,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsGroupNode"
                 }
             ]
         },
@@ -2384,7 +2429,7 @@
                     "items": {
                         "$ref": "#/definitions/AssistantLifecycleSeriesNode"
                     },
-                    "maxLength": 1,
+                    "maxItems": 1,
                     "type": "array"
                 }
             },
@@ -3428,7 +3473,8 @@
                 "finalize_plan",
                 "call_mcp_server",
                 "search_llm_traces",
-                "run_hog_eval_test"
+                "run_hog_eval_test",
+                "diagnose_proxy"
             ],
             "type": "string"
         },
@@ -3682,12 +3728,16 @@
                     "default": 25,
                     "description": "How many distinct values to show."
                 },
+                "breakdown_path_cleaning": {
+                    "description": "When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.",
+                    "type": "boolean"
+                },
                 "breakdowns": {
                     "description": "Use this field to define breakdowns.",
                     "items": {
                         "$ref": "#/definitions/AssistantMultipleBreakdownFilter"
                     },
-                    "maxLength": 3,
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
@@ -11120,6 +11170,10 @@
             "required": ["status", "proposalId", "toolName", "preview", "payload"],
             "type": "object"
         },
+        "DashboardAutoRefreshInterval": {
+            "const": 1800,
+            "type": "number"
+        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
@@ -12737,6 +12791,10 @@
                             "type": "object"
                         }
                     ]
+                },
+                "showAbsoluteTime": {
+                    "description": "Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative (\"X ago\"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.",
+                    "type": "boolean"
                 },
                 "showActions": {
                     "description": "Show the kebab menu at the end of the row",
@@ -17442,7 +17500,7 @@
             "additionalProperties": false,
             "properties": {
                 "feature_flag_variants": {
-                    "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split.",
+                    "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
                     "items": {
                         "$ref": "#/definitions/ExperimentVariant"
                     },
@@ -18020,7 +18078,7 @@
             "additionalProperties": false,
             "properties": {
                 "key": {
-                    "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                    "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
                     "type": "string"
                 },
                 "name": {
@@ -23220,6 +23278,10 @@
                 "ID",
                 "Campaign",
                 "Source",
+                "Ad group",
+                "Ad group ID",
+                "Ad",
+                "Ad ID",
                 "Cost",
                 "Clicks",
                 "Impressions",
@@ -23243,7 +23305,11 @@
                 "impressions",
                 "source",
                 "reported_conversion",
-                "reported_conversion_value"
+                "reported_conversion_value",
+                "ad_group_id",
+                "ad_group_name",
+                "ad_id",
+                "ad_name"
             ],
             "type": "string"
         },
@@ -23313,13 +23379,16 @@
                         "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
                     },
                     "type": "array"
+                },
+                "excludesConversionGoals": {
+                    "type": "boolean"
                 }
             },
             "required": ["columnAlias", "excludedBaseColumns"],
             "type": "object"
         },
         "MarketingAnalyticsDrillDownLevel": {
-            "enum": ["channel", "source", "campaign", "medium", "content", "term"],
+            "enum": ["channel", "source", "campaign", "ad_group", "ad", "medium", "content", "term"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -32701,8 +32770,8 @@
                 },
                 "aggregationPropertyType": {
                     "default": "event",
-                    "description": "The type of property to aggregate on (event or person). Defaults to event.",
-                    "enum": ["event", "person"],
+                    "description": "The type of property to aggregate on (event, person or data_warehouse). Defaults to event.",
+                    "enum": ["event", "person", "data_warehouse"],
                     "type": "string"
                 },
                 "aggregationType": {
@@ -34030,6 +34099,10 @@
                 },
                 "shortId": {
                     "$ref": "#/definitions/InsightShortId"
+                },
+                "showAbsoluteTime": {
+                    "description": "Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start, session_end) as absolute date+time instead of relative (\"X ago\"). The toggle is exposed in the column header menu only on EventsQuery / ActorsQuery sources.",
+                    "type": "boolean"
                 },
                 "showActions": {
                     "description": "Show the kebab menu at the end of the row",
@@ -35696,6 +35769,18 @@
         "SourceMap": {
             "additionalProperties": false,
             "properties": {
+                "ad_group_id": {
+                    "type": "string"
+                },
+                "ad_group_name": {
+                    "type": "string"
+                },
+                "ad_id": {
+                    "type": "string"
+                },
+                "ad_name": {
+                    "type": "string"
+                },
                 "campaign": {
                     "type": "string"
                 },
@@ -40217,6 +40302,22 @@
                 }
             },
             "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
+        "getEffectiveExcludedColumns": {
+            "$comment": "(\n    level: MarketingAnalyticsDrillDownLevel) => Set<MarketingAnalyticsBaseColumns>",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "level": {
+                            "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel"
+                        }
+                    },
+                    "required": ["level"],
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "integer": {

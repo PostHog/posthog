@@ -55,7 +55,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     source = models.ForeignKey("data_warehouse.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("data_warehouse.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     should_sync = models.BooleanField(default=True)
-    latest_error = models.TextField(null=True, help_text="The latest error that occurred when syncing this schema.")
+    latest_error = models.TextField(
+        null=True, blank=True, help_text="The latest error that occurred when syncing this schema."
+    )
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
@@ -198,7 +200,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def partition_format(self) -> PartitionFormat | None:
-        # This key doesn't get reset on pipeline_reset and can only be set via the DB directly right now
+        # This key doesn't get reset on pipeline_reset.
         if self.sync_type_config:
             return self.sync_type_config.get("partition_format", None)
 

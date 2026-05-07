@@ -46,5 +46,5 @@ browsers / countries / plans is evidence the change is segment-specific.
 ## 5. Recordings + errors
 
 Pull session recordings for users on the new dominant edge — usually surfaces the UI
-change faster than more queries. Cross-check `error-tracking-issues-list` for errors on
+change faster than more queries. Cross-check `query-error-tracking-issues-list` for errors on
 the page where users diverge.

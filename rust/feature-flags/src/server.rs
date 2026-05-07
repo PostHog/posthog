@@ -2,7 +2,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::billing::{
+    BillingAggregator, BillingAggregatorConfig, FeatureFlagsLimiter, SessionReplayLimiter,
+};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::membership::{
     CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
@@ -498,6 +500,22 @@ pub async fn serve(
         tokio_monitor.start_monitoring(tokio_monitor_handle).await;
     });
 
+    let billing_aggregator: Option<Arc<BillingAggregator>> = if *config.billing_aggregator_enabled {
+        Some(BillingAggregator::start(
+            redis_client.clone(),
+            BillingAggregatorConfig {
+                flush_interval: Duration::from_millis(config.billing_flush_interval_ms),
+                max_pending_entries: config.billing_max_pending_entries,
+                per_flush_batch_size: config.billing_per_flush_batch_size,
+                shutdown_flush_timeout: Duration::from_millis(
+                    config.billing_shutdown_flush_timeout_ms,
+                ),
+            },
+        ))
+    } else {
+        None
+    };
+
     let app = router::router(
         redis_client,
         dedicated_redis_client,
@@ -519,6 +537,7 @@ pub async fn serve(
         team_negative_cache,
         auth_token_cache,
         cohort_membership_provider,
+        billing_aggregator.clone(),
         config,
     );
 
@@ -537,6 +556,13 @@ pub async fn serve(
     )
     .with_graceful_shutdown(http_handle.shutdown_signal())
     .await;
+
+    // Must run *after* `axum::serve(...).await` resolves so axum has drained
+    // in-flight requests; flushing earlier would miss late-arriving records.
+    if let Some(ref aggregator) = billing_aggregator {
+        aggregator.shutdown().await;
+    }
+
     match serve_result {
         Ok(()) => http_handle.work_completed(),
         Err(e) => {

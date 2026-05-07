@@ -1,9 +1,8 @@
 import { linearRegression, movingAverage, trendLine } from 'lib/statistics'
-import { hexToRGBA } from 'lib/utils'
 
 import type { Series } from '../../../core/types'
+import { dimHex } from '../../../utils/comparison-dimming'
 
-const COMPARISON_DIM_OPACITY = 0.5
 const TREND_LINE_DIM_OPACITY = 0.5
 const CI_FILL_OPACITY = 0.2
 const MA_DASH_PATTERN = [10, 3]
@@ -31,7 +30,7 @@ export function buildConfidenceIntervalSeries<Meta = unknown>(
         yAxisId: input.yAxisId,
         meta: input.meta,
         fill: { opacity: CI_FILL_OPACITY, lowerData: input.lower },
-        visibility: { excluded: input.excluded, fromTooltip: true, fromValueLabels: true },
+        visibility: { excluded: input.excluded, tooltip: false, valueLabel: false },
     }
 }
 
@@ -41,17 +40,22 @@ export interface BuildMovingAverageSeriesInput<Meta = unknown> {
     label?: string
 }
 
+export function movingAverageKey(sourceKey: string): string {
+    return `${sourceKey}-ma`
+}
+
 export function buildMovingAverageSeries<Meta = unknown>(input: BuildMovingAverageSeriesInput<Meta>): Series<Meta> {
     const { sourceSeries, window: windowSize } = input
     return {
-        key: `${sourceSeries.key}-ma`,
+        key: movingAverageKey(sourceSeries.key),
         label: input.label ?? `${sourceSeries.label} (Moving avg)`,
         data: movingAverage(sourceSeries.data, windowSize),
         color: sourceSeries.color,
         yAxisId: sourceSeries.yAxisId,
         meta: sourceSeries.meta,
         stroke: { pattern: MA_DASH_PATTERN },
-        visibility: { fromTooltip: true, fromStack: true },
+        overlay: true,
+        visibility: { tooltip: false },
     }
 }
 
@@ -83,7 +87,8 @@ export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeries
         yAxisId: sourceSeries.yAxisId,
         meta: sourceSeries.meta,
         stroke: { pattern: TREND_LINE_DASH_PATTERN },
-        visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
+        overlay: true,
+        visibility: { tooltip: false, valueLabel: false },
     }
 }
 
@@ -106,32 +111,4 @@ function exponentialTrend(values: number[], fitUpTo?: number): number[] {
     }
     const { m, b } = linearRegression(coords)
     return values.map((_, x) => Math.exp(m * x + b))
-}
-
-/** Re-render comparison series at reduced opacity so they read as subordinate to their
- *  primary. Series whose colour is missing or already an `rgba(...)` string are left as-is
- *  — `hexToRGBA` only handles hex inputs. */
-export function applyComparisonDimming<Meta = unknown>(
-    series: Series<Meta>[],
-    comparisonOf: Record<string, string> | undefined
-): Series<Meta>[] {
-    if (!comparisonOf || Object.keys(comparisonOf).length === 0) {
-        return series
-    }
-    return series.map((s) => {
-        if (!(s.key in comparisonOf)) {
-            return s
-        }
-        const dimmed = dimHex(s.color, COMPARISON_DIM_OPACITY)
-        return dimmed === s.color ? s : { ...s, color: dimmed }
-    })
-}
-
-/** Apply alpha dimming to a hex colour. Returns the input unchanged for non-hex inputs
- *  (CSS variables, `rgba(...)`, undefined) since `hexToRGBA` only handles hex. */
-function dimHex(color: string | undefined, alpha: number): string | undefined {
-    if (!color || !color.startsWith('#')) {
-        return color
-    }
-    return hexToRGBA(color, alpha)
 }

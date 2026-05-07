@@ -19,6 +19,9 @@ from posthog.models.integration_repository_cache import (
     IntegrationRepositoryCacheEntry,
     SyncFullCacheTimeoutError,
 )
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
 
 class TestGitHubRepositoryFullCache(BaseTest):
@@ -466,6 +469,82 @@ class TestGitHubRepositoryFullCache(BaseTest):
             async_to_sync(repo_cache.sync_full_cache)()
 
         assert IntegrationRepositoryCacheEntry.objects.filter(pk=keep.pk).exists()
+
+    def test_sync_full_cache_evicts_cross_source_rows_for_team(self):
+        # Team upgrade scenario: PostHog Code (UserIntegration) hydrated rows for this team, then
+        # the team connected a team-level Integration. Cascade now picks the Integration; the old
+        # UserIntegration row would otherwise linger and surface as a duplicate to HogQL queries.
+        user = User.objects.create(email="user@example.com")
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="UI-1",
+            config={"installation_id": "UI-1"},
+            sensitive_config={},
+        )
+        stale = IntegrationRepositoryCacheEntry.objects.create(
+            user_integration=user_integration,
+            team=self.team,
+            full_name="posthog/posthog",
+            default_branch="main",
+            default_branch_sha="SHA_OLD",
+            readme="from-user-integration",
+        )
+
+        integration = self._create_integration()
+
+        async def fake_entry_async(full_name, *, path_log=None):
+            return MagicMock(full_name=full_name)
+
+        async def fake_list():
+            return [{"full_name": "posthog/posthog"}]
+
+        repo_cache = self._cache_for(integration)
+        with (
+            patch.object(repo_cache, "sync_full_cache_entry_async", side_effect=fake_entry_async),
+            patch.object(repo_cache.github, "list_all_cached_repositories_async", side_effect=fake_list),
+        ):
+            async_to_sync(repo_cache.sync_full_cache)()
+
+        assert not IntegrationRepositoryCacheEntry.objects.filter(pk=stale.pk).exists()
+
+    def test_sync_full_cache_does_not_evict_other_teams_rows(self):
+        # A UserIntegration spans every team its owner belongs to. When team A syncs via Integration,
+        # team B's UserIntegration-owned rows must survive.
+        other_team = Team.objects.create(organization=self.organization, name="other-team")
+        user = User.objects.create(email="user@example.com")
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="UI-1",
+            config={"installation_id": "UI-1"},
+            sensitive_config={},
+        )
+        other_team_row = IntegrationRepositoryCacheEntry.objects.create(
+            user_integration=user_integration,
+            team=other_team,
+            full_name="posthog/posthog",
+            default_branch="main",
+            default_branch_sha="SHA_OTHER",
+            readme="other-team",
+        )
+
+        integration = self._create_integration()
+
+        async def fake_entry_async(full_name, *, path_log=None):
+            return MagicMock(full_name=full_name)
+
+        async def fake_list():
+            return [{"full_name": "posthog/posthog"}]
+
+        repo_cache = self._cache_for(integration)
+        with (
+            patch.object(repo_cache, "sync_full_cache_entry_async", side_effect=fake_entry_async),
+            patch.object(repo_cache.github, "list_all_cached_repositories_async", side_effect=fake_list),
+        ):
+            async_to_sync(repo_cache.sync_full_cache)()
+
+        assert IntegrationRepositoryCacheEntry.objects.filter(pk=other_team_row.pk).exists()
 
 
 class TestSyncFullCacheLock(BaseTest):

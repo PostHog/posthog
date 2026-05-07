@@ -120,7 +120,8 @@ export const HiddenOnAuxiliarySeries: Story = {
             color,
             data: [22, 30, 38, 46, 54, 62, 70],
             stroke: { pattern: [1, 3] },
-            visibility: { fromTooltip: true, fromValueLabels: true },
+            overlay: true,
+            visibility: { tooltip: false, valueLabel: false },
         }
         return (
             <Stage>

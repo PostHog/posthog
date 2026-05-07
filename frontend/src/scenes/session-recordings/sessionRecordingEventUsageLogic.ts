@@ -72,7 +72,11 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
         reportRecordingPlaylistCreated: (source: 'filters' | 'new' | 'pin' | 'duplicate') => ({ source }),
         reportRecordingOpenedFromRecentRecordingList: true,
-        reportAISessionSummaryViewed: (recording_id: string, source: 'dock') => ({ recording_id, source }),
+        reportAISessionSummaryViewed: (recording_id: string, source: 'dock', summary_id: string | null) => ({
+            recording_id,
+            source,
+            summary_id,
+        }),
     }),
     listeners(() => ({
         reportRecordingLoaded: ({ playerData, metadata }) => {
@@ -156,8 +160,8 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingPlaylistCreated: (properties) => {
             posthog.capture('recording playlist created', properties)
         },
-        reportAISessionSummaryViewed: ({ recording_id, source }) => {
-            posthog.capture('ai session summary viewed', { recording_id, source })
+        reportAISessionSummaryViewed: ({ recording_id, source, summary_id }) => {
+            posthog.capture('ai session summary viewed', { recording_id, source, summary_id })
         },
     })),
 ])

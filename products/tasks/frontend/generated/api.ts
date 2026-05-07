@@ -15,6 +15,7 @@ import type {
     PaginatedTaskAutomationListApi,
     PaginatedTaskListApi,
     PaginatedTaskRunDetailListApi,
+    PaginatedTaskSummaryListApi,
     PatchedTaskApi,
     PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
@@ -46,10 +47,12 @@ import type {
     TaskStagedArtifactsFinalizeUploadResponseApi,
     TaskStagedArtifactsPrepareUploadRequestApi,
     TaskStagedArtifactsPrepareUploadResponseApi,
+    TaskSummariesRequestApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
+    TasksSummariesCreateParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -632,8 +635,8 @@ export const tasksRunsArtifactsPresignCreate = async (
 }
 
 /**
- * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, close, permission_response, and set_config_option commands.
- * @summary Send command to agent server
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
+ * @summary Send command to task run
  */
 export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/command/`
@@ -869,5 +872,39 @@ export const tasksRepositoryReadinessRetrieve = async (
     return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * @summary Fetch task summaries by ID
+ */
+export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSummariesCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/summaries/`
+}
+
+export const tasksSummariesCreate = async (
+    projectId: string,
+    taskSummariesRequestApi: TaskSummariesRequestApi,
+    params?: TasksSummariesCreateParams,
+    options?: RequestInit
+): Promise<PaginatedTaskSummaryListApi> => {
+    return apiMutator<PaginatedTaskSummaryListApi>(getTasksSummariesCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskSummariesRequestApi),
     })
 }

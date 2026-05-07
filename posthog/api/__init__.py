@@ -63,6 +63,7 @@ from products.error_tracking.backend.api import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
+    ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
     ErrorTrackingSettingsViewSet,
@@ -83,6 +84,7 @@ from products.llm_analytics.backend.api import (
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
+    LLMAnalyticsOfflineEvaluationsViewSet,
     LLMAnalyticsSentimentViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
@@ -130,6 +132,7 @@ from . import (
     annotation,
     async_migration,
     authentication,
+    cimd_verification_token,
     cli_auth,
     comments,
     dead_letter_queue,
@@ -677,6 +680,12 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"cimd_verification_tokens",
+    cimd_verification_token.CIMDVerificationTokenViewSet,
+    "organization_cimd_verification_tokens",
+    ["organization_id"],
+)
+organizations_router.register(
     r"legal_documents",
     legal_documents.LegalDocumentViewSet,
     "organization_legal_documents",
@@ -913,11 +922,18 @@ legacy_project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-projects_router.register(
+project_notebooks_router = projects_router.register(
     r"notebooks",
     NotebookViewSet,
     "project_notebooks",
     ["project_id"],
+)
+
+project_notebooks_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_notebook_sharing",
+    ["project_id", "notebook_id"],
 )
 
 projects_router.register(
@@ -994,6 +1010,13 @@ environments_router.register(
     r"error_tracking/issues",
     ErrorTrackingIssueViewSet,
     "environment_error_tracking_issue",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/query",
+    ErrorTrackingQueryViewSet,
+    "environment_error_tracking_query",
     ["team_id"],
 )
 
@@ -1457,6 +1480,13 @@ environments_router.register(
     r"llm_analytics/sentiment",
     LLMAnalyticsSentimentViewSet,
     "environment_llm_analytics_sentiment",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/offline_evaluations",
+    LLMAnalyticsOfflineEvaluationsViewSet,
+    "environment_llm_analytics_offline_evaluations",
     ["team_id"],
 )
 
