@@ -164,9 +164,9 @@ jobs:
                   path: common/storybook/dist
                   retention-days: 1
 
-            # Consumed by the shadow-story-selection job below. Uploaded
-            # separately so the 20-shard visual-regression matrix doesn't pay
-            # to download it.
+            # Consumed by the select-stories job below. Uploaded separately so
+            # the visual-regression matrix doesn't pay to download it on every
+            # shard.
             - name: Upload module-graph artifact
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -228,11 +228,12 @@ jobs:
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ubuntu-latest
-        needs: [changes, build-storybook, vr-setup]
+        needs: [changes, build-storybook, vr-setup, select-stories]
         if: >-
             always()
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
+            && needs.select-stories.outputs.should_run != 'false'
         timeout-minutes: 60
         container:
             image: ghcr.io/posthog/playwright:v1.45.0
@@ -240,10 +241,11 @@ jobs:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
-            # Matrix is built dynamically in the `changes` job: chromium-only on PRs,
-            # chromium + webkit on master pushes. Storybook CI is skipped entirely on
-            # merge_group (the `changes` job gates on event_name != 'merge_group').
-            matrix: ${{ fromJson(needs.changes.outputs.matrix) }}
+            # On PRs, select-stories may narrow the matrix to a single chromium shard
+            # running just the affected story files. On master push it's skipped, so we
+            # fall back to changes.outputs.matrix (full suite — chromium + webkit).
+            # Storybook CI is skipped entirely on merge_group (changes.if).
+            matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -336,8 +338,17 @@ jobs:
               env:
                   HOME: /root
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
+                  MODE: ${{ needs.select-stories.outputs.mode }}
+                  AFFECTED_FILES: ${{ needs.select-stories.outputs.affected_files }}
               run: |
-                  pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+                  if [ "$MODE" = "selective" ]; then
+                      # test-storybook is jest-based; positional path args filter the run to
+                      # only those story files. Single shard, so --shard 1/1 is a no-op.
+                      # shellcheck disable=SC2086
+                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} -- $AFFECTED_FILES
+                  else
+                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+                  fi
 
             # Upload snapshots to Visual Review (runs in parallel across shards)
             - name: Install VR CLI
@@ -537,18 +548,25 @@ jobs:
                   status-job: 'Visual regression tests pass'
 
     # Shadow measurement: reports which stories could have rendered differently
-    # given the PR's changed files, using the webpack module graph emitted by
-    # common/storybook/.storybook/main.ts's ModuleGraphPlugin. Does not gate
-    # PRs and does not affect visual-regression selection. Data is used to
-    # evaluate whether real test selection is worth pursuing.
-    shadow-story-selection:
-        name: Shadow story selection
+    # Pick the visual-regression matrix on PRs based on which stories the
+    # webpack module graph (emitted by ModuleGraphPlugin) says are affected
+    # by the diff. On master push and merge_group this job is skipped and
+    # visual-regression falls back to needs.changes.outputs.matrix (the full
+    # suite). The full master-push run remains the safety net — storybook
+    # already skips merge_group entirely (changes.if).
+    select-stories:
+        name: Story selection
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook]
         if: |
             always() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
+        outputs:
+            mode: ${{ steps.classify.outputs.mode }}
+            matrix: ${{ steps.classify.outputs.matrix }}
+            should_run: ${{ steps.classify.outputs.should_run }}
+            affected_files: ${{ steps.classify.outputs.affected_files }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -591,11 +609,59 @@ jobs:
                   COMPACT=$(node -e 'const d = JSON.parse(require("fs").readFileSync("/tmp/selection-result.json", "utf8")); delete d.affected_stories; delete d.unresolved_changed_files; process.stdout.write(JSON.stringify(d))')
                   echo "result=$COMPACT" >> "$GITHUB_OUTPUT"
 
+            - name: Build narrowed matrix
+              id: classify
+              env:
+                  SELECT_OUTCOME: ${{ steps.selection.outcome }}
+              run: |
+                  set -euo pipefail
+
+                  # Empty matrix output → visual-regression falls back to changes.outputs.matrix
+                  # (the full PR suite). Use this whenever the selector can't tell us anything
+                  # useful, so we never trade a green-by-default for a green-by-skipping bug.
+                  fall_back_to_full() {
+                      echo "mode=full" >> "$GITHUB_OUTPUT"
+                      echo "matrix=" >> "$GITHUB_OUTPUT"
+                      echo "should_run=true" >> "$GITHUB_OUTPUT"
+                      echo "affected_files=" >> "$GITHUB_OUTPUT"
+                  }
+
+                  if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
+                      echo "::warning::story selector did not produce output; running full suite"
+                      fall_back_to_full
+                      exit 0
+                  fi
+
+                  MODE=$(jq -r '.mode' /tmp/selection-result.json)
+                  if [[ "$MODE" != "selective" ]]; then
+                      fall_back_to_full
+                      exit 0
+                  fi
+
+                  COUNT=$(jq -r '.affected_story_count' /tmp/selection-result.json)
+                  if [[ "$COUNT" -eq 0 ]]; then
+                      # Selective mode found zero affected stories — skip visual-regression entirely.
+                      echo "mode=selective" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                      echo "affected_files=" >> "$GITHUB_OUTPUT"
+                      echo "Selective mode: 0 affected stories, skipping visual-regression"
+                      exit 0
+                  fi
+
+                  # Selective with affected stories: collapse to one chromium shard.
+                  AFFECTED_FILES=$(jq -r '.affected_stories | join(" ")' /tmp/selection-result.json)
+                  echo "mode=selective" >> "$GITHUB_OUTPUT"
+                  echo 'matrix={"include":[{"browser":"chromium","shard":1,"shard_count":1}]}' >> "$GITHUB_OUTPUT"
+                  echo "should_run=true" >> "$GITHUB_OUTPUT"
+                  echo "affected_files=$AFFECTED_FILES" >> "$GITHUB_OUTPUT"
+                  echo "Selective mode: $COUNT affected story files"
+
             - name: Write summary
               if: steps.selection.outcome == 'success'
               env:
                   RESULT: ${{ steps.selection.outputs.result }}
-                  CURRENT_SHARDS: 20
+                  CURRENT_SHARDS: 16
                   SHARD_OVERHEAD_MINUTES: 3
               run: |
                   MODE=$(echo "$RESULT" | jq -r '.mode')
@@ -603,9 +669,10 @@ jobs:
 
                   if [ "$MODE" = "selective" ]; then
                       COUNT=$(echo "$RESULT" | jq -r '.affected_story_count')
-                      SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
                       AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
                       TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
+                      # Selected mode collapses to a single chromium shard (see classify step).
+                      SHARDS=1
 
                       SAVED_STORIES=$((TOTAL - COUNT))
                       SAVED_SHARDS=$((CURRENT_SHARDS - SHARDS))
@@ -614,7 +681,7 @@ jobs:
                       SAVED_MINUTES=$((FULL_MINUTES - SELECTIVE_MINUTES))
 
                       cat >> "$GITHUB_STEP_SUMMARY" << EOF
-                  ## Shadow story selection
+                  ## Story selection
 
                   | Metric | Full run | Selective | Saved |
                   |---|---|---|---|
@@ -623,19 +690,17 @@ jobs:
                   | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
                   | Est. render time | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$((TOTAL_DUR - AFFECTED_DUR))s** |
 
-                  > Shadow-only — no effect on CI. Predictor: webpack module graph from build-storybook.
+                  > Predictor: webpack module graph from build-storybook. Master push runs the full suite.
                   EOF
-                      echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode, affected: .affected_story_count, total: .total_story_count, shards: .suggested_shards, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
+                      echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, affected: .affected_story_count, total: .total_story_count, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
                   else
                       REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
                       cat >> "$GITHUB_STEP_SUMMARY" << EOF
-                  ## Shadow story selection
+                  ## Story selection
 
                   **Full run required:** $REASON
 
                   Total stories: $TOTAL
-
-                  > Shadow-only — no effect on CI.
                   EOF
-                      echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
+                      echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
                   fi
