@@ -443,6 +443,7 @@ function ColumnsSection({
 
         if (!requiresPrompt) {
             updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+            lemonToast.success('Columns saved')
             return
         }
 
@@ -466,12 +467,14 @@ function ColumnsSection({
                 onClick: () => {
                     updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
                     resyncSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                    lemonToast.success('Columns saved — full resync queued')
                 },
             },
             secondaryButton: {
                 children: 'Sync forward only',
                 onClick: () => {
                     updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                    lemonToast.success('Columns saved')
                 },
             },
         })
