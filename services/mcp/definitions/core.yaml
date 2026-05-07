@@ -684,6 +684,9 @@ tools:
         description: >
             Get a specific subscription by ID. Returns the full subscription configuration including target type and
             value, schedule details, next delivery date, and associated insight or dashboard.
+    subscriptions-session-summary-digest-create:
+        operation: subscriptions_session_summary_digest_create
+        enabled: false
     subscriptions-summary-quota-retrieve:
         operation: subscriptions_summary_quota_retrieve
         enabled: false
