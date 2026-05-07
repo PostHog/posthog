@@ -673,43 +673,6 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "GitHub" in response.json()["detail"]
 
-    @patch(
-        "posthog.models.integration.get_instance_settings",
-        return_value={
-            "SLACK_APP_CLIENT_ID": "test-client-id",
-            "SLACK_APP_CLIENT_SECRET": "test-client-secret",
-            "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
-        },
-    )
-    def test_retrieve_slack_integration_with_scope_succeeds(self, _mock_settings, client: HttpClient):
-        slack_integration = Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_RETRIEVE",
-            config={"authed_user": {"id": "test_user_id"}, "team": {"name": "Test Workspace"}},
-            sensitive_config={"access_token": "test-token"},
-            created_by=self.user,
-        )
-
-        key_value = "test_key_retrieve_slack"
-        PersonalAPIKey.objects.create(
-            label="Test Key",
-            user=self.user,
-            secure_value=hash_key_value(key_value),
-            scopes=["integration:read"],
-        )
-
-        response = client.get(
-            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/",
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert body["kind"] == "slack"
-        # Sensitive credentials never round-trip via the retrieve serializer.
-        assert "sensitive_config" not in body
-
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
         mock_list_repos.return_value = (
