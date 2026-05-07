@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
 
 import { HogFlowAction } from '../../../schema/hogflow'
 import { logger } from '../../../utils/logger'
@@ -27,42 +27,39 @@ export class HogFlowDuplicateObserverService {
         private readonly redisMirror: RedisV2 | null = null
     ) {}
 
-    public async observe(invocation: CyclotronJobInvocationHogFlow, currentAction: HogFlowAction): Promise<void> {
+    public async observe(
+        invocation: CyclotronJobInvocationHogFlow,
+        currentAction: HogFlowAction
+    ): Promise<{ duplicate: boolean }> {
         const eventUuid = invocation.state?.event?.uuid
         if (!this.redis || !eventUuid) {
-            return
+            return { duplicate: false }
         }
         const key = `hogflow:observe:${invocation.functionId}:${eventUuid}:${currentAction.id}`
 
+        // SET ... NX GET (Redis 7+ / Valkey 7.2+) sets the key when absent and returns the
+        // existing value when present — one round-trip instead of GET-then-SETNX. ioredis 4.x
+        // types only describe 'OK' | null for the return, so we cast to the actual GET payload.
+        const setNxGet = (client: RedisClient): Promise<string | null> =>
+            client.set(key, invocation.id, ['EX', String(DUPLICATE_OBSERVATION_TTL_SECONDS), 'NX', 'GET']) as Promise<
+                string | null
+            >
+
+        let duplicate = false
         try {
-            await Promise.all([
-                this.redis.useClient({ name: 'hogflow-observe', failOpen: true }, async (client) => {
-                    const wasSet = await client.set(key, invocation.id, 'EX', DUPLICATE_OBSERVATION_TTL_SECONDS, 'NX')
-                    if (wasSet) {
-                        return
-                    }
-                    const existingId = await client.get(key)
-                    if (existingId && existingId !== invocation.id) {
-                        hogflowDuplicateInvocationDetectedTotal.inc({ workflow_id: invocation.functionId })
-                    }
-                }),
+            const [existingId] = await Promise.all([
+                this.redis.useClient({ name: 'hogflow-observe', failOpen: true }, setNxGet),
                 mirrorCall('hog-flow-duplicate-observer.observe', () =>
-                    this.redisMirror?.useClient({ name: 'hogflow-observe-mirror', failOpen: true }, async (client) => {
-                        const wasSet = await client.set(
-                            key,
-                            invocation.id,
-                            'EX',
-                            DUPLICATE_OBSERVATION_TTL_SECONDS,
-                            'NX'
-                        )
-                        if (!wasSet) {
-                            await client.get(key)
-                        }
-                    })
+                    this.redisMirror?.useClient({ name: 'hogflow-observe-mirror', failOpen: true }, setNxGet)
                 ),
             ])
+            if (existingId && existingId !== invocation.id) {
+                duplicate = true
+                hogflowDuplicateInvocationDetectedTotal.inc({ workflow_id: invocation.functionId })
+            }
         } catch (error) {
             logger.debug('🦔', '[HogFlowDuplicateObserver] failed', { error: String(error) })
         }
+        return { duplicate }
     }
 }
