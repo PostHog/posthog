@@ -66,7 +66,15 @@ def fix_device_bucketing_persist_across_auth(apps, schema_editor):
                             "after": False,
                         }
                     ],
-                    "reason": "Auto-disabled persist across auth due to incompatibility with device ID bucketing",
+                    # Use the documented `trigger` shape so DetailSerializer surfaces this
+                    # in the activity log UI; a top-level `reason` would be silently dropped.
+                    "trigger": {
+                        "job_type": "migration",
+                        "job_id": "1149_fix_device_bucketing_persist_across_auth",
+                        "payload": {
+                            "reason": "Auto-disabled persist across auth due to incompatibility with device ID bucketing",
+                        },
+                    },
                 },
             )
         )
@@ -99,6 +107,9 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunPython(
             fix_device_bucketing_persist_across_auth,
-            migrations.RunPython.noop,  # Not reversible
+            # Intentionally not reversible: rolling back would re-enable an invalid
+            # (device_id, ensure_experience_continuity=True) combination. Pre-fix
+            # values are recoverable from the ActivityLog rows this migration writes.
+            migrations.RunPython.noop,
         ),
     ]

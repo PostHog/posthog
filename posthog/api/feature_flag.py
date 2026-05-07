@@ -881,14 +881,18 @@ class FeatureFlagSerializer(
 
     def _validate_device_bucketing_with_persist_auth(self, attrs):
         """Validate that persist across auth is not enabled with device ID bucketing"""
-        bucketing_identifier = attrs.get("bucketing_identifier")
-        ensure_experience_continuity = attrs.get("ensure_experience_continuity")
+        # bucketing_identifier is nullable (CharField(null=True)), so we use a sentinel to
+        # distinguish "field absent from PATCH" from "field explicitly set to null". A bare
+        # `attrs.get(...) is None` fallback would otherwise treat an explicit null as missing
+        # and validate against the stale instance value.
+        _MISSING: Any = object()
+        bucketing_identifier = attrs.get("bucketing_identifier", _MISSING)
+        ensure_experience_continuity = attrs.get("ensure_experience_continuity", _MISSING)
 
-        # Check current instance values if not provided in attrs
         if self.instance:
-            if bucketing_identifier is None:
+            if bucketing_identifier is _MISSING:
                 bucketing_identifier = self.instance.bucketing_identifier
-            if ensure_experience_continuity is None:
+            if ensure_experience_continuity is _MISSING:
                 ensure_experience_continuity = self.instance.ensure_experience_continuity
 
         # Prevent new combinations of device_id + ensure_experience_continuity=True

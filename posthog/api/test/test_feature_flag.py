@@ -5926,6 +5926,25 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         if expected_status == status.HTTP_400_BAD_REQUEST:
             self.assertIn("Cannot enable 'persist across authentication steps'", response.json()["detail"])
 
+    def test_validation_device_bucketing_blocked_for_surveys_creation_context(self):
+        # Locks in the validation reorder: device_id + persist must be rejected even for the
+        # surveys creation_context, which has its own early return in validate(). Without the
+        # hoist, this combination would slip through for survey-created flags.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Survey-created device persist flag",
+                "key": "survey-device-persist-flag",
+                "creation_context": "surveys",
+                "bucketing_identifier": "device_id",
+                "ensure_experience_continuity": True,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot enable 'persist across authentication steps'", response.json()["detail"])
+
     def _create_flag_with_properties(
         self,
         name: str,

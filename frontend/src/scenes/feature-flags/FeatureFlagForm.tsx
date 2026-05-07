@@ -178,7 +178,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
-        setBucketingIdentifier,
         resetEncryptedPayload,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
@@ -1072,21 +1071,21 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
                                         onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
-                                            // Switching to device bucketing requires disabling persist across auth.
-                                            // Apply both in a single setFeatureFlag so the merged payload doesn't
-                                            // stomp the new bucketing identifier with closure-captured state.
-                                            if (
-                                                value === FeatureFlagBucketingIdentifier.DEVICE_ID &&
-                                                featureFlag.ensure_experience_continuity
-                                            ) {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    bucketing_identifier: value,
-                                                    ensure_experience_continuity: false,
-                                                })
-                                                return
-                                            }
-                                            setBucketingIdentifier(value)
+                                            // Always go through setFeatureFlag so this caller and
+                                            // FeatureFlagReleaseConditions use the same shape — listeners on
+                                            // setBucketingIdentifier (variant reset, telemetry, autosave) won't
+                                            // silently fire on one path and not the other. Switching to device
+                                            // bucketing also disables persist across auth, since the two are
+                                            // incompatible.
+                                            const ensureContinuity =
+                                                value === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                                    ? false
+                                                    : featureFlag.ensure_experience_continuity
+                                            setFeatureFlag({
+                                                ...featureFlag,
+                                                bucketing_identifier: value,
+                                                ensure_experience_continuity: ensureContinuity,
+                                            })
                                         }}
                                         evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
