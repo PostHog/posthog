@@ -1287,6 +1287,10 @@ class DangerousOperationResponse(BaseModel):
     toolName: str
 
 
+class DashboardAutoRefreshInterval(RootModel[Literal[1800]]):
+    root: Literal[1800] = 1800
+
+
 class DataColorToken(StrEnum):
     PRESET_1 = "preset-1"
     PRESET_2 = "preset-2"

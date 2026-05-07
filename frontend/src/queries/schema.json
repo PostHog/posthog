@@ -11170,6 +11170,10 @@
             "required": ["status", "proposalId", "toolName", "preview", "payload"],
             "type": "object"
         },
+        "DashboardAutoRefreshInterval": {
+            "const": 1800,
+            "type": "number"
+        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {

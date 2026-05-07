@@ -5979,6 +5979,10 @@ export enum InfinityValue {
     NEGATIVE_INFINITY_VALUE = -999999,
 }
 
+export enum DashboardAutoRefreshInterval {
+    SECONDS = 1800,
+}
+
 export type UsageMetricFormat = 'numeric' | 'currency'
 
 export type UsageMetricDisplay = 'number' | 'sparkline'
