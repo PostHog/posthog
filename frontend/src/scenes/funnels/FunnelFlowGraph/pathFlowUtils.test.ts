@@ -358,19 +358,24 @@ describe('buildPathFlowElements with funnel step dedup', () => {
         }
     )
 
-    it('drops self-loop edges when source and target resolve to the same funnel step', () => {
-        const selfLoopLinks: PathsLink[] = [
+    it('repeated path-data nodes with the same event name keep all but one as auxiliary nodes (no self-loops or cycles)', () => {
+        // When the same event name appears at multiple path layers, only ONE
+        // layer can redirect to the funnel step — otherwise the redirect would
+        // collapse them into a cycle. The earliest occurrence wins for source-
+        // matching events; later occurrences stay as auxiliary path nodes.
+        const repeatedEventLinks: PathsLink[] = [
             { source: '1_Signed up', target: '2_Signed up', value: 10, average_conversion_time: 1000 },
             { source: '2_Signed up', target: '3_/other', value: 5, average_conversion_time: 2000 },
         ]
-        const { nodes, edges } = buildPathFlowElements(selfLoopLinks, 'step-0', null, undefined, funnelSteps)
+        const { nodes, edges } = buildPathFlowElements(repeatedEventLinks, 'step-0', null, undefined, funnelSteps)
 
-        expect(nodes.map((n) => n.id)).toEqual(['path-3_/other'])
+        expect(nodes.map((n) => n.id).sort()).toEqual(['path-2_Signed up', 'path-3_/other'])
 
-        const selfLoops = edges.filter((e) => e.source === e.target)
-        expect(selfLoops).toHaveLength(0)
-
-        expect(edges.map((e) => [e.source, e.target])).toEqual([['step-0', 'path-3_/other']])
+        expect(edges.filter((e) => e.source === e.target)).toHaveLength(0)
+        expect(edges.map((e) => [e.source, e.target])).toEqual([
+            ['step-0', 'path-2_Signed up'],
+            ['path-2_Signed up', 'path-3_/other'],
+        ])
     })
 
     it('rewrites handle IDs to match the replacement funnel step node', () => {
@@ -432,6 +437,63 @@ describe('buildPathFlowElements with funnel step dedup', () => {
         expect(nodes.map((n) => n.id)).toContain('path-1_billing product activated')
         expect(edges.every((e) => e.target !== 'step-2')).toBe(true)
         expect(edges.every((e) => e.source !== 'step-2')).toBe(true)
+    })
+
+    it('between-step expansion: a path that revisits an event matching the source step does not create a cycle', () => {
+        // Real-world reproduction. Funnel: [query executed, client_request_failure, query executed].
+        // Expansion: between step-1 (client_request_failure) and step-2 (query executed).
+        // Path data has client_request_failure at TWO layers (1 and 3) — users hit it,
+        // then bounced back through livestream_sse_error and hit it again.
+        // Without the per-event-name redirect cap, both layers would collapse onto step-1,
+        // producing a cycle step-1 → path-2_livestream_sse_error → step-1.
+        const funnelStepsForRegression = [
+            { id: 'step-0', name: 'query executed' },
+            { id: 'step-1', name: 'client_request_failure' },
+            { id: 'step-2', name: 'query executed' },
+        ]
+        const links: PathsLink[] = [
+            {
+                source: '1_client_request_failure',
+                target: '2_livestream_sse_error',
+                value: 1,
+                average_conversion_time: 2930,
+            },
+            {
+                source: '2_livestream_sse_error',
+                target: '3_client_request_failure',
+                value: 1,
+                average_conversion_time: 743463,
+            },
+            {
+                source: '3_client_request_failure',
+                target: '4_livestream_sse_error',
+                value: 1,
+                average_conversion_time: 18893,
+            },
+            {
+                source: '4_livestream_sse_error',
+                target: '5_livestream_sse_max_errors',
+                value: 1,
+                average_conversion_time: 6,
+            },
+        ]
+        const stepMap = buildFunnelStepReplacementMap(funnelStepsForRegression, 'step-1', 'step-2')
+
+        const { nodes, edges } = buildPathFlowElements(links, 'step-1', 'step-2', undefined, stepMap)
+
+        expect(nodes.map((n) => n.id)).toContain('path-3_client_request_failure')
+
+        for (const edge of edges) {
+            expect(edge.source).not.toBe(edge.target)
+        }
+
+        const incomingToStep1 = edges.filter((e) => e.target === 'step-1')
+        const outgoingFromStep1 = edges.filter((e) => e.source === 'step-1')
+        for (const incoming of incomingToStep1) {
+            for (const outgoing of outgoingFromStep1) {
+                expect(incoming.source).not.toBe(outgoing.target)
+            }
+        }
     })
 
     it('every step→step edge in the resulting graph runs forward (DAG invariant)', () => {

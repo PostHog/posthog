@@ -154,11 +154,24 @@ export function buildPathFlowElements(
 
     const nodeReplacement = new Map<string, string>()
     if (funnelStepByEventName) {
+        const targetStepIndex = targetStepId ? extractStepIndex(targetStepId) : -1
+
+        const candidatesByEventName = new Map<string, { rawName: string; layer: number }[]>()
         for (const [rawName, data] of nodeMap) {
-            const funnelStepId = funnelStepByEventName.get(data.eventName)
-            if (funnelStepId) {
-                nodeReplacement.set(rawName, funnelStepId)
+            if (!funnelStepByEventName.has(data.eventName)) {
+                continue
             }
+            const list = candidatesByEventName.get(data.eventName) ?? []
+            list.push({ rawName, layer: data.layer })
+            candidatesByEventName.set(data.eventName, list)
+        }
+
+        for (const [eventName, candidates] of candidatesByEventName) {
+            const funnelStepId = funnelStepByEventName.get(eventName)!
+            const stepMatchesTarget = targetStepIndex !== -1 && extractStepIndex(funnelStepId) === targetStepIndex
+            candidates.sort((a, b) => a.layer - b.layer)
+            const winner = stepMatchesTarget ? candidates[candidates.length - 1] : candidates[0]
+            nodeReplacement.set(winner.rawName, funnelStepId)
         }
     }
 
