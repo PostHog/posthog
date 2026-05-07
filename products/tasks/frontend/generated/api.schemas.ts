@@ -12,9 +12,19 @@ export interface CodeInviteRedeemRequestApi {
     code: string
 }
 
-export interface ErrorResponseApi {
-    /** Error message */
-    error: string
+export interface TaskRunErrorResponseApi {
+    /** Human-readable validation error */
+    detail?: string
+    /** Human-readable error message */
+    error?: string
+    /** Machine-readable error type */
+    type?: string
+    /** Machine-readable error code */
+    code?: string
+    /** Request field associated with the error */
+    attr?: string
+    /** Artifact ids that could not be resolved for the run */
+    missing_artifact_ids?: string[]
 }
 
 /**
@@ -590,21 +600,6 @@ export type TaskRunCreateRequestSchemaApi =
     | ClaudeTaskRunCreateSchemaApi
     | CodexTaskRunCreateSchemaApi
     | TaskRunResumeRequestSchemaApi
-
-export interface TaskRunErrorResponseApi {
-    /** Human-readable validation error */
-    detail?: string
-    /** Human-readable error message */
-    error?: string
-    /** Machine-readable error type */
-    type?: string
-    /** Machine-readable error code */
-    code?: string
-    /** Request field associated with the error */
-    attr?: string
-    /** Artifact ids that could not be resolved for the run */
-    missing_artifact_ids?: string[]
-}
 
 /**
  * * `plan` - plan

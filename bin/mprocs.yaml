@@ -245,6 +245,14 @@ procs:
             layer: Product services
             tech: Rust
 
+    flags-consumer:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service flags-consumer
+        # POC skeleton — opt-in until the CDC consumer logic lands
+        autostart: false
+        ready_pattern: 'listening on *'
+
     hypercache-server:
         shell: |-
             bin/wait-for-docker && \
@@ -450,6 +458,12 @@ procs:
         groups:
             layer: Infrastructure
             tech: Migrations
+        # no capability - optional migration
+
+    migrate-flags-read-store:
+        shell: 'bin/wait-for-docker && bin/migrate --scope=flags-read-store'
+        autostart: false
+        ready_pattern: 'All migrations completed successfully'
         # no capability - optional migration
 
     generate-demo-data:

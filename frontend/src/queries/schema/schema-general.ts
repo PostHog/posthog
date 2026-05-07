@@ -1239,6 +1239,10 @@ interface DataTableNodeViewProps {
     showSavedFilters?: boolean
     /** Show table views feature for this table (requires uniqueKey) */
     showTableViews?: boolean
+    /** Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start,
+     *  session_end) as absolute date+time instead of relative ("X ago"). The toggle is exposed
+     *  in the column header menu only on EventsQuery / ActorsQuery sources. */
+    showAbsoluteTime?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
@@ -3387,7 +3391,7 @@ export interface ExperimentApiMetric {
 }
 
 export interface ExperimentVariant {
-    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
     /** Human-readable variant name. */
     name?: string
@@ -3398,7 +3402,7 @@ export interface ExperimentVariant {
 }
 
 export interface ExperimentParameters {
-    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+    /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
     feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
@@ -5977,6 +5981,10 @@ export interface MarketingIntegrationConfigType {
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
     NEGATIVE_INFINITY_VALUE = -999999,
+}
+
+export enum DashboardAutoRefreshInterval {
+    SECONDS = 1800,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
