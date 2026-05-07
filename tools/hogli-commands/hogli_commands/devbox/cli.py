@@ -11,6 +11,7 @@ import shutil
 import socket
 import functools
 import subprocess
+import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from .coder import (
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
+    GIT_SIGNING_KEY_SECRET,
     _fail,
     create_task,
     create_workspace,
@@ -34,6 +36,7 @@ from .coder import (
     ensure_tailscale_connected,
     ensure_tailscale_routes_accepted,
     extract_workspace_label,
+    get_coder_url,
     get_coder_user_info,
     get_default_git_identity,
     get_shared_users,
@@ -61,10 +64,13 @@ from .coder import (
     unshare_workspace,
     update_workspace,
     update_workspace_parameters,
+    upsert_user_secret,
+    user_secret_exists,
 )
 from .config import load_config, save_dotfiles_uri, save_git_identity
 
 _CLAUDE_TOKEN_SERVICE = "posthog-claude-oauth-token"
+_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering/security#commit-signing"
 
 WORKSPACE_STATUS_COLORS = {
     "running": "green",
@@ -332,6 +338,123 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
+def _resolve_local_identity_agent_for_coder() -> str | None:
+    """Return the IdentityAgent ssh would use to connect to Coder workspaces, or ``None``.
+
+    Resolves against the deployment hostname so the engineer's existing
+    ``Host *`` / ``Host *.posthog.dev`` / specific blocks all flow through.
+    """
+    coder_host = urllib.parse.urlparse(get_coder_url()).hostname
+    if not coder_host:
+        return None
+    return _resolve_local_identity_agent(coder_host)
+
+
+def _resolve_local_signing_key() -> str | None:
+    """Return the engineer's ``git config user.signingkey``, normalized to a literal SSH public key string.
+
+    Git accepts two formats: a literal ``ssh-... / ecdsa-... / sk-...`` string
+    or a path to a public-key file. Both are normalized here. Returns ``None``
+    when the value is unset or the referenced file can't be read.
+    """
+    result = subprocess.run(
+        ["git", "config", "--global", "--get", "user.signingkey"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    if not value:
+        return None
+    if value.startswith(("ssh-", "ecdsa-", "sk-")):
+        return value
+    try:
+        return Path(os.path.expanduser(value)).read_text().strip() or None
+    except OSError:
+        return None
+
+
+def _resolve_local_identity_agent(host: str) -> str | None:
+    """Return the SSH agent socket ``ssh -G <host>`` would use to authenticate, or ``None`` when no specific agent is configured.
+
+    Treats ``none`` (signaling "no agent") and the literal placeholder
+    ``SSH_AUTH_SOCK`` (signaling "fall back to the env var") as "no specific
+    agent" so callers can decide their own fallback.
+    """
+    result = subprocess.run(["ssh", "-G", host], capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("identityagent "):
+            value = line[len("identityagent ") :].strip()
+            if value and value.lower() not in ("none", "ssh_auth_sock"):
+                return value
+            return None
+    return None
+
+
+def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
+    """Propagate the engineer's existing local commit-signing config into devboxes.
+
+    Reads ``git config user.signingkey`` (the public key the engineer already
+    signs locally with) and ``ssh -G <coder-host>``'s ``identityagent`` (the
+    SSH agent ssh would use for the connection, which is the agent that gets
+    forwarded). Pushes the public key to a Coder user secret and pins the
+    agent socket as the local IdentityAgent for Coder hosts. No menus, no
+    probing -- whatever the engineer has set up locally per the handbook is
+    what propagates.
+    """
+    already_set = user_secret_exists(GIT_SIGNING_KEY_SECRET)
+
+    if configure_git_signing is False:
+        if already_set:
+            click.echo("Using saved Git signing key.")
+            click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
+        else:
+            click.echo("Skipping Git commit signing setup.")
+        return
+
+    if configure_git_signing is None and already_set:
+        click.echo("Git signing: configured (commits inside devbox will be signed).")
+        click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
+        return
+
+    public_key = _resolve_local_signing_key()
+    if not public_key:
+        click.echo()
+        click.echo(click.style("Git commit signing (skipped)", bold=True))
+        click.echo("  `git config --global user.signingkey` is empty.")
+        click.echo(f"  Set up commit signing per the handbook: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+        click.echo("  Then re-run `hogli devbox:setup --configure-git-signing`.")
+        return
+
+    if public_key.startswith("ssh-rsa "):
+        click.echo()
+        click.echo(click.style("RSA signing keys are not allowed.", fg="red"))
+        click.echo(f"  Use ECDSA or Ed25519 per the handbook: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+        return
+
+    upsert_user_secret(GIT_SIGNING_KEY_SECRET, public_key, env_var=GIT_SIGNING_KEY_SECRET)
+
+    click.echo()
+    click.echo(click.style("Git commit signing", bold=True))
+    click.echo(f"  Pushed signing key from `git config user.signingkey`: {public_key}")
+    agent_socket = _resolve_local_identity_agent_for_coder()
+    if agent_socket:
+        click.echo(f"  IdentityAgent for Coder hosts (from your ssh config): {agent_socket}")
+    else:
+        click.echo("  No IdentityAgent detected for Coder hosts -- SSH agent forwarding will use")
+        click.echo(f"  whatever `$SSH_AUTH_SOCK` points to. Configure per: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+    click.echo()
+    click.echo(click.style("If you haven't already:", bold=True))
+    click.echo("  1. Open https://github.com/settings/ssh/new")
+    click.echo("  2. Set 'Key type' to 'Signing Key' (auth keys do not sign).")
+    click.echo("  3. Paste the key above.")
+    click.echo()
+    click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
+
+
 def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
     """Optionally persist a dotfiles repo URL for new workspaces."""
     config = load_config()
@@ -426,6 +549,11 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
     help="Prompt for Git name/email defaults for new Coder workspaces",
 )
 @click.option(
+    "--configure-git-signing/--skip-configure-git-signing",
+    default=None,
+    help="Propagate your local git signing key into Coder devboxes (reads git config user.signingkey)",
+)
+@click.option(
     "--configure-dotfiles/--skip-configure-dotfiles",
     default=None,
     help="Prompt for a dotfiles repo URL for new Coder workspaces",
@@ -440,6 +568,7 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
 def devbox_setup(
     configure_ssh: bool | None,
     configure_git_identity: bool | None,
+    configure_git_signing: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
     verbose: bool,
@@ -450,8 +579,13 @@ def devbox_setup(
     ensure_coder_reachable()
     ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
-    maybe_configure_ssh(configure_ssh=configure_ssh, verbose=verbose)
+    maybe_configure_ssh(
+        configure_ssh=configure_ssh,
+        identity_agent_socket=_resolve_local_identity_agent_for_coder(),
+        verbose=verbose,
+    )
     maybe_configure_git_identity(configure_git_identity)
+    maybe_configure_git_signing(configure_git_signing)
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_token(configure_claude_setup)
     print_setup_summary()
