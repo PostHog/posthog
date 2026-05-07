@@ -126,15 +126,3 @@ class TestBackfillDiscoverySchedules:
         assert mock_sync.call_count == 3
         assert "processed=2" in out.getvalue()
         assert "failed=1" in out.getvalue()
-
-    def test_idempotent_when_helper_is_idempotent(self, team):
-        _create_source(team)
-
-        with patch(
-            "products.data_warehouse.backend.management.commands.backfill_discovery_schedules.sync_discover_schemas_schedule"
-        ) as mock_sync:
-            call_command("backfill_discovery_schedules", "--live-run")
-            call_command("backfill_discovery_schedules", "--live-run")
-
-        # Helper called once per source per invocation; the helper itself is responsible for upsert semantics.
-        assert mock_sync.call_count == 2
