@@ -11,7 +11,7 @@ use super::constants::{
 };
 use super::response::Response;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
-use crate::event_restrictions::{EventContext, EventRestrictionService};
+use crate::event_restrictions::{EventContext, EventRestrictionService, Pipeline};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use tracing::Level;
 
@@ -260,7 +260,9 @@ async fn apply_restrictions(
             now_ts,
         };
 
-        let applied = service.get_restrictions(token, &event_ctx).await;
+        let applied = service
+            .get_restrictions(token, &event_ctx, Pipeline::Analytics)
+            .await;
 
         if applied.should_drop() {
             event.result = EventResult::Drop;
@@ -803,9 +805,9 @@ mod tests {
         restrictions: Vec<Restriction>,
     ) -> EventRestrictionService {
         let service =
-            EventRestrictionService::new(Pipeline::Analytics, StdDuration::from_secs(300));
+            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(token.to_string(), restrictions);
+        manager.insert_restrictions(Pipeline::Analytics, token, restrictions);
         service.update(manager).await;
         service
     }
@@ -813,7 +815,7 @@ mod tests {
     #[tokio::test]
     async fn restrictions_no_restrictions_passthrough() {
         let service =
-            EventRestrictionService::new(Pipeline::Analytics, StdDuration::from_secs(300));
+            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
 
         let mut events = vec![wrapped_event("$pageview", "user-1")];
@@ -1540,7 +1542,7 @@ mod tests {
 
         // Stage 2: restrictions (no rules → passthrough, still iterates).
         let service =
-            EventRestrictionService::new(Pipeline::Analytics, StdDuration::from_secs(300));
+            EventRestrictionService::new(vec![Pipeline::Analytics], StdDuration::from_secs(300));
         service.update(RestrictionManager::new()).await;
         let now_ts = Utc::now().timestamp();
         apply_restrictions(&service, "phc_token", now_ts, &mut events).await;

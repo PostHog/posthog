@@ -30,11 +30,6 @@ pub struct LifecycleHandles {
     pub sink: Option<lifecycle::Handle>,
     pub advisory: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
-    /// Secondary restriction service for the `errortracking` pipeline.
-    /// Only registered for `CaptureMode::Events` deployments — that's the
-    /// only mode that produces `$exception` events to the error tracking
-    /// topic and therefore needs `errortracking`-tagged Redis configs.
-    pub errortracking_event_restrictions: Option<lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
     pub liveness: lifecycle::LivenessHandler,
 }
@@ -65,18 +60,6 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
             None
         };
 
-    let errortracking_event_restrictions = if config.event_restrictions_enabled
-        && config.event_restrictions_redis_url.is_some()
-        && matches!(config.capture_mode, CaptureMode::Events)
-    {
-        Some(manager.register(
-            "errortracking-event-restrictions",
-            lifecycle::ComponentOptions::new(),
-        ))
-    } else {
-        None
-    };
-
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
@@ -85,7 +68,6 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         sink,
         advisory,
         event_restrictions,
-        errortracking_event_restrictions,
         readiness,
         liveness,
     }
@@ -104,7 +86,6 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         sink: sink_handle,
         advisory: advisory_handle,
         event_restrictions: event_restrictions_handle,
-        errortracking_event_restrictions: errortracking_event_restrictions_handle,
         readiness,
         liveness,
     } = handles;
@@ -265,17 +246,14 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         };
 
     let event_restriction_service = if let Some(handle) = event_restrictions_handle {
-        create_event_restriction_service(&config, handle, Pipeline::from(config.capture_mode))
+        create_event_restriction_service(
+            &config,
+            handle,
+            Pipeline::for_capture_mode(config.capture_mode),
+        )
     } else {
         None
     };
-
-    let errortracking_event_restriction_service =
-        if let Some(handle) = errortracking_event_restrictions_handle {
-            create_event_restriction_service(&config, handle, Pipeline::ErrorTracking)
-        } else {
-            None
-        };
 
     let app = router::router(
         crate::time::SystemTime {},
@@ -287,7 +265,6 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         quota_limiter,
         token_dropper,
         event_restriction_service,
-        errortracking_event_restriction_service,
         config.export_prometheus,
         config.capture_mode,
         config.otel_service_name.clone(),
@@ -371,7 +348,7 @@ async fn create_sink(
 fn create_event_restriction_service(
     config: &Config,
     handle: lifecycle::Handle,
-    pipeline: Pipeline,
+    pipelines: Vec<Pipeline>,
 ) -> Option<EventRestrictionService> {
     if !config.event_restrictions_enabled {
         return None;
@@ -382,8 +359,9 @@ fn create_event_restriction_service(
         return None;
     };
 
+    let pipelines_for_log = pipelines.clone();
     let service = EventRestrictionService::new(
-        pipeline,
+        pipelines,
         Duration::from_secs(config.event_restrictions_fail_open_after_secs),
     );
 
@@ -427,7 +405,7 @@ fn create_event_restriction_service(
     });
 
     info!(
-        pipeline = %pipeline.as_str(),
+        pipelines = ?pipelines_for_log,
         refresh_interval_secs = config.event_restrictions_refresh_interval_secs,
         fail_open_after_secs = config.event_restrictions_fail_open_after_secs,
         "Event restrictions enabled"

@@ -73,7 +73,6 @@ pub async fn event(
                 state.sink.clone(),
                 state.token_dropper.clone(),
                 state.event_restriction_service.clone(),
-                state.errortracking_event_restriction_service.clone(),
                 state.historical_cfg.clone(),
                 state.global_rate_limiter_token_distinctid.clone(),
                 state.overflow_limiter.clone(),

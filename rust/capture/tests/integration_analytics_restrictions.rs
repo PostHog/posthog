@@ -85,11 +85,12 @@ async fn setup_analytics_router_with_restriction(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
+    let service = EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
 
     let mut manager = RestrictionManager::new();
-    manager.restrictions.insert(
-        token.to_string(),
+    manager.insert_restrictions(
+        Pipeline::Analytics,
+        token,
         vec![Restriction {
             restriction_type,
             scope: RestrictionScope::AllEvents,
@@ -108,7 +109,6 @@ async fn setup_analytics_router_with_restriction(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-analytics"),
@@ -425,11 +425,12 @@ async fn setup_analytics_router_with_redirect_to_topic(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
+    let service = EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
 
     let mut manager = RestrictionManager::new();
-    manager.restrictions.insert(
-        token.to_string(),
+    manager.insert_restrictions(
+        Pipeline::Analytics,
+        token,
         vec![Restriction {
             restriction_type: RestrictionType::RedirectToTopic,
             scope: RestrictionScope::AllEvents,
@@ -448,7 +449,6 @@ async fn setup_analytics_router_with_redirect_to_topic(
         quota_limiter,
         TokenDropper::default(),
         Some(service),
-        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-analytics"),

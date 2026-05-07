@@ -164,7 +164,6 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         quota_limiter,
         TokenDropper::default(),
         options.event_restriction_service,
-        None,  // errortracking_event_restriction_service
         false, // metrics
         CaptureMode::Events,
         String::from("capture-otel-test"),
@@ -295,9 +294,9 @@ fn make_two_span_request() -> ExportTraceServiceRequest {
 }
 
 async fn make_restriction_service(restrictions: Vec<Restriction>) -> EventRestrictionService {
-    let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
+    let service = EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
     let mut manager = RestrictionManager::new();
-    manager.restrictions.insert(TOKEN.to_string(), restrictions);
+    manager.insert_restrictions(Pipeline::Analytics, TOKEN, restrictions);
     service.update(manager).await;
     service
 }

@@ -15,10 +15,15 @@ use super::types::{
     AppliedRestrictions, EventContext, Pipeline, Restriction, RestrictionSet, RestrictionType,
 };
 
-/// Manages restrictions by token.
+/// Manages restrictions by pipeline and token.
+///
+/// A single `RestrictionManager` can serve multiple pipelines (e.g. the events
+/// capture deployment serves both `Analytics` and `ErrorTracking`). An entry
+/// that applies to multiple pipelines is indexed under each — lookup is
+/// pipeline-then-token, not token-then-pipeline.
 #[derive(Debug, Clone, Default)]
 pub struct RestrictionManager {
-    pub restrictions: HashMap<String, Vec<Restriction>>,
+    pub restrictions: HashMap<Pipeline, HashMap<String, Vec<Restriction>>>,
 }
 
 impl RestrictionManager {
@@ -26,9 +31,18 @@ impl RestrictionManager {
         Self::default()
     }
 
-    /// Get all restriction types that apply to an event.
-    pub fn get_restrictions(&self, token: &str, event: &EventContext) -> RestrictionSet {
-        let Some(restrictions) = self.restrictions.get(token) else {
+    /// Get all restriction types that apply to an event for a given pipeline.
+    pub fn get_restrictions(
+        &self,
+        token: &str,
+        event: &EventContext,
+        pipeline: Pipeline,
+    ) -> RestrictionSet {
+        let Some(restrictions) = self
+            .restrictions
+            .get(&pipeline)
+            .and_then(|by_token| by_token.get(token))
+        else {
             return RestrictionSet::new();
         };
 
@@ -55,18 +69,36 @@ impl RestrictionManager {
         result
     }
 
-    /// Build a RestrictionManager from repository data for a specific pipeline.
+    /// Test/setup helper: insert restrictions for a single (pipeline, token) pair.
+    pub fn insert_restrictions(
+        &mut self,
+        pipeline: Pipeline,
+        token: impl Into<String>,
+        restrictions: Vec<Restriction>,
+    ) {
+        self.restrictions
+            .entry(pipeline)
+            .or_default()
+            .insert(token.into(), restrictions);
+    }
+
+    /// Build a RestrictionManager from repository data for the given allowlist
+    /// of pipelines. Entries that don't apply to any allowed pipeline are
+    /// dropped at fetch time; entries applying to multiple allowed pipelines
+    /// are indexed under each.
     ///
     /// Returns an error if any restriction type fails to fetch, which signals
     /// a likely dead Redis connection and triggers a reconnect.
     pub async fn from_repository(
         repository: &dyn EventRestrictionsRepository,
-        pipeline: Pipeline,
+        allowed_pipelines: &[Pipeline],
     ) -> Result<Self, CustomRedisError> {
-        info!(pipeline = %pipeline.as_str(), "Fetching event restrictions");
+        info!(
+            pipelines = ?allowed_pipelines,
+            "Fetching event restrictions"
+        );
 
         let mut manager = Self::new();
-        let pipeline_str = pipeline.as_str();
 
         // Fetch all restriction types in parallel
         let fetch_futures = RestrictionType::all()
@@ -96,13 +128,19 @@ impl RestrictionManager {
             entries.sort_by_key(|e| e.index.unwrap_or(0));
 
             for entry in entries {
-                // Skip if this entry doesn't apply to our pipeline
-                if !entry.pipelines.contains(&pipeline_str.to_string()) {
+                // Skip old format entries (version must be 2)
+                if entry.version != Some(2) {
                     continue;
                 }
 
-                // Skip old format entries (version must be 2)
-                if entry.version != Some(2) {
+                // Resolve which allowed pipelines this entry applies to.
+                let entry_pipelines: Vec<Pipeline> = entry
+                    .pipelines
+                    .iter()
+                    .filter_map(|s| Pipeline::parse(s))
+                    .filter(|p| allowed_pipelines.contains(p))
+                    .collect();
+                if entry_pipelines.is_empty() {
                     continue;
                 }
 
@@ -126,11 +164,15 @@ impl RestrictionManager {
 
                 let token = entry.token.clone();
                 let restriction = entry.into_restriction(restriction_type);
-                manager
-                    .restrictions
-                    .entry(token)
-                    .or_default()
-                    .push(restriction);
+                for pipeline in entry_pipelines {
+                    manager
+                        .restrictions
+                        .entry(pipeline)
+                        .or_default()
+                        .entry(token.clone())
+                        .or_default()
+                        .push(restriction.clone());
+                }
             }
         }
 
@@ -138,37 +180,46 @@ impl RestrictionManager {
             return Err(e);
         }
 
-        let total_restrictions: usize = manager.restrictions.values().map(|v| v.len()).sum();
-        let total_tokens = manager.restrictions.len();
-
-        info!(
-            pipeline = %pipeline_str,
-            total_restrictions = total_restrictions,
-            total_tokens = total_tokens,
-            "Fetched event restrictions"
-        );
+        for pipeline in allowed_pipelines {
+            let by_token = manager.restrictions.get(pipeline);
+            let restriction_count: usize = by_token
+                .map(|m| m.values().map(|v| v.len()).sum())
+                .unwrap_or(0);
+            let token_count: usize = by_token.map(|m| m.len()).unwrap_or(0);
+            info!(
+                pipeline = %pipeline.as_str(),
+                total_restrictions = restriction_count,
+                total_tokens = token_count,
+                "Fetched event restrictions"
+            );
+        }
 
         Ok(manager)
     }
 }
 
 /// Service that manages event restrictions with background refresh and fail-open behavior.
+///
+/// One service serves all pipelines its host capture deployment produces to —
+/// the events deployment uses `[Analytics, ErrorTracking]`, replay uses
+/// `[SessionRecordings]`, ai uses `[Ai]`. Callers select the right pipeline
+/// per event when calling [`Self::get_restrictions`].
 #[derive(Clone)]
 pub struct EventRestrictionService {
     manager: Arc<RwLock<RestrictionManager>>,
     last_successful_refresh: Arc<AtomicI64>,
     fail_open_after: Duration,
-    pipeline: Pipeline,
+    pipelines: Vec<Pipeline>,
 }
 
 impl EventRestrictionService {
     /// Create a new service. Call `start_refresh_task` to begin background updates.
-    pub fn new(pipeline: Pipeline, fail_open_after: Duration) -> Self {
+    pub fn new(pipelines: Vec<Pipeline>, fail_open_after: Duration) -> Self {
         Self {
             manager: Arc::new(RwLock::new(RestrictionManager::new())),
             last_successful_refresh: Arc::new(AtomicI64::new(0)),
             fail_open_after,
-            pipeline,
+            pipelines,
         }
     }
 
@@ -189,26 +240,25 @@ impl EventRestrictionService {
             Output = Result<Arc<dyn EventRestrictionsRepository>, common_redis::CustomRedisError>,
         >,
     {
-        let pipeline_str = self.pipeline.as_str();
         let mut interval = interval(refresh_interval);
         let mut repository: Option<Arc<dyn EventRestrictionsRepository>> = None;
 
         loop {
             tokio::select! {
                 _ = shutdown_handle.shutdown_recv() => {
-                    info!(pipeline = %pipeline_str, "Event restrictions refresh task shutting down");
+                    info!(pipelines = ?self.pipelines, "Event restrictions refresh task shutting down");
                     break;
                 }
                 _ = interval.tick() => {
                     if repository.is_none() {
                         match create_repository().await {
                             Ok(repo) => {
-                                info!(pipeline = %pipeline_str, "Event restrictions connected to Redis");
+                                info!(pipelines = ?self.pipelines, "Event restrictions connected to Redis");
                                 repository = Some(repo);
                             }
                             Err(e) => {
                                 error!(
-                                    pipeline = %pipeline_str,
+                                    pipelines = ?self.pipelines,
                                     error = %e,
                                     "Failed to connect to event restrictions Redis, will retry"
                                 );
@@ -229,45 +279,49 @@ impl EventRestrictionService {
     /// Fetch restrictions from repository and update the local cache.
     /// Returns `true` on success, `false` if all fetches failed (dead connection).
     async fn refresh_from_repository(&self, repository: &dyn EventRestrictionsRepository) -> bool {
-        let pipeline_str = self.pipeline.as_str();
-
-        match RestrictionManager::from_repository(repository, self.pipeline).await {
+        match RestrictionManager::from_repository(repository, &self.pipelines).await {
             Ok(new_manager) => {
-                let total_restrictions: usize =
-                    new_manager.restrictions.values().map(|v| v.len()).sum();
-                let total_tokens = new_manager.restrictions.len();
-
                 let now = self.update(new_manager).await;
 
-                gauge!(
-                    "capture_event_restrictions_last_refresh_timestamp",
-                    "pipeline" => pipeline_str.to_string()
-                )
-                .set(now as f64);
+                let guard = self.manager.read().await;
+                for pipeline in &self.pipelines {
+                    let pipeline_str = pipeline.as_str();
+                    let by_token = guard.restrictions.get(pipeline);
+                    let restriction_count: usize = by_token
+                        .map(|m| m.values().map(|v| v.len()).sum())
+                        .unwrap_or(0);
+                    let token_count: usize = by_token.map(|m| m.len()).unwrap_or(0);
 
-                gauge!(
-                    "capture_event_restrictions_loaded_count",
-                    "pipeline" => pipeline_str.to_string()
-                )
-                .set(total_restrictions as f64);
+                    gauge!(
+                        "capture_event_restrictions_last_refresh_timestamp",
+                        "pipeline" => pipeline_str.to_string()
+                    )
+                    .set(now as f64);
 
-                gauge!(
-                    "capture_event_restrictions_tokens_count",
-                    "pipeline" => pipeline_str.to_string()
-                )
-                .set(total_tokens as f64);
+                    gauge!(
+                        "capture_event_restrictions_loaded_count",
+                        "pipeline" => pipeline_str.to_string()
+                    )
+                    .set(restriction_count as f64);
 
-                gauge!(
-                    "capture_event_restrictions_stale",
-                    "pipeline" => pipeline_str.to_string()
-                )
-                .set(0.0);
+                    gauge!(
+                        "capture_event_restrictions_tokens_count",
+                        "pipeline" => pipeline_str.to_string()
+                    )
+                    .set(token_count as f64);
+
+                    gauge!(
+                        "capture_event_restrictions_stale",
+                        "pipeline" => pipeline_str.to_string()
+                    )
+                    .set(0.0);
+                }
 
                 true
             }
             Err(e) => {
                 error!(
-                    pipeline = %pipeline_str,
+                    pipelines = ?self.pipelines,
                     error = %e,
                     "Failed to refresh event restrictions, will reconnect"
                 );
@@ -297,24 +351,27 @@ impl EventRestrictionService {
         Duration::from_secs(age_secs) > self.fail_open_after
     }
 
-    /// Get applied restrictions for an event. Returns empty if fail-open is active.
+    /// Get applied restrictions for an event under the given pipeline. Returns
+    /// empty if fail-open is active or if the pipeline isn't in the service's
+    /// allowlist (no entries are indexed for it).
     pub async fn get_restrictions(
         &self,
         token: &str,
         event: &EventContext<'_>,
+        pipeline: Pipeline,
     ) -> AppliedRestrictions {
         if self.is_stale_at(event.now_ts) {
             gauge!(
                 "capture_event_restrictions_stale",
-                "pipeline" => self.pipeline.as_str().to_string()
+                "pipeline" => pipeline.as_str().to_string()
             )
             .set(1.0);
             return AppliedRestrictions::default();
         }
 
         let guard = self.manager.read().await;
-        let set = guard.get_restrictions(token, event);
-        AppliedRestrictions::from_restrictions(set, self.pipeline)
+        let set = guard.get_restrictions(token, event, pipeline);
+        AppliedRestrictions::from_restrictions(set, pipeline)
     }
 }
 
@@ -398,31 +455,32 @@ mod tests {
         )
         .await;
 
-        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
+        let manager = RestrictionManager::from_repository(&repo, &[Pipeline::Analytics])
             .await
             .unwrap();
 
         let event = EventContext::default();
 
         // Each token should have exactly its restriction type
-        let drop_restrictions = manager.get_restrictions("token_drop", &event);
+        let drop_restrictions = manager.get_restrictions("token_drop", &event, Pipeline::Analytics);
         assert_eq!(drop_restrictions.len(), 1);
         assert!(drop_restrictions.contains(RestrictionType::DropEvent));
 
-        let overflow_restrictions = manager.get_restrictions("token_overflow", &event);
+        let overflow_restrictions =
+            manager.get_restrictions("token_overflow", &event, Pipeline::Analytics);
         assert_eq!(overflow_restrictions.len(), 1);
         assert!(overflow_restrictions.contains(RestrictionType::ForceOverflow));
 
-        let dlq_restrictions = manager.get_restrictions("token_dlq", &event);
+        let dlq_restrictions = manager.get_restrictions("token_dlq", &event, Pipeline::Analytics);
         assert_eq!(dlq_restrictions.len(), 1);
         assert!(dlq_restrictions.contains(RestrictionType::RedirectToDlq));
 
-        let skip_restrictions = manager.get_restrictions("token_skip", &event);
+        let skip_restrictions = manager.get_restrictions("token_skip", &event, Pipeline::Analytics);
         assert_eq!(skip_restrictions.len(), 1);
         assert!(skip_restrictions.contains(RestrictionType::SkipPersonProcessing));
 
         // Unknown token should have no restrictions
-        let unknown = manager.get_restrictions("unknown_token", &event);
+        let unknown = manager.get_restrictions("unknown_token", &event, Pipeline::Analytics);
         assert!(unknown.is_empty());
     }
 
@@ -441,7 +499,7 @@ mod tests {
         )
         .await;
 
-        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
+        let manager = RestrictionManager::from_repository(&repo, &[Pipeline::Analytics])
             .await
             .unwrap();
 
@@ -451,7 +509,7 @@ mod tests {
             event_name: Some("$pageview"),
             ..Default::default()
         };
-        let restrictions = manager.get_restrictions("token1", &event_match);
+        let restrictions = manager.get_restrictions("token1", &event_match, Pipeline::Analytics);
         assert!(restrictions.contains(RestrictionType::DropEvent));
 
         // Should NOT match when event_name doesn't match (AND logic)
@@ -460,7 +518,8 @@ mod tests {
             event_name: Some("$identify"),
             ..Default::default()
         };
-        let restrictions = manager.get_restrictions("token1", &event_wrong_name);
+        let restrictions =
+            manager.get_restrictions("token1", &event_wrong_name, Pipeline::Analytics);
         assert!(restrictions.is_empty());
 
         // Should NOT match when distinct_id doesn't match
@@ -469,7 +528,8 @@ mod tests {
             event_name: Some("$pageview"),
             ..Default::default()
         };
-        let restrictions = manager.get_restrictions("token1", &event_wrong_user);
+        let restrictions =
+            manager.get_restrictions("token1", &event_wrong_user, Pipeline::Analytics);
         assert!(restrictions.is_empty());
     }
 
@@ -488,7 +548,7 @@ mod tests {
         .await;
 
         // Fetch for analytics pipeline
-        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
+        let manager = RestrictionManager::from_repository(&repo, &[Pipeline::Analytics])
             .await
             .unwrap();
 
@@ -496,16 +556,20 @@ mod tests {
 
         // analytics token should be present
         assert!(!manager
-            .get_restrictions("token_analytics", &event)
+            .get_restrictions("token_analytics", &event, Pipeline::Analytics)
             .is_empty());
 
-        // recordings token should NOT be present
+        // recordings token should NOT be present (entry not indexed under
+        // Analytics, even though it exists under SessionRecordings — and
+        // SessionRecordings isn't in the allowlist).
         assert!(manager
-            .get_restrictions("token_recordings", &event)
+            .get_restrictions("token_recordings", &event, Pipeline::Analytics)
             .is_empty());
 
         // both token should be present
-        assert!(!manager.get_restrictions("token_both", &event).is_empty());
+        assert!(!manager
+            .get_restrictions("token_both", &event, Pipeline::Analytics)
+            .is_empty());
     }
 
     #[tokio::test]
@@ -520,17 +584,21 @@ mod tests {
         repo.set_entries(RestrictionType::DropEvent, Some(vec![old_entry, new_entry]))
             .await;
 
-        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
+        let manager = RestrictionManager::from_repository(&repo, &[Pipeline::Analytics])
             .await
             .unwrap();
 
         let event = EventContext::default();
 
         // Old version should be skipped
-        assert!(manager.get_restrictions("token_old", &event).is_empty());
+        assert!(manager
+            .get_restrictions("token_old", &event, Pipeline::Analytics)
+            .is_empty());
 
         // New version should be present
-        assert!(!manager.get_restrictions("token_new", &event).is_empty());
+        assert!(!manager
+            .get_restrictions("token_new", &event, Pipeline::Analytics)
+            .is_empty());
     }
 
     #[tokio::test]
@@ -545,7 +613,7 @@ mod tests {
         )
         .await;
 
-        let result = RestrictionManager::from_repository(&repo, Pipeline::Analytics).await;
+        let result = RestrictionManager::from_repository(&repo, &[Pipeline::Analytics]).await;
         assert!(result.is_err());
     }
 
@@ -554,7 +622,7 @@ mod tests {
         let repo = MockRestrictionsRepository::new();
         // Don't set any entries
 
-        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
+        let manager = RestrictionManager::from_repository(&repo, &[Pipeline::Analytics])
             .await
             .unwrap();
 
@@ -577,11 +645,12 @@ mod tests {
         )
         .await;
 
-        let manager = RestrictionManager::from_repository(&repo, Pipeline::Analytics)
+        let manager = RestrictionManager::from_repository(&repo, &[Pipeline::Analytics])
             .await
             .unwrap();
 
-        let restrictions = manager.get_restrictions("token1", &EventContext::default());
+        let restrictions =
+            manager.get_restrictions("token1", &EventContext::default(), Pipeline::Analytics);
         assert_eq!(restrictions.len(), 2);
         assert!(restrictions.contains(RestrictionType::ForceOverflow));
         assert!(restrictions.contains(RestrictionType::SkipPersonProcessing));
@@ -600,19 +669,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_is_stale_when_never_refreshed() {
-        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         // last_successful_refresh is 0, so should be stale (fail-open)
-        let applied = service.get_restrictions("token", &event_ctx_now()).await;
+        let applied = service
+            .get_restrictions("token", &event_ctx_now(), Pipeline::Analytics)
+            .await;
         assert!(applied.is_empty());
     }
 
     #[tokio::test]
     async fn test_service_returns_restrictions_after_update() {
-        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "token1".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "token1",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
@@ -621,20 +695,23 @@ mod tests {
         );
         service.update(manager).await;
 
-        let applied = service.get_restrictions("token1", &event_ctx_now()).await;
+        let applied = service
+            .get_restrictions("token1", &event_ctx_now(), Pipeline::Analytics)
+            .await;
         assert!(applied.should_drop());
     }
 
     #[tokio::test]
     async fn test_service_fail_open_after_timeout() {
         let service = EventRestrictionService::new(
-            Pipeline::Analytics,
+            vec![Pipeline::Analytics],
             Duration::from_secs(1), // 1 second timeout
         );
 
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "token1".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "token1",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
@@ -644,7 +721,9 @@ mod tests {
         service.update(manager).await;
 
         // Immediately after update, should return restrictions
-        let applied = service.get_restrictions("token1", &event_ctx_now()).await;
+        let applied = service
+            .get_restrictions("token1", &event_ctx_now(), Pipeline::Analytics)
+            .await;
         assert!(applied.should_drop());
 
         // Manually set last_successful_refresh to 10 seconds ago
@@ -654,7 +733,9 @@ mod tests {
             .store(old_timestamp, Ordering::SeqCst);
 
         // Now should be stale (fail-open)
-        let applied_after = service.get_restrictions("token1", &event_ctx_now()).await;
+        let applied_after = service
+            .get_restrictions("token1", &event_ctx_now(), Pipeline::Analytics)
+            .await;
         assert!(applied_after.is_empty());
     }
 
@@ -667,7 +748,8 @@ mod tests {
         let (shutdown_token, lifecycle_handle) = test_lifecycle();
         let shutdown_token_clone = shutdown_token.clone();
 
-        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let service_clone = service.clone();
 
         let handle = tokio::spawn(async move {
@@ -695,16 +777,21 @@ mod tests {
 
         handle.await.unwrap();
 
-        let applied = service.get_restrictions("token1", &event_ctx_now()).await;
+        let applied = service
+            .get_restrictions("token1", &event_ctx_now(), Pipeline::Analytics)
+            .await;
         assert!(applied.should_drop());
 
-        let unknown = service.get_restrictions("unknown", &event_ctx_now()).await;
+        let unknown = service
+            .get_restrictions("unknown", &event_ctx_now(), Pipeline::Analytics)
+            .await;
         assert!(unknown.is_empty());
     }
 
     #[tokio::test]
     async fn test_refresh_task_retries_connection_while_fail_open() {
-        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let (shutdown_token, lifecycle_handle) = test_lifecycle();
         let shutdown_token_clone = shutdown_token.clone();
         let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -732,7 +819,9 @@ mod tests {
 
         handle.await.unwrap();
 
-        let applied = service.get_restrictions("token", &event_ctx_now()).await;
+        let applied = service
+            .get_restrictions("token", &event_ctx_now(), Pipeline::Analytics)
+            .await;
         assert!(applied.is_empty());
         assert!(
             attempt_count.load(Ordering::SeqCst) >= 2,
@@ -747,7 +836,8 @@ mod tests {
         let connect_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = connect_count.clone();
 
-        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let service_clone = service.clone();
 
         let handle = tokio::spawn(async move {
@@ -783,7 +873,9 @@ mod tests {
             "should have reconnected after refresh failure"
         );
         // Service never got a successful refresh, so it stays fail-open
-        let applied = service.get_restrictions("token", &event_ctx_now()).await;
+        let applied = service
+            .get_restrictions("token", &event_ctx_now(), Pipeline::Analytics)
+            .await;
         assert!(applied.is_empty());
     }
 
@@ -794,7 +886,8 @@ mod tests {
         let attempt_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
         let count_clone = attempt_count.clone();
 
-        let service = EventRestrictionService::new(Pipeline::Analytics, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let service_clone = service.clone();
 
         let handle = tokio::spawn(async move {
@@ -833,7 +926,9 @@ mod tests {
             "should have attempted at least 3 times"
         );
         // After recovery, restrictions should be active
-        let applied = service.get_restrictions("token1", &event_ctx_now()).await;
+        let applied = service
+            .get_restrictions("token1", &event_ctx_now(), Pipeline::Analytics)
+            .await;
         assert!(
             applied.force_overflow(),
             "restrictions should be active after recovery"

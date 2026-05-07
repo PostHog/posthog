@@ -177,7 +177,6 @@ fn setup_ai_test_router() -> Router {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -1637,7 +1636,6 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -2549,7 +2547,6 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         quota_limiter,
         token_dropper,
         None,  // event_restriction_service
-        None,  // errortracking_event_restriction_service
         false, // metrics
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -2756,7 +2753,6 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),
@@ -2908,7 +2904,6 @@ fn setup_ai_test_router_with_overflow_limiter(
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        None, // errortracking_event_restriction_service
         false,
         CaptureMode::Events,
         String::from("capture-ai"),

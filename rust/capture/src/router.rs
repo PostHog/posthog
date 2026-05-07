@@ -43,13 +43,11 @@ pub struct State {
     pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
+    /// Restriction service scoped to all pipelines this capture deployment
+    /// produces to (e.g. `[Analytics, ErrorTracking]` for the events
+    /// deployment). Callers select the pipeline per event when looking up
+    /// restrictions — see `events::analytics::process_events`.
     pub event_restriction_service: Option<EventRestrictionService>,
-    /// Restriction service scoped to the `errortracking` pipeline. Only set
-    /// for the events deployment (`CaptureMode::Events`), where `$exception`
-    /// events get split off from the analytics stream and routed to the
-    /// error tracking topic. `events::analytics::process_events` consults
-    /// this service for events whose `DataType` is `ExceptionErrorTracking`.
-    pub errortracking_event_restriction_service: Option<EventRestrictionService>,
     pub event_payload_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
     pub is_mirror_deploy: bool,
@@ -128,7 +126,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     event_restriction_service: Option<EventRestrictionService>,
-    errortracking_event_restriction_service: Option<EventRestrictionService>,
     metrics: bool,
     capture_mode: CaptureMode,
     deploy_role: String,
@@ -155,7 +152,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
         event_restriction_service,
-        errortracking_event_restriction_service,
         historical_cfg: HistoricalConfig::new(
             enable_historical_rerouting,
             historical_rerouting_threshold_days,

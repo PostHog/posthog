@@ -41,17 +41,17 @@ impl Pipeline {
     }
 }
 
-/// The default pipeline for a capture deployment — i.e. the pipeline that
-/// "owns" most events flowing through that mode. The events deployment also
-/// produces to [`Pipeline::ErrorTracking`] for `$exception` events; that
-/// secondary pipeline is wired up explicitly in `setup.rs`, not via this
-/// conversion.
-impl From<CaptureMode> for Pipeline {
-    fn from(mode: CaptureMode) -> Self {
+impl Pipeline {
+    /// Pipelines a given capture deployment produces events to. The events
+    /// deployment writes to both `analytics` (normal events) and
+    /// `errortracking` (`$exception` events split off in `process_single_event`),
+    /// so its restriction service must serve restrictions for both pipelines.
+    /// Other deployments serve their single pipeline.
+    pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
         match mode {
-            CaptureMode::Events => Self::Analytics,
-            CaptureMode::Recordings => Self::SessionRecordings,
-            CaptureMode::Ai => Self::Ai,
+            CaptureMode::Events => vec![Self::Analytics, Self::ErrorTracking],
+            CaptureMode::Recordings => vec![Self::SessionRecordings],
+            CaptureMode::Ai => vec![Self::Ai],
         }
     }
 }
@@ -378,13 +378,19 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_from_capture_mode() {
-        assert_eq!(Pipeline::from(CaptureMode::Events), Pipeline::Analytics);
+    fn test_pipeline_for_capture_mode() {
         assert_eq!(
-            Pipeline::from(CaptureMode::Recordings),
-            Pipeline::SessionRecordings
+            Pipeline::for_capture_mode(CaptureMode::Events),
+            vec![Pipeline::Analytics, Pipeline::ErrorTracking]
         );
-        assert_eq!(Pipeline::from(CaptureMode::Ai), Pipeline::Ai);
+        assert_eq!(
+            Pipeline::for_capture_mode(CaptureMode::Recordings),
+            vec![Pipeline::SessionRecordings]
+        );
+        assert_eq!(
+            Pipeline::for_capture_mode(CaptureMode::Ai),
+            vec![Pipeline::Ai]
+        );
     }
 
     #[test]
