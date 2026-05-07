@@ -552,7 +552,8 @@ jobs:
         steps:
             - uses: actions/checkout@v6
               with:
-                  fetch-depth: 0
+                  filter: blob:none
+                  fetch-depth: 500
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
@@ -570,6 +571,7 @@ jobs:
 
             - name: Compute affected stories
               id: selection
+              continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
@@ -577,7 +579,7 @@ jobs:
                   # base.sha is captured at webhook time and goes stale if the branch later
                   # merges a newer master, which makes `base.sha...HEAD` balloon to include
                   # every merged-in master change.
-                  git fetch --no-tags --depth=50 origin "$BASE_REF"
+                  git fetch --no-tags origin "$BASE_REF"
                   echo "### Changed files" >&2
                   git diff --name-only "origin/$BASE_REF"...HEAD >&2
 
@@ -590,6 +592,7 @@ jobs:
                   echo "result=$COMPACT" >> "$GITHUB_OUTPUT"
 
             - name: Write summary
+              if: steps.selection.outcome == 'success'
               env:
                   RESULT: ${{ steps.selection.outputs.result }}
                   CURRENT_SHARDS: 20
