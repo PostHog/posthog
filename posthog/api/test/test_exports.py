@@ -627,7 +627,7 @@ class TestExports(APIBaseTest):
             ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
         ]
     )
-    def test_teammate_can_access_other_users_export_by_id(self, _name, url_template) -> None:
+    def test_teammate_blocked_from_other_users_non_session_recording_export(self, _name, url_template) -> None:
         export = ExportedAsset.objects.create(
             team=self.team,
             dashboard_id=self.dashboard.id,
@@ -640,9 +640,34 @@ class TestExports(APIBaseTest):
         self.client.force_login(other_user)
 
         response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_teammate_can_access_session_recording_png_export_by_other_user(self, _name, url_template) -> None:
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        owner = self.user
+        teammate = User.objects.create_and_join(self.organization, "session-png-peer@posthog.com", "password")
+        SessionRecording.objects.create(team=self.team, session_id="sess-png-shared")
+
+        export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="image/png",
+            export_context={"session_recording_id": "sess-png-shared"},
+            created_by=owner,
+            content=b"png-bytes",
+        )
+
+        self.client.force_login(teammate)
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=export.id))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         if "/content" in url_template:
-            self.assertEqual(response.content, b"fakepng-bytes-for-content")
+            self.assertEqual(response.content, b"png-bytes")
 
     @parameterized.expand(
         [

@@ -391,8 +391,9 @@ class ExportedAssetViewSet(
         """
         List shows only exports you created (quota + history are per user).
 
-        Retrieve / content fetch any export in this project by id; safely_get_object still
-        enforces dashboard, insight, or session recording viewer access when applicable.
+        Retrieve/content by id: exports without export_context.session_recording_id are only
+        readable by their author; session recording exports are readable by any project member
+        who passes recording viewer checks in safely_get_object.
         """
         if self.action == "list":
             queryset = queryset.filter(created_by=self.request.user)
@@ -416,6 +417,9 @@ class ExportedAssetViewSet(
 
     def safely_get_object(self, queryset):
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
+
+        if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
+            raise NotFound()
 
         export_context = instance.export_context or {}
         session_recording_id = export_context.get("session_recording_id")
