@@ -319,7 +319,9 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     ctx.lineWidth = 1
     ctx.setLineDash([])
 
-    // Category ticks too close to the axis baseline render as a faint double-line next to it.
+    // Skip the first category tick when it falls right next to the axis baseline
+    // (left edge in vertical mode, top edge in horizontal) — otherwise it renders
+    // as a faint second line hugging the axis.
     const AXIS_BASELINE_GAP = 4
 
     if (orientation === 'horizontal') {
