@@ -98,6 +98,116 @@ jobs:
                         - webpack.config.js
                         - stylelint*
 
+    # Pick which jest tests to run on PRs by passing changed files to
+    # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
+    # Skipped on master push and merge_group; the jest job falls back to its
+    # full FOSS×EE × chunk matrix in those cases. Master push runs the full
+    # suite as the safety net.
+    select-jest-tests:
+        name: Select jest tests
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: changes
+        if: |
+            always() && needs.changes.outputs.frontend_code == 'true'
+            && github.event_name == 'pull_request'
+        outputs:
+            mode: ${{ steps.classify.outputs.mode }}
+            matrix: ${{ steps.classify.outputs.matrix }}
+            should_run: ${{ steps.classify.outputs.should_run }}
+            changed_files: ${{ steps.classify.outputs.changed_files }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Compute changed files
+              id: diff
+              continue-on-error: true
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  # `...` resolves against the merge-base so files merged in from base
+                  # don't inflate the diff (mirrors find-affected-stories / snob).
+                  git diff --name-only "origin/$BASE_REF...HEAD" > /tmp/changed.txt
+                  wc -l < /tmp/changed.txt
+
+            - name: Build narrowed matrix
+              id: classify
+              env:
+                  DIFF_OUTCOME: ${{ steps.diff.outcome }}
+              run: |
+                  set -euo pipefail
+
+                  # Empty matrix output → jest job falls back to its default matrix
+                  # (the full FOSS×EE × chunk fanout). Use this whenever the selector
+                  # can't reason about the diff so we never silently pass on a skipped run.
+                  fall_back_to_full() {
+                      echo "mode=full" >> "$GITHUB_OUTPUT"
+                      echo "matrix=" >> "$GITHUB_OUTPUT"
+                      echo "should_run=true" >> "$GITHUB_OUTPUT"
+                      echo "changed_files=" >> "$GITHUB_OUTPUT"
+                  }
+
+                  if [[ "$DIFF_OUTCOME" != "success" ]] || [[ ! -s /tmp/changed.txt ]]; then
+                      echo "::warning::could not derive changed files; running full jest matrix"
+                      fall_back_to_full
+                      exit 0
+                  fi
+
+                  changed_count=$(wc -l < /tmp/changed.txt)
+                  if [[ "$changed_count" -gt 200 ]]; then
+                      echo "::notice::diff has $changed_count files (>200), running full jest matrix"
+                      fall_back_to_full
+                      exit 0
+                  fi
+
+                  # Force full when jest config / build / lock files change — these
+                  # invalidate jest's resolver, transformer cache, or test discovery
+                  # in ways `--findRelatedTests` can't see. Pattern matches mirror the
+                  # frontend_code paths-filter in `changes`.
+                  while IFS= read -r f; do
+                      case "$f" in
+                          jest.*.ts|babel.config.js|tsconfig.json|tsconfig.*.json|\
+                          package.json|pnpm-lock.yaml|webpack.config.js|\
+                          .github/workflows/ci-frontend.yml|.nvmrc)
+                              echo "::notice::full jest run forced by config change: $f"
+                              fall_back_to_full
+                              exit 0
+                              ;;
+                      esac
+                  done < /tmp/changed.txt
+
+                  # Filter the diff to source files jest can resolve. Any code under
+                  # frontend/, products/, common/, ee/frontend/ — anything else (docs,
+                  # workflows, backend) doesn't reach the jest module graph.
+                  CHANGED_FILES=$(grep -E '^(frontend/|products/|common/|ee/frontend/)' /tmp/changed.txt | grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$' | tr '\n' ' ' | sed 's/ $//')
+
+                  if [[ -z "$CHANGED_FILES" ]]; then
+                      # No frontend source changes (e.g. PR only edits backend or docs)
+                      # but `frontend_code` paths-filter still flagged the PR. Skip jest.
+                      echo "mode=selective" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                      echo "changed_files=" >> "$GITHUB_OUTPUT"
+                      echo "Selective mode: no frontend source files changed, skipping jest"
+                      exit 0
+                  fi
+
+                  # Selective mode: single EE-tree job, no chunk sharding. The FOSS
+                  # structural check (ee/ removed) only matters when ee imports are
+                  # touched; defer that to the master push run. --findRelatedTests
+                  # walks jest's import graph from these files and runs the matching
+                  # *.test.* files.
+                  echo "mode=selective" >> "$GITHUB_OUTPUT"
+                  echo 'matrix={"include":[{"segment":"EE","chunk":1}]}' >> "$GITHUB_OUTPUT"
+                  echo "should_run=true" >> "$GITHUB_OUTPUT"
+                  echo "changed_files=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+                  echo "Selective mode: $(echo "$CHANGED_FILES" | wc -w) frontend source files"
+
     frontend-format:
         name: Frontend formatting
         needs: changes
@@ -311,16 +421,19 @@ jobs:
     jest:
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        needs: changes
-        if: needs.changes.outputs.frontend_code == 'true'
+        needs: [changes, select-jest-tests]
+        if: |
+            always() && needs.changes.outputs.frontend_code == 'true'
+            && needs.select-jest-tests.outputs.should_run != 'false'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
-
         strategy:
             # If one test fails, still run the others
             fail-fast: false
-            matrix:
-                segment: ['FOSS', 'EE']
-                chunk: [1, 2]
+            # On PRs, select-jest-tests may narrow this to a single EE job running
+            # only the tests reachable from changed frontend source files. On master
+            # push and merge_group it's skipped, so we fall back to the full
+            # FOSS×EE × chunk fanout (the safety net).
+            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["FOSS","EE"],"chunk":[1,2]}') }}
 
         steps:
             - uses: actions/checkout@v6
@@ -348,11 +461,26 @@ jobs:
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              run: bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
                   SHARD_COUNT: 2
+                  MODE: ${{ needs.select-jest-tests.outputs.mode }}
+                  CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
+              run: |
+                  if [ "$MODE" = "selective" ]; then
+                      # --findRelatedTests walks jest's import graph from the changed
+                      # source files and runs the matching tests. No --shard: single
+                      # job runs the entire selected set.
+                      pnpm --filter=@posthog/frontend build:products
+                      # shellcheck disable=SC2086
+                      pnpm --filter=@posthog/frontend exec jest \
+                          --testPathPattern='(frontend/|products/|common/)' \
+                          --forceExit \
+                          --findRelatedTests $CHANGED_FILES
+                  else
+                      bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2
+                  fi
 
     calculate-running-time:
         name: Calculate running time
