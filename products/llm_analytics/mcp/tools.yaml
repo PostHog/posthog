@@ -981,11 +981,11 @@ tools:
         enrich_url: tags/{id}
         title: Create tagger
         description: >
-            Create an LLM analytics tagger that automatically adds custom tags to $ai_generation events. For
-            tagger_type "llm", provide tagger_config.prompt plus tagger_config.tags (each with name and optional
-            description); optionally set min_tags and max_tags. For tagger_type "hog", provide tagger_config.source
-            Hog code that returns a tag name string, a list of tag name strings, or null; optionally provide
-            tagger_config.tags as a whitelist. Use enabled=false while drafting, then update the tagger from the UI.
+            Create an LLM analytics tagger that automatically adds custom tags to $ai_generation events. For tagger_type
+            "llm", provide tagger_config.prompt plus tagger_config.tags (each with name and optional description);
+            optionally set min_tags and max_tags. For tagger_type "hog", provide tagger_config.source Hog code that
+            returns a tag name string, a list of tag name strings, or null; optionally provide tagger_config.tags as a
+            whitelist. Use enabled=false while drafting, then update the tagger from the UI.
     llma-tagger-list:
         operation: taggers_list
         enabled: true
@@ -1000,8 +1000,8 @@ tools:
         title: List taggers
         description: >
             List LLM analytics taggers for the current project. Supports filtering by enabled status, id__in, search,
-            and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions,
-            model configuration, creator, and timestamps.
+            and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model
+            configuration, creator, and timestamps.
     llma-tagger-test-hog:
         operation: taggers_test_hog_create
         enabled: true
