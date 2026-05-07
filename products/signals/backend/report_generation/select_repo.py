@@ -47,8 +47,8 @@ def resolve_team_github_integration(team_id: int, team: Team | None = None) -> G
     """Resolve the GitHub source the agent should use for this team."""
     integration = (
         Integration.objects.filter(team_id=team_id, kind="github")
-        # Skips integrations whose installation grants access to 0 repos
-        .exclude(repository_cache=[])
+        # Skip integrations whose installation has been synced and confirmed empty (0 repos)
+        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
         # Prioritize orgs vs users (alphabetically), then oldest first
         .order_by("config__account__type", "created_at", "id")
         .first()
@@ -63,7 +63,7 @@ def resolve_team_github_integration(team_id: int, team: Team | None = None) -> G
             kind=UserIntegration.IntegrationKind.GITHUB,
             user__in=team.all_users_with_access(),
         )
-        .exclude(repository_cache=[])
+        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
         .order_by("config__account__type", "created_at", "id")
         .first()
     )

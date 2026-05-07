@@ -2,6 +2,8 @@ import datetime
 
 import pytest
 
+from django.utils import timezone
+
 from posthog.models import Organization, Team, User
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
@@ -37,11 +39,12 @@ def _create_team_integration(
     integration_id: str = "team-1",
     account_type: str | None = None,
     repository_cache: list[dict] | None = None,
+    cache_synced: bool = True,
 ) -> Integration:
     config: dict = {"installation_id": integration_id}
     if account_type is not None:
         config["account"] = {"type": account_type}
-    return Integration.objects.create(
+    integration = Integration.objects.create(
         team=team,
         kind="github",
         integration_id=integration_id,
@@ -49,6 +52,10 @@ def _create_team_integration(
         sensitive_config={},
         repository_cache=[_REPO_CACHE_ENTRY] if repository_cache is None else repository_cache,
     )
+    if cache_synced:
+        Integration.objects.filter(pk=integration.pk).update(repository_cache_updated_at=timezone.now())
+        integration.refresh_from_db()
+    return integration
 
 
 def _create_user_integration(
@@ -57,11 +64,12 @@ def _create_user_integration(
     integration_id: str = "user-1",
     account_type: str | None = None,
     repository_cache: list[dict] | None = None,
+    cache_synced: bool = True,
 ) -> UserIntegration:
     config: dict = {"installation_id": integration_id}
     if account_type is not None:
         config["account"] = {"type": account_type}
-    return UserIntegration.objects.create(
+    integration = UserIntegration.objects.create(
         user=user,
         kind=UserIntegration.IntegrationKind.GITHUB,
         integration_id=integration_id,
@@ -69,6 +77,10 @@ def _create_user_integration(
         sensitive_config={},
         repository_cache=[_REPO_CACHE_ENTRY] if repository_cache is None else repository_cache,
     )
+    if cache_synced:
+        UserIntegration.objects.filter(pk=integration.pk).update(repository_cache_updated_at=timezone.now())
+        integration.refresh_from_db()
+    return integration
 
 
 @pytest.mark.django_db
@@ -158,6 +170,29 @@ def test_returns_none_when_all_integrations_have_empty_repository_cache(organiza
     _create_user_integration(user, integration_id="user-empty", repository_cache=[])
 
     assert resolve_team_github_integration(team.id) is None
+
+
+@pytest.mark.django_db
+def test_keeps_team_integration_with_empty_unsynced_repository_cache(team):
+    # Freshly installed integration: cache is empty but never synced (updated_at is NULL).
+    # We can't yet conclude "0 repos" — keep it so select_repo can lazily sync.
+    integration = _create_team_integration(team, integration_id="team-fresh", repository_cache=[], cache_synced=False)
+
+    resolved = resolve_team_github_integration(team.id)
+
+    assert isinstance(resolved, GitHubIntegration)
+    assert resolved.integration.id == integration.id
+
+
+@pytest.mark.django_db
+def test_keeps_user_integration_with_empty_unsynced_repository_cache(organization, team):
+    user = _create_user("fresh@example.com", organization)
+    integration = _create_user_integration(user, integration_id="user-fresh", repository_cache=[], cache_synced=False)
+
+    resolved = resolve_team_github_integration(team.id)
+
+    assert isinstance(resolved, UserGitHubIntegration)
+    assert resolved.integration.id == integration.id
 
 
 @pytest.mark.django_db
