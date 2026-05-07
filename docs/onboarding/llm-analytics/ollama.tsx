@@ -42,7 +42,7 @@ export const getOllamaSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install openai @posthog/ai@latest @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                         ]}

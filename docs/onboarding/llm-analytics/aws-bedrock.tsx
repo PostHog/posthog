@@ -30,7 +30,7 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @aws-sdk/client-bedrock-runtime @opentelemetry/instrumentation-aws-sdk @opentelemetry/sdk-node @opentelemetry/resources @posthog/ai
+                                    npm install @aws-sdk/client-bedrock-runtime @opentelemetry/instrumentation-aws-sdk @opentelemetry/sdk-node @opentelemetry/resources @posthog/ai@latest
                                 `,
                             },
                         ]}

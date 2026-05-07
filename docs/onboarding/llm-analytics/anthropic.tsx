@@ -44,7 +44,7 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @anthropic-ai/sdk @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-anthropic
+                                    npm install @anthropic-ai/sdk @posthog/ai@latest @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-anthropic
                                 `,
                             },
                         ]}

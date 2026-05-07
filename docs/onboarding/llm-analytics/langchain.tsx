@@ -44,7 +44,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install langchain @langchain/core @langchain/openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-langchain
+                                    npm install langchain @langchain/core @langchain/openai @posthog/ai@latest @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-langchain
                                 `,
                             },
                         ]}
