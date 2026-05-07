@@ -144,7 +144,7 @@ class PathBounceStrategy(StatsTableQueryStrategy):
     """PAGE breakdown with bounce rate (no scroll depth or avg time)."""
 
     def build_query(self) -> ast.SelectQuery:
-        with self.runner.timings.measure("stats_table_scroll_query"):
+        with self.runner.timings.measure("stats_table_path_bounce_query"):
             query = parse_select(
                 PATH_BOUNCE_QUERY,
                 timings=self.runner.timings,
