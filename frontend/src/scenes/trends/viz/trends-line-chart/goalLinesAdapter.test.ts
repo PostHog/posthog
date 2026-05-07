@@ -3,7 +3,11 @@ import type { Series } from 'lib/hog-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
-import { alertThresholdsToReferenceLines, goalLinesToReferenceLines } from './goalLinesAdapter'
+import {
+    alertThresholdsToReferenceLines,
+    goalLinesToReferenceLines,
+    schemaGoalLinesToConfigs,
+} from './goalLinesAdapter'
 
 const makeSeries = (data: number[], overrides: Partial<Series> = {}): Series => ({
     key: 'a',
@@ -118,6 +122,48 @@ describe('goalLinesAdapter', () => {
                 { label: 'Above', value: 9999, displayIfCrossed: false },
             ]
             expect(alertThresholdsToReferenceLines(lines).map((r) => r.label)).toEqual(['Crossed', 'Above'])
+        })
+    })
+
+    describe('schemaGoalLinesToConfigs', () => {
+        it.each<[string, SchemaGoalLine[] | null | undefined]>([
+            ['null', null],
+            ['undefined', undefined],
+            ['empty array', []],
+        ])('returns undefined for %s input', (_, input) => {
+            expect(schemaGoalLinesToConfigs(input)).toBeUndefined()
+        })
+
+        it('produces one GoalLineConfig per schema goal line, mapping every field', () => {
+            const lines: SchemaGoalLine[] = [
+                {
+                    label: 'Target',
+                    value: 100,
+                    displayLabel: true,
+                    borderColor: '#ff0000',
+                    position: 'end',
+                    displayIfCrossed: true,
+                },
+                { label: 'Floor', value: 10 },
+            ]
+            expect(schemaGoalLinesToConfigs(lines)).toEqual([
+                {
+                    label: 'Target',
+                    value: 100,
+                    displayLabel: true,
+                    color: '#ff0000',
+                    labelPosition: 'end',
+                    displayIfCrossed: true,
+                },
+                {
+                    label: 'Floor',
+                    value: 10,
+                    displayLabel: undefined,
+                    color: undefined,
+                    labelPosition: undefined,
+                    displayIfCrossed: undefined,
+                },
+            ])
         })
     })
 })

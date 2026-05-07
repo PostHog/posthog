@@ -206,6 +206,10 @@ _SHARED_MODE_WHITELIST = {
     # when the throttle clock is younger than `SHARED_FORCE_BLOCKING_MIN_AGE`.
     ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+    # Used by the shared-notebook inline query payload builder. Without this entry the
+    # request silently falls through to EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE, which causes
+    # the frontend to incorrectly render a "unsupported node" placeholder until the async calc finishes and a later reload picks up the warm cache.
+    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 }
 
 

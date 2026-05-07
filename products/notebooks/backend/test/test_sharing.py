@@ -403,10 +403,16 @@ class TestNotebookSharingGrantsInsightAccess(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         body = response.json()
         self.assertIn("inline_query_results", body)
-        # Even on an empty events table the runner returns a response shape; key presence is
-        # the contract we're locking in here.
         self.assertIn("inline-node-1", body["inline_query_results"])
-        self.assertIsInstance(body["inline_query_results"]["inline-node-1"], dict)
+        inline_result = body["inline_query_results"]["inline-node-1"]
+        self.assertIsInstance(inline_result, dict)
+        # Must be a real query response, not a CacheMissResponse — otherwise the frontend
+        # renders an empty `<Query cachedResults={...} inSharedMode />`, throws, and the
+        # SharedNodeErrorBoundary swaps in the "unsupported node" placeholder. This is the
+        # bug that made inline insights appear broken on the first shared-notebook view and
+        # "fix themselves" after a few reloads (once the async cache finished warming).
+        self.assertIn("results", inline_result)
+        self.assertFalse(inline_result.get("error"))
 
     def test_shared_notebook_payload_inlines_referenced_insights(self) -> None:
         """The shared notebook payload pre-serializes every referenced saved insight so the

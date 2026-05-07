@@ -29,7 +29,16 @@ from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
-from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
+from .diff_metadata import DiffMetadata
+from .facade.enums import (
+    ChangeKind,
+    ReviewDecision,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    SnapshotResult,
+    ToleratedReason,
+)
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -855,7 +864,7 @@ def complete_run(run_id: UUID) -> Run:
     mark_run_processing(run_id)
     from .tasks.tasks import process_run_diffs
 
-    process_run_diffs.delay(str(run_id))
+    process_run_diffs.delay(run.team_id, str(run_id))
     return get_run(run_id)
 
 
@@ -2247,13 +2256,16 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     if not snapshot.current_hash:
         raise ValueError("Snapshot has no current hash")
 
+    # Explicit team_id in the lookup (not just defaults) so the IDOR audit
+    # rule sees the scope; ProductTeamManager also auto-filters by canonical
+    # team — both belt and suspenders.
     tolerated, _ = ToleratedHash.objects.get_or_create(
+        team_id=team_id,
         repo_id=run.repo_id,
         identifier=snapshot.identifier,
         baseline_hash=snapshot.baseline_hash,
         alternate_hash=snapshot.current_hash,
         defaults={
-            "team_id": team_id,
             "reason": ToleratedReason.HUMAN,
             "source_run": run,
             "created_by_id": user_id,
@@ -2363,6 +2375,9 @@ def update_snapshot_diff(
     diff_artifact: Artifact,
     diff_percentage: float,
     diff_pixel_count: int,
+    ssim_score: float,
+    change_kind: ChangeKind,
+    diff_metadata: DiffMetadata,
     team_id: int | None = None,
 ) -> RunSnapshot:
     qs = RunSnapshot.objects.select_related("run")
@@ -2379,7 +2394,22 @@ def update_snapshot_diff(
     snapshot.diff_artifact = diff_artifact
     snapshot.diff_percentage = diff_percentage
     snapshot.diff_pixel_count = diff_pixel_count
-    snapshot.save(update_fields=["diff_artifact", "diff_percentage", "diff_pixel_count"])
+    snapshot.ssim_score = ssim_score
+    snapshot.change_kind = change_kind.value
+    # The Pydantic dump is the only legal write path into this column; reads
+    # go through DiffMetadata.model_validate. Storage is JSONB; the schema
+    # lives in diff_metadata.py.
+    snapshot.diff_metadata = diff_metadata.model_dump(mode="json")
+    snapshot.save(
+        update_fields=[
+            "diff_artifact",
+            "diff_percentage",
+            "diff_pixel_count",
+            "ssim_score",
+            "change_kind",
+            "diff_metadata",
+        ]
+    )
     return snapshot
 
 
