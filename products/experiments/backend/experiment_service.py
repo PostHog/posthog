@@ -54,6 +54,7 @@ from products.notifications.backend.facade.api import (
 )
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
 
@@ -65,6 +66,28 @@ DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
+
+
+def _strip_step_sessions(result: Any) -> Any:
+    """Remove the per-session funnel actors payload from a stored experiment metric result.
+
+    `step_sessions` powers the frontend's "view sessions per step" affordance off
+    a separate per-metric query, not this timeseries endpoint. Carrying it through
+    here multiplies the response by sessions × steps × variants and pushes MCP
+    consumers past their context window with no benefit.
+    """
+    if not isinstance(result, Mapping):
+        return result
+    cleaned = deepcopy(dict(result))
+    baseline = cleaned.get("baseline")
+    if isinstance(baseline, dict):
+        baseline.pop("step_sessions", None)
+    variants = cleaned.get("variant_results")
+    if isinstance(variants, list):
+        for variant in variants:
+            if isinstance(variant, dict):
+                variant.pop("step_sessions", None)
+    return cleaned
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -2310,7 +2333,7 @@ class ExperimentService:
                 metric_result = results_by_date[experiment_date]
 
                 if metric_result.status == "completed":
-                    timeseries[date_key] = metric_result.result
+                    timeseries[date_key] = _strip_step_sessions(metric_result.result)
                     completed_count += 1
                 elif metric_result.status == "failed":
                     if metric_result.error_message:
@@ -2348,7 +2371,7 @@ class ExperimentService:
 
         first_result = metric_results.first()
         last_result = metric_results.last()
-        return {
+        response = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
             "status": overall_status,
@@ -2360,6 +2383,8 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
+        response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()
+        return response
 
     def request_timeseries_recalculation(
         self,
