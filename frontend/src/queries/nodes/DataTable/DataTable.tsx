@@ -37,7 +37,7 @@ import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTable
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
+import { DATETIME_KEYS, getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
@@ -337,6 +337,24 @@ export function DataTable({
                                     <div className="font-mono truncate">{removeExpressionComment(key)}</div>
                                 )}
                             </div>
+                            {(isEventsQuery(query.source) || isActorsQuery(query.source)) &&
+                            DATETIME_KEYS.includes(removeExpressionComment(key)) ? (
+                                <>
+                                    <LemonDivider />
+                                    <LemonButton
+                                        fullWidth
+                                        data-attr="datatable-toggle-absolute-time"
+                                        onClick={() => {
+                                            setQuery?.({
+                                                ...query,
+                                                showAbsoluteTime: !query.showAbsoluteTime,
+                                            })
+                                        }}
+                                    >
+                                        {query.showAbsoluteTime ? 'Show relative time' : 'Show absolute time'}
+                                    </LemonButton>
+                                </>
+                            ) : null}
                             {columnFeatures.includes(ColumnFeature.canEdit) && (
                                 <>
                                     <LemonDivider />
