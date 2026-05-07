@@ -73,7 +73,6 @@ from posthog.models.feature_flag import (
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker
-from posthog.models.feature_flag.flag_validation import check_flag_evaluation_query_is_ok
 from posthog.models.feature_flag.local_evaluation import (
     DATABASE_FOR_LOCAL_EVALUATION,
     _get_flag_properties_from_filters,
@@ -1462,30 +1461,6 @@ class FeatureFlagSerializer(
         for dep_flag_key in flag_dependencies:
             has_cycle(dep_flag_key, [current_flag_key])
 
-    def check_flag_evaluation(self, data):
-        # TODO: Once we move to no DB level evaluation, can get rid of this.
-
-        temporary_flag = FeatureFlag(**data)
-        team_id = self.context["team_id"]
-        project_id = self.context["project_id"]
-
-        # Skip validation for flags with flag dependencies since the evaluation
-        # engine doesn't support flag dependencies yet
-        filters = data.get("filters", {})
-        flag_dependencies = self._extract_flag_dependencies(filters)
-        if flag_dependencies:
-            return  # Skip validation for flag dependencies
-
-        try:
-            check_flag_evaluation_query_is_ok(
-                temporary_flag,
-                team_id,
-                project_id,
-                allow_realtime_backfilled=self._allow_realtime_backfilled,
-            )
-        except Exception:
-            raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
-
     def _free_key_held_by_soft_deleted_flags(self, key: str, exclude_pk: int | None = None) -> None:
         # The (team, key) unique constraint spans soft-deleted rows, so we must
         # clear any tombstone holding `key`. Hard-delete first; if an FK blocks
@@ -1519,7 +1494,6 @@ class FeatureFlagSerializer(
                     )
                 flag.key = f"{flag.key}:deleted:{flag.id}"
                 flag.save(update_fields=["key"])
-
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -1555,8 +1529,6 @@ class FeatureFlagSerializer(
         self._free_key_held_by_soft_deleted_flags(validated_data["key"])
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
-
-        self.check_flag_evaluation(validated_data)
 
         with ImpersonatedContext(request):
             instance: FeatureFlag = super().create(validated_data)
