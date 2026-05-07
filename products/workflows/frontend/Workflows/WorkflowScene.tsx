@@ -30,6 +30,18 @@ import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
 
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+    const [debounced, setDebounced] = useState(value)
+    useEffect(() => {
+        if (value) {
+            const timer = setTimeout(() => setDebounced(value), delayMs)
+            return () => clearTimeout(timer)
+        }
+        setDebounced(value)
+    }, [value, delayMs])
+    return debounced
+}
+
 function RelativeTime({ timestamp }: { timestamp: string }): JSX.Element {
     const [, setTick] = useState(0)
     useEffect(() => {
@@ -64,7 +76,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow, lastSavedAt } = useValues(logic)
+    const { workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending } = useValues(logic)
+    const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
 
     const showBlockedRuns = useFeatureFlag('WORKFLOWS_REPLAY_BLOCKED_RUNS')
 
@@ -136,7 +149,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         tabs={tabs}
                         sceneInset
                         rightSlot={
-                            workflowLoading ? (
+                            showSaving ? (
                                 <span className="text-xs text-tertiary flex items-center gap-1">
                                     <Spinner textColored /> Saving…
                                 </span>

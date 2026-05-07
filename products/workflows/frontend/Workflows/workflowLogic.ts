@@ -349,6 +349,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 loadWorkflowSuccess: (_, { originalWorkflow }) => originalWorkflow?.updated_at ?? null,
             },
         ],
+        isAutoSavePending: [
+            false as boolean,
+            {
+                autoSaveWorkflow: () => true,
+                saveWorkflowSuccess: () => false,
+                saveWorkflowFailure: () => false,
+                resetWorkflow: () => false,
+            },
+        ],
     }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
