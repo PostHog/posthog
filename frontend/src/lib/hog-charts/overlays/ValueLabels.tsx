@@ -16,7 +16,10 @@ export interface ValueLabelsProps {
 const LABEL_FONT =
     '600 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_HEIGHT = 22
-const LABEL_HORIZONTAL_CHROME = 12
+const LABEL_PADDING_X = 4
+const LABEL_PADDING_Y = 2
+const LABEL_BORDER = 2
+const LABEL_HORIZONTAL_CHROME = (LABEL_PADDING_X + LABEL_BORDER) * 2
 const STACK_TOTAL_KEY = '__stack_total__'
 
 let measureCtx: CanvasRenderingContext2D | null = null
@@ -275,9 +278,9 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     fontSize: 12,
     fontWeight: 600,
     lineHeight: 1.2,
-    padding: '2px 4px',
+    padding: `${LABEL_PADDING_Y}px ${LABEL_PADDING_X}px`,
     borderRadius: 4,
-    borderWidth: 2,
+    borderWidth: LABEL_BORDER,
     borderStyle: 'solid',
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
