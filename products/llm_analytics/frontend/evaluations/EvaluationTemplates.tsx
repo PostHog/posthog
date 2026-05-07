@@ -15,8 +15,12 @@ export const scene: SceneExport = {
     component: EvaluationTemplatesScene,
 }
 
+export type EvaluationTemplateChoice = EvaluationTemplate | 'blank'
+
 interface TemplateCardProps {
-    template: EvaluationTemplate | 'blank'
+    template: EvaluationTemplateChoice
+    blankDescription?: string
+    onSelectTemplate?: (template: EvaluationTemplateChoice) => void
 }
 
 function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
@@ -39,7 +43,7 @@ function getTemplateIcon(icon: EvaluationTemplate['icon']): JSX.Element {
     }
 }
 
-function TemplateCard({ template }: TemplateCardProps): JSX.Element {
+function TemplateCard({ template, blankDescription, onSelectTemplate }: TemplateCardProps): JSX.Element {
     const isBlank = template === 'blank'
     const { searchParams } = useValues(router)
 
@@ -47,6 +51,11 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
         posthog.capture('llm evaluation template selected', {
             template_key: isBlank ? 'blank' : template.key,
         })
+
+        if (onSelectTemplate) {
+            onSelectTemplate(template)
+            return
+        }
 
         if (isBlank) {
             router.actions.push(combineUrl(urls.llmAnalyticsEvaluation('new'), searchParams).url)
@@ -79,7 +88,7 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
                     </div>
                     <p className="text-sm text-secondary leading-relaxed">
                         {isBlank
-                            ? 'Build a custom evaluation with your own prompt and configuration'
+                            ? blankDescription || 'Build a custom evaluation with your own prompt and configuration'
                             : template.description}
                     </p>
                 </div>
@@ -88,25 +97,32 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
     )
 }
 
-interface TemplateGridProps {
+interface EvaluationTemplatePickerProps {
     title: string
     description: string
     showBackButton?: boolean
     learnMoreUrl?: string
-    minHeight?: '60vh' | '80vh'
+    minHeight?: '60vh' | '80vh' | 'auto'
+    templates?: readonly EvaluationTemplate[]
+    blankDescription?: string
+    onSelectTemplate?: (template: EvaluationTemplateChoice) => void
 }
 
-function TemplateGrid({
+export function EvaluationTemplatePicker({
     title,
     description,
     showBackButton = false,
     learnMoreUrl,
     minHeight = '60vh',
-}: TemplateGridProps): JSX.Element {
+    templates = defaultEvaluationTemplates,
+    blankDescription,
+    onSelectTemplate,
+}: EvaluationTemplatePickerProps): JSX.Element {
     const { searchParams } = useValues(router)
+    const minHeightStyle = minHeight === 'auto' ? undefined : { minHeight }
 
     return (
-        <div className="flex flex-col items-center justify-center py-8" style={{ minHeight }}>
+        <div className="flex flex-col items-center justify-center py-8" style={minHeightStyle}>
             <div className="w-full max-w-5xl px-4">
                 {showBackButton && (
                     <div className="mb-6">
@@ -142,9 +158,13 @@ function TemplateGrid({
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        <TemplateCard template="blank" />
-                        {defaultEvaluationTemplates.map((template) => (
-                            <TemplateCard key={template.key} template={template} />
+                        <TemplateCard
+                            template="blank"
+                            blankDescription={blankDescription}
+                            onSelectTemplate={onSelectTemplate}
+                        />
+                        {templates.map((template) => (
+                            <TemplateCard key={template.key} template={template} onSelectTemplate={onSelectTemplate} />
                         ))}
                     </div>
                 </div>
@@ -155,7 +175,7 @@ function TemplateGrid({
 
 export function EvaluationTemplatesScene(): JSX.Element {
     return (
-        <TemplateGrid
+        <EvaluationTemplatePicker
             title="Choose an evaluation template"
             description="Select a pre-configured template to get started quickly, or create your own from scratch"
             showBackButton
@@ -166,7 +186,7 @@ export function EvaluationTemplatesScene(): JSX.Element {
 
 export function EvaluationTemplatesEmptyState(): JSX.Element {
     return (
-        <TemplateGrid
+        <EvaluationTemplatePicker
             title="Create your first evaluation"
             description="Select a pre-configured template to get started quickly, or create your own from scratch."
             showBackButton={false}

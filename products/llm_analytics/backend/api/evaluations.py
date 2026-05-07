@@ -1,6 +1,8 @@
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
@@ -8,7 +10,7 @@ import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -24,6 +26,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.run_evaluation import extract_event_io, run_hog_eval
 
+from ..models.clustering_job import ClusteringJob
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluation_reports import EvaluationReport
@@ -343,6 +346,203 @@ class EvaluationListSerializer(EvaluationSerializer):
         read_only_fields = [f for f in EvaluationSerializer.Meta.read_only_fields if f != "created_by"]
 
 
+class CreateEvaluationFromClusterRequestSerializer(serializers.Serializer):
+    run_id = serializers.CharField(required=True, min_length=1)
+    cluster_id = serializers.IntegerField(required=True)
+    evaluation_goal = serializers.CharField(required=False, allow_blank=True, max_length=1000)
+    evaluation_prompt = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+
+    def validate(self, attrs):
+        evaluation_prompt = attrs.get("evaluation_prompt")
+        if evaluation_prompt is not None and not evaluation_prompt.strip():
+            raise serializers.ValidationError({"evaluation_prompt": "Prompt cannot be empty."})
+        return attrs
+
+
+def _cluster_run_timestamp_bounds(run_id: str) -> tuple[str, str]:
+    """Return UTC day bounds for a clustering run id.
+
+    Run IDs are emitted as `<team_id>_<level>_<YYYYMMDD>_<HHMMSS>...`. Matching the frontend's
+    day-bounded query keeps the lookup cheap while still tolerating older or malformed IDs.
+    """
+    parts = run_id.split("_")
+    clickhouse_format = "%Y-%m-%d %H:%M:%S.%f"
+    if len(parts) >= 4:
+        try:
+            parsed = datetime.strptime(f"{parts[2]}_{parts[3]}", "%Y%m%d_%H%M%S").replace(tzinfo=UTC)
+            start = parsed.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = start + timedelta(days=1) - timedelta(microseconds=1)
+            return start.strftime(clickhouse_format), end.strftime(clickhouse_format)
+        except ValueError:
+            pass
+
+    end = datetime.now(tz=UTC)
+    start = end - timedelta(days=7)
+    return start.strftime(clickhouse_format), end.strftime(clickhouse_format)
+
+
+def _parse_cluster_payload(raw_clusters: Any) -> list[dict[str, Any]]:
+    if isinstance(raw_clusters, str):
+        try:
+            raw_clusters = json.loads(raw_clusters or "[]")
+        except json.JSONDecodeError:
+            return []
+
+    if not isinstance(raw_clusters, list):
+        return []
+
+    return [cluster for cluster in raw_clusters if isinstance(cluster, dict)]
+
+
+def _fetch_cluster_run_for_evaluation(team, run_id: str) -> dict[str, Any] | None:
+    from posthog.hogql import ast
+    from posthog.hogql.parser import parse_select
+    from posthog.hogql.query import execute_hogql_query
+
+    from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+
+    day_start, day_end = _cluster_run_timestamp_bounds(run_id)
+    query = parse_select(
+        """
+        SELECT
+            JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
+            JSONExtractString(properties, '$ai_clustering_level') as level,
+            JSONExtractString(properties, '$ai_clustering_job_id') as job_id,
+            JSONExtractString(properties, '$ai_clustering_job_name') as job_name,
+            JSONExtractString(properties, '$ai_window_start') as window_start,
+            JSONExtractString(properties, '$ai_window_end') as window_end,
+            JSONExtractRaw(properties, '$ai_clusters') as clusters
+        FROM events
+        WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
+            AND timestamp >= {day_start}
+            AND timestamp <= {day_end}
+            AND JSONExtractString(properties, '$ai_clustering_run_id') = {run_id}
+        ORDER BY timestamp DESC
+        LIMIT 1
+        """
+    )
+
+    tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+    response = execute_hogql_query(
+        query=query,
+        placeholders={
+            "day_start": ast.Constant(value=day_start),
+            "day_end": ast.Constant(value=day_end),
+            "run_id": ast.Constant(value=run_id),
+        },
+        team=team,
+        limit_context=None,
+    )
+
+    if not response.results:
+        return None
+
+    row = response.results[0]
+    return {
+        "run_id": row[0],
+        "level": row[1],
+        "job_id": row[2] or None,
+        "job_name": row[3] or None,
+        "window_start": row[4],
+        "window_end": row[5],
+        "clusters": _parse_cluster_payload(row[6]),
+    }
+
+
+def _find_cluster_for_evaluation(cluster_run: dict[str, Any], cluster_id: int) -> dict[str, Any] | None:
+    for cluster in cluster_run.get("clusters") or []:
+        if cluster.get("cluster_id") == cluster_id:
+            return cluster
+    return None
+
+
+def _truncate(value: str, max_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+    if max_length <= 3:
+        return value[:max_length]
+    return value[: max_length - 3].rstrip() + "..."
+
+
+def _cluster_title(cluster: dict[str, Any], cluster_id: int) -> str:
+    title = cluster.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    return f"Cluster {cluster_id}"
+
+
+def _cluster_summary(cluster: dict[str, Any]) -> str:
+    description = cluster.get("description")
+    if isinstance(description, str) and description.strip():
+        return description.strip()
+    return "No cluster summary was available."
+
+
+def _default_cluster_evaluation_goal(cluster: dict[str, Any], cluster_id: int) -> str:
+    return (
+        f'Detect whether the generation or its trace context shows the "{_cluster_title(cluster, cluster_id)}" pattern.'
+    )
+
+
+def _build_cluster_evaluation_prompt(
+    cluster: dict[str, Any], cluster_id: int, evaluation_goal: str | None = None
+) -> str:
+    goal = evaluation_goal.strip() if evaluation_goal else _default_cluster_evaluation_goal(cluster, cluster_id)
+    return f"""You are judging whether an LLM generation shows a reusable pattern from an LLM Analytics cluster.
+
+Evaluation goal:
+{goal}
+
+Cluster title:
+{_cluster_title(cluster, cluster_id)}
+
+Cluster summary:
+{_cluster_summary(cluster)}
+
+Use the generation input, output, metadata, and any available trace context to decide.
+
+Return true when the generation clearly shows the evaluation goal.
+Return false when the generation clearly does not show the evaluation goal.
+Return N/A when there is not enough information to decide.
+
+Focus on the evaluation goal, cluster title, and cluster summary only. Ignore source run counts, costs, latencies, token counts, and other metrics."""
+
+
+def _build_cluster_evaluation_description(
+    cluster_run: dict[str, Any], cluster: dict[str, Any], cluster_id: int, evaluation_goal: str | None = None
+) -> str:
+    title = _cluster_title(cluster, cluster_id)
+    parts = [
+        f'Disabled draft evaluation generated from LLM Analytics cluster "{title}".',
+        f"Source run: {cluster_run.get('run_id')}",
+        f"Cluster id: {cluster_id}",
+    ]
+
+    if cluster_run.get("window_start") and cluster_run.get("window_end"):
+        parts.append(f"Window: {cluster_run['window_start']} to {cluster_run['window_end']}")
+
+    if evaluation_goal:
+        parts.append(f"Evaluation goal:\n{evaluation_goal}")
+
+    summary = _cluster_summary(cluster)
+    if summary:
+        parts.append(f"Cluster summary:\n{summary}")
+
+    return _truncate("\n\n".join(parts), 500)
+
+
+def _clustering_job_filters(team_id: int, job_id: str | None) -> list[dict[str, Any]]:
+    if not job_id:
+        return []
+
+    try:
+        job = ClusteringJob.objects.get(id=job_id, team_id=team_id)
+    except (ClusteringJob.DoesNotExist, ValidationError, ValueError):
+        return []
+
+    return job.event_filters if isinstance(job.event_filters, list) else []
+
+
 class TestHogRequestSerializer(serializers.Serializer):
     source = serializers.CharField(
         required=True,
@@ -563,6 +763,71 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     @monitor(feature=None, endpoint="llma_evaluations_create", method="POST")
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
+
+    @extend_schema(request=CreateEvaluationFromClusterRequestSerializer, responses=EvaluationSerializer)
+    @action(detail=False, methods=["post"], url_path="create_from_cluster", required_scopes=["evaluation:write"])
+    @llma_track_latency("llma_evaluations_create_from_cluster")
+    @monitor(feature=None, endpoint="llma_evaluations_create_from_cluster", method="POST")
+    def create_from_cluster(self, request: Request, **kwargs) -> Response:
+        """Create a disabled LLM-judge evaluation draft from a cluster card summary."""
+        request_serializer = CreateEvaluationFromClusterRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        run_id = request_serializer.validated_data["run_id"]
+        cluster_id = request_serializer.validated_data["cluster_id"]
+        cluster_run = _fetch_cluster_run_for_evaluation(self.team, run_id)
+        if not cluster_run:
+            return Response({"detail": "Clustering run not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        cluster = _find_cluster_for_evaluation(cluster_run, cluster_id)
+        if not cluster:
+            return Response({"detail": "Cluster not found in clustering run."}, status=status.HTTP_404_NOT_FOUND)
+
+        title = _cluster_title(cluster, cluster_id)
+        evaluation_goal = (request_serializer.validated_data.get("evaluation_goal") or "").strip()
+        evaluation_prompt = (request_serializer.validated_data.get("evaluation_prompt") or "").strip()
+        if not evaluation_prompt:
+            evaluation_prompt = _build_cluster_evaluation_prompt(cluster, cluster_id, evaluation_goal or None)
+        event_filters = _clustering_job_filters(self.team_id, cluster_run.get("job_id"))
+        payload = {
+            "name": _truncate(f"Cluster: {title}", 400),
+            "description": _build_cluster_evaluation_description(
+                cluster_run, cluster, cluster_id, evaluation_goal or None
+            ),
+            "enabled": False,
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": evaluation_prompt},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "conditions": [{"id": f"cluster-{cluster_id}", "rollout_percentage": 100, "properties": event_filters}],
+        }
+
+        serializer = self.get_serializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        instance = serializer.instance
+        report_user_action(
+            request.user,
+            "llma evaluation created from cluster",
+            {
+                "evaluation_id": str(instance.id),
+                "evaluation_name": instance.name,
+                "cluster_id": cluster_id,
+                "cluster_title": title,
+                "clustering_run_id": run_id,
+                "clustering_level": cluster_run.get("level"),
+                "clustering_job_id": cluster_run.get("job_id"),
+                "condition_property_count": len(event_filters),
+                "has_evaluation_goal": bool(evaluation_goal),
+                "has_prompt_override": bool(request_serializer.validated_data.get("evaluation_prompt")),
+            },
+            team=self.team,
+            request=self.request,
+        )
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @llma_track_latency("llma_evaluations_update")
     @monitor(feature=None, endpoint="llma_evaluations_update", method="PUT")

@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
 
+from products.llm_analytics.backend.models.clustering_job import ClusteringJob
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport
 from products.llm_analytics.backend.models.evaluations import Evaluation
@@ -85,6 +86,144 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertTrue(report.enabled)
         self.assertFalse(report.deleted)
         self.assertEqual(report.delivery_targets, [])
+
+    @patch("products.llm_analytics.backend.api.evaluations._fetch_cluster_run_for_evaluation")
+    def test_can_create_disabled_llm_judge_evaluation_from_cluster(self, mock_fetch_cluster_run):
+        event_filters = [
+            {"key": "$ai_model", "value": "gpt-4.1", "operator": "exact", "type": "event"},
+        ]
+        job = ClusteringJob.objects.create(
+            team=self.team,
+            name="PostHog AI traces",
+            analysis_level="trace",
+            event_filters=event_filters,
+        )
+        mock_fetch_cluster_run.return_value = {
+            "run_id": "997_trace_20260506_120000",
+            "level": "trace",
+            "job_id": str(job.id),
+            "job_name": job.name,
+            "window_start": "2026-05-06T00:00:00Z",
+            "window_end": "2026-05-06T12:00:00Z",
+            "clusters": [
+                {
+                    "cluster_id": 3,
+                    "title": "Outliers & Misc Data Analysis",
+                    "description": "- Mixed traces that do not fit a single dominant workflow\n- Broad one-off analyses, discrepancy investigations, and ad hoc data questions\n- Includes varied upload, cohort, retention, and business metric explorations",
+                    "size": 373,
+                    "metrics": {
+                        "avg_latency": 19.17,
+                        "avg_cost": 0.134,
+                        "total_cost": 49.8555,
+                    },
+                }
+            ],
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/create_from_cluster/",
+            {"run_id": "997_trace_20260506_120000", "cluster_id": 3},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        evaluation = Evaluation.objects.get(name="Cluster: Outliers & Misc Data Analysis")
+        self.assertEqual(response.data["id"], str(evaluation.id))
+        self.assertFalse(evaluation.enabled)
+        self.assertEqual(evaluation.evaluation_type, "llm_judge")
+        self.assertEqual(evaluation.output_type, "boolean")
+        self.assertEqual(evaluation.output_config, {"allows_na": True})
+        self.assertEqual(len(evaluation.conditions), 1)
+        condition = evaluation.conditions[0]
+        self.assertEqual(condition["id"], "cluster-3")
+        self.assertEqual(condition["rollout_percentage"], 100)
+        self.assertEqual(condition["properties"], event_filters)
+
+        prompt = evaluation.evaluation_config["prompt"]
+        self.assertIn(
+            'Detect whether the generation or its trace context shows the "Outliers & Misc Data Analysis" pattern.',
+            prompt,
+        )
+        self.assertIn("Outliers & Misc Data Analysis", prompt)
+        self.assertIn("Mixed traces that do not fit a single dominant workflow", prompt)
+        self.assertIn("Broad one-off analyses, discrepancy investigations, and ad hoc data questions", prompt)
+        self.assertIn("Includes varied upload, cohort, retention, and business metric explorations", prompt)
+        self.assertIn("Return true when the generation clearly shows the evaluation goal.", prompt)
+        self.assertNotIn("19.17", prompt)
+        self.assertNotIn("49.8555", prompt)
+
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 1)
+
+    @patch("products.llm_analytics.backend.api.evaluations._fetch_cluster_run_for_evaluation")
+    def test_create_from_cluster_accepts_editable_prompt_context(self, mock_fetch_cluster_run):
+        mock_fetch_cluster_run.return_value = {
+            "run_id": "997_trace_20260506_120000",
+            "level": "trace",
+            "job_id": None,
+            "job_name": None,
+            "window_start": "2026-05-06T00:00:00Z",
+            "window_end": "2026-05-06T12:00:00Z",
+            "clusters": [
+                {
+                    "cluster_id": 3,
+                    "title": "Event Tracking Troubleshooting",
+                    "description": "- Debugging missing, mismatched, or filtered events",
+                    "size": 126,
+                }
+            ],
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/create_from_cluster/",
+            {
+                "run_id": "997_trace_20260506_120000",
+                "cluster_id": 3,
+                "evaluation_goal": "Detect whether the user is struggling with event tracking.",
+                "evaluation_prompt": "Return true when the user is struggling with event tracking setup.",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        evaluation = Evaluation.objects.get(name="Cluster: Event Tracking Troubleshooting")
+        self.assertEqual(
+            evaluation.evaluation_config["prompt"],
+            "Return true when the user is struggling with event tracking setup.",
+        )
+        self.assertIn(
+            "Evaluation goal:\nDetect whether the user is struggling with event tracking.", evaluation.description
+        )
+        self.assertLessEqual(len(evaluation.description), 500)
+
+    @patch("products.llm_analytics.backend.api.evaluations._fetch_cluster_run_for_evaluation")
+    def test_create_from_cluster_returns_404_when_run_missing(self, mock_fetch_cluster_run):
+        mock_fetch_cluster_run.return_value = None
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/create_from_cluster/",
+            {"run_id": "missing-run", "cluster_id": 3},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Evaluation.objects.count(), 0)
+
+    @patch("products.llm_analytics.backend.api.evaluations._fetch_cluster_run_for_evaluation")
+    def test_create_from_cluster_returns_404_when_cluster_missing(self, mock_fetch_cluster_run):
+        mock_fetch_cluster_run.return_value = {
+            "run_id": "997_trace_20260506_120000",
+            "level": "trace",
+            "job_id": None,
+            "job_name": None,
+            "window_start": "2026-05-06T00:00:00Z",
+            "window_end": "2026-05-06T12:00:00Z",
+            "clusters": [{"cluster_id": 2, "title": "Different cluster", "description": ""}],
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/create_from_cluster/",
+            {"run_id": "997_trace_20260506_120000", "cluster_id": 3},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Evaluation.objects.count(), 0)
 
     def test_evaluation_rollback_when_auto_report_fails(self):
         """

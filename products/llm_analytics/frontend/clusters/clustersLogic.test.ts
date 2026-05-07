@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { clustersLogic } from './clustersLogic'
@@ -18,6 +21,7 @@ describe('clustersLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.restoreAllMocks()
     })
 
     describe('reducers', () => {
@@ -221,6 +225,66 @@ describe('clustersLogic', () => {
                     clusterMetricsLoading: false,
                 })
             })
+        })
+    })
+
+    describe('listeners', () => {
+        it('creates a draft evaluation from the active clustering run and cluster', async () => {
+            let createPayload: Record<string, unknown> | null = null
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/': () => [200, { results: [] }],
+                    '/api/environments/:team_id/evaluations/create_from_cluster/': async (req) => {
+                        createPayload = await req.json()
+                        return [201, { id: 'eval-123' }]
+                    },
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => undefined as any)
+            const cluster: Cluster = {
+                cluster_id: 3,
+                size: 373,
+                title: 'Outliers & Misc Data Analysis',
+                description: '- Mixed traces that do not fit a single dominant workflow',
+                traces: {},
+                centroid: [],
+                centroid_x: 0,
+                centroid_y: 0,
+            }
+
+            logic.actions.loadClusteringRunsSuccess([
+                {
+                    runId: '997_trace_20260506_120000',
+                    windowEnd: '2026-05-06T12:00:00Z',
+                    label: 'May 6, 2026 12:00 PM',
+                },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.createEvaluationFromCluster(
+                    cluster,
+                    'Detect whether the user is struggling with event tracking.',
+                    'Return true when the user is struggling with event tracking setup.'
+                )
+            }).toDispatchActions([
+                'createEvaluationFromCluster',
+                'setCreatingEvaluationFromCluster',
+                'setCreatingEvaluationFromCluster',
+            ])
+
+            expect(createPayload).toEqual({
+                run_id: '997_trace_20260506_120000',
+                cluster_id: 3,
+                evaluation_goal: 'Detect whether the user is struggling with event tracking.',
+                evaluation_prompt: 'Return true when the user is struggling with event tracking setup.',
+            })
+            expect(logic.values.creatingEvaluationFromClusterIds.has(3)).toBe(false)
+            expect(toastSpy).toHaveBeenCalledWith(
+                'Evaluation created',
+                expect.objectContaining({
+                    button: expect.objectContaining({ label: 'View' }),
+                })
+            )
         })
     })
 

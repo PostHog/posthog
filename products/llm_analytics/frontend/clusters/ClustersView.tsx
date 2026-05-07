@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconQuestion, IconStack } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -16,6 +17,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ClusterCard } from './ClusterCard'
 import { ClusterDistributionBar } from './ClusterDistributionBar'
+import { ClusterEvaluationModal } from './ClusterEvaluationModal'
 import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { clusteringJobsLogic } from './clusteringJobsLogic'
 import { ClusteringJobsPanel } from './ClusteringJobsPanel'
@@ -27,6 +29,7 @@ import { EvaluationFilterBar } from './EvaluationFilterBar'
 import { Cluster, ClusteringLevel, getJobIdFromRunId } from './types'
 
 export function ClustersView(): JSX.Element {
+    const [clusterEvaluationModalCluster, setClusterEvaluationModalCluster] = useState<Cluster | null>(null)
     const {
         clusteringLevel,
         clusteringRuns,
@@ -45,9 +48,15 @@ export function ClustersView(): JSX.Element {
         propertyFilters,
         shouldFilterTestAccounts,
         propertyFilteredItemIdsLoading,
+        creatingEvaluationFromClusterIds,
     } = useValues(clustersLogic)
-    const { setClusteringLevel, setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } =
-        useActions(clustersLogic)
+    const {
+        setClusteringLevel,
+        setSelectedRunId,
+        toggleClusterExpanded,
+        toggleScatterPlotExpanded,
+        createEvaluationFromCluster,
+    } = useActions(clustersLogic)
     const { setPropertyFilters, setShouldFilterTestAccounts } = useActions(clustersLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -391,6 +400,8 @@ export function ClustersView(): JSX.Element {
                             clusteringLevel={clusteringLevel}
                             metrics={clusterMetrics[cluster.cluster_id]}
                             metricsLoading={clusterMetricsLoading}
+                            onCreateEvaluation={setClusterEvaluationModalCluster}
+                            creatingEvaluation={creatingEvaluationFromClusterIds.has(cluster.cluster_id)}
                         />
                     ))}
                 </div>
@@ -418,6 +429,21 @@ export function ClustersView(): JSX.Element {
 
             {/* Admin Modal */}
             {showAdminPanel && <ClusteringAdminModal />}
+
+            <ClusterEvaluationModal
+                cluster={clusterEvaluationModalCluster}
+                isOpen={!!clusterEvaluationModalCluster}
+                creating={
+                    clusterEvaluationModalCluster
+                        ? creatingEvaluationFromClusterIds.has(clusterEvaluationModalCluster.cluster_id)
+                        : false
+                }
+                onClose={() => setClusterEvaluationModalCluster(null)}
+                onCreate={(cluster, evaluationGoal, evaluationPrompt) => {
+                    createEvaluationFromCluster(cluster, evaluationGoal, evaluationPrompt)
+                    setClusterEvaluationModalCluster(null)
+                }}
+            />
         </div>
     )
 }

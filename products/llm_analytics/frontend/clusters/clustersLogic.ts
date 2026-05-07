@@ -9,6 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
@@ -96,7 +97,12 @@ export const clustersLogic = kea<clustersLogicType>([
     key((props) => props.tabId ?? 'default'),
 
     connect((props: ClustersLogicProps) => ({
-        values: [llmAnalyticsSharedLogic({ tabId: props.tabId }), ['propertyFilters', 'shouldFilterTestAccounts']],
+        values: [
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
+            ['propertyFilters', 'shouldFilterTestAccounts'],
+            teamLogic,
+            ['currentTeamIdStrict'],
+        ],
         actions: [
             llmAnalyticsSharedLogic({ tabId: props.tabId }),
             ['setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
@@ -124,6 +130,12 @@ export const clustersLogic = kea<clustersLogicType>([
         setEvalEvaluatorNamesFilter: (names: string[]) => ({ names }),
         setEvalVerdictsFilter: (verdicts: EvaluationVerdict[]) => ({ verdicts }),
         clearEvalFilters: true,
+        createEvaluationFromCluster: (cluster: Cluster, evaluationGoal?: string, evaluationPrompt?: string) => ({
+            cluster,
+            evaluationGoal,
+            evaluationPrompt,
+        }),
+        setCreatingEvaluationFromCluster: (clusterId: number, creating: boolean) => ({ clusterId, creating }),
     }),
 
     reducers({
@@ -219,6 +231,20 @@ export const clustersLogic = kea<clustersLogicType>([
                 clearEvalFilters: () => [],
                 setClusteringLevel: () => [],
                 setSelectedRunId: () => [],
+            },
+        ],
+        creatingEvaluationFromClusterIds: [
+            new Set<number>() as Set<number>,
+            {
+                setCreatingEvaluationFromCluster: (state, { clusterId, creating }) => {
+                    const next = new Set(state)
+                    if (creating) {
+                        next.add(clusterId)
+                    } else {
+                        next.delete(clusterId)
+                    }
+                    return next
+                },
             },
         ],
     }),
@@ -812,6 +838,43 @@ export const clustersLogic = kea<clustersLogicType>([
                         actions.setTraceSummariesLoading(false)
                     }
                 }
+            }
+        },
+
+        createEvaluationFromCluster: async ({ cluster, evaluationGoal, evaluationPrompt }) => {
+            const runId = values.currentRun?.runId || values.effectiveRunId
+            if (!runId) {
+                lemonToast.error('No clustering run selected')
+                return
+            }
+
+            actions.setCreatingEvaluationFromCluster(cluster.cluster_id, true)
+            try {
+                // nosemgrep: prefer-codegen-api
+                const created = await api.create<{ id: string }>(
+                    `/api/environments/${values.currentTeamIdStrict}/evaluations/create_from_cluster/`,
+                    {
+                        run_id: runId,
+                        cluster_id: cluster.cluster_id,
+                        ...(evaluationGoal?.trim() ? { evaluation_goal: evaluationGoal.trim() } : {}),
+                        ...(evaluationPrompt?.trim() ? { evaluation_prompt: evaluationPrompt.trim() } : {}),
+                    }
+                )
+                posthog.capture('llma cluster saved as evaluation', {
+                    run_id: runId,
+                    cluster_id: cluster.cluster_id,
+                    evaluation_id: created.id,
+                })
+                lemonToast.success('Evaluation created', {
+                    button: {
+                        label: 'View',
+                        action: () => router.actions.push(urls.llmAnalyticsEvaluation(created.id)),
+                    },
+                })
+            } catch {
+                lemonToast.error('Failed to create evaluation')
+            } finally {
+                actions.setCreatingEvaluationFromCluster(cluster.cluster_id, false)
             }
         },
 

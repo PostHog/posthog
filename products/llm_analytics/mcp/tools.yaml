@@ -147,6 +147,22 @@ tools:
             (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When
             enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation'
             events.
+    llma-evaluation-create-from-cluster:
+        operation: evaluations_create_from_cluster_create
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create evaluation from cluster
+        description: >
+            Create a disabled LLM-judge evaluation draft from an LLM Analytics cluster. Pass the clustering run_id and
+            cluster_id. Optionally pass evaluation_goal to steer the generated boolean signal, or evaluation_prompt to
+            provide the exact prompt to save. The default prompt is built from the cluster card title and summary,
+            ignoring metrics like counts, cost, latency, and tokens. The evaluation stays disabled so a user or agent
+            can review it before enabling.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true

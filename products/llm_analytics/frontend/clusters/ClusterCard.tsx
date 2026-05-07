@@ -1,7 +1,8 @@
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { urls } from 'scenes/urls'
 
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
@@ -21,6 +22,8 @@ interface ClusterCardProps {
     clusteringLevel?: ClusteringLevel
     metrics?: ClusterMetrics
     metricsLoading?: boolean
+    onCreateEvaluation?: (cluster: Cluster) => void
+    creatingEvaluation?: boolean
 }
 
 export function ClusterCard({
@@ -34,6 +37,8 @@ export function ClusterCard({
     clusteringLevel = 'trace',
     metrics,
     metricsLoading,
+    onCreateEvaluation,
+    creatingEvaluation,
 }: ClusterCardProps): JSX.Element {
     const percentage = totalTraces > 0 ? Math.round((cluster.size / totalTraces) * 100) : 0
     const isOutlierCluster = cluster.cluster_id === NOISE_CLUSTER_ID
@@ -211,15 +216,33 @@ export function ClusterCard({
                             </div>
                         )}
                     </div>
-                    <LemonButton
-                        size="small"
-                        noPadding
-                        icon={isExpanded ? <IconChevronDown /> : <IconChevronRight />}
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onToggleExpand()
-                        }}
-                    />
+                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {onCreateEvaluation && (
+                            <More
+                                data-attr="clusters-card-more"
+                                overlay={
+                                    <LemonButton
+                                        fullWidth
+                                        icon={<IconPlus />}
+                                        loading={creatingEvaluation}
+                                        data-attr="clusters-create-evaluation-button"
+                                        onClick={() => onCreateEvaluation(cluster)}
+                                    >
+                                        Create evaluation
+                                    </LemonButton>
+                                }
+                            />
+                        )}
+                        <LemonButton
+                            size="small"
+                            noPadding
+                            icon={isExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onToggleExpand()
+                            }}
+                        />
+                    </div>
                 </div>
             </div>
 
