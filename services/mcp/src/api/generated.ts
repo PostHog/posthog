@@ -25003,14 +25003,6 @@ export namespace Schemas {
       results: FileSystemShortcut[];
     }
 
-    export interface PaginatedGroupList {
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Group[];
-    }
-
     export interface PaginatedGroupUsageMetricList {
       count: number;
       /** @nullable */
@@ -40682,6 +40674,10 @@ export namespace Schemas {
      */
     cursor?: string;
     /**
+     * Filter groups whose key contains this string (case-insensitive)
+     */
+    group_key?: string;
+    /**
      * Specify the group type to list
      */
     group_type_index: number;
@@ -45385,6 +45381,10 @@ export namespace Schemas {
      * Pagination cursor returned in the `next` URL of a previous response
      */
     cursor?: string;
+    /**
+     * Filter groups whose key contains this string (case-insensitive)
+     */
+    group_key?: string;
     /**
      * Specify the group type to list
      */
