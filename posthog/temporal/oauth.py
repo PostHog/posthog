@@ -51,9 +51,12 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":
-            return [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
-        return [*MCP_READ_SCOPES, *internal]
-    return [*scopes, *internal]
+            resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
+        else:
+            resolved = [*MCP_READ_SCOPES, *internal]
+    else:
+        resolved = [*scopes, *internal]
+    return list(dict.fromkeys(resolved))
 
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:

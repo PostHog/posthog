@@ -231,13 +231,15 @@ def _get_affected_mat_columns(
     properties: list[str],
     log: QueryLogger | None = None,
 ) -> list[tuple[str, bool]]:
-    """Query a specific shard for DEFAULT materialized columns matching deleted properties.
+    """Query a specific shard for materialized columns matching deleted properties.
 
-    Returns ``(column_name, is_nullable)`` for DEFAULT columns whose comment follows
-    the ``column_materializer::properties::<prop>`` convention.  Only DEFAULT columns
-    are returned because they are included in ``SELECT *`` (so stale values propagate
-    on re-insert) and can be reset via ``ALTER TABLE UPDATE``.  MATERIALIZED columns
-    are excluded — ClickHouse recomputes them automatically at insert time.
+    Returns ``(column_name, is_nullable)`` for columns whose comment follows the
+    ``column_materializer::properties::<prop>`` convention.  Comments live on the
+    distributed ``events`` table while the DEFAULT expression lives on
+    ``sharded_events`` (see ``materialize()`` in ee/clickhouse/materialized_columns),
+    so we cannot filter by ``default_kind`` on the same row that carries the comment.
+    The comment itself is a sufficient identifier — it is PostHog-specific and the
+    ``elements_chain::*`` family is excluded explicitly.
     """
     database = django_settings.CLICKHOUSE_DATABASE
     sql = """
@@ -245,7 +247,6 @@ def _get_affected_mat_columns(
         FROM system.columns
         WHERE database = %(database)s
           AND table = %(table)s
-          AND default_kind = 'DEFAULT'
           AND comment LIKE '%%column_materializer::%%'
           AND comment NOT LIKE '%%column_materializer::elements_chain::%%'
         """

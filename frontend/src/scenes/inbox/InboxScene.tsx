@@ -158,6 +158,7 @@ const STATUS_LABELS: Record<SignalReportStatus, string> = {
     [SignalReportStatus.IN_PROGRESS]: 'In progress',
     [SignalReportStatus.PENDING_INPUT]: 'Pending input',
     [SignalReportStatus.READY]: 'Ready',
+    [SignalReportStatus.RESOLVED]: 'Resolved',
     [SignalReportStatus.FAILED]: 'Failed',
 }
 
