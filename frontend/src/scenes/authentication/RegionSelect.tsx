@@ -11,6 +11,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
 
+import { buildRegionSwitchUrl } from './crossRegionOAuth'
+
 const sections = [
     {
         title: 'US hosting',
@@ -84,7 +86,18 @@ const RegionSelect = (): JSX.Element | null => {
                             return
                         }
                         const { pathname, search, hash } = router.values.currentLocation
-                        const newUrl = `https://${CLOUD_HOSTNAMES[region]}${pathname}${search}${hash}`
+                        // For an in-flight OAuth flow (/oauth/authorize directly, or
+                        // /login?next=/oauth/authorize?...), rewrite the embedded
+                        // first-party client_id so it matches the target region's
+                        // OAuth application — otherwise the destination server
+                        // rejects the request as "Invalid client_id".
+                        const newUrl = buildRegionSwitchUrl({
+                            targetHost: CLOUD_HOSTNAMES[region],
+                            pathname,
+                            search,
+                            hash,
+                            targetRegion: region,
+                        })
                         window.location.href = newUrl
                     }}
                     value={preflight?.region}
