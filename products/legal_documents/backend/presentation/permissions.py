@@ -14,8 +14,8 @@ class IsCloudOrDevDeployment(BasePermission):
     """
     Gates the legal-documents API to cloud (or a local DEBUG environment, so
     we can test the flow). Self-hosted production deployments don't have the
-    PandaDoc / Slack credentials and the feature is a PostHog-owned workflow,
-    not something customers run on their own infrastructure.
+    PandaDoc credentials and the feature is a PostHog-owned workflow, not
+    something customers run on their own infrastructure.
     """
 
     message = "Legal documents are only available on PostHog Cloud."
