@@ -1,3 +1,6 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InAppNotification } from '~/types'
 
@@ -106,5 +109,49 @@ describe('sidePanelNotificationsLogic.groups selector', () => {
         const b = makeNotification({ id: 'b', read: true })
         logic.actions.setInAppNotifications([a, b], false)
         expect(logic.values.groups[0].has_unread).toBe(false)
+    })
+})
+
+describe('sidePanelNotificationsLogic.loadGroupChildren', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/environments/:tid/notifications/': () => [
+                    200,
+                    {
+                        results: [makeNotification({ id: 'child-1' }), makeNotification({ id: 'child-2' })],
+                        next: null,
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        logic = sidePanelNotificationsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => logic.unmount())
+
+    it('marks the group full_children_loaded after fetch', async () => {
+        const seed = makeNotification({ id: 'child-1' })
+        logic.actions.setInAppNotifications([seed], false)
+        await expectLogic(logic, () => {
+            logic.actions.loadGroupChildren(logic.values.groups[0])
+        }).toDispatchActions(['markGroupChildrenLoaded'])
+        expect(logic.values.groups[0].full_children_loaded).toBe(true)
+        expect(logic.values.groups[0].count).toBe(2)
+    })
+
+    it('toggleGroupExpanded flips state', () => {
+        const seed = makeNotification({ id: 'a' })
+        logic.actions.setInAppNotifications([seed], false)
+        const key = logic.values.groups[0].group_key
+        expect(logic.values.expandedGroupKeys.has(key)).toBe(false)
+        logic.actions.toggleGroupExpanded(key)
+        expect(logic.values.expandedGroupKeys.has(key)).toBe(true)
+        logic.actions.toggleGroupExpanded(key)
+        expect(logic.values.expandedGroupKeys.has(key)).toBe(false)
     })
 })

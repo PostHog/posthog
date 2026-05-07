@@ -116,6 +116,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         toggleRead: (id: string) => ({ id }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
+        loadGroupChildren: (group: NotificationGroup) => ({ group }),
+        markGroupChildrenLoaded: (groupKey: string) => ({ groupKey }),
+        toggleGroupExpanded: (groupKey: string) => ({ groupKey }),
         initialLoadDone: true,
         startSSE: true,
         stopSSE: true,
@@ -186,6 +189,30 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 markAsRead: (state) => Math.max(0, state - 1),
                 toggleRead: (state) => state,
                 markAllAsRead: () => 0,
+            },
+        ],
+        loadedGroupKeys: [
+            new Set<string>() as Set<string>,
+            {
+                markGroupChildrenLoaded: (state, { groupKey: key }) => {
+                    const next = new Set(state)
+                    next.add(key)
+                    return next
+                },
+            },
+        ],
+        expandedGroupKeys: [
+            new Set<string>() as Set<string>,
+            {
+                toggleGroupExpanded: (state, { groupKey: key }) => {
+                    const next = new Set(state)
+                    if (next.has(key)) {
+                        next.delete(key)
+                    } else {
+                        next.add(key)
+                    }
+                    return next
+                },
             },
         ],
     }),
@@ -448,6 +475,36 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 // Swallow
             }
         },
+        loadGroupChildren: async ({ group }) => {
+            if (group.full_children_loaded) {
+                return
+            }
+            const day = dayjs(group.last_seen).startOf('day')
+            const params = new URLSearchParams({
+                notification_type: group.representative.notification_type,
+                target_type: group.representative.target_type,
+                target_id: group.representative.target_id,
+                created_after: day.toISOString(),
+                created_before: day.add(1, 'day').toISOString(),
+                limit: '100',
+            })
+            if (group.representative.resource_type) {
+                params.set('resource_type', group.representative.resource_type)
+            }
+            if (group.representative.resource_id) {
+                params.set('resource_id', group.representative.resource_id)
+            }
+            try {
+                const resp = await api.get<{
+                    results: InAppNotification[]
+                    next: string | null
+                }>(`api/environments/${values.currentProjectId}/notifications/?${params.toString()}`)
+                actions.appendInAppNotifications(resp.results, false)
+                actions.markGroupChildrenLoaded(group.group_key)
+            } catch {
+                // Swallow
+            }
+        },
     })),
     selectors({
         realTimeNotificationsEnabled: [
@@ -547,8 +604,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     buildNotificationSourcePath(notification),
         ],
         groups: [
-            (s) => [s.inAppNotifications],
-            (notifications: InAppNotification[]): NotificationGroup[] => {
+            (s) => [s.inAppNotifications, s.loadedGroupKeys],
+            (notifications: InAppNotification[], loadedGroupKeys: Set<string>): NotificationGroup[] => {
                 const groups: NotificationGroup[] = []
                 const byKey = new Map<string, NotificationGroup>()
                 for (const n of notifications) {
@@ -576,7 +633,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         last_seen: n.created_at,
                         children: [n],
                         has_unread: !n.read,
-                        full_children_loaded: false,
+                        full_children_loaded: loadedGroupKeys.has(key),
                     }
                     byKey.set(key, group)
                     groups.push(group)
