@@ -95,7 +95,7 @@ export const getDashboardTemplatesCreateUrl = (projectId: string) => {
 
 export const dashboardTemplatesCreate = async (
     projectId: string,
-    dashboardTemplateApi: NonReadonly<DashboardTemplateApi>,
+    dashboardTemplateApi?: NonReadonly<DashboardTemplateApi>,
     options?: RequestInit
 ): Promise<DashboardTemplateApi> => {
     return apiMutator<DashboardTemplateApi>(getDashboardTemplatesCreateUrl(projectId), {
@@ -106,14 +106,14 @@ export const dashboardTemplatesCreate = async (
     })
 }
 
-/**
- * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
- * @summary Copy a team template to this project
- */
 export const getDashboardTemplatesCopyBetweenProjectsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/dashboard_templates/copy_between_projects/`
 }
 
+/**
+ * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
+ * @summary Copy a team template to this project
+ */
 export const dashboardTemplatesCopyBetweenProjectsCreate = async (
     projectId: string,
     copyDashboardTemplateApi: CopyDashboardTemplateApi,
@@ -183,7 +183,7 @@ export const getDashboardsCreateUrl = (projectId: string, params?: DashboardsCre
 
 export const dashboardsCreate = async (
     projectId: string,
-    dashboardApi: NonReadonly<DashboardApi>,
+    dashboardApi?: NonReadonly<DashboardApi>,
     params?: DashboardsCreateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -244,13 +244,13 @@ export const dashboardsCollaboratorsDestroy = async (
     })
 }
 
-export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number | null) => {
+export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/`
 }
 
 export const dashboardsSharingList = async (
     projectId: string,
-    dashboardId: number | null,
+    dashboardId: number,
     options?: RequestInit
 ): Promise<SharingConfigurationApi[]> => {
     return apiMutator<SharingConfigurationApi[]>(getDashboardsSharingListUrl(projectId, dashboardId), {
@@ -259,17 +259,17 @@ export const dashboardsSharingList = async (
     })
 }
 
-/**
- * Create a new password for the sharing configuration.
- */
-export const getDashboardsSharingPasswordsCreateUrl = (projectId: string, dashboardId: number | null) => {
+export const getDashboardsSharingPasswordsCreateUrl = (projectId: string, dashboardId: number) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/`
 }
 
+/**
+ * Create a new password for the sharing configuration.
+ */
 export const dashboardsSharingPasswordsCreate = async (
     projectId: string,
-    dashboardId: number | null,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
+    dashboardId: number,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
     return apiMutator<SharingConfigurationApi>(getDashboardsSharingPasswordsCreateUrl(projectId, dashboardId), {
@@ -280,20 +280,16 @@ export const dashboardsSharingPasswordsCreate = async (
     })
 }
 
-/**
- * Delete a password from the sharing configuration.
- */
-export const getDashboardsSharingPasswordsDestroyUrl = (
-    projectId: string,
-    dashboardId: number | null,
-    passwordId: string
-) => {
+export const getDashboardsSharingPasswordsDestroyUrl = (projectId: string, dashboardId: number, passwordId: string) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/${passwordId}/`
 }
 
+/**
+ * Delete a password from the sharing configuration.
+ */
 export const dashboardsSharingPasswordsDestroy = async (
     projectId: string,
-    dashboardId: number | null,
+    dashboardId: number,
     passwordId: string,
     options?: RequestInit
 ): Promise<void> => {
@@ -303,14 +299,14 @@ export const dashboardsSharingPasswordsDestroy = async (
     })
 }
 
-export const getDashboardsSharingRefreshCreateUrl = (projectId: string, dashboardId: number | null) => {
+export const getDashboardsSharingRefreshCreateUrl = (projectId: string, dashboardId: number) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/refresh/`
 }
 
 export const dashboardsSharingRefreshCreate = async (
     projectId: string,
-    dashboardId: number | null,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
+    dashboardId: number,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
     return apiMutator<SharingConfigurationApi>(getDashboardsSharingRefreshCreateUrl(projectId, dashboardId), {
@@ -368,7 +364,7 @@ export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: D
 export const dashboardsUpdate = async (
     projectId: string,
     id: number,
-    dashboardApi: NonReadonly<DashboardApi>,
+    dashboardApi?: NonReadonly<DashboardApi>,
     params?: DashboardsUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -403,7 +399,7 @@ export const getDashboardsPartialUpdateUrl = (
 export const dashboardsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
+    patchedDashboardApi?: NonReadonly<PatchedDashboardApi>,
     params?: DashboardsPartialUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -415,9 +411,6 @@ export const dashboardsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getDashboardsDestroyUrl = (projectId: string, id: number, params?: DashboardsDestroyParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -434,6 +427,9 @@ export const getDashboardsDestroyUrl = (projectId: string, id: number, params?: 
         : `/api/projects/${projectId}/dashboards/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const dashboardsDestroy = async (
     projectId: string,
     id: number,
@@ -446,10 +442,6 @@ export const dashboardsDestroy = async (
     })
 }
 
-/**
- * Generate AI analysis comparing before/after dashboard refresh.
-Expects cache_key in request body pointing to the stored 'before' state.
- */
 export const getDashboardsAnalyzeRefreshResultCreateUrl = (
     projectId: string,
     id: number,
@@ -470,10 +462,14 @@ export const getDashboardsAnalyzeRefreshResultCreateUrl = (
         : `/api/projects/${projectId}/dashboards/${id}/analyze_refresh_result/`
 }
 
+/**
+ * Generate AI analysis comparing before/after dashboard refresh.
+Expects cache_key in request body pointing to the stored 'before' state.
+ */
 export const dashboardsAnalyzeRefreshResultCreate = async (
     projectId: string,
     id: number,
-    dashboardApi: NonReadonly<DashboardApi>,
+    dashboardApi?: NonReadonly<DashboardApi>,
     params?: DashboardsAnalyzeRefreshResultCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -485,9 +481,6 @@ export const dashboardsAnalyzeRefreshResultCreate = async (
     })
 }
 
-/**
- * Copy an existing dashboard tile to another dashboard (insight or text card; new tile row).
- */
 export const getDashboardsCopyTileCreateUrl = (
     projectId: string,
     id: number,
@@ -508,6 +501,9 @@ export const getDashboardsCopyTileCreateUrl = (
         : `/api/projects/${projectId}/dashboards/${id}/copy_tile/`
 }
 
+/**
+ * Copy an existing dashboard tile to another dashboard (insight or text card; new tile row).
+ */
 export const dashboardsCopyTileCreate = async (
     projectId: string,
     id: number,
@@ -546,7 +542,7 @@ export const getDashboardsMoveTilePartialUpdateUrl = (
 export const dashboardsMoveTilePartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
+    patchedDashboardApi?: NonReadonly<PatchedDashboardApi>,
     params?: DashboardsMoveTilePartialUpdateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -593,9 +589,6 @@ export const dashboardsReorderTilesCreate = async (
     })
 }
 
-/**
- * Run all insights on a dashboard and return their results.
- */
 export const getDashboardsRunInsightsRetrieveUrl = (
     projectId: string,
     id: number,
@@ -616,6 +609,9 @@ export const getDashboardsRunInsightsRetrieveUrl = (
         : `/api/projects/${projectId}/dashboards/${id}/run_insights/`
 }
 
+/**
+ * Run all insights on a dashboard and return their results.
+ */
 export const dashboardsRunInsightsRetrieve = async (
     projectId: string,
     id: number,
@@ -628,10 +624,6 @@ export const dashboardsRunInsightsRetrieve = async (
     })
 }
 
-/**
- * Snapshot the current dashboard state (from cache) for AI analysis.
-Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
- */
 export const getDashboardsSnapshotCreateUrl = (
     projectId: string,
     id: number,
@@ -652,10 +644,14 @@ export const getDashboardsSnapshotCreateUrl = (
         : `/api/projects/${projectId}/dashboards/${id}/snapshot/`
 }
 
+/**
+ * Snapshot the current dashboard state (from cache) for AI analysis.
+Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
+ */
 export const dashboardsSnapshotCreate = async (
     projectId: string,
     id: number,
-    dashboardApi: NonReadonly<DashboardApi>,
+    dashboardApi?: NonReadonly<DashboardApi>,
     params?: DashboardsSnapshotCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -667,9 +663,6 @@ export const dashboardsSnapshotCreate = async (
     })
 }
 
-/**
- * Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered.
- */
 export const getDashboardsStreamTilesRetrieveUrl = (
     projectId: string,
     id: number,
@@ -690,6 +683,9 @@ export const getDashboardsStreamTilesRetrieveUrl = (
         : `/api/projects/${projectId}/dashboards/${id}/stream_tiles/`
 }
 
+/**
+ * Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered.
+ */
 export const dashboardsStreamTilesRetrieve = async (
     projectId: string,
     id: number,
@@ -702,17 +698,6 @@ export const dashboardsStreamTilesRetrieve = async (
     })
 }
 
-/**
- * Bulk update tags on multiple objects.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
- */
 export const getDashboardsBulkUpdateTagsCreateUrl = (
     projectId: string,
     params?: DashboardsBulkUpdateTagsCreateParams
@@ -732,6 +717,17 @@ export const getDashboardsBulkUpdateTagsCreateUrl = (
         : `/api/projects/${projectId}/dashboards/bulk_update_tags/`
 }
 
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
 export const dashboardsBulkUpdateTagsCreate = async (
     projectId: string,
     bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
@@ -767,7 +763,7 @@ export const getDashboardsCreateFromTemplateJsonCreateUrl = (
 
 export const dashboardsCreateFromTemplateJsonCreate = async (
     projectId: string,
-    dashboardApi: NonReadonly<DashboardApi>,
+    dashboardApi?: NonReadonly<DashboardApi>,
     params?: DashboardsCreateFromTemplateJsonCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -779,11 +775,6 @@ export const dashboardsCreateFromTemplateJsonCreate = async (
     })
 }
 
-/**
- * Creates an unlisted dashboard from template by tag.
-Enforces uniqueness (one per tag per team).
-Returns 409 if unlisted dashboard with this tag already exists.
- */
 export const getDashboardsCreateUnlistedDashboardCreateUrl = (
     projectId: string,
     params?: DashboardsCreateUnlistedDashboardCreateParams
@@ -803,9 +794,14 @@ export const getDashboardsCreateUnlistedDashboardCreateUrl = (
         : `/api/projects/${projectId}/dashboards/create_unlisted_dashboard/`
 }
 
+/**
+ * Creates an unlisted dashboard from template by tag.
+Enforces uniqueness (one per tag per team).
+Returns 409 if unlisted dashboard with this tag already exists.
+ */
 export const dashboardsCreateUnlistedDashboardCreate = async (
     projectId: string,
-    dashboardApi: NonReadonly<DashboardApi>,
+    dashboardApi?: NonReadonly<DashboardApi>,
     params?: DashboardsCreateUnlistedDashboardCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -901,7 +897,7 @@ export const getDataColorThemesPartialUpdateUrl = (projectId: string, id: number
 export const dataColorThemesPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDataColorThemeApi: NonReadonly<PatchedDataColorThemeApi>,
+    patchedDataColorThemeApi?: NonReadonly<PatchedDataColorThemeApi>,
     options?: RequestInit
 ): Promise<DataColorThemeApi> => {
     return apiMutator<DataColorThemeApi>(getDataColorThemesPartialUpdateUrl(projectId, id), {

@@ -34,9 +34,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksListUrl = (projectId: string, params?: NotebooksListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -53,6 +50,9 @@ export const getNotebooksListUrl = (projectId: string, params?: NotebooksListPar
         : `/api/projects/${projectId}/notebooks/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksList = async (
     projectId: string,
     params?: NotebooksListParams,
@@ -64,16 +64,16 @@ export const notebooksList = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notebooks/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksCreate = async (
     projectId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookApi?: NonReadonly<NotebookApi>,
     options?: RequestInit
 ): Promise<NotebookApi> => {
     return apiMutator<NotebookApi>(getNotebooksCreateUrl(projectId), {
@@ -84,13 +84,13 @@ export const notebooksCreate = async (
     })
 }
 
-export const getNotebooksSharingListUrl = (projectId: string, notebookId: string | null) => {
+export const getNotebooksSharingListUrl = (projectId: string, notebookId: string) => {
     return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/`
 }
 
 export const notebooksSharingList = async (
     projectId: string,
-    notebookId: string | null,
+    notebookId: string,
     options?: RequestInit
 ): Promise<SharingConfigurationApi[]> => {
     return apiMutator<SharingConfigurationApi[]>(getNotebooksSharingListUrl(projectId, notebookId), {
@@ -99,17 +99,17 @@ export const notebooksSharingList = async (
     })
 }
 
-/**
- * Create a new password for the sharing configuration.
- */
-export const getNotebooksSharingPasswordsCreateUrl = (projectId: string, notebookId: string | null) => {
+export const getNotebooksSharingPasswordsCreateUrl = (projectId: string, notebookId: string) => {
     return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/passwords/`
 }
 
+/**
+ * Create a new password for the sharing configuration.
+ */
 export const notebooksSharingPasswordsCreate = async (
     projectId: string,
-    notebookId: string | null,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
+    notebookId: string,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
     return apiMutator<SharingConfigurationApi>(getNotebooksSharingPasswordsCreateUrl(projectId, notebookId), {
@@ -120,20 +120,16 @@ export const notebooksSharingPasswordsCreate = async (
     })
 }
 
-/**
- * Delete a password from the sharing configuration.
- */
-export const getNotebooksSharingPasswordsDestroyUrl = (
-    projectId: string,
-    notebookId: string | null,
-    passwordId: string
-) => {
+export const getNotebooksSharingPasswordsDestroyUrl = (projectId: string, notebookId: string, passwordId: string) => {
     return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/passwords/${passwordId}/`
 }
 
+/**
+ * Delete a password from the sharing configuration.
+ */
 export const notebooksSharingPasswordsDestroy = async (
     projectId: string,
-    notebookId: string | null,
+    notebookId: string,
     passwordId: string,
     options?: RequestInit
 ): Promise<void> => {
@@ -143,14 +139,14 @@ export const notebooksSharingPasswordsDestroy = async (
     })
 }
 
-export const getNotebooksSharingRefreshCreateUrl = (projectId: string, notebookId: string | null) => {
+export const getNotebooksSharingRefreshCreateUrl = (projectId: string, notebookId: string) => {
     return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/refresh/`
 }
 
 export const notebooksSharingRefreshCreate = async (
     projectId: string,
-    notebookId: string | null,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
+    notebookId: string,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
     return apiMutator<SharingConfigurationApi>(getNotebooksSharingRefreshCreateUrl(projectId, notebookId), {
@@ -161,13 +157,13 @@ export const notebooksSharingRefreshCreate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksRetrieve = async (
     projectId: string,
     shortId: string,
@@ -179,17 +175,17 @@ export const notebooksRetrieve = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksUpdateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksUpdate = async (
     projectId: string,
     shortId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookApi?: NonReadonly<NotebookApi>,
     options?: RequestInit
 ): Promise<NotebookApi> => {
     return apiMutator<NotebookApi>(getNotebooksUpdateUrl(projectId, shortId), {
@@ -200,17 +196,17 @@ export const notebooksUpdate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksPartialUpdateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksPartialUpdate = async (
     projectId: string,
     shortId: string,
-    patchedNotebookApi: NonReadonly<PatchedNotebookApi>,
+    patchedNotebookApi?: NonReadonly<PatchedNotebookApi>,
     options?: RequestInit
 ): Promise<NotebookApi> => {
     return apiMutator<NotebookApi>(getNotebooksPartialUpdateUrl(projectId, shortId), {
@@ -221,13 +217,13 @@ export const notebooksPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getNotebooksDestroyUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const notebooksDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getNotebooksDestroyUrl(projectId, shortId), {
         ...options,
@@ -235,13 +231,13 @@ export const notebooksDestroy = async (projectId: string, shortId: string, optio
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksActivityRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/activity/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksActivityRetrieve = async (
     projectId: string,
     shortId: string,
@@ -253,13 +249,13 @@ export const notebooksActivityRetrieve = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksCollabSaveCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/collab/save/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksCollabSaveCreate = async (
     projectId: string,
     shortId: string,
@@ -274,13 +270,13 @@ export const notebooksCollabSaveCreate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksCollabStreamRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/collab/stream/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksCollabStreamRetrieve = async (
     projectId: string,
     shortId: string,
@@ -292,17 +288,17 @@ export const notebooksCollabStreamRetrieve = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksHogqlExecuteCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/hogql/execute/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksHogqlExecuteCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookApi?: NonReadonly<NotebookApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksHogqlExecuteCreateUrl(projectId, shortId), {
@@ -313,17 +309,17 @@ export const notebooksHogqlExecuteCreate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksKernelConfigCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/config/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksKernelConfigCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookApi?: NonReadonly<NotebookApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksKernelConfigCreateUrl(projectId, shortId), {
@@ -334,13 +330,13 @@ export const notebooksKernelConfigCreate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksKernelDataframeRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/dataframe/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksKernelDataframeRetrieve = async (
     projectId: string,
     shortId: string,
@@ -352,17 +348,17 @@ export const notebooksKernelDataframeRetrieve = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksKernelExecuteCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/execute/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksKernelExecuteCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookApi?: NonReadonly<NotebookApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksKernelExecuteCreateUrl(projectId, shortId), {
@@ -373,17 +369,17 @@ export const notebooksKernelExecuteCreate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksKernelExecuteStreamCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/execute/stream/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksKernelExecuteStreamCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookApi?: NonReadonly<NotebookApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksKernelExecuteStreamCreateUrl(projectId, shortId), {
@@ -394,17 +390,17 @@ export const notebooksKernelExecuteStreamCreate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksKernelRestartCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/restart/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksKernelRestartCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookApi?: NonReadonly<NotebookApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksKernelRestartCreateUrl(projectId, shortId), {
@@ -415,17 +411,17 @@ export const notebooksKernelRestartCreate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksKernelStartCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/start/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksKernelStartCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookApi?: NonReadonly<NotebookApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksKernelStartCreateUrl(projectId, shortId), {
@@ -436,13 +432,13 @@ export const notebooksKernelStartCreate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksKernelStatusRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/status/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksKernelStatusRetrieve = async (
     projectId: string,
     shortId: string,
@@ -454,17 +450,17 @@ export const notebooksKernelStatusRetrieve = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksKernelStopCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/stop/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksKernelStopCreate = async (
     projectId: string,
     shortId: string,
-    notebookApi: NonReadonly<NotebookApi>,
+    notebookApi?: NonReadonly<NotebookApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getNotebooksKernelStopCreateUrl(projectId, shortId), {
@@ -475,13 +471,13 @@ export const notebooksKernelStopCreate = async (
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notebooks/activity/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getNotebooksAllActivityRetrieveUrl(projectId), {
         ...options,
@@ -489,13 +485,13 @@ export const notebooksAllActivityRetrieve = async (projectId: string, options?: 
     })
 }
 
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
 export const getNotebooksRecordingCommentsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notebooks/recording_comments/`
 }
 
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksRecordingCommentsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getNotebooksRecordingCommentsRetrieveUrl(projectId), {
         ...options,

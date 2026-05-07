@@ -865,7 +865,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
         .boolean()
@@ -884,7 +884,7 @@ export const ScheduledChangesCreateBody = /* @__PURE__ */ zod.object({
         ),
     cron_expression: zod.string().max(scheduledChangesCreateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })
@@ -937,7 +937,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
             "The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys)."
         ),
     scheduled_at: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe("ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z')."),
     is_recurring: zod
@@ -957,7 +957,7 @@ export const ScheduledChangesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     cron_expression: zod.string().max(scheduledChangesPartialUpdateBodyCronExpressionMax).nullish(),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('Optional ISO 8601 datetime after which a recurring schedule stops executing.'),
 })

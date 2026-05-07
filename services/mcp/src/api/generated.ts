@@ -11,7 +11,7 @@
 //   handler: (...) => Promise<Schemas.Action>
 export namespace Schemas {
     /**
-     * 
+     *
      */
     export type AIEventType = typeof AIEventType[keyof typeof AIEventType];
 
@@ -133,44 +133,44 @@ export namespace Schemas {
       key: string;
       /** Property type (event, person, session, etc.).
 
-    * `event` - event
-    * `event_metadata` - event_metadata
-    * `feature` - feature
-    * `person` - person
-    * `cohort` - cohort
-    * `element` - element
-    * `static-cohort` - static-cohort
-    * `dynamic-cohort` - dynamic-cohort
-    * `precalculated-cohort` - precalculated-cohort
-    * `group` - group
-    * `recording` - recording
-    * `log_entry` - log_entry
-    * `behavioral` - behavioral
-    * `session` - session
-    * `hogql` - hogql
-    * `data_warehouse` - data_warehouse
-    * `data_warehouse_person_property` - data_warehouse_person_property
-    * `error_tracking_issue` - error_tracking_issue
-    * `log` - log
-    * `log_attribute` - log_attribute
-    * `log_resource_attribute` - log_resource_attribute
-    * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute
-    * `revenue_analytics` - revenue_analytics
-    * `flag` - flag
-    * `workflow_variable` - workflow_variable */
+      * `event` - event
+      * `event_metadata` - event_metadata
+      * `feature` - feature
+      * `person` - person
+      * `cohort` - cohort
+      * `element` - element
+      * `static-cohort` - static-cohort
+      * `dynamic-cohort` - dynamic-cohort
+      * `precalculated-cohort` - precalculated-cohort
+      * `group` - group
+      * `recording` - recording
+      * `log_entry` - log_entry
+      * `behavioral` - behavioral
+      * `session` - session
+      * `hogql` - hogql
+      * `data_warehouse` - data_warehouse
+      * `data_warehouse_person_property` - data_warehouse_person_property
+      * `error_tracking_issue` - error_tracking_issue
+      * `log` - log
+      * `log_attribute` - log_attribute
+      * `log_resource_attribute` - log_resource_attribute
+      * `span` - span
+      * `span_attribute` - span_attribute
+      * `span_resource_attribute` - span_resource_attribute
+      * `revenue_analytics` - revenue_analytics
+      * `flag` - flag
+      * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
       /** String value to match against. */
       value: string;
       /** String comparison operator.
 
-    * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains
-    * `regex` - regex
-    * `not_regex` - not_regex */
+      * `exact` - exact
+      * `is_not` - is_not
+      * `icontains` - icontains
+      * `not_icontains` - not_icontains
+      * `regex` - regex
+      * `not_regex` - not_regex */
       operator?: StringMatchOperatorEnum;
     }
 
@@ -202,44 +202,44 @@ export namespace Schemas {
       key: string;
       /** Property type (event, person, session, etc.).
 
-    * `event` - event
-    * `event_metadata` - event_metadata
-    * `feature` - feature
-    * `person` - person
-    * `cohort` - cohort
-    * `element` - element
-    * `static-cohort` - static-cohort
-    * `dynamic-cohort` - dynamic-cohort
-    * `precalculated-cohort` - precalculated-cohort
-    * `group` - group
-    * `recording` - recording
-    * `log_entry` - log_entry
-    * `behavioral` - behavioral
-    * `session` - session
-    * `hogql` - hogql
-    * `data_warehouse` - data_warehouse
-    * `data_warehouse_person_property` - data_warehouse_person_property
-    * `error_tracking_issue` - error_tracking_issue
-    * `log` - log
-    * `log_attribute` - log_attribute
-    * `log_resource_attribute` - log_resource_attribute
-    * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute
-    * `revenue_analytics` - revenue_analytics
-    * `flag` - flag
-    * `workflow_variable` - workflow_variable */
+      * `event` - event
+      * `event_metadata` - event_metadata
+      * `feature` - feature
+      * `person` - person
+      * `cohort` - cohort
+      * `element` - element
+      * `static-cohort` - static-cohort
+      * `dynamic-cohort` - dynamic-cohort
+      * `precalculated-cohort` - precalculated-cohort
+      * `group` - group
+      * `recording` - recording
+      * `log_entry` - log_entry
+      * `behavioral` - behavioral
+      * `session` - session
+      * `hogql` - hogql
+      * `data_warehouse` - data_warehouse
+      * `data_warehouse_person_property` - data_warehouse_person_property
+      * `error_tracking_issue` - error_tracking_issue
+      * `log` - log
+      * `log_attribute` - log_attribute
+      * `log_resource_attribute` - log_resource_attribute
+      * `span` - span
+      * `span_attribute` - span_attribute
+      * `span_resource_attribute` - span_resource_attribute
+      * `revenue_analytics` - revenue_analytics
+      * `flag` - flag
+      * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
       /** Numeric value to compare against. */
       value: number;
       /** Numeric comparison operator.
 
-    * `exact` - exact
-    * `is_not` - is_not
-    * `gt` - gt
-    * `lt` - lt
-    * `gte` - gte
-    * `lte` - lte */
+      * `exact` - exact
+      * `is_not` - is_not
+      * `gt` - gt
+      * `lt` - lt
+      * `gte` - gte
+      * `lte` - lte */
       operator?: NumericPropertyFilterOperatorEnum;
     }
 
@@ -267,42 +267,42 @@ export namespace Schemas {
       key: string;
       /** Property type (event, person, session, etc.).
 
-    * `event` - event
-    * `event_metadata` - event_metadata
-    * `feature` - feature
-    * `person` - person
-    * `cohort` - cohort
-    * `element` - element
-    * `static-cohort` - static-cohort
-    * `dynamic-cohort` - dynamic-cohort
-    * `precalculated-cohort` - precalculated-cohort
-    * `group` - group
-    * `recording` - recording
-    * `log_entry` - log_entry
-    * `behavioral` - behavioral
-    * `session` - session
-    * `hogql` - hogql
-    * `data_warehouse` - data_warehouse
-    * `data_warehouse_person_property` - data_warehouse_person_property
-    * `error_tracking_issue` - error_tracking_issue
-    * `log` - log
-    * `log_attribute` - log_attribute
-    * `log_resource_attribute` - log_resource_attribute
-    * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute
-    * `revenue_analytics` - revenue_analytics
-    * `flag` - flag
-    * `workflow_variable` - workflow_variable */
+      * `event` - event
+      * `event_metadata` - event_metadata
+      * `feature` - feature
+      * `person` - person
+      * `cohort` - cohort
+      * `element` - element
+      * `static-cohort` - static-cohort
+      * `dynamic-cohort` - dynamic-cohort
+      * `precalculated-cohort` - precalculated-cohort
+      * `group` - group
+      * `recording` - recording
+      * `log_entry` - log_entry
+      * `behavioral` - behavioral
+      * `session` - session
+      * `hogql` - hogql
+      * `data_warehouse` - data_warehouse
+      * `data_warehouse_person_property` - data_warehouse_person_property
+      * `error_tracking_issue` - error_tracking_issue
+      * `log` - log
+      * `log_attribute` - log_attribute
+      * `log_resource_attribute` - log_resource_attribute
+      * `span` - span
+      * `span_attribute` - span_attribute
+      * `span_resource_attribute` - span_resource_attribute
+      * `revenue_analytics` - revenue_analytics
+      * `flag` - flag
+      * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
       /** List of values to match. For example `["test@example.com", "ok@example.com"]`. */
       value: string[];
       /** Array comparison operator.
 
-    * `exact` - exact
-    * `is_not` - is_not
-    * `in` - in
-    * `not_in` - not_in */
+      * `exact` - exact
+      * `is_not` - is_not
+      * `in` - in
+      * `not_in` - not_in */
       operator?: ArrayPropertyFilterOperatorEnum;
     }
 
@@ -328,41 +328,41 @@ export namespace Schemas {
       key: string;
       /** Property type (event, person, session, etc.).
 
-    * `event` - event
-    * `event_metadata` - event_metadata
-    * `feature` - feature
-    * `person` - person
-    * `cohort` - cohort
-    * `element` - element
-    * `static-cohort` - static-cohort
-    * `dynamic-cohort` - dynamic-cohort
-    * `precalculated-cohort` - precalculated-cohort
-    * `group` - group
-    * `recording` - recording
-    * `log_entry` - log_entry
-    * `behavioral` - behavioral
-    * `session` - session
-    * `hogql` - hogql
-    * `data_warehouse` - data_warehouse
-    * `data_warehouse_person_property` - data_warehouse_person_property
-    * `error_tracking_issue` - error_tracking_issue
-    * `log` - log
-    * `log_attribute` - log_attribute
-    * `log_resource_attribute` - log_resource_attribute
-    * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute
-    * `revenue_analytics` - revenue_analytics
-    * `flag` - flag
-    * `workflow_variable` - workflow_variable */
+      * `event` - event
+      * `event_metadata` - event_metadata
+      * `feature` - feature
+      * `person` - person
+      * `cohort` - cohort
+      * `element` - element
+      * `static-cohort` - static-cohort
+      * `dynamic-cohort` - dynamic-cohort
+      * `precalculated-cohort` - precalculated-cohort
+      * `group` - group
+      * `recording` - recording
+      * `log_entry` - log_entry
+      * `behavioral` - behavioral
+      * `session` - session
+      * `hogql` - hogql
+      * `data_warehouse` - data_warehouse
+      * `data_warehouse_person_property` - data_warehouse_person_property
+      * `error_tracking_issue` - error_tracking_issue
+      * `log` - log
+      * `log_attribute` - log_attribute
+      * `log_resource_attribute` - log_resource_attribute
+      * `span` - span
+      * `span_attribute` - span_attribute
+      * `span_resource_attribute` - span_resource_attribute
+      * `revenue_analytics` - revenue_analytics
+      * `flag` - flag
+      * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
       /** Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z'). */
       value: string;
       /** Date comparison operator.
 
-    * `is_date_exact` - is_date_exact
-    * `is_date_before` - is_date_before
-    * `is_date_after` - is_date_after */
+      * `is_date_exact` - is_date_exact
+      * `is_date_before` - is_date_before
+      * `is_date_after` - is_date_after */
       operator?: DateOperatorEnum;
     }
 
@@ -386,38 +386,38 @@ export namespace Schemas {
       key: string;
       /** Property type (event, person, session, etc.).
 
-    * `event` - event
-    * `event_metadata` - event_metadata
-    * `feature` - feature
-    * `person` - person
-    * `cohort` - cohort
-    * `element` - element
-    * `static-cohort` - static-cohort
-    * `dynamic-cohort` - dynamic-cohort
-    * `precalculated-cohort` - precalculated-cohort
-    * `group` - group
-    * `recording` - recording
-    * `log_entry` - log_entry
-    * `behavioral` - behavioral
-    * `session` - session
-    * `hogql` - hogql
-    * `data_warehouse` - data_warehouse
-    * `data_warehouse_person_property` - data_warehouse_person_property
-    * `error_tracking_issue` - error_tracking_issue
-    * `log` - log
-    * `log_attribute` - log_attribute
-    * `log_resource_attribute` - log_resource_attribute
-    * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute
-    * `revenue_analytics` - revenue_analytics
-    * `flag` - flag
-    * `workflow_variable` - workflow_variable */
+      * `event` - event
+      * `event_metadata` - event_metadata
+      * `feature` - feature
+      * `person` - person
+      * `cohort` - cohort
+      * `element` - element
+      * `static-cohort` - static-cohort
+      * `dynamic-cohort` - dynamic-cohort
+      * `precalculated-cohort` - precalculated-cohort
+      * `group` - group
+      * `recording` - recording
+      * `log_entry` - log_entry
+      * `behavioral` - behavioral
+      * `session` - session
+      * `hogql` - hogql
+      * `data_warehouse` - data_warehouse
+      * `data_warehouse_person_property` - data_warehouse_person_property
+      * `error_tracking_issue` - error_tracking_issue
+      * `log` - log
+      * `log_attribute` - log_attribute
+      * `log_resource_attribute` - log_resource_attribute
+      * `span` - span
+      * `span_attribute` - span_attribute
+      * `span_resource_attribute` - span_resource_attribute
+      * `revenue_analytics` - revenue_analytics
+      * `flag` - flag
+      * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
       /** Existence check operator.
 
-    * `is_set` - is_set
-    * `is_not_set` - is_not_set */
+      * `is_set` - is_set
+      * `is_not_set` - is_not_set */
       operator: ExistenceOperatorEnum;
     }
 
@@ -439,59 +439,59 @@ export namespace Schemas {
 
     export interface ActionStepJSON {
       /**
-       * Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).
-       * @nullable
-       */
+         * Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).
+         * @nullable
+         */
       event?: string | null;
       /**
-       * Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person).
-       * @nullable
-       */
+         * Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person).
+         * @nullable
+         */
       properties?: ActionStepPropertyFilter[] | null;
       /**
-       * CSS selector to match the target element (e.g. 'div > button.cta').
-       * @nullable
-       */
+         * CSS selector to match the target element (e.g. 'div > button.cta').
+         * @nullable
+         */
       selector?: string | null;
       /** @nullable */
       readonly selector_regex: string | null;
       /**
-       * HTML tag name to match (e.g. "button", "a", "input").
-       * @nullable
-       */
+         * HTML tag name to match (e.g. "button", "a", "input").
+         * @nullable
+         */
       tag_name?: string | null;
       /**
-       * Element text content to match.
-       * @nullable
-       */
+         * Element text content to match.
+         * @nullable
+         */
       text?: string | null;
       /** How to match the text value. Defaults to exact.
 
-    * `contains` - contains
-    * `regex` - regex
-    * `exact` - exact */
+      * `contains` - contains
+      * `regex` - regex
+      * `exact` - exact */
       text_matching?: ActionStepMatchingEnum | null;
       /**
-       * Link href attribute to match.
-       * @nullable
-       */
+         * Link href attribute to match.
+         * @nullable
+         */
       href?: string | null;
       /** How to match the href value. Defaults to exact.
 
-    * `contains` - contains
-    * `regex` - regex
-    * `exact` - exact */
+      * `contains` - contains
+      * `regex` - regex
+      * `exact` - exact */
       href_matching?: ActionStepMatchingEnum | null;
       /**
-       * Page URL to match.
-       * @nullable
-       */
+         * Page URL to match.
+         * @nullable
+         */
       url?: string | null;
       /** How to match the URL value. Defaults to contains.
 
-    * `contains` - contains
-    * `regex` - regex
-    * `exact` - exact */
+      * `contains` - contains
+      * `regex` - regex
+      * `exact` - exact */
       url_matching?: ActionStepMatchingEnum | null;
     }
 
@@ -529,15 +529,15 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type UserBasicHedgehogConfig = { [key: string]: unknown } | null | null;
+    export type UserBasicHedgehogConfig = { [key: string]: unknown } | null;
 
     export interface UserBasic {
       readonly id: number;
       readonly uuid: string;
       /**
-       * @maxLength 200
-       * @nullable
-       */
+         * @maxLength 200
+         * @nullable
+         */
       distinct_id?: string | null;
       /** @maxLength 150 */
       first_name?: string;
@@ -558,10 +558,10 @@ export namespace Schemas {
     export interface Action {
       readonly id: number;
       /**
-       * Name of the action (must be unique within the project).
-       * @maxLength 400
-       * @nullable
-       */
+         * Name of the action (must be unique within the project).
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /** Human-readable description of what this action represents. */
       description?: string;
@@ -569,9 +569,9 @@ export namespace Schemas {
       /** Whether to post a notification to Slack when this action is triggered. */
       post_to_slack?: boolean;
       /**
-       * Custom Slack message format. Supports templates with event properties.
-       * @maxLength 1200
-       */
+         * Custom Slack message format. Supports templates with event properties.
+         * @maxLength 1200
+         */
       slack_message_format?: string;
       /** Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together. */
       steps?: ActionStepJSON[];
@@ -585,17 +585,17 @@ export namespace Schemas {
       /** @nullable */
       readonly bytecode_error: string | null;
       /**
-       * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
-       * @nullable
-       */
+         * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
+         * @nullable
+         */
       pinned_at?: string | null;
       /** @nullable */
       readonly creation_context: string | null;
       _create_in_folder?: string;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
     }
 
@@ -627,9 +627,9 @@ export namespace Schemas {
       /** Relative URL to the resource */
       url: string;
       /**
-       * When the resource was created
-       * @nullable
-       */
+         * When the resource was created
+         * @nullable
+         */
       created_at: string | null;
       /** User who created the resource */
       created_by: UserBasic | null;
@@ -1164,9 +1164,9 @@ export namespace Schemas {
       /** Unique identifier for the breakpoint */
       id: string;
       /**
-       * Repository identifier (e.g., 'PostHog/posthog')
-       * @nullable
-       */
+         * Repository identifier (e.g., 'PostHog/posthog')
+         * @nullable
+         */
       repository?: string | null;
       /** File path where the breakpoint is set */
       filename: string;
@@ -1175,9 +1175,9 @@ export namespace Schemas {
       /** Whether the breakpoint is enabled */
       enabled: boolean;
       /**
-       * Optional condition for the breakpoint
-       * @nullable
-       */
+         * Optional condition for the breakpoint
+         * @nullable
+         */
       condition?: string | null;
     }
 
@@ -1201,16 +1201,16 @@ export namespace Schemas {
       /** @nullable */
       is_system?: boolean | null;
       /**
-       * @maxLength 32
-       * @nullable
-       */
+         * @maxLength 32
+         * @nullable
+         */
       client?: string | null;
       /** @maxLength 79 */
       activity: string;
       /**
-       * @maxLength 72
-       * @nullable
-       */
+         * @maxLength 72
+         * @nullable
+         */
       item_id?: string | null;
       /** @maxLength 79 */
       scope: string;
@@ -1221,7 +1221,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type ActivityLogEntryUser = { [key: string]: unknown } | null | null;
+    export type ActivityLogEntryUser = { [key: string]: unknown } | null;
 
     export interface Change {
       readonly type: string;
@@ -1507,7 +1507,7 @@ export namespace Schemas {
 
     export interface ActorsPropertyTaxonomyResponse {
       sample_count: number;
-      sample_values: (string | number | boolean | number)[];
+      sample_values: (string | number | boolean)[];
     }
 
     export interface QueryTiming {
@@ -1655,7 +1655,7 @@ export namespace Schemas {
 
     export interface DateRange {
       /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
-    -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+      -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
       date_from?: string | null;
       /** End of the date range. Same format as date_from. Omit or null for "now". */
       date_to?: string | null;
@@ -2818,7 +2818,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebStatsTableQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
@@ -2886,7 +2886,7 @@ export namespace Schemas {
       kind?: 'WebOverviewQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebOverviewQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
@@ -2921,7 +2921,7 @@ export namespace Schemas {
       /** Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons. */
       funnelStep?: number | null;
       /** The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts. */
-      funnelStepBreakdown?: number | string | number | (number | string | number)[] | null;
+      funnelStepBreakdown?: number | string | (number | string)[] | null;
       funnelTrendsDropOff?: boolean | null;
       /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
       funnelTrendsEntrancePeriodStart?: string | null;
@@ -3260,7 +3260,7 @@ export namespace Schemas {
       /** Control variant stats for this breakdown */
       baseline: ExperimentStatsBaseValidated;
       /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
-      breakdown_value: (string | number | number)[];
+      breakdown_value: (string | number)[];
       /** Test variant results with statistical comparisons for this breakdown */
       variants: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[];
     }
@@ -3291,26 +3291,8 @@ export namespace Schemas {
 
     export type ExperimentQueryResponseCredibleIntervals = {[key: string]: number[]} | null;
 
-    export type EndpointsUsageOrderByField = typeof EndpointsUsageOrderByField[keyof typeof EndpointsUsageOrderByField];
+    export type ExperimentQueryResponseInsight = { [key: string]: unknown }[] | null;
 
-
-    export const EndpointsUsageOrderByField = {
-      Requests: 'requests',
-      BytesRead: 'bytes_read',
-      CpuSeconds: 'cpu_seconds',
-      AvgQueryDurationMs: 'avg_query_duration_ms',
-      ErrorRate: 'error_rate',
-    } as const;
-
-    export type EndpointsUsageOrderByDirection = typeof EndpointsUsageOrderByDirection[keyof typeof EndpointsUsageOrderByDirection];
-
-
-    export const EndpointsUsageOrderByDirection = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    export const UndefinedItem = {...EndpointsUsageOrderByField,...EndpointsUsageOrderByDirection,} as const
     export type ExperimentQueryResponseProbability = {[key: string]: number} | null;
 
     export interface ExperimentQueryResponse {
@@ -3320,7 +3302,7 @@ export namespace Schemas {
       clickhouse_sql?: string | null;
       credible_intervals?: ExperimentQueryResponseCredibleIntervals;
       hogql?: string | null;
-      insight?: undefinedItem[] | null;
+      insight?: ExperimentQueryResponseInsight;
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
@@ -3356,7 +3338,7 @@ export namespace Schemas {
       /** Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons. */
       funnelStep?: number | null;
       /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
-      funnelStepBreakdown?: number | string | number | (number | string | number)[] | null;
+      funnelStepBreakdown?: number | string | (number | string)[] | null;
       includeRecordings?: boolean | null;
       kind?: 'ExperimentActorsQuery';
       /** Modifiers used when performing the query */
@@ -3682,9 +3664,9 @@ export namespace Schemas {
       /** @nullable */
       readonly investigation_summary: string | null;
       /**
-       * Short ID of the Notebook produced by the investigation agent, when the agent ran for this check.
-       * @nullable
-       */
+         * Short ID of the Notebook produced by the investigation agent, when the agent ran for this check.
+         * @nullable
+         */
       readonly investigation_notebook_short_id: string | null;
       /** @nullable */
       readonly notification_sent_at: string | null;
@@ -3939,36 +3921,36 @@ export namespace Schemas {
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks: readonly AlertCheck[];
       /**
-       * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
-       * @nullable
-       */
+         * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+         * @nullable
+         */
       readonly checks_total: number | null;
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
-    * `hourly` - hourly
-    * `daily` - daily
-    * `weekly` - weekly
-    * `monthly` - monthly */
+      * `hourly` - hourly
+      * `daily` - daily
+      * `weekly` - weekly
+      * `monthly` - monthly */
       calculation_interval?: CalculationIntervalEnum;
       /**
-       * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
-       * @nullable
-       */
+         * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
+         * @nullable
+         */
       snoozed_until?: string | null;
       /**
-       * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
-       * @nullable
-       */
+         * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
+         * @nullable
+         */
       skip_weekend?: boolean | null;
       /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-       * The last calculated value from the most recent alert check.
-       * @nullable
-       */
+         * The last calculated value from the most recent alert check.
+         * @nullable
+         */
       readonly last_value: number | null;
       /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
       investigation_agent_enabled?: boolean;
@@ -3976,8 +3958,8 @@ export namespace Schemas {
       investigation_gates_notifications?: boolean;
       /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
 
-    * `notify` - Notify
-    * `suppress` - Suppress */
+      * `notify` - Notify
+      * `suppress` - Suppress */
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
     }
 
@@ -3989,9 +3971,9 @@ export namespace Schemas {
       /** Zero-based index of the series to analyze. */
       series_index?: number;
       /**
-       * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
-       * @nullable
-       */
+         * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+         * @nullable
+         */
       date_from?: string | null;
     }
 
@@ -4032,9 +4014,9 @@ export namespace Schemas {
       /** Dates of points flagged as anomalies. */
       triggered_dates: string[];
       /**
-       * Interval of the trends query (hour, day, week, month).
-       * @nullable
-       */
+         * Interval of the trends query (hour, day, week, month).
+         * @nullable
+         */
       interval: string | null;
       /** Total number of data points analyzed. */
       total_points: number;
@@ -4079,20 +4061,20 @@ export namespace Schemas {
     export interface Annotation {
       readonly id: number;
       /**
-       * Annotation text shown on charts to describe the change, release, or incident.
-       * @maxLength 8192
-       * @nullable
-       */
+         * Annotation text shown on charts to describe the change, release, or incident.
+         * @maxLength 8192
+         * @nullable
+         */
       content?: string | null;
       /**
-       * When this annotation happened (ISO 8601 timestamp). Used to position it on charts.
-       * @nullable
-       */
+         * When this annotation happened (ISO 8601 timestamp). Used to position it on charts.
+         * @nullable
+         */
       date_marker?: string | null;
       /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
 
-    * `USR` - user
-    * `GIT` - GitHub */
+      * `USR` - user
+      * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
       /** @nullable */
       dashboard_item?: number | null;
@@ -4114,11 +4096,11 @@ export namespace Schemas {
       deleted?: boolean;
       /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
 
-    * `dashboard_item` - insight
-    * `dashboard` - dashboard
-    * `project` - project
-    * `organization` - organization
-    * `recording` - recording */
+      * `dashboard_item` - insight
+      * `dashboard` - dashboard
+      * `project` - project
+      * `organization` - organization
+      * `recording` - recording */
       scope?: AnnotationScopeEnum;
     }
 
@@ -4143,22 +4125,22 @@ export namespace Schemas {
      */
     export interface TranscriptSegment {
       /**
-       * Milliseconds from recording start
-       * @nullable
-       */
+         * Milliseconds from recording start
+         * @nullable
+         */
       timestamp?: number | null;
       /** @nullable */
       speaker?: string | null;
       text: string;
       /**
-       * Transcription confidence score
-       * @nullable
-       */
+         * Transcription confidence score
+         * @nullable
+         */
       confidence?: number | null;
       /**
-       * Whether this is the final version
-       * @nullable
-       */
+         * Whether this is the final version
+         * @nullable
+         */
       is_final?: boolean | null;
     }
 
@@ -4230,9 +4212,9 @@ export namespace Schemas {
       /** Current status: 'pending' or 'completed'. */
       readonly status: string;
       /**
-       * When the deletion was verified complete. Null if still pending.
-       * @nullable
-       */
+         * When the deletion was verified complete. Null if still pending.
+         * @nullable
+         */
       delete_verified_at: string | null;
     }
 
@@ -4536,6 +4518,13 @@ export namespace Schemas {
       UpdateFeatureStage: 'update_feature_stage',
     } as const;
 
+    export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
+
+
+    export const AzureBlobDestinationConfigType = {
+      AzureBlob: 'AzureBlob',
+    } as const;
+
     /**
      * * `brotli` - brotli
     * `gzip` - gzip
@@ -4579,22 +4568,23 @@ export namespace Schemas {
       prefix?: string;
       /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
 
-    * `brotli` - brotli
-    * `gzip` - gzip
-    * `lz4` - lz4
-    * `snappy` - snappy
-    * `zstd` - zstd */
+      * `brotli` - brotli
+      * `gzip` - gzip
+      * `lz4` - lz4
+      * `snappy` - snappy
+      * `zstd` - zstd */
       compression?: CompressionEnum | null;
       /** File format used for exported objects.
 
-    * `JSONLines` - JSONLines
-    * `Parquet` - Parquet */
+      * `JSONLines` - JSONLines
+      * `Parquet` - Parquet */
       file_format?: FileFormatEnum;
       /**
-       * If set, rolls to a new file once the current file exceeds this size in MB.
-       * @nullable
-       */
+         * If set, rolls to a new file once the current file exceeds this size in MB.
+         * @nullable
+         */
       max_file_size_mb?: number | null;
+      type: AzureBlobDestinationConfigType;
     }
 
     export type AzureBlobDestinationRequestType = typeof AzureBlobDestinationRequestType[keyof typeof AzureBlobDestinationRequestType];
@@ -4987,19 +4977,19 @@ export namespace Schemas {
 
     export interface BatchCheckRequest {
       /**
-       * List of trace IDs to check for cached summaries
-       * @maxItems 100
-       */
+         * List of trace IDs to check for cached summaries
+         * @maxItems 100
+         */
       trace_ids: string[];
       /** Summary detail level to check for
 
-    * `minimal` - minimal
-    * `detailed` - detailed */
+      * `minimal` - minimal
+      * `detailed` - detailed */
       mode?: DetailModeValueEnum;
       /**
-       * LLM model used for cached summaries
-       * @nullable
-       */
+         * LLM model used for cached summaries
+         * @nullable
+         */
       model?: string | null;
     }
 
@@ -5057,6 +5047,13 @@ export namespace Schemas {
       FileDownload: 'FileDownload',
     } as const;
 
+    export type DatabricksDestinationConfigType = typeof DatabricksDestinationConfigType[keyof typeof DatabricksDestinationConfigType];
+
+
+    export const DatabricksDestinationConfigType = {
+      Databricks: 'Databricks',
+    } as const;
+
     /**
      * Typed configuration for a Databricks batch-export destination.
 
@@ -5076,6 +5073,7 @@ export namespace Schemas {
       use_variant_type?: boolean;
       /** Whether to let Databricks evolve the destination table schema automatically. */
       use_automatic_schema_evolution?: boolean;
+      type: DatabricksDestinationConfigType;
     }
 
     export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig;
@@ -5091,29 +5089,29 @@ export namespace Schemas {
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
 
-    * `S3` - S3
-    * `Snowflake` - Snowflake
-    * `Postgres` - Postgres
-    * `Redshift` - Redshift
-    * `BigQuery` - Bigquery
-    * `Databricks` - Databricks
-    * `AzureBlob` - Azure Blob
-    * `Workflows` - Workflows
-    * `HTTP` - Http
-    * `NoOp` - Noop
-    * `FileDownload` - File Download */
+      * `S3` - S3
+      * `Snowflake` - Snowflake
+      * `Postgres` - Postgres
+      * `Redshift` - Redshift
+      * `BigQuery` - Bigquery
+      * `Databricks` - Databricks
+      * `AzureBlob` - Azure Blob
+      * `Workflows` - Workflows
+      * `HTTP` - Http
+      * `NoOp` - Noop
+      * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
       /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
-       * The integration for this destination.
-       * @nullable
-       */
+         * The integration for this destination.
+         * @nullable
+         */
       integration?: number | null;
       /**
-       * ID of a team-scoped Integration providing credentials. Required for Databricks and AzureBlob destinations; optional for BigQuery; unused for other types.
-       * @nullable
-       */
+         * ID of a team-scoped Integration providing credentials. Required for Databricks and AzureBlob destinations; optional for BigQuery; unused for other types.
+         * @nullable
+         */
       integration_id?: number | null;
     }
 
@@ -5170,77 +5168,77 @@ export namespace Schemas {
       readonly id: string;
       /** The status of this run.
 
-    * `Cancelled` - Cancelled
-    * `Completed` - Completed
-    * `ContinuedAsNew` - Continued As New
-    * `Failed` - Failed
-    * `FailedRetryable` - Failed Retryable
-    * `FailedBilling` - Failed Billing
-    * `Terminated` - Terminated
-    * `TimedOut` - Timedout
-    * `Running` - Running
-    * `Starting` - Starting */
+      * `Cancelled` - Cancelled
+      * `Completed` - Completed
+      * `ContinuedAsNew` - Continued As New
+      * `Failed` - Failed
+      * `FailedRetryable` - Failed Retryable
+      * `FailedBilling` - Failed Billing
+      * `Terminated` - Terminated
+      * `TimedOut` - Timedout
+      * `Running` - Running
+      * `Starting` - Starting */
       status: BatchExportRunStatusEnum;
       /**
-       * The number of records that have been exported.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * The number of records that have been exported.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       records_completed?: number | null;
       /**
-       * The number of records that failed downstream processing (e.g. hog function execution errors).
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * The number of records that failed downstream processing (e.g. hog function execution errors).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       records_failed?: number | null;
       /**
-       * The latest error that occurred during this run.
-       * @nullable
-       */
+         * The latest error that occurred during this run.
+         * @nullable
+         */
       latest_error?: string | null;
       /**
-       * The start of the data interval.
-       * @nullable
-       */
+         * The start of the data interval.
+         * @nullable
+         */
       data_interval_start?: string | null;
       /** The end of the data interval. */
       data_interval_end: string;
       /**
-       * An opaque cursor that may be used to resume.
-       * @nullable
-       */
+         * An opaque cursor that may be used to resume.
+         * @nullable
+         */
       cursor?: string | null;
       /** The timestamp at which this BatchExportRun was created. */
       readonly created_at: string;
       /**
-       * The timestamp at which this BatchExportRun finished, successfully or not.
-       * @nullable
-       */
+         * The timestamp at which this BatchExportRun finished, successfully or not.
+         * @nullable
+         */
       finished_at?: string | null;
       /** The timestamp at which this BatchExportRun was last updated. */
       readonly last_updated_at: string;
       /**
-       * The total count of records that should be exported in this BatchExportRun.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * The total count of records that should be exported in this BatchExportRun.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       records_total_count?: number | null;
       /**
-       * The number of bytes that have been exported in this BatchExportRun.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * The number of bytes that have been exported in this BatchExportRun.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       bytes_exported?: number | null;
       /** The BatchExport this run belongs to. */
       readonly batch_export: string;
       /**
-       * The backfill this run belongs to.
-       * @nullable
-       */
+         * The backfill this run belongs to.
+         * @nullable
+         */
       backfill?: string | null;
     }
 
@@ -5255,19 +5253,19 @@ export namespace Schemas {
       name: string;
       /** Which model this BatchExport is exporting.
 
-    * `events` - Events
-    * `persons` - Persons
-    * `sessions` - Sessions */
+      * `events` - Events
+      * `persons` - Persons
+      * `sessions` - Sessions */
       model?: ModelEnum | BlankEnum | null;
       /** Destination configuration (type, config, and optional integration). */
       destination: BatchExportDestination;
       /** How often the batch export should run.
 
-    * `hour` - hour
-    * `day` - day
-    * `week` - week
-    * `every 5 minutes` - every 5 minutes
-    * `every 15 minutes` - every 15 minutes */
+      * `hour` - hour
+      * `day` - day
+      * `week` - week
+      * `every 5 minutes` - every 5 minutes
+      * `every 15 minutes` - every 15 minutes */
       interval: IntervalEnum;
       /** Whether this BatchExport is paused or not. */
       paused?: boolean;
@@ -5276,19 +5274,19 @@ export namespace Schemas {
       /** The timestamp at which this BatchExport was last updated. */
       readonly last_updated_at: string;
       /**
-       * The timestamp at which this BatchExport was last paused.
-       * @nullable
-       */
+         * The timestamp at which this BatchExport was last paused.
+         * @nullable
+         */
       last_paused_at?: string | null;
       /**
-       * Time before which any Batch Export runs won't be triggered.
-       * @nullable
-       */
+         * Time before which any Batch Export runs won't be triggered.
+         * @nullable
+         */
       start_at?: string | null;
       /**
-       * Time after which any Batch Export runs won't be triggered.
-       * @nullable
-       */
+         * Time after which any Batch Export runs won't be triggered.
+         * @nullable
+         */
       end_at?: string | null;
       /** The 10 most recent runs of this batch export, ordered newest first. */
       readonly latest_runs: readonly BatchExportRun[];
@@ -5299,616 +5297,616 @@ export namespace Schemas {
       filters?: unknown;
       /** IANA timezone name controlling daily and weekly interval boundaries. Defaults to UTC.
 
-    * `Africa/Abidjan` - Africa/Abidjan
-    * `Africa/Accra` - Africa/Accra
-    * `Africa/Addis_Ababa` - Africa/Addis_Ababa
-    * `Africa/Algiers` - Africa/Algiers
-    * `Africa/Asmara` - Africa/Asmara
-    * `Africa/Asmera` - Africa/Asmera
-    * `Africa/Bamako` - Africa/Bamako
-    * `Africa/Bangui` - Africa/Bangui
-    * `Africa/Banjul` - Africa/Banjul
-    * `Africa/Bissau` - Africa/Bissau
-    * `Africa/Blantyre` - Africa/Blantyre
-    * `Africa/Brazzaville` - Africa/Brazzaville
-    * `Africa/Bujumbura` - Africa/Bujumbura
-    * `Africa/Cairo` - Africa/Cairo
-    * `Africa/Casablanca` - Africa/Casablanca
-    * `Africa/Ceuta` - Africa/Ceuta
-    * `Africa/Conakry` - Africa/Conakry
-    * `Africa/Dakar` - Africa/Dakar
-    * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
-    * `Africa/Djibouti` - Africa/Djibouti
-    * `Africa/Douala` - Africa/Douala
-    * `Africa/El_Aaiun` - Africa/El_Aaiun
-    * `Africa/Freetown` - Africa/Freetown
-    * `Africa/Gaborone` - Africa/Gaborone
-    * `Africa/Harare` - Africa/Harare
-    * `Africa/Johannesburg` - Africa/Johannesburg
-    * `Africa/Juba` - Africa/Juba
-    * `Africa/Kampala` - Africa/Kampala
-    * `Africa/Khartoum` - Africa/Khartoum
-    * `Africa/Kigali` - Africa/Kigali
-    * `Africa/Kinshasa` - Africa/Kinshasa
-    * `Africa/Lagos` - Africa/Lagos
-    * `Africa/Libreville` - Africa/Libreville
-    * `Africa/Lome` - Africa/Lome
-    * `Africa/Luanda` - Africa/Luanda
-    * `Africa/Lubumbashi` - Africa/Lubumbashi
-    * `Africa/Lusaka` - Africa/Lusaka
-    * `Africa/Malabo` - Africa/Malabo
-    * `Africa/Maputo` - Africa/Maputo
-    * `Africa/Maseru` - Africa/Maseru
-    * `Africa/Mbabane` - Africa/Mbabane
-    * `Africa/Mogadishu` - Africa/Mogadishu
-    * `Africa/Monrovia` - Africa/Monrovia
-    * `Africa/Nairobi` - Africa/Nairobi
-    * `Africa/Ndjamena` - Africa/Ndjamena
-    * `Africa/Niamey` - Africa/Niamey
-    * `Africa/Nouakchott` - Africa/Nouakchott
-    * `Africa/Ouagadougou` - Africa/Ouagadougou
-    * `Africa/Porto-Novo` - Africa/Porto-Novo
-    * `Africa/Sao_Tome` - Africa/Sao_Tome
-    * `Africa/Timbuktu` - Africa/Timbuktu
-    * `Africa/Tripoli` - Africa/Tripoli
-    * `Africa/Tunis` - Africa/Tunis
-    * `Africa/Windhoek` - Africa/Windhoek
-    * `America/Adak` - America/Adak
-    * `America/Anchorage` - America/Anchorage
-    * `America/Anguilla` - America/Anguilla
-    * `America/Antigua` - America/Antigua
-    * `America/Araguaina` - America/Araguaina
-    * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
-    * `America/Argentina/Catamarca` - America/Argentina/Catamarca
-    * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
-    * `America/Argentina/Cordoba` - America/Argentina/Cordoba
-    * `America/Argentina/Jujuy` - America/Argentina/Jujuy
-    * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
-    * `America/Argentina/Mendoza` - America/Argentina/Mendoza
-    * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
-    * `America/Argentina/Salta` - America/Argentina/Salta
-    * `America/Argentina/San_Juan` - America/Argentina/San_Juan
-    * `America/Argentina/San_Luis` - America/Argentina/San_Luis
-    * `America/Argentina/Tucuman` - America/Argentina/Tucuman
-    * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
-    * `America/Aruba` - America/Aruba
-    * `America/Asuncion` - America/Asuncion
-    * `America/Atikokan` - America/Atikokan
-    * `America/Atka` - America/Atka
-    * `America/Bahia` - America/Bahia
-    * `America/Bahia_Banderas` - America/Bahia_Banderas
-    * `America/Barbados` - America/Barbados
-    * `America/Belem` - America/Belem
-    * `America/Belize` - America/Belize
-    * `America/Blanc-Sablon` - America/Blanc-Sablon
-    * `America/Boa_Vista` - America/Boa_Vista
-    * `America/Bogota` - America/Bogota
-    * `America/Boise` - America/Boise
-    * `America/Buenos_Aires` - America/Buenos_Aires
-    * `America/Cambridge_Bay` - America/Cambridge_Bay
-    * `America/Campo_Grande` - America/Campo_Grande
-    * `America/Cancun` - America/Cancun
-    * `America/Caracas` - America/Caracas
-    * `America/Catamarca` - America/Catamarca
-    * `America/Cayenne` - America/Cayenne
-    * `America/Cayman` - America/Cayman
-    * `America/Chicago` - America/Chicago
-    * `America/Chihuahua` - America/Chihuahua
-    * `America/Ciudad_Juarez` - America/Ciudad_Juarez
-    * `America/Coral_Harbour` - America/Coral_Harbour
-    * `America/Cordoba` - America/Cordoba
-    * `America/Costa_Rica` - America/Costa_Rica
-    * `America/Creston` - America/Creston
-    * `America/Cuiaba` - America/Cuiaba
-    * `America/Curacao` - America/Curacao
-    * `America/Danmarkshavn` - America/Danmarkshavn
-    * `America/Dawson` - America/Dawson
-    * `America/Dawson_Creek` - America/Dawson_Creek
-    * `America/Denver` - America/Denver
-    * `America/Detroit` - America/Detroit
-    * `America/Dominica` - America/Dominica
-    * `America/Edmonton` - America/Edmonton
-    * `America/Eirunepe` - America/Eirunepe
-    * `America/El_Salvador` - America/El_Salvador
-    * `America/Ensenada` - America/Ensenada
-    * `America/Fort_Nelson` - America/Fort_Nelson
-    * `America/Fort_Wayne` - America/Fort_Wayne
-    * `America/Fortaleza` - America/Fortaleza
-    * `America/Glace_Bay` - America/Glace_Bay
-    * `America/Godthab` - America/Godthab
-    * `America/Goose_Bay` - America/Goose_Bay
-    * `America/Grand_Turk` - America/Grand_Turk
-    * `America/Grenada` - America/Grenada
-    * `America/Guadeloupe` - America/Guadeloupe
-    * `America/Guatemala` - America/Guatemala
-    * `America/Guayaquil` - America/Guayaquil
-    * `America/Guyana` - America/Guyana
-    * `America/Halifax` - America/Halifax
-    * `America/Havana` - America/Havana
-    * `America/Hermosillo` - America/Hermosillo
-    * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
-    * `America/Indiana/Knox` - America/Indiana/Knox
-    * `America/Indiana/Marengo` - America/Indiana/Marengo
-    * `America/Indiana/Petersburg` - America/Indiana/Petersburg
-    * `America/Indiana/Tell_City` - America/Indiana/Tell_City
-    * `America/Indiana/Vevay` - America/Indiana/Vevay
-    * `America/Indiana/Vincennes` - America/Indiana/Vincennes
-    * `America/Indiana/Winamac` - America/Indiana/Winamac
-    * `America/Indianapolis` - America/Indianapolis
-    * `America/Inuvik` - America/Inuvik
-    * `America/Iqaluit` - America/Iqaluit
-    * `America/Jamaica` - America/Jamaica
-    * `America/Jujuy` - America/Jujuy
-    * `America/Juneau` - America/Juneau
-    * `America/Kentucky/Louisville` - America/Kentucky/Louisville
-    * `America/Kentucky/Monticello` - America/Kentucky/Monticello
-    * `America/Knox_IN` - America/Knox_IN
-    * `America/Kralendijk` - America/Kralendijk
-    * `America/La_Paz` - America/La_Paz
-    * `America/Lima` - America/Lima
-    * `America/Los_Angeles` - America/Los_Angeles
-    * `America/Louisville` - America/Louisville
-    * `America/Lower_Princes` - America/Lower_Princes
-    * `America/Maceio` - America/Maceio
-    * `America/Managua` - America/Managua
-    * `America/Manaus` - America/Manaus
-    * `America/Marigot` - America/Marigot
-    * `America/Martinique` - America/Martinique
-    * `America/Matamoros` - America/Matamoros
-    * `America/Mazatlan` - America/Mazatlan
-    * `America/Mendoza` - America/Mendoza
-    * `America/Menominee` - America/Menominee
-    * `America/Merida` - America/Merida
-    * `America/Metlakatla` - America/Metlakatla
-    * `America/Mexico_City` - America/Mexico_City
-    * `America/Miquelon` - America/Miquelon
-    * `America/Moncton` - America/Moncton
-    * `America/Monterrey` - America/Monterrey
-    * `America/Montevideo` - America/Montevideo
-    * `America/Montreal` - America/Montreal
-    * `America/Montserrat` - America/Montserrat
-    * `America/Nassau` - America/Nassau
-    * `America/New_York` - America/New_York
-    * `America/Nipigon` - America/Nipigon
-    * `America/Nome` - America/Nome
-    * `America/Noronha` - America/Noronha
-    * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
-    * `America/North_Dakota/Center` - America/North_Dakota/Center
-    * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
-    * `America/Nuuk` - America/Nuuk
-    * `America/Ojinaga` - America/Ojinaga
-    * `America/Panama` - America/Panama
-    * `America/Pangnirtung` - America/Pangnirtung
-    * `America/Paramaribo` - America/Paramaribo
-    * `America/Phoenix` - America/Phoenix
-    * `America/Port-au-Prince` - America/Port-au-Prince
-    * `America/Port_of_Spain` - America/Port_of_Spain
-    * `America/Porto_Acre` - America/Porto_Acre
-    * `America/Porto_Velho` - America/Porto_Velho
-    * `America/Puerto_Rico` - America/Puerto_Rico
-    * `America/Punta_Arenas` - America/Punta_Arenas
-    * `America/Rainy_River` - America/Rainy_River
-    * `America/Rankin_Inlet` - America/Rankin_Inlet
-    * `America/Recife` - America/Recife
-    * `America/Regina` - America/Regina
-    * `America/Resolute` - America/Resolute
-    * `America/Rio_Branco` - America/Rio_Branco
-    * `America/Rosario` - America/Rosario
-    * `America/Santa_Isabel` - America/Santa_Isabel
-    * `America/Santarem` - America/Santarem
-    * `America/Santiago` - America/Santiago
-    * `America/Santo_Domingo` - America/Santo_Domingo
-    * `America/Sao_Paulo` - America/Sao_Paulo
-    * `America/Scoresbysund` - America/Scoresbysund
-    * `America/Shiprock` - America/Shiprock
-    * `America/Sitka` - America/Sitka
-    * `America/St_Barthelemy` - America/St_Barthelemy
-    * `America/St_Johns` - America/St_Johns
-    * `America/St_Kitts` - America/St_Kitts
-    * `America/St_Lucia` - America/St_Lucia
-    * `America/St_Thomas` - America/St_Thomas
-    * `America/St_Vincent` - America/St_Vincent
-    * `America/Swift_Current` - America/Swift_Current
-    * `America/Tegucigalpa` - America/Tegucigalpa
-    * `America/Thule` - America/Thule
-    * `America/Thunder_Bay` - America/Thunder_Bay
-    * `America/Tijuana` - America/Tijuana
-    * `America/Toronto` - America/Toronto
-    * `America/Tortola` - America/Tortola
-    * `America/Vancouver` - America/Vancouver
-    * `America/Virgin` - America/Virgin
-    * `America/Whitehorse` - America/Whitehorse
-    * `America/Winnipeg` - America/Winnipeg
-    * `America/Yakutat` - America/Yakutat
-    * `America/Yellowknife` - America/Yellowknife
-    * `Antarctica/Casey` - Antarctica/Casey
-    * `Antarctica/Davis` - Antarctica/Davis
-    * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
-    * `Antarctica/Macquarie` - Antarctica/Macquarie
-    * `Antarctica/Mawson` - Antarctica/Mawson
-    * `Antarctica/McMurdo` - Antarctica/McMurdo
-    * `Antarctica/Palmer` - Antarctica/Palmer
-    * `Antarctica/Rothera` - Antarctica/Rothera
-    * `Antarctica/South_Pole` - Antarctica/South_Pole
-    * `Antarctica/Syowa` - Antarctica/Syowa
-    * `Antarctica/Troll` - Antarctica/Troll
-    * `Antarctica/Vostok` - Antarctica/Vostok
-    * `Arctic/Longyearbyen` - Arctic/Longyearbyen
-    * `Asia/Aden` - Asia/Aden
-    * `Asia/Almaty` - Asia/Almaty
-    * `Asia/Amman` - Asia/Amman
-    * `Asia/Anadyr` - Asia/Anadyr
-    * `Asia/Aqtau` - Asia/Aqtau
-    * `Asia/Aqtobe` - Asia/Aqtobe
-    * `Asia/Ashgabat` - Asia/Ashgabat
-    * `Asia/Ashkhabad` - Asia/Ashkhabad
-    * `Asia/Atyrau` - Asia/Atyrau
-    * `Asia/Baghdad` - Asia/Baghdad
-    * `Asia/Bahrain` - Asia/Bahrain
-    * `Asia/Baku` - Asia/Baku
-    * `Asia/Bangkok` - Asia/Bangkok
-    * `Asia/Barnaul` - Asia/Barnaul
-    * `Asia/Beirut` - Asia/Beirut
-    * `Asia/Bishkek` - Asia/Bishkek
-    * `Asia/Brunei` - Asia/Brunei
-    * `Asia/Calcutta` - Asia/Calcutta
-    * `Asia/Chita` - Asia/Chita
-    * `Asia/Choibalsan` - Asia/Choibalsan
-    * `Asia/Chongqing` - Asia/Chongqing
-    * `Asia/Chungking` - Asia/Chungking
-    * `Asia/Colombo` - Asia/Colombo
-    * `Asia/Dacca` - Asia/Dacca
-    * `Asia/Damascus` - Asia/Damascus
-    * `Asia/Dhaka` - Asia/Dhaka
-    * `Asia/Dili` - Asia/Dili
-    * `Asia/Dubai` - Asia/Dubai
-    * `Asia/Dushanbe` - Asia/Dushanbe
-    * `Asia/Famagusta` - Asia/Famagusta
-    * `Asia/Gaza` - Asia/Gaza
-    * `Asia/Harbin` - Asia/Harbin
-    * `Asia/Hebron` - Asia/Hebron
-    * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
-    * `Asia/Hong_Kong` - Asia/Hong_Kong
-    * `Asia/Hovd` - Asia/Hovd
-    * `Asia/Irkutsk` - Asia/Irkutsk
-    * `Asia/Istanbul` - Asia/Istanbul
-    * `Asia/Jakarta` - Asia/Jakarta
-    * `Asia/Jayapura` - Asia/Jayapura
-    * `Asia/Jerusalem` - Asia/Jerusalem
-    * `Asia/Kabul` - Asia/Kabul
-    * `Asia/Kamchatka` - Asia/Kamchatka
-    * `Asia/Karachi` - Asia/Karachi
-    * `Asia/Kashgar` - Asia/Kashgar
-    * `Asia/Kathmandu` - Asia/Kathmandu
-    * `Asia/Katmandu` - Asia/Katmandu
-    * `Asia/Khandyga` - Asia/Khandyga
-    * `Asia/Kolkata` - Asia/Kolkata
-    * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
-    * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
-    * `Asia/Kuching` - Asia/Kuching
-    * `Asia/Kuwait` - Asia/Kuwait
-    * `Asia/Macao` - Asia/Macao
-    * `Asia/Macau` - Asia/Macau
-    * `Asia/Magadan` - Asia/Magadan
-    * `Asia/Makassar` - Asia/Makassar
-    * `Asia/Manila` - Asia/Manila
-    * `Asia/Muscat` - Asia/Muscat
-    * `Asia/Nicosia` - Asia/Nicosia
-    * `Asia/Novokuznetsk` - Asia/Novokuznetsk
-    * `Asia/Novosibirsk` - Asia/Novosibirsk
-    * `Asia/Omsk` - Asia/Omsk
-    * `Asia/Oral` - Asia/Oral
-    * `Asia/Phnom_Penh` - Asia/Phnom_Penh
-    * `Asia/Pontianak` - Asia/Pontianak
-    * `Asia/Pyongyang` - Asia/Pyongyang
-    * `Asia/Qatar` - Asia/Qatar
-    * `Asia/Qostanay` - Asia/Qostanay
-    * `Asia/Qyzylorda` - Asia/Qyzylorda
-    * `Asia/Rangoon` - Asia/Rangoon
-    * `Asia/Riyadh` - Asia/Riyadh
-    * `Asia/Saigon` - Asia/Saigon
-    * `Asia/Sakhalin` - Asia/Sakhalin
-    * `Asia/Samarkand` - Asia/Samarkand
-    * `Asia/Seoul` - Asia/Seoul
-    * `Asia/Shanghai` - Asia/Shanghai
-    * `Asia/Singapore` - Asia/Singapore
-    * `Asia/Srednekolymsk` - Asia/Srednekolymsk
-    * `Asia/Taipei` - Asia/Taipei
-    * `Asia/Tashkent` - Asia/Tashkent
-    * `Asia/Tbilisi` - Asia/Tbilisi
-    * `Asia/Tehran` - Asia/Tehran
-    * `Asia/Tel_Aviv` - Asia/Tel_Aviv
-    * `Asia/Thimbu` - Asia/Thimbu
-    * `Asia/Thimphu` - Asia/Thimphu
-    * `Asia/Tokyo` - Asia/Tokyo
-    * `Asia/Tomsk` - Asia/Tomsk
-    * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
-    * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
-    * `Asia/Ulan_Bator` - Asia/Ulan_Bator
-    * `Asia/Urumqi` - Asia/Urumqi
-    * `Asia/Ust-Nera` - Asia/Ust-Nera
-    * `Asia/Vientiane` - Asia/Vientiane
-    * `Asia/Vladivostok` - Asia/Vladivostok
-    * `Asia/Yakutsk` - Asia/Yakutsk
-    * `Asia/Yangon` - Asia/Yangon
-    * `Asia/Yekaterinburg` - Asia/Yekaterinburg
-    * `Asia/Yerevan` - Asia/Yerevan
-    * `Atlantic/Azores` - Atlantic/Azores
-    * `Atlantic/Bermuda` - Atlantic/Bermuda
-    * `Atlantic/Canary` - Atlantic/Canary
-    * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
-    * `Atlantic/Faeroe` - Atlantic/Faeroe
-    * `Atlantic/Faroe` - Atlantic/Faroe
-    * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
-    * `Atlantic/Madeira` - Atlantic/Madeira
-    * `Atlantic/Reykjavik` - Atlantic/Reykjavik
-    * `Atlantic/South_Georgia` - Atlantic/South_Georgia
-    * `Atlantic/St_Helena` - Atlantic/St_Helena
-    * `Atlantic/Stanley` - Atlantic/Stanley
-    * `Australia/ACT` - Australia/ACT
-    * `Australia/Adelaide` - Australia/Adelaide
-    * `Australia/Brisbane` - Australia/Brisbane
-    * `Australia/Broken_Hill` - Australia/Broken_Hill
-    * `Australia/Canberra` - Australia/Canberra
-    * `Australia/Currie` - Australia/Currie
-    * `Australia/Darwin` - Australia/Darwin
-    * `Australia/Eucla` - Australia/Eucla
-    * `Australia/Hobart` - Australia/Hobart
-    * `Australia/LHI` - Australia/LHI
-    * `Australia/Lindeman` - Australia/Lindeman
-    * `Australia/Lord_Howe` - Australia/Lord_Howe
-    * `Australia/Melbourne` - Australia/Melbourne
-    * `Australia/NSW` - Australia/NSW
-    * `Australia/North` - Australia/North
-    * `Australia/Perth` - Australia/Perth
-    * `Australia/Queensland` - Australia/Queensland
-    * `Australia/South` - Australia/South
-    * `Australia/Sydney` - Australia/Sydney
-    * `Australia/Tasmania` - Australia/Tasmania
-    * `Australia/Victoria` - Australia/Victoria
-    * `Australia/West` - Australia/West
-    * `Australia/Yancowinna` - Australia/Yancowinna
-    * `Brazil/Acre` - Brazil/Acre
-    * `Brazil/DeNoronha` - Brazil/DeNoronha
-    * `Brazil/East` - Brazil/East
-    * `Brazil/West` - Brazil/West
-    * `CET` - CET
-    * `CST6CDT` - CST6CDT
-    * `Canada/Atlantic` - Canada/Atlantic
-    * `Canada/Central` - Canada/Central
-    * `Canada/Eastern` - Canada/Eastern
-    * `Canada/Mountain` - Canada/Mountain
-    * `Canada/Newfoundland` - Canada/Newfoundland
-    * `Canada/Pacific` - Canada/Pacific
-    * `Canada/Saskatchewan` - Canada/Saskatchewan
-    * `Canada/Yukon` - Canada/Yukon
-    * `Chile/Continental` - Chile/Continental
-    * `Chile/EasterIsland` - Chile/EasterIsland
-    * `Cuba` - Cuba
-    * `EET` - EET
-    * `EST` - EST
-    * `EST5EDT` - EST5EDT
-    * `Egypt` - Egypt
-    * `Eire` - Eire
-    * `Etc/GMT` - Etc/GMT
-    * `Etc/GMT+0` - Etc/GMT+0
-    * `Etc/GMT+1` - Etc/GMT+1
-    * `Etc/GMT+10` - Etc/GMT+10
-    * `Etc/GMT+11` - Etc/GMT+11
-    * `Etc/GMT+12` - Etc/GMT+12
-    * `Etc/GMT+2` - Etc/GMT+2
-    * `Etc/GMT+3` - Etc/GMT+3
-    * `Etc/GMT+4` - Etc/GMT+4
-    * `Etc/GMT+5` - Etc/GMT+5
-    * `Etc/GMT+6` - Etc/GMT+6
-    * `Etc/GMT+7` - Etc/GMT+7
-    * `Etc/GMT+8` - Etc/GMT+8
-    * `Etc/GMT+9` - Etc/GMT+9
-    * `Etc/GMT-0` - Etc/GMT-0
-    * `Etc/GMT-1` - Etc/GMT-1
-    * `Etc/GMT-10` - Etc/GMT-10
-    * `Etc/GMT-11` - Etc/GMT-11
-    * `Etc/GMT-12` - Etc/GMT-12
-    * `Etc/GMT-13` - Etc/GMT-13
-    * `Etc/GMT-14` - Etc/GMT-14
-    * `Etc/GMT-2` - Etc/GMT-2
-    * `Etc/GMT-3` - Etc/GMT-3
-    * `Etc/GMT-4` - Etc/GMT-4
-    * `Etc/GMT-5` - Etc/GMT-5
-    * `Etc/GMT-6` - Etc/GMT-6
-    * `Etc/GMT-7` - Etc/GMT-7
-    * `Etc/GMT-8` - Etc/GMT-8
-    * `Etc/GMT-9` - Etc/GMT-9
-    * `Etc/GMT0` - Etc/GMT0
-    * `Etc/Greenwich` - Etc/Greenwich
-    * `Etc/UCT` - Etc/UCT
-    * `Etc/UTC` - Etc/UTC
-    * `Etc/Universal` - Etc/Universal
-    * `Etc/Zulu` - Etc/Zulu
-    * `Europe/Amsterdam` - Europe/Amsterdam
-    * `Europe/Andorra` - Europe/Andorra
-    * `Europe/Astrakhan` - Europe/Astrakhan
-    * `Europe/Athens` - Europe/Athens
-    * `Europe/Belfast` - Europe/Belfast
-    * `Europe/Belgrade` - Europe/Belgrade
-    * `Europe/Berlin` - Europe/Berlin
-    * `Europe/Bratislava` - Europe/Bratislava
-    * `Europe/Brussels` - Europe/Brussels
-    * `Europe/Bucharest` - Europe/Bucharest
-    * `Europe/Budapest` - Europe/Budapest
-    * `Europe/Busingen` - Europe/Busingen
-    * `Europe/Chisinau` - Europe/Chisinau
-    * `Europe/Copenhagen` - Europe/Copenhagen
-    * `Europe/Dublin` - Europe/Dublin
-    * `Europe/Gibraltar` - Europe/Gibraltar
-    * `Europe/Guernsey` - Europe/Guernsey
-    * `Europe/Helsinki` - Europe/Helsinki
-    * `Europe/Isle_of_Man` - Europe/Isle_of_Man
-    * `Europe/Istanbul` - Europe/Istanbul
-    * `Europe/Jersey` - Europe/Jersey
-    * `Europe/Kaliningrad` - Europe/Kaliningrad
-    * `Europe/Kiev` - Europe/Kiev
-    * `Europe/Kirov` - Europe/Kirov
-    * `Europe/Kyiv` - Europe/Kyiv
-    * `Europe/Lisbon` - Europe/Lisbon
-    * `Europe/Ljubljana` - Europe/Ljubljana
-    * `Europe/London` - Europe/London
-    * `Europe/Luxembourg` - Europe/Luxembourg
-    * `Europe/Madrid` - Europe/Madrid
-    * `Europe/Malta` - Europe/Malta
-    * `Europe/Mariehamn` - Europe/Mariehamn
-    * `Europe/Minsk` - Europe/Minsk
-    * `Europe/Monaco` - Europe/Monaco
-    * `Europe/Moscow` - Europe/Moscow
-    * `Europe/Nicosia` - Europe/Nicosia
-    * `Europe/Oslo` - Europe/Oslo
-    * `Europe/Paris` - Europe/Paris
-    * `Europe/Podgorica` - Europe/Podgorica
-    * `Europe/Prague` - Europe/Prague
-    * `Europe/Riga` - Europe/Riga
-    * `Europe/Rome` - Europe/Rome
-    * `Europe/Samara` - Europe/Samara
-    * `Europe/San_Marino` - Europe/San_Marino
-    * `Europe/Sarajevo` - Europe/Sarajevo
-    * `Europe/Saratov` - Europe/Saratov
-    * `Europe/Simferopol` - Europe/Simferopol
-    * `Europe/Skopje` - Europe/Skopje
-    * `Europe/Sofia` - Europe/Sofia
-    * `Europe/Stockholm` - Europe/Stockholm
-    * `Europe/Tallinn` - Europe/Tallinn
-    * `Europe/Tirane` - Europe/Tirane
-    * `Europe/Tiraspol` - Europe/Tiraspol
-    * `Europe/Ulyanovsk` - Europe/Ulyanovsk
-    * `Europe/Uzhgorod` - Europe/Uzhgorod
-    * `Europe/Vaduz` - Europe/Vaduz
-    * `Europe/Vatican` - Europe/Vatican
-    * `Europe/Vienna` - Europe/Vienna
-    * `Europe/Vilnius` - Europe/Vilnius
-    * `Europe/Volgograd` - Europe/Volgograd
-    * `Europe/Warsaw` - Europe/Warsaw
-    * `Europe/Zagreb` - Europe/Zagreb
-    * `Europe/Zaporozhye` - Europe/Zaporozhye
-    * `Europe/Zurich` - Europe/Zurich
-    * `GB` - GB
-    * `GB-Eire` - GB-Eire
-    * `GMT` - GMT
-    * `GMT+0` - GMT+0
-    * `GMT-0` - GMT-0
-    * `GMT0` - GMT0
-    * `Greenwich` - Greenwich
-    * `HST` - HST
-    * `Hongkong` - Hongkong
-    * `Iceland` - Iceland
-    * `Indian/Antananarivo` - Indian/Antananarivo
-    * `Indian/Chagos` - Indian/Chagos
-    * `Indian/Christmas` - Indian/Christmas
-    * `Indian/Cocos` - Indian/Cocos
-    * `Indian/Comoro` - Indian/Comoro
-    * `Indian/Kerguelen` - Indian/Kerguelen
-    * `Indian/Mahe` - Indian/Mahe
-    * `Indian/Maldives` - Indian/Maldives
-    * `Indian/Mauritius` - Indian/Mauritius
-    * `Indian/Mayotte` - Indian/Mayotte
-    * `Indian/Reunion` - Indian/Reunion
-    * `Iran` - Iran
-    * `Israel` - Israel
-    * `Jamaica` - Jamaica
-    * `Japan` - Japan
-    * `Kwajalein` - Kwajalein
-    * `Libya` - Libya
-    * `MET` - MET
-    * `MST` - MST
-    * `MST7MDT` - MST7MDT
-    * `Mexico/BajaNorte` - Mexico/BajaNorte
-    * `Mexico/BajaSur` - Mexico/BajaSur
-    * `Mexico/General` - Mexico/General
-    * `NZ` - NZ
-    * `NZ-CHAT` - NZ-CHAT
-    * `Navajo` - Navajo
-    * `PRC` - PRC
-    * `PST8PDT` - PST8PDT
-    * `Pacific/Apia` - Pacific/Apia
-    * `Pacific/Auckland` - Pacific/Auckland
-    * `Pacific/Bougainville` - Pacific/Bougainville
-    * `Pacific/Chatham` - Pacific/Chatham
-    * `Pacific/Chuuk` - Pacific/Chuuk
-    * `Pacific/Easter` - Pacific/Easter
-    * `Pacific/Efate` - Pacific/Efate
-    * `Pacific/Enderbury` - Pacific/Enderbury
-    * `Pacific/Fakaofo` - Pacific/Fakaofo
-    * `Pacific/Fiji` - Pacific/Fiji
-    * `Pacific/Funafuti` - Pacific/Funafuti
-    * `Pacific/Galapagos` - Pacific/Galapagos
-    * `Pacific/Gambier` - Pacific/Gambier
-    * `Pacific/Guadalcanal` - Pacific/Guadalcanal
-    * `Pacific/Guam` - Pacific/Guam
-    * `Pacific/Honolulu` - Pacific/Honolulu
-    * `Pacific/Johnston` - Pacific/Johnston
-    * `Pacific/Kanton` - Pacific/Kanton
-    * `Pacific/Kiritimati` - Pacific/Kiritimati
-    * `Pacific/Kosrae` - Pacific/Kosrae
-    * `Pacific/Kwajalein` - Pacific/Kwajalein
-    * `Pacific/Majuro` - Pacific/Majuro
-    * `Pacific/Marquesas` - Pacific/Marquesas
-    * `Pacific/Midway` - Pacific/Midway
-    * `Pacific/Nauru` - Pacific/Nauru
-    * `Pacific/Niue` - Pacific/Niue
-    * `Pacific/Norfolk` - Pacific/Norfolk
-    * `Pacific/Noumea` - Pacific/Noumea
-    * `Pacific/Pago_Pago` - Pacific/Pago_Pago
-    * `Pacific/Palau` - Pacific/Palau
-    * `Pacific/Pitcairn` - Pacific/Pitcairn
-    * `Pacific/Pohnpei` - Pacific/Pohnpei
-    * `Pacific/Ponape` - Pacific/Ponape
-    * `Pacific/Port_Moresby` - Pacific/Port_Moresby
-    * `Pacific/Rarotonga` - Pacific/Rarotonga
-    * `Pacific/Saipan` - Pacific/Saipan
-    * `Pacific/Samoa` - Pacific/Samoa
-    * `Pacific/Tahiti` - Pacific/Tahiti
-    * `Pacific/Tarawa` - Pacific/Tarawa
-    * `Pacific/Tongatapu` - Pacific/Tongatapu
-    * `Pacific/Truk` - Pacific/Truk
-    * `Pacific/Wake` - Pacific/Wake
-    * `Pacific/Wallis` - Pacific/Wallis
-    * `Pacific/Yap` - Pacific/Yap
-    * `Poland` - Poland
-    * `Portugal` - Portugal
-    * `ROC` - ROC
-    * `ROK` - ROK
-    * `Singapore` - Singapore
-    * `Turkey` - Turkey
-    * `UCT` - UCT
-    * `US/Alaska` - US/Alaska
-    * `US/Aleutian` - US/Aleutian
-    * `US/Arizona` - US/Arizona
-    * `US/Central` - US/Central
-    * `US/East-Indiana` - US/East-Indiana
-    * `US/Eastern` - US/Eastern
-    * `US/Hawaii` - US/Hawaii
-    * `US/Indiana-Starke` - US/Indiana-Starke
-    * `US/Michigan` - US/Michigan
-    * `US/Mountain` - US/Mountain
-    * `US/Pacific` - US/Pacific
-    * `US/Samoa` - US/Samoa
-    * `UTC` - UTC
-    * `Universal` - Universal
-    * `W-SU` - W-SU
-    * `WET` - WET
-    * `Zulu` - Zulu */
+      * `Africa/Abidjan` - Africa/Abidjan
+      * `Africa/Accra` - Africa/Accra
+      * `Africa/Addis_Ababa` - Africa/Addis_Ababa
+      * `Africa/Algiers` - Africa/Algiers
+      * `Africa/Asmara` - Africa/Asmara
+      * `Africa/Asmera` - Africa/Asmera
+      * `Africa/Bamako` - Africa/Bamako
+      * `Africa/Bangui` - Africa/Bangui
+      * `Africa/Banjul` - Africa/Banjul
+      * `Africa/Bissau` - Africa/Bissau
+      * `Africa/Blantyre` - Africa/Blantyre
+      * `Africa/Brazzaville` - Africa/Brazzaville
+      * `Africa/Bujumbura` - Africa/Bujumbura
+      * `Africa/Cairo` - Africa/Cairo
+      * `Africa/Casablanca` - Africa/Casablanca
+      * `Africa/Ceuta` - Africa/Ceuta
+      * `Africa/Conakry` - Africa/Conakry
+      * `Africa/Dakar` - Africa/Dakar
+      * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
+      * `Africa/Djibouti` - Africa/Djibouti
+      * `Africa/Douala` - Africa/Douala
+      * `Africa/El_Aaiun` - Africa/El_Aaiun
+      * `Africa/Freetown` - Africa/Freetown
+      * `Africa/Gaborone` - Africa/Gaborone
+      * `Africa/Harare` - Africa/Harare
+      * `Africa/Johannesburg` - Africa/Johannesburg
+      * `Africa/Juba` - Africa/Juba
+      * `Africa/Kampala` - Africa/Kampala
+      * `Africa/Khartoum` - Africa/Khartoum
+      * `Africa/Kigali` - Africa/Kigali
+      * `Africa/Kinshasa` - Africa/Kinshasa
+      * `Africa/Lagos` - Africa/Lagos
+      * `Africa/Libreville` - Africa/Libreville
+      * `Africa/Lome` - Africa/Lome
+      * `Africa/Luanda` - Africa/Luanda
+      * `Africa/Lubumbashi` - Africa/Lubumbashi
+      * `Africa/Lusaka` - Africa/Lusaka
+      * `Africa/Malabo` - Africa/Malabo
+      * `Africa/Maputo` - Africa/Maputo
+      * `Africa/Maseru` - Africa/Maseru
+      * `Africa/Mbabane` - Africa/Mbabane
+      * `Africa/Mogadishu` - Africa/Mogadishu
+      * `Africa/Monrovia` - Africa/Monrovia
+      * `Africa/Nairobi` - Africa/Nairobi
+      * `Africa/Ndjamena` - Africa/Ndjamena
+      * `Africa/Niamey` - Africa/Niamey
+      * `Africa/Nouakchott` - Africa/Nouakchott
+      * `Africa/Ouagadougou` - Africa/Ouagadougou
+      * `Africa/Porto-Novo` - Africa/Porto-Novo
+      * `Africa/Sao_Tome` - Africa/Sao_Tome
+      * `Africa/Timbuktu` - Africa/Timbuktu
+      * `Africa/Tripoli` - Africa/Tripoli
+      * `Africa/Tunis` - Africa/Tunis
+      * `Africa/Windhoek` - Africa/Windhoek
+      * `America/Adak` - America/Adak
+      * `America/Anchorage` - America/Anchorage
+      * `America/Anguilla` - America/Anguilla
+      * `America/Antigua` - America/Antigua
+      * `America/Araguaina` - America/Araguaina
+      * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
+      * `America/Argentina/Catamarca` - America/Argentina/Catamarca
+      * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
+      * `America/Argentina/Cordoba` - America/Argentina/Cordoba
+      * `America/Argentina/Jujuy` - America/Argentina/Jujuy
+      * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
+      * `America/Argentina/Mendoza` - America/Argentina/Mendoza
+      * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
+      * `America/Argentina/Salta` - America/Argentina/Salta
+      * `America/Argentina/San_Juan` - America/Argentina/San_Juan
+      * `America/Argentina/San_Luis` - America/Argentina/San_Luis
+      * `America/Argentina/Tucuman` - America/Argentina/Tucuman
+      * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
+      * `America/Aruba` - America/Aruba
+      * `America/Asuncion` - America/Asuncion
+      * `America/Atikokan` - America/Atikokan
+      * `America/Atka` - America/Atka
+      * `America/Bahia` - America/Bahia
+      * `America/Bahia_Banderas` - America/Bahia_Banderas
+      * `America/Barbados` - America/Barbados
+      * `America/Belem` - America/Belem
+      * `America/Belize` - America/Belize
+      * `America/Blanc-Sablon` - America/Blanc-Sablon
+      * `America/Boa_Vista` - America/Boa_Vista
+      * `America/Bogota` - America/Bogota
+      * `America/Boise` - America/Boise
+      * `America/Buenos_Aires` - America/Buenos_Aires
+      * `America/Cambridge_Bay` - America/Cambridge_Bay
+      * `America/Campo_Grande` - America/Campo_Grande
+      * `America/Cancun` - America/Cancun
+      * `America/Caracas` - America/Caracas
+      * `America/Catamarca` - America/Catamarca
+      * `America/Cayenne` - America/Cayenne
+      * `America/Cayman` - America/Cayman
+      * `America/Chicago` - America/Chicago
+      * `America/Chihuahua` - America/Chihuahua
+      * `America/Ciudad_Juarez` - America/Ciudad_Juarez
+      * `America/Coral_Harbour` - America/Coral_Harbour
+      * `America/Cordoba` - America/Cordoba
+      * `America/Costa_Rica` - America/Costa_Rica
+      * `America/Creston` - America/Creston
+      * `America/Cuiaba` - America/Cuiaba
+      * `America/Curacao` - America/Curacao
+      * `America/Danmarkshavn` - America/Danmarkshavn
+      * `America/Dawson` - America/Dawson
+      * `America/Dawson_Creek` - America/Dawson_Creek
+      * `America/Denver` - America/Denver
+      * `America/Detroit` - America/Detroit
+      * `America/Dominica` - America/Dominica
+      * `America/Edmonton` - America/Edmonton
+      * `America/Eirunepe` - America/Eirunepe
+      * `America/El_Salvador` - America/El_Salvador
+      * `America/Ensenada` - America/Ensenada
+      * `America/Fort_Nelson` - America/Fort_Nelson
+      * `America/Fort_Wayne` - America/Fort_Wayne
+      * `America/Fortaleza` - America/Fortaleza
+      * `America/Glace_Bay` - America/Glace_Bay
+      * `America/Godthab` - America/Godthab
+      * `America/Goose_Bay` - America/Goose_Bay
+      * `America/Grand_Turk` - America/Grand_Turk
+      * `America/Grenada` - America/Grenada
+      * `America/Guadeloupe` - America/Guadeloupe
+      * `America/Guatemala` - America/Guatemala
+      * `America/Guayaquil` - America/Guayaquil
+      * `America/Guyana` - America/Guyana
+      * `America/Halifax` - America/Halifax
+      * `America/Havana` - America/Havana
+      * `America/Hermosillo` - America/Hermosillo
+      * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
+      * `America/Indiana/Knox` - America/Indiana/Knox
+      * `America/Indiana/Marengo` - America/Indiana/Marengo
+      * `America/Indiana/Petersburg` - America/Indiana/Petersburg
+      * `America/Indiana/Tell_City` - America/Indiana/Tell_City
+      * `America/Indiana/Vevay` - America/Indiana/Vevay
+      * `America/Indiana/Vincennes` - America/Indiana/Vincennes
+      * `America/Indiana/Winamac` - America/Indiana/Winamac
+      * `America/Indianapolis` - America/Indianapolis
+      * `America/Inuvik` - America/Inuvik
+      * `America/Iqaluit` - America/Iqaluit
+      * `America/Jamaica` - America/Jamaica
+      * `America/Jujuy` - America/Jujuy
+      * `America/Juneau` - America/Juneau
+      * `America/Kentucky/Louisville` - America/Kentucky/Louisville
+      * `America/Kentucky/Monticello` - America/Kentucky/Monticello
+      * `America/Knox_IN` - America/Knox_IN
+      * `America/Kralendijk` - America/Kralendijk
+      * `America/La_Paz` - America/La_Paz
+      * `America/Lima` - America/Lima
+      * `America/Los_Angeles` - America/Los_Angeles
+      * `America/Louisville` - America/Louisville
+      * `America/Lower_Princes` - America/Lower_Princes
+      * `America/Maceio` - America/Maceio
+      * `America/Managua` - America/Managua
+      * `America/Manaus` - America/Manaus
+      * `America/Marigot` - America/Marigot
+      * `America/Martinique` - America/Martinique
+      * `America/Matamoros` - America/Matamoros
+      * `America/Mazatlan` - America/Mazatlan
+      * `America/Mendoza` - America/Mendoza
+      * `America/Menominee` - America/Menominee
+      * `America/Merida` - America/Merida
+      * `America/Metlakatla` - America/Metlakatla
+      * `America/Mexico_City` - America/Mexico_City
+      * `America/Miquelon` - America/Miquelon
+      * `America/Moncton` - America/Moncton
+      * `America/Monterrey` - America/Monterrey
+      * `America/Montevideo` - America/Montevideo
+      * `America/Montreal` - America/Montreal
+      * `America/Montserrat` - America/Montserrat
+      * `America/Nassau` - America/Nassau
+      * `America/New_York` - America/New_York
+      * `America/Nipigon` - America/Nipigon
+      * `America/Nome` - America/Nome
+      * `America/Noronha` - America/Noronha
+      * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
+      * `America/North_Dakota/Center` - America/North_Dakota/Center
+      * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
+      * `America/Nuuk` - America/Nuuk
+      * `America/Ojinaga` - America/Ojinaga
+      * `America/Panama` - America/Panama
+      * `America/Pangnirtung` - America/Pangnirtung
+      * `America/Paramaribo` - America/Paramaribo
+      * `America/Phoenix` - America/Phoenix
+      * `America/Port-au-Prince` - America/Port-au-Prince
+      * `America/Port_of_Spain` - America/Port_of_Spain
+      * `America/Porto_Acre` - America/Porto_Acre
+      * `America/Porto_Velho` - America/Porto_Velho
+      * `America/Puerto_Rico` - America/Puerto_Rico
+      * `America/Punta_Arenas` - America/Punta_Arenas
+      * `America/Rainy_River` - America/Rainy_River
+      * `America/Rankin_Inlet` - America/Rankin_Inlet
+      * `America/Recife` - America/Recife
+      * `America/Regina` - America/Regina
+      * `America/Resolute` - America/Resolute
+      * `America/Rio_Branco` - America/Rio_Branco
+      * `America/Rosario` - America/Rosario
+      * `America/Santa_Isabel` - America/Santa_Isabel
+      * `America/Santarem` - America/Santarem
+      * `America/Santiago` - America/Santiago
+      * `America/Santo_Domingo` - America/Santo_Domingo
+      * `America/Sao_Paulo` - America/Sao_Paulo
+      * `America/Scoresbysund` - America/Scoresbysund
+      * `America/Shiprock` - America/Shiprock
+      * `America/Sitka` - America/Sitka
+      * `America/St_Barthelemy` - America/St_Barthelemy
+      * `America/St_Johns` - America/St_Johns
+      * `America/St_Kitts` - America/St_Kitts
+      * `America/St_Lucia` - America/St_Lucia
+      * `America/St_Thomas` - America/St_Thomas
+      * `America/St_Vincent` - America/St_Vincent
+      * `America/Swift_Current` - America/Swift_Current
+      * `America/Tegucigalpa` - America/Tegucigalpa
+      * `America/Thule` - America/Thule
+      * `America/Thunder_Bay` - America/Thunder_Bay
+      * `America/Tijuana` - America/Tijuana
+      * `America/Toronto` - America/Toronto
+      * `America/Tortola` - America/Tortola
+      * `America/Vancouver` - America/Vancouver
+      * `America/Virgin` - America/Virgin
+      * `America/Whitehorse` - America/Whitehorse
+      * `America/Winnipeg` - America/Winnipeg
+      * `America/Yakutat` - America/Yakutat
+      * `America/Yellowknife` - America/Yellowknife
+      * `Antarctica/Casey` - Antarctica/Casey
+      * `Antarctica/Davis` - Antarctica/Davis
+      * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
+      * `Antarctica/Macquarie` - Antarctica/Macquarie
+      * `Antarctica/Mawson` - Antarctica/Mawson
+      * `Antarctica/McMurdo` - Antarctica/McMurdo
+      * `Antarctica/Palmer` - Antarctica/Palmer
+      * `Antarctica/Rothera` - Antarctica/Rothera
+      * `Antarctica/South_Pole` - Antarctica/South_Pole
+      * `Antarctica/Syowa` - Antarctica/Syowa
+      * `Antarctica/Troll` - Antarctica/Troll
+      * `Antarctica/Vostok` - Antarctica/Vostok
+      * `Arctic/Longyearbyen` - Arctic/Longyearbyen
+      * `Asia/Aden` - Asia/Aden
+      * `Asia/Almaty` - Asia/Almaty
+      * `Asia/Amman` - Asia/Amman
+      * `Asia/Anadyr` - Asia/Anadyr
+      * `Asia/Aqtau` - Asia/Aqtau
+      * `Asia/Aqtobe` - Asia/Aqtobe
+      * `Asia/Ashgabat` - Asia/Ashgabat
+      * `Asia/Ashkhabad` - Asia/Ashkhabad
+      * `Asia/Atyrau` - Asia/Atyrau
+      * `Asia/Baghdad` - Asia/Baghdad
+      * `Asia/Bahrain` - Asia/Bahrain
+      * `Asia/Baku` - Asia/Baku
+      * `Asia/Bangkok` - Asia/Bangkok
+      * `Asia/Barnaul` - Asia/Barnaul
+      * `Asia/Beirut` - Asia/Beirut
+      * `Asia/Bishkek` - Asia/Bishkek
+      * `Asia/Brunei` - Asia/Brunei
+      * `Asia/Calcutta` - Asia/Calcutta
+      * `Asia/Chita` - Asia/Chita
+      * `Asia/Choibalsan` - Asia/Choibalsan
+      * `Asia/Chongqing` - Asia/Chongqing
+      * `Asia/Chungking` - Asia/Chungking
+      * `Asia/Colombo` - Asia/Colombo
+      * `Asia/Dacca` - Asia/Dacca
+      * `Asia/Damascus` - Asia/Damascus
+      * `Asia/Dhaka` - Asia/Dhaka
+      * `Asia/Dili` - Asia/Dili
+      * `Asia/Dubai` - Asia/Dubai
+      * `Asia/Dushanbe` - Asia/Dushanbe
+      * `Asia/Famagusta` - Asia/Famagusta
+      * `Asia/Gaza` - Asia/Gaza
+      * `Asia/Harbin` - Asia/Harbin
+      * `Asia/Hebron` - Asia/Hebron
+      * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
+      * `Asia/Hong_Kong` - Asia/Hong_Kong
+      * `Asia/Hovd` - Asia/Hovd
+      * `Asia/Irkutsk` - Asia/Irkutsk
+      * `Asia/Istanbul` - Asia/Istanbul
+      * `Asia/Jakarta` - Asia/Jakarta
+      * `Asia/Jayapura` - Asia/Jayapura
+      * `Asia/Jerusalem` - Asia/Jerusalem
+      * `Asia/Kabul` - Asia/Kabul
+      * `Asia/Kamchatka` - Asia/Kamchatka
+      * `Asia/Karachi` - Asia/Karachi
+      * `Asia/Kashgar` - Asia/Kashgar
+      * `Asia/Kathmandu` - Asia/Kathmandu
+      * `Asia/Katmandu` - Asia/Katmandu
+      * `Asia/Khandyga` - Asia/Khandyga
+      * `Asia/Kolkata` - Asia/Kolkata
+      * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
+      * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
+      * `Asia/Kuching` - Asia/Kuching
+      * `Asia/Kuwait` - Asia/Kuwait
+      * `Asia/Macao` - Asia/Macao
+      * `Asia/Macau` - Asia/Macau
+      * `Asia/Magadan` - Asia/Magadan
+      * `Asia/Makassar` - Asia/Makassar
+      * `Asia/Manila` - Asia/Manila
+      * `Asia/Muscat` - Asia/Muscat
+      * `Asia/Nicosia` - Asia/Nicosia
+      * `Asia/Novokuznetsk` - Asia/Novokuznetsk
+      * `Asia/Novosibirsk` - Asia/Novosibirsk
+      * `Asia/Omsk` - Asia/Omsk
+      * `Asia/Oral` - Asia/Oral
+      * `Asia/Phnom_Penh` - Asia/Phnom_Penh
+      * `Asia/Pontianak` - Asia/Pontianak
+      * `Asia/Pyongyang` - Asia/Pyongyang
+      * `Asia/Qatar` - Asia/Qatar
+      * `Asia/Qostanay` - Asia/Qostanay
+      * `Asia/Qyzylorda` - Asia/Qyzylorda
+      * `Asia/Rangoon` - Asia/Rangoon
+      * `Asia/Riyadh` - Asia/Riyadh
+      * `Asia/Saigon` - Asia/Saigon
+      * `Asia/Sakhalin` - Asia/Sakhalin
+      * `Asia/Samarkand` - Asia/Samarkand
+      * `Asia/Seoul` - Asia/Seoul
+      * `Asia/Shanghai` - Asia/Shanghai
+      * `Asia/Singapore` - Asia/Singapore
+      * `Asia/Srednekolymsk` - Asia/Srednekolymsk
+      * `Asia/Taipei` - Asia/Taipei
+      * `Asia/Tashkent` - Asia/Tashkent
+      * `Asia/Tbilisi` - Asia/Tbilisi
+      * `Asia/Tehran` - Asia/Tehran
+      * `Asia/Tel_Aviv` - Asia/Tel_Aviv
+      * `Asia/Thimbu` - Asia/Thimbu
+      * `Asia/Thimphu` - Asia/Thimphu
+      * `Asia/Tokyo` - Asia/Tokyo
+      * `Asia/Tomsk` - Asia/Tomsk
+      * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
+      * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
+      * `Asia/Ulan_Bator` - Asia/Ulan_Bator
+      * `Asia/Urumqi` - Asia/Urumqi
+      * `Asia/Ust-Nera` - Asia/Ust-Nera
+      * `Asia/Vientiane` - Asia/Vientiane
+      * `Asia/Vladivostok` - Asia/Vladivostok
+      * `Asia/Yakutsk` - Asia/Yakutsk
+      * `Asia/Yangon` - Asia/Yangon
+      * `Asia/Yekaterinburg` - Asia/Yekaterinburg
+      * `Asia/Yerevan` - Asia/Yerevan
+      * `Atlantic/Azores` - Atlantic/Azores
+      * `Atlantic/Bermuda` - Atlantic/Bermuda
+      * `Atlantic/Canary` - Atlantic/Canary
+      * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
+      * `Atlantic/Faeroe` - Atlantic/Faeroe
+      * `Atlantic/Faroe` - Atlantic/Faroe
+      * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
+      * `Atlantic/Madeira` - Atlantic/Madeira
+      * `Atlantic/Reykjavik` - Atlantic/Reykjavik
+      * `Atlantic/South_Georgia` - Atlantic/South_Georgia
+      * `Atlantic/St_Helena` - Atlantic/St_Helena
+      * `Atlantic/Stanley` - Atlantic/Stanley
+      * `Australia/ACT` - Australia/ACT
+      * `Australia/Adelaide` - Australia/Adelaide
+      * `Australia/Brisbane` - Australia/Brisbane
+      * `Australia/Broken_Hill` - Australia/Broken_Hill
+      * `Australia/Canberra` - Australia/Canberra
+      * `Australia/Currie` - Australia/Currie
+      * `Australia/Darwin` - Australia/Darwin
+      * `Australia/Eucla` - Australia/Eucla
+      * `Australia/Hobart` - Australia/Hobart
+      * `Australia/LHI` - Australia/LHI
+      * `Australia/Lindeman` - Australia/Lindeman
+      * `Australia/Lord_Howe` - Australia/Lord_Howe
+      * `Australia/Melbourne` - Australia/Melbourne
+      * `Australia/NSW` - Australia/NSW
+      * `Australia/North` - Australia/North
+      * `Australia/Perth` - Australia/Perth
+      * `Australia/Queensland` - Australia/Queensland
+      * `Australia/South` - Australia/South
+      * `Australia/Sydney` - Australia/Sydney
+      * `Australia/Tasmania` - Australia/Tasmania
+      * `Australia/Victoria` - Australia/Victoria
+      * `Australia/West` - Australia/West
+      * `Australia/Yancowinna` - Australia/Yancowinna
+      * `Brazil/Acre` - Brazil/Acre
+      * `Brazil/DeNoronha` - Brazil/DeNoronha
+      * `Brazil/East` - Brazil/East
+      * `Brazil/West` - Brazil/West
+      * `CET` - CET
+      * `CST6CDT` - CST6CDT
+      * `Canada/Atlantic` - Canada/Atlantic
+      * `Canada/Central` - Canada/Central
+      * `Canada/Eastern` - Canada/Eastern
+      * `Canada/Mountain` - Canada/Mountain
+      * `Canada/Newfoundland` - Canada/Newfoundland
+      * `Canada/Pacific` - Canada/Pacific
+      * `Canada/Saskatchewan` - Canada/Saskatchewan
+      * `Canada/Yukon` - Canada/Yukon
+      * `Chile/Continental` - Chile/Continental
+      * `Chile/EasterIsland` - Chile/EasterIsland
+      * `Cuba` - Cuba
+      * `EET` - EET
+      * `EST` - EST
+      * `EST5EDT` - EST5EDT
+      * `Egypt` - Egypt
+      * `Eire` - Eire
+      * `Etc/GMT` - Etc/GMT
+      * `Etc/GMT+0` - Etc/GMT+0
+      * `Etc/GMT+1` - Etc/GMT+1
+      * `Etc/GMT+10` - Etc/GMT+10
+      * `Etc/GMT+11` - Etc/GMT+11
+      * `Etc/GMT+12` - Etc/GMT+12
+      * `Etc/GMT+2` - Etc/GMT+2
+      * `Etc/GMT+3` - Etc/GMT+3
+      * `Etc/GMT+4` - Etc/GMT+4
+      * `Etc/GMT+5` - Etc/GMT+5
+      * `Etc/GMT+6` - Etc/GMT+6
+      * `Etc/GMT+7` - Etc/GMT+7
+      * `Etc/GMT+8` - Etc/GMT+8
+      * `Etc/GMT+9` - Etc/GMT+9
+      * `Etc/GMT-0` - Etc/GMT-0
+      * `Etc/GMT-1` - Etc/GMT-1
+      * `Etc/GMT-10` - Etc/GMT-10
+      * `Etc/GMT-11` - Etc/GMT-11
+      * `Etc/GMT-12` - Etc/GMT-12
+      * `Etc/GMT-13` - Etc/GMT-13
+      * `Etc/GMT-14` - Etc/GMT-14
+      * `Etc/GMT-2` - Etc/GMT-2
+      * `Etc/GMT-3` - Etc/GMT-3
+      * `Etc/GMT-4` - Etc/GMT-4
+      * `Etc/GMT-5` - Etc/GMT-5
+      * `Etc/GMT-6` - Etc/GMT-6
+      * `Etc/GMT-7` - Etc/GMT-7
+      * `Etc/GMT-8` - Etc/GMT-8
+      * `Etc/GMT-9` - Etc/GMT-9
+      * `Etc/GMT0` - Etc/GMT0
+      * `Etc/Greenwich` - Etc/Greenwich
+      * `Etc/UCT` - Etc/UCT
+      * `Etc/UTC` - Etc/UTC
+      * `Etc/Universal` - Etc/Universal
+      * `Etc/Zulu` - Etc/Zulu
+      * `Europe/Amsterdam` - Europe/Amsterdam
+      * `Europe/Andorra` - Europe/Andorra
+      * `Europe/Astrakhan` - Europe/Astrakhan
+      * `Europe/Athens` - Europe/Athens
+      * `Europe/Belfast` - Europe/Belfast
+      * `Europe/Belgrade` - Europe/Belgrade
+      * `Europe/Berlin` - Europe/Berlin
+      * `Europe/Bratislava` - Europe/Bratislava
+      * `Europe/Brussels` - Europe/Brussels
+      * `Europe/Bucharest` - Europe/Bucharest
+      * `Europe/Budapest` - Europe/Budapest
+      * `Europe/Busingen` - Europe/Busingen
+      * `Europe/Chisinau` - Europe/Chisinau
+      * `Europe/Copenhagen` - Europe/Copenhagen
+      * `Europe/Dublin` - Europe/Dublin
+      * `Europe/Gibraltar` - Europe/Gibraltar
+      * `Europe/Guernsey` - Europe/Guernsey
+      * `Europe/Helsinki` - Europe/Helsinki
+      * `Europe/Isle_of_Man` - Europe/Isle_of_Man
+      * `Europe/Istanbul` - Europe/Istanbul
+      * `Europe/Jersey` - Europe/Jersey
+      * `Europe/Kaliningrad` - Europe/Kaliningrad
+      * `Europe/Kiev` - Europe/Kiev
+      * `Europe/Kirov` - Europe/Kirov
+      * `Europe/Kyiv` - Europe/Kyiv
+      * `Europe/Lisbon` - Europe/Lisbon
+      * `Europe/Ljubljana` - Europe/Ljubljana
+      * `Europe/London` - Europe/London
+      * `Europe/Luxembourg` - Europe/Luxembourg
+      * `Europe/Madrid` - Europe/Madrid
+      * `Europe/Malta` - Europe/Malta
+      * `Europe/Mariehamn` - Europe/Mariehamn
+      * `Europe/Minsk` - Europe/Minsk
+      * `Europe/Monaco` - Europe/Monaco
+      * `Europe/Moscow` - Europe/Moscow
+      * `Europe/Nicosia` - Europe/Nicosia
+      * `Europe/Oslo` - Europe/Oslo
+      * `Europe/Paris` - Europe/Paris
+      * `Europe/Podgorica` - Europe/Podgorica
+      * `Europe/Prague` - Europe/Prague
+      * `Europe/Riga` - Europe/Riga
+      * `Europe/Rome` - Europe/Rome
+      * `Europe/Samara` - Europe/Samara
+      * `Europe/San_Marino` - Europe/San_Marino
+      * `Europe/Sarajevo` - Europe/Sarajevo
+      * `Europe/Saratov` - Europe/Saratov
+      * `Europe/Simferopol` - Europe/Simferopol
+      * `Europe/Skopje` - Europe/Skopje
+      * `Europe/Sofia` - Europe/Sofia
+      * `Europe/Stockholm` - Europe/Stockholm
+      * `Europe/Tallinn` - Europe/Tallinn
+      * `Europe/Tirane` - Europe/Tirane
+      * `Europe/Tiraspol` - Europe/Tiraspol
+      * `Europe/Ulyanovsk` - Europe/Ulyanovsk
+      * `Europe/Uzhgorod` - Europe/Uzhgorod
+      * `Europe/Vaduz` - Europe/Vaduz
+      * `Europe/Vatican` - Europe/Vatican
+      * `Europe/Vienna` - Europe/Vienna
+      * `Europe/Vilnius` - Europe/Vilnius
+      * `Europe/Volgograd` - Europe/Volgograd
+      * `Europe/Warsaw` - Europe/Warsaw
+      * `Europe/Zagreb` - Europe/Zagreb
+      * `Europe/Zaporozhye` - Europe/Zaporozhye
+      * `Europe/Zurich` - Europe/Zurich
+      * `GB` - GB
+      * `GB-Eire` - GB-Eire
+      * `GMT` - GMT
+      * `GMT+0` - GMT+0
+      * `GMT-0` - GMT-0
+      * `GMT0` - GMT0
+      * `Greenwich` - Greenwich
+      * `HST` - HST
+      * `Hongkong` - Hongkong
+      * `Iceland` - Iceland
+      * `Indian/Antananarivo` - Indian/Antananarivo
+      * `Indian/Chagos` - Indian/Chagos
+      * `Indian/Christmas` - Indian/Christmas
+      * `Indian/Cocos` - Indian/Cocos
+      * `Indian/Comoro` - Indian/Comoro
+      * `Indian/Kerguelen` - Indian/Kerguelen
+      * `Indian/Mahe` - Indian/Mahe
+      * `Indian/Maldives` - Indian/Maldives
+      * `Indian/Mauritius` - Indian/Mauritius
+      * `Indian/Mayotte` - Indian/Mayotte
+      * `Indian/Reunion` - Indian/Reunion
+      * `Iran` - Iran
+      * `Israel` - Israel
+      * `Jamaica` - Jamaica
+      * `Japan` - Japan
+      * `Kwajalein` - Kwajalein
+      * `Libya` - Libya
+      * `MET` - MET
+      * `MST` - MST
+      * `MST7MDT` - MST7MDT
+      * `Mexico/BajaNorte` - Mexico/BajaNorte
+      * `Mexico/BajaSur` - Mexico/BajaSur
+      * `Mexico/General` - Mexico/General
+      * `NZ` - NZ
+      * `NZ-CHAT` - NZ-CHAT
+      * `Navajo` - Navajo
+      * `PRC` - PRC
+      * `PST8PDT` - PST8PDT
+      * `Pacific/Apia` - Pacific/Apia
+      * `Pacific/Auckland` - Pacific/Auckland
+      * `Pacific/Bougainville` - Pacific/Bougainville
+      * `Pacific/Chatham` - Pacific/Chatham
+      * `Pacific/Chuuk` - Pacific/Chuuk
+      * `Pacific/Easter` - Pacific/Easter
+      * `Pacific/Efate` - Pacific/Efate
+      * `Pacific/Enderbury` - Pacific/Enderbury
+      * `Pacific/Fakaofo` - Pacific/Fakaofo
+      * `Pacific/Fiji` - Pacific/Fiji
+      * `Pacific/Funafuti` - Pacific/Funafuti
+      * `Pacific/Galapagos` - Pacific/Galapagos
+      * `Pacific/Gambier` - Pacific/Gambier
+      * `Pacific/Guadalcanal` - Pacific/Guadalcanal
+      * `Pacific/Guam` - Pacific/Guam
+      * `Pacific/Honolulu` - Pacific/Honolulu
+      * `Pacific/Johnston` - Pacific/Johnston
+      * `Pacific/Kanton` - Pacific/Kanton
+      * `Pacific/Kiritimati` - Pacific/Kiritimati
+      * `Pacific/Kosrae` - Pacific/Kosrae
+      * `Pacific/Kwajalein` - Pacific/Kwajalein
+      * `Pacific/Majuro` - Pacific/Majuro
+      * `Pacific/Marquesas` - Pacific/Marquesas
+      * `Pacific/Midway` - Pacific/Midway
+      * `Pacific/Nauru` - Pacific/Nauru
+      * `Pacific/Niue` - Pacific/Niue
+      * `Pacific/Norfolk` - Pacific/Norfolk
+      * `Pacific/Noumea` - Pacific/Noumea
+      * `Pacific/Pago_Pago` - Pacific/Pago_Pago
+      * `Pacific/Palau` - Pacific/Palau
+      * `Pacific/Pitcairn` - Pacific/Pitcairn
+      * `Pacific/Pohnpei` - Pacific/Pohnpei
+      * `Pacific/Ponape` - Pacific/Ponape
+      * `Pacific/Port_Moresby` - Pacific/Port_Moresby
+      * `Pacific/Rarotonga` - Pacific/Rarotonga
+      * `Pacific/Saipan` - Pacific/Saipan
+      * `Pacific/Samoa` - Pacific/Samoa
+      * `Pacific/Tahiti` - Pacific/Tahiti
+      * `Pacific/Tarawa` - Pacific/Tarawa
+      * `Pacific/Tongatapu` - Pacific/Tongatapu
+      * `Pacific/Truk` - Pacific/Truk
+      * `Pacific/Wake` - Pacific/Wake
+      * `Pacific/Wallis` - Pacific/Wallis
+      * `Pacific/Yap` - Pacific/Yap
+      * `Poland` - Poland
+      * `Portugal` - Portugal
+      * `ROC` - ROC
+      * `ROK` - ROK
+      * `Singapore` - Singapore
+      * `Turkey` - Turkey
+      * `UCT` - UCT
+      * `US/Alaska` - US/Alaska
+      * `US/Aleutian` - US/Aleutian
+      * `US/Arizona` - US/Arizona
+      * `US/Central` - US/Central
+      * `US/East-Indiana` - US/East-Indiana
+      * `US/Eastern` - US/Eastern
+      * `US/Hawaii` - US/Hawaii
+      * `US/Indiana-Starke` - US/Indiana-Starke
+      * `US/Michigan` - US/Michigan
+      * `US/Mountain` - US/Mountain
+      * `US/Pacific` - US/Pacific
+      * `US/Samoa` - US/Samoa
+      * `UTC` - UTC
+      * `Universal` - Universal
+      * `W-SU` - W-SU
+      * `WET` - WET
+      * `Zulu` - Zulu */
       timezone?: string | null;
       /**
-       * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday). Only valid when interval is 'week'.
-       * @minimum 0
-       * @maximum 6
-       * @nullable
-       */
+         * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday). Only valid when interval is 'week'.
+         * @minimum 0
+         * @maximum 6
+         * @nullable
+         */
       offset_day?: number | null;
       /**
-       * Hour-of-day offset (0-23) for daily and weekly intervals. Only valid when interval is 'day' or 'week'.
-       * @minimum 0
-       * @maximum 23
-       * @nullable
-       */
+         * Hour-of-day offset (0-23) for daily and weekly intervals. Only valid when interval is 'day' or 'week'.
+         * @minimum 0
+         * @maximum 23
+         * @nullable
+         */
       offset_hour?: number | null;
     }
 
@@ -5922,7 +5920,7 @@ export namespace Schemas {
       readonly finished_runs?: number | null;
       /** @nullable */
       readonly progress?: number | null;
-    } | null | null;
+    } | null;
 
     /**
      * * `Cancelled` - Cancelled
@@ -5955,47 +5953,47 @@ export namespace Schemas {
       /** @nullable */
       readonly progress: BatchExportBackfillProgress;
       /**
-       * The start of the data interval.
-       * @nullable
-       */
+         * The start of the data interval.
+         * @nullable
+         */
       start_at?: string | null;
       /**
-       * The end of the data interval.
-       * @nullable
-       */
+         * The end of the data interval.
+         * @nullable
+         */
       end_at?: string | null;
       /** The status of this backfill.
 
-    * `Cancelled` - Cancelled
-    * `Completed` - Completed
-    * `ContinuedAsNew` - Continued As New
-    * `Failed` - Failed
-    * `FailedRetryable` - Failed Retryable
-    * `Terminated` - Terminated
-    * `TimedOut` - Timedout
-    * `Running` - Running
-    * `Starting` - Starting */
+      * `Cancelled` - Cancelled
+      * `Completed` - Completed
+      * `ContinuedAsNew` - Continued As New
+      * `Failed` - Failed
+      * `FailedRetryable` - Failed Retryable
+      * `Terminated` - Terminated
+      * `TimedOut` - Timedout
+      * `Running` - Running
+      * `Starting` - Starting */
       status: BatchExportBackfillStatusEnum;
       /** The timestamp at which this BatchExportBackfill was created. */
       readonly created_at: string;
       /**
-       * The timestamp at which this BatchExportBackfill finished, successfully or not.
-       * @nullable
-       */
+         * The timestamp at which this BatchExportBackfill finished, successfully or not.
+         * @nullable
+         */
       finished_at?: string | null;
       /** The timestamp at which this BatchExportBackfill was last updated. */
       readonly last_updated_at: string;
       /**
-       * The total number of records to export. Initially estimated, updated with actual count after completion.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * The total number of records to export. Initially estimated, updated with actual count after completion.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       total_records_count?: number | null;
       /**
-       * The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.
-       * @nullable
-       */
+         * The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.
+         * @nullable
+         */
       adjusted_start_at?: string | null;
       /** The team this belongs to. */
       team: number;
@@ -6034,19 +6032,19 @@ export namespace Schemas {
       name: string;
       /** Which data model to export (events, persons, sessions).
 
-    * `events` - Events
-    * `persons` - Persons
-    * `sessions` - Sessions */
+      * `events` - Events
+      * `persons` - Persons
+      * `sessions` - Sessions */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination: BatchExportDestinationRequest;
       /** How often the batch export should run.
 
-    * `hour` - hour
-    * `day` - day
-    * `week` - week
-    * `every 5 minutes` - every 5 minutes
-    * `every 15 minutes` - every 15 minutes */
+      * `hour` - hour
+      * `day` - day
+      * `week` - week
+      * `every 5 minutes` - every 5 minutes
+      * `every 15 minutes` - every 15 minutes */
       interval: IntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
@@ -6054,30 +6052,30 @@ export namespace Schemas {
       hogql_query?: string;
       filters?: unknown;
       /**
-       * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
-       * @nullable
-       */
+         * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
+         * @nullable
+         */
       timezone?: string | null;
       /**
-       * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday).
-       * @minimum 0
-       * @maximum 6
-       * @nullable
-       */
+         * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday).
+         * @minimum 0
+         * @maximum 6
+         * @nullable
+         */
       offset_day?: number | null;
       /**
-       * Hour-of-day offset (0-23) for daily and weekly intervals.
-       * @minimum 0
-       * @maximum 23
-       * @nullable
-       */
+         * Hour-of-day offset (0-23) for daily and weekly intervals.
+         * @minimum 0
+         * @maximum 23
+         * @nullable
+         */
       offset_hour?: number | null;
     }
 
     /**
      * @nullable
      */
-    export type BatchImportCreatedBy = { [key: string]: unknown } | null | null;
+    export type BatchImportCreatedBy = { [key: string]: unknown } | null;
 
     /**
      * * `completed` - Completed
@@ -6178,9 +6176,9 @@ export namespace Schemas {
       /** Property filters to apply */
       filters: BlastRadiusRequestFilters;
       /**
-       * Group type index for group-based targeting
-       * @nullable
-       */
+         * Group type index for group-based targeting
+         * @nullable
+         */
       group_type_index?: number | null;
     }
 
@@ -6264,15 +6262,15 @@ export namespace Schemas {
 
     export interface BulkUpdateTagsRequest {
       /**
-       * List of object IDs to update tags on.
-       * @maxItems 500
-       */
+         * List of object IDs to update tags on.
+         * @maxItems 500
+         */
       ids: number[];
       /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
 
-    * `add` - add
-    * `remove` - remove
-    * `set` - set */
+      * `add` - add
+      * `remove` - remove
+      * `set` - set */
       action: ActionEnum;
       /** Tag names to add, remove, or set. */
       tags: string[];
@@ -6390,8 +6388,8 @@ export namespace Schemas {
       field: string;
       /** Issue severity level
 
-    * `error` - error
-    * `warning` - warning */
+      * `error` - error
+      * `warning` - warning */
       severity: UtmIssueSeverityEnum;
       /** Human-readable description of the issue */
       message: string;
@@ -6446,12 +6444,12 @@ export namespace Schemas {
     export interface CapabilityState {
       /** Current state of the capability
 
-    * `needs_setup` - needs_setup
-    * `detected` - detected
-    * `waiting_for_data` - waiting_for_data
-    * `ready` - ready
-    * `not_applicable` - not_applicable
-    * `unknown` - unknown */
+      * `needs_setup` - needs_setup
+      * `detected` - detected
+      * `waiting_for_data` - waiting_for_data
+      * `ready` - ready
+      * `not_applicable` - not_applicable
+      * `unknown` - unknown */
       state: CapabilityStateStateEnum;
       /** Whether the state is estimated from static analysis */
       estimated: boolean;
@@ -6463,14 +6461,14 @@ export namespace Schemas {
 
     export interface CategoricalScoreOption {
       /**
-       * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
-       * @maxLength 128
-       */
+         * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+         * @maxLength 128
+         */
       key: string;
       /**
-       * Human-readable option label.
-       * @maxLength 256
-       */
+         * Human-readable option label.
+         * @maxLength 256
+         */
       label: string;
     }
 
@@ -6491,20 +6489,20 @@ export namespace Schemas {
       options: CategoricalScoreOption[];
       /** Whether reviewers can select one option or multiple options. Defaults to `single`.
 
-    * `single` - single
-    * `multiple` - multiple */
+      * `single` - single
+      * `multiple` - multiple */
       selection_mode?: SelectionModeEnum;
       /**
-       * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
-       * @minimum 1
-       * @nullable
-       */
+         * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+         * @minimum 1
+         * @nullable
+         */
       min_selections?: number | null;
       /**
-       * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
-       * @minimum 1
-       * @nullable
-       */
+         * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+         * @minimum 1
+         * @nullable
+         */
       max_selections?: number | null;
     }
 
@@ -6604,9 +6602,9 @@ export namespace Schemas {
       /** Check if current user is the requester. */
       readonly is_requester: boolean;
       /**
-       * Get the current user's approval decision if they have voted.
-       * @nullable
-       */
+         * Get the current user's approval decision if they have voted.
+         * @nullable
+         */
       readonly user_decision: string | null;
     }
 
@@ -6874,14 +6872,14 @@ export namespace Schemas {
     export interface ClaudeTaskRunCreateSchema {
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
 
-    * `interactive` - interactive
-    * `background` - background */
+      * `interactive` - interactive
+      * `background` - background */
       mode?: TaskExecutionModeEnum;
       /**
-       * Git branch to checkout in the sandbox
-       * @maxLength 255
-       * @nullable
-       */
+         * Git branch to checkout in the sandbox
+         * @maxLength 255
+         * @nullable
+         */
       branch?: string | null;
       /** ID of a previous run to resume from. Must belong to the same task. */
       resume_from_run_id?: string;
@@ -6893,39 +6891,39 @@ export namespace Schemas {
       sandbox_environment_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
 
-    * `user` - user
-    * `bot` - bot */
+      * `user` - user
+      * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
 
-    * `manual` - manual
-    * `signal_report` - signal_report */
+      * `manual` - manual
+      * `signal_report` - signal_report */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
       /** Agent runtime adapter to launch for this run. Must be 'claude' for Claude runtimes.
 
-    * `claude` - claude */
+      * `claude` - claude */
       runtime_adapter: ClaudeRuntimeAdapterEnum;
       /** LLM model identifier to run in the Claude runtime. */
       model: string;
       /** Reasoning effort to request for models that expose an effort control.
 
-    * `low` - low
-    * `medium` - medium
-    * `high` - high
-    * `xhigh` - xhigh
-    * `max` - max */
+      * `low` - low
+      * `medium` - medium
+      * `high` - high
+      * `xhigh` - xhigh
+      * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Claude runtimes.
 
-    * `default` - default
-    * `acceptEdits` - acceptEdits
-    * `plan` - plan
-    * `bypassPermissions` - bypassPermissions
-    * `auto` - auto */
+      * `default` - default
+      * `acceptEdits` - acceptEdits
+      * `plan` - plan
+      * `bypassPermissions` - bypassPermissions
+      * `auto` - auto */
       initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
     }
 
@@ -6934,50 +6932,50 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type ClickhouseEventPerson = { [key: string]: unknown } | null | null;
+    export type ClickhouseEventPerson = { [key: string]: unknown } | null;
 
     export interface EventElement {
       event: string;
       /**
-       * @maxLength 10000
-       * @nullable
-       */
+         * @maxLength 10000
+         * @nullable
+         */
       text?: string | null;
       /**
-       * @maxLength 1000
-       * @nullable
-       */
+         * @maxLength 1000
+         * @nullable
+         */
       tag_name?: string | null;
       /** @nullable */
       attr_class?: string[] | null;
       /**
-       * @maxLength 10000
-       * @nullable
-       */
+         * @maxLength 10000
+         * @nullable
+         */
       href?: string | null;
       /**
-       * @maxLength 10000
-       * @nullable
-       */
+         * @maxLength 10000
+         * @nullable
+         */
       attr_id?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       nth_child?: number | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       nth_of_type?: number | null;
       attributes?: unknown;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       order?: number | null;
     }
 
@@ -7093,80 +7091,80 @@ export namespace Schemas {
      */
     export interface ClusteringRunRequest {
       /**
-       * Number of days to look back for traces
-       * @minimum 1
-       * @maximum 90
-       */
+         * Number of days to look back for traces
+         * @minimum 1
+         * @maximum 90
+         */
       lookback_days?: number;
       /**
-       * Maximum number of traces to sample for clustering
-       * @minimum 20
-       * @maximum 10000
-       */
+         * Maximum number of traces to sample for clustering
+         * @minimum 20
+         * @maximum 10000
+         */
       max_samples?: number;
       /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
 
-    * `none` - none
-    * `l2` - l2 */
+      * `none` - none
+      * `l2` - l2 */
       embedding_normalization?: EmbeddingNormalizationEnum;
       /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
 
-    * `none` - none
-    * `umap` - umap
-    * `pca` - pca */
+      * `none` - none
+      * `umap` - umap
+      * `pca` - pca */
       dimensionality_reduction_method?: DimensionalityReductionMethodEnum;
       /**
-       * Target dimensions for dimensionality reduction (ignored if method is 'none')
-       * @minimum 2
-       * @maximum 500
-       */
+         * Target dimensions for dimensionality reduction (ignored if method is 'none')
+         * @minimum 2
+         * @maximum 500
+         */
       dimensionality_reduction_ndims?: number;
       /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
 
-    * `hdbscan` - hdbscan
-    * `kmeans` - kmeans */
+      * `hdbscan` - hdbscan
+      * `kmeans` - kmeans */
       clustering_method?: ClusteringMethodEnum;
       /**
-       * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
-       * @minimum 0.02
-       * @maximum 0.5
-       */
+         * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
+         * @minimum 0.02
+         * @maximum 0.5
+         */
       min_cluster_size_fraction?: number;
       /**
-       * HDBSCAN min_samples parameter (higher = more conservative clustering)
-       * @minimum 1
-       * @maximum 100
-       */
+         * HDBSCAN min_samples parameter (higher = more conservative clustering)
+         * @minimum 1
+         * @maximum 100
+         */
       hdbscan_min_samples?: number;
       /**
-       * Minimum number of clusters to try for k-means
-       * @minimum 2
-       * @maximum 50
-       */
+         * Minimum number of clusters to try for k-means
+         * @minimum 2
+         * @maximum 50
+         */
       kmeans_min_k?: number;
       /**
-       * Maximum number of clusters to try for k-means
-       * @minimum 2
-       * @maximum 100
-       */
+         * Maximum number of clusters to try for k-means
+         * @minimum 2
+         * @maximum 100
+         */
       kmeans_max_k?: number;
       /**
-       * Optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
-       * @maxLength 50
-       */
+         * Optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
+         * @maxLength 50
+         */
       run_label?: string;
       /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
 
-    * `umap` - umap
-    * `pca` - pca
-    * `tsne` - tsne */
+      * `umap` - umap
+      * `pca` - pca
+      * `tsne` - tsne */
       visualization_method?: VisualizationMethodEnum;
       /** Property filters to scope which traces are included in clustering (PostHog standard format) */
       event_filters?: ClusteringRunRequestEventFiltersItem[];
       /**
-       * If provided, use this clustering job's analysis_level and event_filters instead of request params
-       * @nullable
-       */
+         * If provided, use this clustering job's analysis_level and event_filters instead of request params
+         * @nullable
+         */
       clustering_job_id?: string | null;
     }
 
@@ -7205,14 +7203,14 @@ export namespace Schemas {
     export interface CodexTaskRunCreateSchema {
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
 
-    * `interactive` - interactive
-    * `background` - background */
+      * `interactive` - interactive
+      * `background` - background */
       mode?: TaskExecutionModeEnum;
       /**
-       * Git branch to checkout in the sandbox
-       * @maxLength 255
-       * @nullable
-       */
+         * Git branch to checkout in the sandbox
+         * @maxLength 255
+         * @nullable
+         */
       branch?: string | null;
       /** ID of a previous run to resume from. Must belong to the same task. */
       resume_from_run_id?: string;
@@ -7224,37 +7222,37 @@ export namespace Schemas {
       sandbox_environment_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
 
-    * `user` - user
-    * `bot` - bot */
+      * `user` - user
+      * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
 
-    * `manual` - manual
-    * `signal_report` - signal_report */
+      * `manual` - manual
+      * `signal_report` - signal_report */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
       /** Agent runtime adapter to launch for this run. Must be 'codex' for Codex runtimes.
 
-    * `codex` - codex */
+      * `codex` - codex */
       runtime_adapter: CodexRuntimeAdapterEnum;
       /** LLM model identifier to run in the Codex runtime. */
       model: string;
       /** Reasoning effort to request for models that expose an effort control.
 
-    * `low` - low
-    * `medium` - medium
-    * `high` - high
-    * `xhigh` - xhigh
-    * `max` - max */
+      * `low` - low
+      * `medium` - medium
+      * `high` - high
+      * `xhigh` - xhigh
+      * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
       github_user_token?: string;
       /** Initial permission mode for Codex runtimes.
 
-    * `auto` - auto
-    * `read-only` - read-only
-    * `full-access` - full-access */
+      * `auto` - auto
+      * `read-only` - read-only
+      * `full-access` - full-access */
       initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnum;
     }
 
@@ -7320,9 +7318,9 @@ export namespace Schemas {
     export interface Cohort {
       readonly id: number;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /** @maxLength 1000 */
       description?: string;
@@ -7350,11 +7348,11 @@ export namespace Schemas {
       is_static?: boolean;
       /** Type of cohort based on filter complexity
 
-    * `static` - static
-    * `person_property` - person_property
-    * `behavioral` - behavioral
-    * `realtime` - realtime
-    * `analytical` - analytical */
+      * `static` - static
+      * `person_property` - person_property
+      * `behavioral` - behavioral
+      * `realtime` - realtime
+      * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
       readonly experiment_set: readonly number[];
       _create_in_folder?: string;
@@ -7430,9 +7428,9 @@ export namespace Schemas {
       name?: string;
       filters?: unknown;
       /**
-       * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
-       * @nullable
-       */
+         * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+         * @nullable
+         */
       order_by?: string[] | null;
       visibility?: VisibilityEnum;
       /** @nullable */
@@ -7458,17 +7456,17 @@ export namespace Schemas {
       readonly version: number;
       readonly created_at: string;
       /**
-       * @maxLength 72
-       * @nullable
-       */
+         * @maxLength 72
+         * @nullable
+         */
       item_id?: string | null;
       item_context?: unknown;
       /** @maxLength 79 */
       scope: string;
       /**
-       * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
-       * @nullable
-       */
+         * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+         * @nullable
+         */
       readonly completed_at: string | null;
       /** @nullable */
       source_comment?: string | null;
@@ -7565,9 +7563,9 @@ export namespace Schemas {
       readonly id: string;
       readonly status: ConversationStatus;
       /**
-       * Title of the conversation.
-       * @nullable
-       */
+         * Title of the conversation.
+         * @nullable
+         */
       readonly title: string | null;
       readonly user: UserBasic;
       /** @nullable */
@@ -7576,19 +7574,19 @@ export namespace Schemas {
       readonly updated_at: string | null;
       readonly type: ConversationType;
       /**
-       * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
-       * @nullable
-       */
+         * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+         * @nullable
+         */
       readonly is_internal: boolean | null;
       /**
-       * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
-       * @nullable
-       */
+         * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+         * @nullable
+         */
       readonly slack_thread_key: string | null;
       /**
-       * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
-       * @nullable
-       */
+         * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+         * @nullable
+         */
       readonly slack_workspace_domain: string | null;
       readonly messages: readonly ConversationMessagesItem[];
       readonly has_unsupported_content: boolean;
@@ -7597,8 +7595,8 @@ export namespace Schemas {
       readonly is_sandbox: boolean;
       /** Return pending approval cards as structured data.
 
-    Combines metadata from conversation.approval_decisions with payload from checkpoint
-    interrupts (single source of truth for payload data). */
+      Combines metadata from conversation.approval_decisions with payload from checkpoint
+      interrupts (single source of truth for payload data). */
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
     }
 
@@ -7606,9 +7604,9 @@ export namespace Schemas {
       readonly id: string;
       readonly status: ConversationStatus;
       /**
-       * Title of the conversation.
-       * @nullable
-       */
+         * Title of the conversation.
+         * @nullable
+         */
       readonly title: string | null;
       readonly user: UserBasic;
       /** @nullable */
@@ -7617,19 +7615,19 @@ export namespace Schemas {
       readonly updated_at: string | null;
       readonly type: ConversationType;
       /**
-       * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
-       * @nullable
-       */
+         * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+         * @nullable
+         */
       readonly is_internal: boolean | null;
       /**
-       * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
-       * @nullable
-       */
+         * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+         * @nullable
+         */
       readonly slack_thread_key: string | null;
       /**
-       * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
-       * @nullable
-       */
+         * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+         * @nullable
+         */
       readonly slack_workspace_domain: string | null;
     }
 
@@ -7770,9 +7768,9 @@ export namespace Schemas {
       /** Source project ID to copy the flag from */
       from_project: number;
       /**
-       * List of target project IDs to copy the flag to
-       * @maxItems 50
-       */
+         * List of target project IDs to copy the flag to
+         * @maxItems 50
+         */
       target_project_ids: number[];
       /** Whether to also copy scheduled changes for this flag */
       copy_schedule?: boolean;
@@ -7834,22 +7832,22 @@ export namespace Schemas {
     export interface CoreEvent {
       readonly id: string;
       /**
-       * Display name for this core event
-       * @maxLength 255
-       */
+         * Display name for this core event
+         * @maxLength 255
+         */
       name: string;
       /** Optional description */
       description?: string;
       /** Lifecycle category for this core event
 
-    * `acquisition` - Acquisition
-    * `activation` - Activation
-    * `monetization` - Monetization
-    * `expansion` - Expansion
-    * `referral` - Referral
-    * `retention` - Retention
-    * `churn` - Churn
-    * `reactivation` - Reactivation */
+      * `acquisition` - Acquisition
+      * `activation` - Activation
+      * `monetization` - Monetization
+      * `expansion` - Expansion
+      * `referral` - Referral
+      * `retention` - Retention
+      * `churn` - Churn
+      * `reactivation` - Reactivation */
       category: CoreEventCategoryEnum;
       /** Filter configuration - event, action, or data warehouse node */
       filter: unknown;
@@ -7859,9 +7857,9 @@ export namespace Schemas {
 
     export interface CreateGroup {
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       group_type_index: number;
       /** @maxLength 400 */
       group_key: string;
@@ -7888,18 +7886,18 @@ export namespace Schemas {
     export interface CreateLegalDocument {
       /** Either 'BAA' or 'DPA'.
 
-    * `BAA` - BAA
-    * `DPA` - DPA */
+      * `BAA` - BAA
+      * `DPA` - DPA */
       document_type: DocumentTypeEnum;
       /**
-       * The customer legal entity entering the agreement (PandaDoc's Client.Company).
-       * @maxLength 255
-       */
+         * The customer legal entity entering the agreement (PandaDoc's Client.Company).
+         * @maxLength 255
+         */
       company_name: string;
       /**
-       * The customer address (PandaDoc's Client.StreetAddress).
-       * @maxLength 512
-       */
+         * The customer address (PandaDoc's Client.StreetAddress).
+         * @maxLength 512
+         */
       company_address: string;
       /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
       representative_email: string;
@@ -7929,11 +7927,11 @@ export namespace Schemas {
     export interface CreateRecordingRequest {
       /** Meeting platform being recorded
 
-    * `zoom` - zoom
-    * `teams` - teams
-    * `meet` - meet
-    * `desktop_audio` - desktop_audio
-    * `slack` - slack */
+      * `zoom` - zoom
+      * `teams` - teams
+      * `meet` - meet
+      * `desktop_audio` - desktop_audio
+      * `slack` - slack */
       platform?: CreateRecordingRequestPlatformEnum;
     }
 
@@ -7996,20 +7994,20 @@ export namespace Schemas {
       recall_recording_id?: string | null;
       platform: MeetingPlatformEnum;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       meeting_title?: string | null;
       /**
-       * @maxLength 200
-       * @nullable
-       */
+         * @maxLength 200
+         * @nullable
+         */
       meeting_url?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       duration_seconds?: number | null;
       status?: DesktopRecordingStatusEnum;
       /** @nullable */
@@ -8017,15 +8015,15 @@ export namespace Schemas {
       /** @nullable */
       error_message?: string | null;
       /**
-       * @maxLength 200
-       * @nullable
-       */
+         * @maxLength 200
+         * @nullable
+         */
       video_url?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       video_size_bytes?: number | null;
       /** List of participant names */
       participants?: string[];
@@ -8166,16 +8164,16 @@ export namespace Schemas {
     export interface Dag {
       readonly id: string;
       /**
-       * Human-readable name for this DAG
-       * @maxLength 2048
-       */
+         * Human-readable name for this DAG
+         * @maxLength 2048
+         */
       name: string;
       /** Optional description of the DAG's purpose */
       description?: string;
       /**
-       * Sync frequency string (e.g. '24hour', '7day')
-       * @nullable
-       */
+         * Sync frequency string (e.g. '24hour', '7day')
+         * @nullable
+         */
       sync_frequency?: string | null;
       readonly node_count: number;
       readonly created_at: string;
@@ -8188,17 +8186,17 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type DashboardVariables = { [key: string]: unknown } | null | null;
+    export type DashboardVariables = { [key: string]: unknown } | null;
 
     /**
      * @nullable
      */
-    export type DashboardPersistedFilters = { [key: string]: unknown } | null | null;
+    export type DashboardPersistedFilters = { [key: string]: unknown } | null;
 
     /**
      * @nullable
      */
-    export type DashboardPersistedVariables = { [key: string]: unknown } | null | null;
+    export type DashboardPersistedVariables = { [key: string]: unknown } | null;
 
     export type DashboardTilesItem = { [key: string]: unknown };
 
@@ -8228,9 +8226,9 @@ export namespace Schemas {
     export interface Dashboard {
       readonly id: number;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       description?: string;
       pinned?: boolean;
@@ -8249,18 +8247,18 @@ export namespace Schemas {
       /** Custom color mapping for breakdown values. */
       breakdown_colors?: unknown;
       /**
-       * ID of the color theme used for chart visualizations.
-       * @nullable
-       */
+         * ID of the color theme used for chart visualizations.
+         * @nullable
+         */
       data_color_theme_id?: number | null;
       tags?: unknown[];
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
       readonly access_control_version: string;
       /** @nullable */
@@ -8271,18 +8269,18 @@ export namespace Schemas {
       readonly persisted_variables: DashboardPersistedVariables;
       readonly team_id: number;
       /**
-       * List of quick filter IDs associated with this dashboard
-       * @nullable
-       */
+         * List of quick filter IDs associated with this dashboard
+         * @nullable
+         */
       quick_filter_ids?: string[] | null;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
       use_template?: string;
       /**
-       * ID of an existing dashboard to duplicate.
-       * @nullable
-       */
+         * ID of an existing dashboard to duplicate.
+         * @nullable
+         */
       use_dashboard?: number | null;
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
@@ -8295,9 +8293,9 @@ export namespace Schemas {
     export interface DashboardBasic {
       readonly id: number;
       /**
-       * Name of the dashboard.
-       * @nullable
-       */
+         * Name of the dashboard.
+         * @nullable
+         */
       readonly name: string | null;
       /** Description of the dashboard. */
       readonly description: string;
@@ -8315,15 +8313,15 @@ export namespace Schemas {
       tags?: unknown[];
       /** Controls who can edit the dashboard.
 
-    * `21` - Everyone in the project can edit
-    * `37` - Only those invited to this dashboard can edit */
+      * `21` - Everyone in the project can edit
+      * `37` - Only those invited to this dashboard can edit */
       readonly restriction_level: RestrictionLevelEnum;
       readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
       readonly access_control_version: string;
       /** @nullable */
@@ -8366,14 +8364,14 @@ export namespace Schemas {
     export interface DashboardTemplate {
       readonly id: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       template_name?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       dashboard_description?: string | null;
       dashboard_filters?: unknown;
       /** @nullable */
@@ -8386,9 +8384,9 @@ export namespace Schemas {
       readonly created_at: string | null;
       readonly created_by: UserBasic;
       /**
-       * @maxLength 8201
-       * @nullable
-       */
+         * @maxLength 8201
+         * @nullable
+         */
       image_url?: string | null;
       /** @nullable */
       readonly team_id: number | null;
@@ -8469,9 +8467,9 @@ export namespace Schemas {
       /** @nullable */
       readonly workflow_run_id: string | null;
       /**
-       * Total rows expected to be materialized
-       * @nullable
-       */
+         * Total rows expected to be materialized
+         * @nullable
+         */
       readonly rows_expected: number | null;
     }
 
@@ -8668,9 +8666,9 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
-       * @minItems 1
-       * @maxItems 1
-       */
+         * @minItems 1
+         * @maxItems 1
+         */
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
@@ -9506,7 +9504,7 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebExternalClicksTableQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
@@ -9558,7 +9556,7 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebGoalsQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
@@ -9586,7 +9584,7 @@ export namespace Schemas {
       kind?: 'WebVitalsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebGoalsQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
@@ -9630,9 +9628,9 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
-       * @minItems 1
-       * @maxItems 1
-       */
+         * @minItems 1
+         * @maxItems 1
+         */
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
@@ -9655,7 +9653,7 @@ export namespace Schemas {
       metric: WebVitalsMetric;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
       percentile: WebVitalsPercentile;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebVitalsPathBreakdownQueryResponse | null;
@@ -9664,9 +9662,9 @@ export namespace Schemas {
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       /**
-       * @minItems 2
-       * @maxItems 2
-       */
+         * @minItems 2
+         * @maxItems 2
+         */
       thresholds: number[];
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
@@ -10522,6 +10520,25 @@ export namespace Schemas {
       Inline: 'inline',
     } as const;
 
+    export type EndpointsUsageOrderByField = typeof EndpointsUsageOrderByField[keyof typeof EndpointsUsageOrderByField];
+
+
+    export const EndpointsUsageOrderByField = {
+      Requests: 'requests',
+      BytesRead: 'bytes_read',
+      CpuSeconds: 'cpu_seconds',
+      AvgQueryDurationMs: 'avg_query_duration_ms',
+      ErrorRate: 'error_rate',
+    } as const;
+
+    export type EndpointsUsageOrderByDirection = typeof EndpointsUsageOrderByDirection[keyof typeof EndpointsUsageOrderByDirection];
+
+
+    export const EndpointsUsageOrderByDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
     export interface EndpointsUsageTableQueryResponse {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -10555,7 +10572,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (EndpointsUsageOrderByField | EndpointsUsageOrderByDirection)[] | null;
       response?: EndpointsUsageTableQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -10720,9 +10737,9 @@ export namespace Schemas {
       /** @nullable */
       deleted?: boolean | null;
       /**
-       * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
-       * @maxLength 128
-       */
+         * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+         * @maxLength 128
+         */
       name: string;
       /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
       query?: unknown;
@@ -10733,64 +10750,64 @@ export namespace Schemas {
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
 
-    * `Cancelled` - Cancelled
-    * `Modified` - Modified
-    * `Completed` - Completed
-    * `Failed` - Failed
-    * `Running` - Running */
+      * `Cancelled` - Cancelled
+      * `Modified` - Modified
+      * `Completed` - Completed
+      * `Failed` - Failed
+      * `Running` - Running */
       readonly status: SavedQueryStatusEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
       /** @nullable */
       readonly managed_viewset_kind: string | null;
       /**
-       * Optional folder ID used to organize this view in the SQL editor sidebar.
-       * @nullable
-       */
+         * Optional folder ID used to organize this view in the SQL editor sidebar.
+         * @nullable
+         */
       folder_id?: string | null;
       /**
-       * Folder name used to organize this view in the SQL editor sidebar.
-       * @nullable
-       */
+         * Folder name used to organize this view in the SQL editor sidebar.
+         * @nullable
+         */
       readonly folder_name: string | null;
       /** @nullable */
       readonly latest_error: string | null;
       /**
-       * Activity log ID from the last known edit. Used for conflict detection.
-       * @nullable
-       */
+         * Activity log ID from the last known edit. Used for conflict detection.
+         * @nullable
+         */
       edited_history_id?: string | null;
       /** @nullable */
       readonly latest_history_id: number | null;
       /**
-       * If true, skip column inference and validation. For saving drafts.
-       * @nullable
-       */
+         * If true, skip column inference and validation. For saving drafts.
+         * @nullable
+         */
       soft_update?: boolean | null;
       /**
-       * Optional DAG to place this view into
-       * @nullable
-       */
+         * Optional DAG to place this view into
+         * @nullable
+         */
       dag_id?: string | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
       /** Where this SavedQuery is created.
 
-    * `data_warehouse` - Data Warehouse
-    * `endpoint` - Endpoint
-    * `managed_viewset` - Managed Viewset */
+      * `data_warehouse` - Data Warehouse
+      * `endpoint` - Endpoint
+      * `managed_viewset` - Managed Viewset */
       readonly origin: OriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
       is_test?: boolean;
       /**
-       * When this test view should be automatically deleted.
-       * @nullable
-       */
+         * When this test view should be automatically deleted.
+         * @nullable
+         */
       readonly expires_at: string | null;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
     }
 
@@ -10806,10 +10823,10 @@ export namespace Schemas {
       /** @nullable */
       name?: string | null;
       /**
-       * view history id that the draft branched from
-       * @maxLength 255
-       * @nullable
-       */
+         * view history id that the draft branched from
+         * @maxLength 255
+         * @nullable
+         */
       edited_history_id?: string | null;
     }
 
@@ -10819,17 +10836,17 @@ export namespace Schemas {
     export interface DataWarehouseSavedQueryFolder {
       readonly id: string;
       /**
-       * Display name for the folder used to organize saved queries in the SQL editor sidebar.
-       * @maxLength 128
-       */
+         * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+         * @maxLength 128
+         */
       name: string;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly view_count: number;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
     }
 
@@ -10850,11 +10867,11 @@ export namespace Schemas {
       readonly columns: readonly DataWarehouseSavedQueryMinimalColumnsItem[];
       /** The status of when this SavedQuery last ran.
 
-    * `Cancelled` - Cancelled
-    * `Modified` - Modified
-    * `Completed` - Completed
-    * `Failed` - Failed
-    * `Running` - Running */
+      * `Cancelled` - Cancelled
+      * `Modified` - Modified
+      * `Completed` - Completed
+      * `Failed` - Failed
+      * `Running` - Running */
       readonly status: SavedQueryStatusEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -10870,21 +10887,21 @@ export namespace Schemas {
       readonly is_materialized: boolean | null;
       /** Where this SavedQuery is created.
 
-    * `data_warehouse` - Data Warehouse
-    * `endpoint` - Endpoint
-    * `managed_viewset` - Managed Viewset */
+      * `data_warehouse` - Data Warehouse
+      * `endpoint` - Endpoint
+      * `managed_viewset` - Managed Viewset */
       readonly origin: OriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
       readonly is_test: boolean;
       /**
-       * When this test view should be automatically deleted.
-       * @nullable
-       */
+         * When this test view should be automatically deleted.
+         * @nullable
+         */
       readonly expires_at: string | null;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
     }
 
@@ -11448,150 +11465,150 @@ export namespace Schemas {
     export interface DatabaseSchemaRequest {
       /** The source type to validate against.
 
-    * `Ashby` - Ashby
-    * `Supabase` - Supabase
-    * `CustomerIO` - CustomerIO
-    * `Github` - Github
-    * `Stripe` - Stripe
-    * `Hubspot` - Hubspot
-    * `Postgres` - Postgres
-    * `Zendesk` - Zendesk
-    * `Snowflake` - Snowflake
-    * `Salesforce` - Salesforce
-    * `MySQL` - MySQL
-    * `MongoDB` - MongoDB
-    * `MSSQL` - MSSQL
-    * `Vitally` - Vitally
-    * `BigQuery` - BigQuery
-    * `Chargebee` - Chargebee
-    * `Clerk` - Clerk
-    * `GoogleAds` - GoogleAds
-    * `TemporalIO` - TemporalIO
-    * `DoIt` - DoIt
-    * `GoogleSheets` - GoogleSheets
-    * `MetaAds` - MetaAds
-    * `Klaviyo` - Klaviyo
-    * `Mailchimp` - Mailchimp
-    * `Braze` - Braze
-    * `Mailjet` - Mailjet
-    * `Redshift` - Redshift
-    * `Polar` - Polar
-    * `RevenueCat` - RevenueCat
-    * `LinkedinAds` - LinkedinAds
-    * `RedditAds` - RedditAds
-    * `TikTokAds` - TikTokAds
-    * `BingAds` - BingAds
-    * `Shopify` - Shopify
-    * `Attio` - Attio
-    * `SnapchatAds` - SnapchatAds
-    * `Linear` - Linear
-    * `Intercom` - Intercom
-    * `Amplitude` - Amplitude
-    * `Mixpanel` - Mixpanel
-    * `Jira` - Jira
-    * `ActiveCampaign` - ActiveCampaign
-    * `Marketo` - Marketo
-    * `Adjust` - Adjust
-    * `AppsFlyer` - AppsFlyer
-    * `Freshdesk` - Freshdesk
-    * `GoogleAnalytics` - GoogleAnalytics
-    * `Pipedrive` - Pipedrive
-    * `SendGrid` - SendGrid
-    * `Slack` - Slack
-    * `PagerDuty` - PagerDuty
-    * `Asana` - Asana
-    * `Notion` - Notion
-    * `Airtable` - Airtable
-    * `Greenhouse` - Greenhouse
-    * `BambooHR` - BambooHR
-    * `Lever` - Lever
-    * `GitLab` - GitLab
-    * `Datadog` - Datadog
-    * `Sentry` - Sentry
-    * `Pendo` - Pendo
-    * `FullStory` - FullStory
-    * `AmazonAds` - AmazonAds
-    * `PinterestAds` - PinterestAds
-    * `AppleSearchAds` - AppleSearchAds
-    * `QuickBooks` - QuickBooks
-    * `Xero` - Xero
-    * `NetSuite` - NetSuite
-    * `WooCommerce` - WooCommerce
-    * `BigCommerce` - BigCommerce
-    * `PayPal` - PayPal
-    * `Square` - Square
-    * `Zoom` - Zoom
-    * `Trello` - Trello
-    * `Monday` - Monday
-    * `ClickUp` - ClickUp
-    * `Confluence` - Confluence
-    * `Recurly` - Recurly
-    * `SalesLoft` - SalesLoft
-    * `Outreach` - Outreach
-    * `Gong` - Gong
-    * `Calendly` - Calendly
-    * `Typeform` - Typeform
-    * `Iterable` - Iterable
-    * `ZohoCRM` - ZohoCRM
-    * `Close` - Close
-    * `Oracle` - Oracle
-    * `DynamoDB` - DynamoDB
-    * `Elasticsearch` - Elasticsearch
-    * `Kafka` - Kafka
-    * `LaunchDarkly` - LaunchDarkly
-    * `Braintree` - Braintree
-    * `Recharge` - Recharge
-    * `HelpScout` - HelpScout
-    * `Gorgias` - Gorgias
-    * `Instagram` - Instagram
-    * `YouTubeAnalytics` - YouTubeAnalytics
-    * `FacebookPages` - FacebookPages
-    * `TwitterAds` - TwitterAds
-    * `Workday` - Workday
-    * `ServiceNow` - ServiceNow
-    * `Pardot` - Pardot
-    * `Copper` - Copper
-    * `Front` - Front
-    * `ChartMogul` - ChartMogul
-    * `Zuora` - Zuora
-    * `Paddle` - Paddle
-    * `CircleCI` - CircleCI
-    * `CockroachDB` - CockroachDB
-    * `Firebase` - Firebase
-    * `AzureBlob` - AzureBlob
-    * `GoogleDrive` - GoogleDrive
-    * `OneDrive` - OneDrive
-    * `SharePoint` - SharePoint
-    * `Box` - Box
-    * `SFTP` - SFTP
-    * `MicrosoftTeams` - MicrosoftTeams
-    * `Aircall` - Aircall
-    * `Webflow` - Webflow
-    * `Okta` - Okta
-    * `Auth0` - Auth0
-    * `Productboard` - Productboard
-    * `Smartsheet` - Smartsheet
-    * `Wrike` - Wrike
-    * `Plaid` - Plaid
-    * `SurveyMonkey` - SurveyMonkey
-    * `Eventbrite` - Eventbrite
-    * `RingCentral` - RingCentral
-    * `Twilio` - Twilio
-    * `Freshsales` - Freshsales
-    * `Shortcut` - Shortcut
-    * `ConvertKit` - ConvertKit
-    * `Drip` - Drip
-    * `CampaignMonitor` - CampaignMonitor
-    * `MailerLite` - MailerLite
-    * `Omnisend` - Omnisend
-    * `Brevo` - Brevo
-    * `Postmark` - Postmark
-    * `Granola` - Granola
-    * `BuildBetter` - BuildBetter
-    * `Convex` - Convex
-    * `ClickHouse` - ClickHouse
-    * `Plain` - Plain
-    * `Resend` - Resend */
+      * `Ashby` - Ashby
+      * `Supabase` - Supabase
+      * `CustomerIO` - CustomerIO
+      * `Github` - Github
+      * `Stripe` - Stripe
+      * `Hubspot` - Hubspot
+      * `Postgres` - Postgres
+      * `Zendesk` - Zendesk
+      * `Snowflake` - Snowflake
+      * `Salesforce` - Salesforce
+      * `MySQL` - MySQL
+      * `MongoDB` - MongoDB
+      * `MSSQL` - MSSQL
+      * `Vitally` - Vitally
+      * `BigQuery` - BigQuery
+      * `Chargebee` - Chargebee
+      * `Clerk` - Clerk
+      * `GoogleAds` - GoogleAds
+      * `TemporalIO` - TemporalIO
+      * `DoIt` - DoIt
+      * `GoogleSheets` - GoogleSheets
+      * `MetaAds` - MetaAds
+      * `Klaviyo` - Klaviyo
+      * `Mailchimp` - Mailchimp
+      * `Braze` - Braze
+      * `Mailjet` - Mailjet
+      * `Redshift` - Redshift
+      * `Polar` - Polar
+      * `RevenueCat` - RevenueCat
+      * `LinkedinAds` - LinkedinAds
+      * `RedditAds` - RedditAds
+      * `TikTokAds` - TikTokAds
+      * `BingAds` - BingAds
+      * `Shopify` - Shopify
+      * `Attio` - Attio
+      * `SnapchatAds` - SnapchatAds
+      * `Linear` - Linear
+      * `Intercom` - Intercom
+      * `Amplitude` - Amplitude
+      * `Mixpanel` - Mixpanel
+      * `Jira` - Jira
+      * `ActiveCampaign` - ActiveCampaign
+      * `Marketo` - Marketo
+      * `Adjust` - Adjust
+      * `AppsFlyer` - AppsFlyer
+      * `Freshdesk` - Freshdesk
+      * `GoogleAnalytics` - GoogleAnalytics
+      * `Pipedrive` - Pipedrive
+      * `SendGrid` - SendGrid
+      * `Slack` - Slack
+      * `PagerDuty` - PagerDuty
+      * `Asana` - Asana
+      * `Notion` - Notion
+      * `Airtable` - Airtable
+      * `Greenhouse` - Greenhouse
+      * `BambooHR` - BambooHR
+      * `Lever` - Lever
+      * `GitLab` - GitLab
+      * `Datadog` - Datadog
+      * `Sentry` - Sentry
+      * `Pendo` - Pendo
+      * `FullStory` - FullStory
+      * `AmazonAds` - AmazonAds
+      * `PinterestAds` - PinterestAds
+      * `AppleSearchAds` - AppleSearchAds
+      * `QuickBooks` - QuickBooks
+      * `Xero` - Xero
+      * `NetSuite` - NetSuite
+      * `WooCommerce` - WooCommerce
+      * `BigCommerce` - BigCommerce
+      * `PayPal` - PayPal
+      * `Square` - Square
+      * `Zoom` - Zoom
+      * `Trello` - Trello
+      * `Monday` - Monday
+      * `ClickUp` - ClickUp
+      * `Confluence` - Confluence
+      * `Recurly` - Recurly
+      * `SalesLoft` - SalesLoft
+      * `Outreach` - Outreach
+      * `Gong` - Gong
+      * `Calendly` - Calendly
+      * `Typeform` - Typeform
+      * `Iterable` - Iterable
+      * `ZohoCRM` - ZohoCRM
+      * `Close` - Close
+      * `Oracle` - Oracle
+      * `DynamoDB` - DynamoDB
+      * `Elasticsearch` - Elasticsearch
+      * `Kafka` - Kafka
+      * `LaunchDarkly` - LaunchDarkly
+      * `Braintree` - Braintree
+      * `Recharge` - Recharge
+      * `HelpScout` - HelpScout
+      * `Gorgias` - Gorgias
+      * `Instagram` - Instagram
+      * `YouTubeAnalytics` - YouTubeAnalytics
+      * `FacebookPages` - FacebookPages
+      * `TwitterAds` - TwitterAds
+      * `Workday` - Workday
+      * `ServiceNow` - ServiceNow
+      * `Pardot` - Pardot
+      * `Copper` - Copper
+      * `Front` - Front
+      * `ChartMogul` - ChartMogul
+      * `Zuora` - Zuora
+      * `Paddle` - Paddle
+      * `CircleCI` - CircleCI
+      * `CockroachDB` - CockroachDB
+      * `Firebase` - Firebase
+      * `AzureBlob` - AzureBlob
+      * `GoogleDrive` - GoogleDrive
+      * `OneDrive` - OneDrive
+      * `SharePoint` - SharePoint
+      * `Box` - Box
+      * `SFTP` - SFTP
+      * `MicrosoftTeams` - MicrosoftTeams
+      * `Aircall` - Aircall
+      * `Webflow` - Webflow
+      * `Okta` - Okta
+      * `Auth0` - Auth0
+      * `Productboard` - Productboard
+      * `Smartsheet` - Smartsheet
+      * `Wrike` - Wrike
+      * `Plaid` - Plaid
+      * `SurveyMonkey` - SurveyMonkey
+      * `Eventbrite` - Eventbrite
+      * `RingCentral` - RingCentral
+      * `Twilio` - Twilio
+      * `Freshsales` - Freshsales
+      * `Shortcut` - Shortcut
+      * `ConvertKit` - ConvertKit
+      * `Drip` - Drip
+      * `CampaignMonitor` - CampaignMonitor
+      * `MailerLite` - MailerLite
+      * `Omnisend` - Omnisend
+      * `Brevo` - Brevo
+      * `Postmark` - Postmark
+      * `Granola` - Granola
+      * `BuildBetter` - BuildBetter
+      * `Convex` - Convex
+      * `ClickHouse` - ClickHouse
+      * `Plain` - Plain
+      * `Resend` - Resend */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -11628,16 +11645,16 @@ export namespace Schemas {
       output?: unknown;
       metadata?: unknown;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       ref_trace_id?: string | null;
       /** @nullable */
       ref_timestamp?: string | null;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       ref_source_id?: string | null;
       /** @nullable */
       deleted?: boolean | null;
@@ -11650,7 +11667,7 @@ export namespace Schemas {
 
     export interface DayItem {
       label: string;
-      value: string | string | number;
+      value: string | number;
     }
 
     /**
@@ -11717,20 +11734,20 @@ export namespace Schemas {
       recall_recording_id?: string | null;
       platform: MeetingPlatformEnum;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       meeting_title?: string | null;
       /**
-       * @maxLength 200
-       * @nullable
-       */
+         * @maxLength 200
+         * @nullable
+         */
       meeting_url?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       duration_seconds?: number | null;
       status?: DesktopRecordingStatusEnum;
       /** @nullable */
@@ -11738,15 +11755,15 @@ export namespace Schemas {
       /** @nullable */
       error_message?: string | null;
       /**
-       * @maxLength 200
-       * @nullable
-       */
+         * @maxLength 200
+         * @nullable
+         */
       video_url?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       video_size_bytes?: number | null;
       /** List of participant names */
       participants?: string[];
@@ -11910,8 +11927,8 @@ export namespace Schemas {
       percent: number;
       /** Direction of the change relative to the prior period.
 
-    * `Up` - Up
-    * `Down` - Down */
+      * `Up` - Up
+      * `Down` - Down */
       direction: DirectionEnum;
       /** Hex color indicating whether the change is a positive or negative signal. */
       color: string;
@@ -11925,9 +11942,9 @@ export namespace Schemas {
       /** Human-readable duration, e.g. '2m 34s'. */
       current: string;
       /**
-       * Prior-period duration, e.g. '2m 10s'.
-       * @nullable
-       */
+         * Prior-period duration, e.g. '2m 10s'.
+         * @nullable
+         */
       previous: string | null;
       /** Period-over-period change, null when not meaningful. */
       change: WoWChange | null;
@@ -11968,21 +11985,21 @@ export namespace Schemas {
       /** @nullable */
       has_encrypted_payloads?: boolean | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       version?: number | null;
       /** Specifies where this feature flag should be evaluated
 
-    * `server` - Server
-    * `client` - Client
-    * `all` - All */
+      * `server` - Server
+      * `client` - Client
+      * `all` - All */
       evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | null;
       /** Identifier used for bucketing users into rollout and variants
 
-    * `distinct_id` - User ID (default)
-    * `device_id` - Device ID */
+      * `distinct_id` - User ID (default)
+      * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
       readonly evaluation_contexts: readonly string[];
     }
@@ -12011,25 +12028,25 @@ export namespace Schemas {
       readonly id: string;
       readonly feature_flag: MinimalFeatureFlag;
       /**
-       * The name of the early access feature.
-       * @maxLength 200
-       */
+         * The name of the early access feature.
+         * @maxLength 200
+         */
       name: string;
       /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
       description?: string;
       /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
 
-    * `draft` - draft
-    * `concept` - concept
-    * `alpha` - alpha
-    * `beta` - beta
-    * `general-availability` - general availability
-    * `archived` - archived */
+      * `draft` - draft
+      * `concept` - concept
+      * `alpha` - alpha
+      * `beta` - beta
+      * `general-availability` - general availability
+      * `archived` - archived */
       stage: StageEnum;
       /**
-       * URL to external documentation for this feature. Shown to users in the opt-in UI.
-       * @maxLength 800
-       */
+         * URL to external documentation for this feature. Shown to users in the opt-in UI.
+         * @maxLength 800
+         */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
@@ -12039,25 +12056,25 @@ export namespace Schemas {
     export interface EarlyAccessFeatureSerializerCreateOnly {
       readonly id: string;
       /**
-       * The name of the early access feature.
-       * @maxLength 200
-       */
+         * The name of the early access feature.
+         * @maxLength 200
+         */
       name: string;
       /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
       description?: string;
       /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
 
-    * `draft` - draft
-    * `concept` - concept
-    * `alpha` - alpha
-    * `beta` - beta
-    * `general-availability` - general availability
-    * `archived` - archived */
+      * `draft` - draft
+      * `concept` - concept
+      * `alpha` - alpha
+      * `beta` - beta
+      * `general-availability` - general availability
+      * `archived` - archived */
       stage: StageEnum;
       /**
-       * URL to external documentation for this feature. Shown to users in the opt-in UI.
-       * @maxLength 800
-       */
+         * URL to external documentation for this feature. Shown to users in the opt-in UI.
+         * @maxLength 800
+         */
       documentation_url?: string;
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
@@ -12091,45 +12108,45 @@ export namespace Schemas {
 
     export interface Element {
       /**
-       * @maxLength 10000
-       * @nullable
-       */
+         * @maxLength 10000
+         * @nullable
+         */
       text?: string | null;
       /**
-       * @maxLength 1000
-       * @nullable
-       */
+         * @maxLength 1000
+         * @nullable
+         */
       tag_name?: string | null;
       /** @nullable */
       attr_class?: string[] | null;
       /**
-       * @maxLength 10000
-       * @nullable
-       */
+         * @maxLength 10000
+         * @nullable
+         */
       href?: string | null;
       /**
-       * @maxLength 10000
-       * @nullable
-       */
+         * @maxLength 10000
+         * @nullable
+         */
       attr_id?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       nth_child?: number | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       nth_of_type?: number | null;
       attributes?: unknown;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       order?: number | null;
     }
 
@@ -12157,16 +12174,16 @@ export namespace Schemas {
     export interface EndExperiment {
       /** The conclusion of the experiment.
 
-    * `won` - won
-    * `lost` - lost
-    * `inconclusive` - inconclusive
-    * `stopped_early` - stopped_early
-    * `invalid` - invalid */
+      * `won` - won
+      * `lost` - lost
+      * `inconclusive` - inconclusive
+      * `stopped_early` - stopped_early
+      * `invalid` - invalid */
       conclusion?: ConclusionEnum | null;
       /**
-       * Optional comment about the experiment conclusion.
-       * @nullable
-       */
+         * Optional comment about the experiment conclusion.
+         * @nullable
+         */
       conclusion_comment?: string | null;
     }
 
@@ -12195,21 +12212,21 @@ export namespace Schemas {
       /** Whether this endpoint query can be materialized. */
       can_materialize: boolean;
       /**
-       * Reason why materialization is not possible (only when can_materialize is false).
-       * @nullable
-       */
+         * Reason why materialization is not possible (only when can_materialize is false).
+         * @nullable
+         */
       reason?: string | null;
       /**
-       * ISO 8601 timestamp of the last successful materialization.
-       * @nullable
-       */
+         * ISO 8601 timestamp of the last successful materialization.
+         * @nullable
+         */
       last_materialized_at?: string | null;
       /** Last materialization error message, if any. */
       error?: string;
       /**
-       * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
-       * @nullable
-       */
+         * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
+         * @nullable
+         */
       saved_query_id?: string | null;
     }
 
@@ -12226,58 +12243,58 @@ export namespace Schemas {
      * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
      * @nullable
      */
-    export type EndpointRequestBucketOverrides = { [key: string]: unknown } | null | null;
+    export type EndpointRequestBucketOverrides = { [key: string]: unknown } | null;
 
     /**
      * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
      */
     export interface EndpointRequest {
       /**
-       * Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.
-       * @nullable
-       */
+         * Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.
+         * @nullable
+         */
       name?: string | null;
       /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
       query?: unknown;
       /**
-       * Human-readable description of what this endpoint returns.
-       * @nullable
-       */
+         * Human-readable description of what this endpoint returns.
+         * @nullable
+         */
       description?: string | null;
       /**
-       * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
-       * @nullable
-       */
+         * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
+         * @nullable
+         */
       data_freshness_seconds?: number | null;
       /**
-       * Whether this endpoint is available for execution via the API.
-       * @nullable
-       */
+         * Whether this endpoint is available for execution via the API.
+         * @nullable
+         */
       is_active?: boolean | null;
       /**
-       * Whether query results are materialized to S3.
-       * @nullable
-       */
+         * Whether query results are materialized to S3.
+         * @nullable
+         */
       is_materialized?: boolean | null;
       /**
-       * Short ID of the insight this endpoint was derived from.
-       * @nullable
-       */
+         * Short ID of the insight this endpoint was derived from.
+         * @nullable
+         */
       derived_from_insight?: string | null;
       /**
-       * Target a specific version for updates (defaults to current version).
-       * @nullable
-       */
+         * Target a specific version for updates (defaults to current version).
+         * @nullable
+         */
       version?: number | null;
       /**
-       * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
-       * @nullable
-       */
+         * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
+         * @nullable
+         */
       bucket_overrides?: EndpointRequestBucketOverrides;
       /**
-       * Set to true to soft-delete this endpoint.
-       * @nullable
-       */
+         * Set to true to soft-delete this endpoint.
+         * @nullable
+         */
       deleted?: boolean | null;
     }
 
@@ -12285,7 +12302,7 @@ export namespace Schemas {
      * Per-column bucket overrides for range variable materialization.
      * @nullable
      */
-    export type EndpointResponseBucketOverrides = { [key: string]: unknown } | null | null;
+    export type EndpointResponseBucketOverrides = { [key: string]: unknown } | null;
 
     /**
      * Full endpoint representation returned by list/retrieve/create/update.
@@ -12296,9 +12313,9 @@ export namespace Schemas {
       /** URL-safe endpoint name, unique per team. */
       name: string;
       /**
-       * Human-readable description of the endpoint.
-       * @nullable
-       */
+         * Human-readable description of the endpoint.
+         * @nullable
+         */
       description: string | null;
       /** The HogQL or insight query definition (JSON object with 'kind' key). */
       query: unknown;
@@ -12309,14 +12326,14 @@ export namespace Schemas {
       /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
-       * Absolute URL to execute this endpoint.
-       * @nullable
-       */
+         * Absolute URL to execute this endpoint.
+         * @nullable
+         */
       url: string | null;
       /**
-       * Absolute URL to view this endpoint in the PostHog UI.
-       * @nullable
-       */
+         * Absolute URL to view this endpoint in the PostHog UI.
+         * @nullable
+         */
       ui_url: string | null;
       /** When the endpoint was created (ISO 8601). */
       created_at: string;
@@ -12329,28 +12346,28 @@ export namespace Schemas {
       /** Latest version number. */
       current_version: number;
       /**
-       * UUID of the current EndpointVersion row.
-       * @nullable
-       */
+         * UUID of the current EndpointVersion row.
+         * @nullable
+         */
       current_version_id?: string | null;
       /** Total number of versions for this endpoint. */
       versions_count: number;
       /**
-       * Short ID of the source insight, if derived from one.
-       * @nullable
-       */
+         * Short ID of the source insight, if derived from one.
+         * @nullable
+         */
       derived_from_insight: string | null;
       /**
-       * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
-       * @nullable
-       */
+         * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+         * @nullable
+         */
       last_executed_at: string | null;
       /** Materialization status and configuration for the current version. */
       materialization: EndpointMaterialization;
       /**
-       * Per-column bucket overrides for range variable materialization.
-       * @nullable
-       */
+         * Per-column bucket overrides for range variable materialization.
+         * @nullable
+         */
       bucket_overrides: EndpointResponseBucketOverrides;
       /** Column names and types from the query's SELECT clause. */
       columns: EndpointColumn[];
@@ -12382,13 +12399,13 @@ export namespace Schemas {
       refresh?: EndpointRefreshMode | null;
       /** Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
 
-    For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+      For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
 
-    For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+      For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
 
-    For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+      For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
 
-    Unknown variable names will return a 400 error. */
+      Unknown variable names will return a 400 error. */
       variables?: EndpointRunRequestVariables;
       /** Specific endpoint version to execute. If not provided, the latest version is used. */
       version?: number | null;
@@ -12414,7 +12431,7 @@ export namespace Schemas {
      * Per-column bucket overrides for range variable materialization.
      * @nullable
      */
-    export type EndpointVersionResponseBucketOverrides = { [key: string]: unknown } | null | null;
+    export type EndpointVersionResponseBucketOverrides = { [key: string]: unknown } | null;
 
     /**
      * Extended endpoint representation when viewing a specific version.
@@ -12425,9 +12442,9 @@ export namespace Schemas {
       /** URL-safe endpoint name, unique per team. */
       name: string;
       /**
-       * Human-readable description of the endpoint.
-       * @nullable
-       */
+         * Human-readable description of the endpoint.
+         * @nullable
+         */
       description: string | null;
       /** The HogQL or insight query definition (JSON object with 'kind' key). */
       query: unknown;
@@ -12438,14 +12455,14 @@ export namespace Schemas {
       /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
-       * Absolute URL to execute this endpoint.
-       * @nullable
-       */
+         * Absolute URL to execute this endpoint.
+         * @nullable
+         */
       url: string | null;
       /**
-       * Absolute URL to view this endpoint in the PostHog UI.
-       * @nullable
-       */
+         * Absolute URL to view this endpoint in the PostHog UI.
+         * @nullable
+         */
       ui_url: string | null;
       /** When the endpoint was created (ISO 8601). */
       created_at: string;
@@ -12458,28 +12475,28 @@ export namespace Schemas {
       /** Latest version number. */
       current_version: number;
       /**
-       * UUID of the current EndpointVersion row.
-       * @nullable
-       */
+         * UUID of the current EndpointVersion row.
+         * @nullable
+         */
       current_version_id?: string | null;
       /** Total number of versions for this endpoint. */
       versions_count: number;
       /**
-       * Short ID of the source insight, if derived from one.
-       * @nullable
-       */
+         * Short ID of the source insight, if derived from one.
+         * @nullable
+         */
       derived_from_insight: string | null;
       /**
-       * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
-       * @nullable
-       */
+         * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+         * @nullable
+         */
       last_executed_at: string | null;
       /** Materialization status and configuration for the current version. */
       materialization: EndpointMaterialization;
       /**
-       * Per-column bucket overrides for range variable materialization.
-       * @nullable
-       */
+         * Per-column bucket overrides for range variable materialization.
+         * @nullable
+         */
       bucket_overrides: EndpointVersionResponseBucketOverrides;
       /** Column names and types from the query's SELECT clause. */
       columns: EndpointColumn[];
@@ -12492,9 +12509,9 @@ export namespace Schemas {
       /** ISO 8601 timestamp when this version was created. */
       version_created_at: string;
       /**
-       * ISO 8601 timestamp when this version was last updated.
-       * @nullable
-       */
+         * ISO 8601 timestamp when this version was last updated.
+         * @nullable
+         */
       version_updated_at: string | null;
       /** User who created this version. */
       readonly version_created_by: UserBasic | null;
@@ -12657,10 +12674,10 @@ export namespace Schemas {
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
       /**
-       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
-       * @maxLength 400
-       * @nullable
-       */
+         * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+         * @maxLength 400
+         * @nullable
+         */
       primary_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
@@ -12724,7 +12741,7 @@ export namespace Schemas {
     export type ErrorTrackingAssignmentRuleAssignee = {
       readonly type?: 'user' | 'role';
       readonly id?: number | string;
-    } | null | null;
+    } | null;
 
     export interface ErrorTrackingAssignmentRule {
       readonly id: string;
@@ -12732,9 +12749,9 @@ export namespace Schemas {
       /** @nullable */
       readonly assignee: ErrorTrackingAssignmentRuleAssignee;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       order_key: number;
       disabled_data?: unknown;
       readonly created_at: string;
@@ -12744,8 +12761,8 @@ export namespace Schemas {
     export interface ErrorTrackingAssignmentRuleAssigneeRequest {
       /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
 
-    * `user` - user
-    * `role` - role */
+      * `user` - user
+      * `role` - role */
       type: AssigneeTypeEnum;
       /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
       id: number | string;
@@ -12831,13 +12848,13 @@ export namespace Schemas {
     export type ErrorTrackingGroupingRuleAssignee = {
       readonly type?: 'user' | 'role';
       readonly id?: number | string;
-    } | null | null;
+    } | null;
 
     /**
      * Issue linked to this rule
      * @nullable
      */
-    export type ErrorTrackingGroupingRuleIssue = {[key: string]: string} | null | null;
+    export type ErrorTrackingGroupingRuleIssue = {[key: string]: string} | null;
 
     export interface ErrorTrackingGroupingRule {
       readonly id: string;
@@ -12847,14 +12864,14 @@ export namespace Schemas {
       /** @nullable */
       description?: string | null;
       /**
-       * Issue linked to this rule
-       * @nullable
-       */
+         * Issue linked to this rule
+         * @nullable
+         */
       readonly issue: ErrorTrackingGroupingRuleIssue;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       order_key: number;
       disabled_data?: unknown;
       readonly created_at: string;
@@ -12864,8 +12881,8 @@ export namespace Schemas {
     export interface ErrorTrackingGroupingRuleAssigneeRequest {
       /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
 
-    * `user` - user
-    * `role` - role */
+      * `user` - user
+      * `role` - role */
       type: AssigneeTypeEnum;
       /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
       id: number | string;
@@ -12877,9 +12894,9 @@ export namespace Schemas {
       /** Optional user or role to assign to issues created by this grouping rule. */
       assignee?: ErrorTrackingGroupingRuleAssigneeRequest | null;
       /**
-       * Optional human-readable description of what this grouping rule is for.
-       * @nullable
-       */
+         * Optional human-readable description of what this grouping rule is for.
+         * @nullable
+         */
       description?: string | null;
     }
 
@@ -12898,7 +12915,7 @@ export namespace Schemas {
     export type ErrorTrackingIssueFullCohort = {
       readonly id?: number;
       readonly name?: string;
-    } | null | null;
+    } | null;
 
     /**
      * * `archived` - Archived
@@ -12990,28 +13007,28 @@ export namespace Schemas {
 
     export interface ErrorTrackingSettings {
       /**
-       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
-       * @minimum 1
-       * @nullable
-       */
+         * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+         * @minimum 1
+         * @nullable
+         */
       project_rate_limit_value?: number | null;
       /**
-       * Bucket window over which the project-wide rate limit applies, in minutes.
-       * @minimum 1
-       * @nullable
-       */
+         * Bucket window over which the project-wide rate limit applies, in minutes.
+         * @minimum 1
+         * @nullable
+         */
       project_rate_limit_bucket_size_minutes?: number | null;
       /**
-       * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
-       * @minimum 1
-       * @nullable
-       */
+         * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+         * @minimum 1
+         * @nullable
+         */
       per_issue_rate_limit_value?: number | null;
       /**
-       * Bucket window over which the per-issue rate limit applies, in minutes.
-       * @minimum 1
-       * @nullable
-       */
+         * Bucket window over which the per-issue rate limit applies, in minutes.
+         * @minimum 1
+         * @nullable
+         */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
     }
 
@@ -13063,19 +13080,19 @@ export namespace Schemas {
 
     export interface ErrorTrackingSpikeDetectionConfig {
       /**
-       * Time to wait before alerting again for the same issue after a spike is detected.
-       * @minimum 1
-       */
+         * Time to wait before alerting again for the same issue after a spike is detected.
+         * @minimum 1
+         */
       snooze_duration_minutes: number;
       /**
-       * The factor by which the current exception count must exceed the baseline to be considered a spike.
-       * @minimum 1
-       */
+         * The factor by which the current exception count must exceed the baseline to be considered a spike.
+         * @minimum 1
+         */
       multiplier: number;
       /**
-       * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
-       * @minimum 1
-       */
+         * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+         * @minimum 1
+         */
       threshold: number;
     }
 
@@ -13111,9 +13128,9 @@ export namespace Schemas {
       readonly id: string;
       filters: unknown;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       order_key: number;
       disabled_data?: unknown;
       sampling_rate?: number;
@@ -13125,10 +13142,10 @@ export namespace Schemas {
       /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
       filters?: PropertyGroupFilterValue;
       /**
-       * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
-       * @minimum 0
-       * @maximum 1
-       */
+         * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+         * @minimum 0
+         * @maximum 1
+         */
       sampling_rate?: number;
     }
 
@@ -13136,7 +13153,7 @@ export namespace Schemas {
      * Release associated with this symbol set, if any.
      * @nullable
      */
-    export type ErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
+    export type ErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null;
 
     export interface ErrorTrackingSymbolSet {
       /** Unique symbol set ID. */
@@ -13148,21 +13165,21 @@ export namespace Schemas {
       /** When this symbol set row was created. */
       readonly created_at: string;
       /**
-       * When this symbol set was last used to resolve a stack frame.
-       * @nullable
-       */
+         * When this symbol set was last used to resolve a stack frame.
+         * @nullable
+         */
       readonly last_used: string | null;
       /**
-       * Reason symbol lookup failed, if the source map is missing or invalid.
-       * @nullable
-       */
+         * Reason symbol lookup failed, if the source map is missing or invalid.
+         * @nullable
+         */
       readonly failure_reason: string | null;
       /** Whether this symbol set has an uploaded source map file available to download. */
       readonly has_uploaded_file: boolean;
       /**
-       * Release associated with this symbol set, if any.
-       * @nullable
-       */
+         * Release associated with this symbol set, if any.
+         * @nullable
+         */
       readonly release: ErrorTrackingSymbolSetRelease;
     }
 
@@ -13185,14 +13202,14 @@ export namespace Schemas {
       /** Symbol set reference to upload. */
       chunk_id: string;
       /**
-       * Optional error tracking release ID associated with this symbol set.
-       * @nullable
-       */
+         * Optional error tracking release ID associated with this symbol set.
+         * @nullable
+         */
       release_id?: string | null;
       /**
-       * Optional hash of the symbol set content, used to skip unchanged uploads.
-       * @nullable
-       */
+         * Optional hash of the symbol set content, used to skip unchanged uploads.
+         * @nullable
+         */
       content_hash?: string | null;
     }
 
@@ -13200,9 +13217,9 @@ export namespace Schemas {
       /** Legacy list of symbol set references to upload, all associated with `release_id`. */
       chunk_ids?: string[];
       /**
-       * Optional error tracking release ID used with `chunk_ids`.
-       * @nullable
-       */
+         * Optional error tracking release ID used with `chunk_ids`.
+         * @nullable
+         */
       release_id?: string | null;
       /** Symbol sets to upload with per-symbol release IDs and content hashes. */
       symbol_sets?: ErrorTrackingSymbolSetUpload[];
@@ -13220,15 +13237,15 @@ export namespace Schemas {
      */
     export type EvaluationEvaluationConfig = {
       /**
-       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
-       * @minLength 1
-       */
+         * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+         * @minLength 1
+         */
       prompt: string;
     } | {
       /**
-       * Hog source code. Must return true (pass), false (fail), or null for N/A.
-       * @minLength 1
-       */
+         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+         * @minLength 1
+         */
       source: string;
     };
 
@@ -13328,9 +13345,9 @@ export namespace Schemas {
     export interface Evaluation {
       readonly id: string;
       /**
-       * Name of the evaluation.
-       * @maxLength 400
-       */
+         * Name of the evaluation.
+         * @maxLength 400
+         */
       name: string;
       /** Optional description of what this evaluation checks. */
       description?: string;
@@ -13340,14 +13357,14 @@ export namespace Schemas {
       readonly status_reason: StatusReasonEnum | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
-    * `llm_judge` - LLM as a judge
-    * `hog` - Hog */
+      * `llm_judge` - LLM as a judge
+      * `hog` - Hog */
       evaluation_type: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
       evaluation_config?: EvaluationEvaluationConfig;
       /** Output format. Currently only 'boolean' is supported.
 
-    * `boolean` - Boolean (Pass/Fail) */
+      * `boolean` - Boolean (Pass/Fail) */
       output_type: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: EvaluationOutputConfig;
@@ -13390,19 +13407,19 @@ export namespace Schemas {
       /** Azure OpenAI endpoint URL */
       azure_endpoint?: string;
       /**
-       * Azure OpenAI API version
-       * @maxLength 20
-       */
+         * Azure OpenAI API version
+         * @maxLength 20
+         */
       api_version?: string;
       /**
-       * Azure endpoint (read-only, for display)
-       * @nullable
-       */
+         * Azure endpoint (read-only, for display)
+         * @nullable
+         */
       readonly azure_endpoint_display: string | null;
       /**
-       * Azure API version (read-only, for display)
-       * @nullable
-       */
+         * Azure API version (read-only, for display)
+         * @nullable
+         */
       readonly api_version_display: string | null;
       set_as_active?: boolean;
       readonly created_at: string;
@@ -13456,30 +13473,30 @@ export namespace Schemas {
       evaluation: string;
       /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
-    * `scheduled` - Scheduled
-    * `every_n` - Every N */
+      * `scheduled` - Scheduled
+      * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
       /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-       * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
-       * @nullable
-       */
+         * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+         * @nullable
+         */
       starts_at?: string | null;
       /**
-       * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-       * @maxLength 64
-       */
+         * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
+         * @maxLength 64
+         */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
       /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
       delivery_targets?: unknown;
       /**
-       * Maximum number of evaluation runs included in each report. Defaults to 200.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * Maximum number of evaluation runs included in each report. Defaults to 200.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       max_sample_size?: number;
       /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
@@ -13490,23 +13507,23 @@ export namespace Schemas {
       /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-       * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-       * @minimum 10
-       * @maximum 10000
-       * @nullable
-       */
+         * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+         * @minimum 10
+         * @maximum 10000
+         * @nullable
+         */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
-       * @minimum 60
-       * @maximum 1440
-       */
+         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+         * @minimum 60
+         * @maximum 1440
+         */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
-       * @minimum 1
-       * @maximum 24
-       */
+         * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+         * @minimum 1
+         * @maximum 24
+         */
       daily_run_cap?: number;
       /** @nullable */
       readonly created_by: number | null;
@@ -13528,10 +13545,10 @@ export namespace Schemas {
       readonly period_end: string;
       /** 'pending', 'delivered', or 'failed'.
 
-    * `pending` - Pending
-    * `delivered` - Delivered
-    * `partial_failure` - Partial Failure
-    * `failed` - Failed */
+      * `pending` - Pending
+      * `delivered` - Delivered
+      * `partial_failure` - Partial Failure
+      * `failed` - Failed */
       readonly delivery_status: DeliveryStatusEnum;
       /** List of delivery error messages if delivery failed. */
       readonly delivery_errors: unknown;
@@ -13548,9 +13565,9 @@ export namespace Schemas {
       /** Event name. Defaults to '$ai_generation'. */
       event?: string;
       /**
-       * Distinct ID of the event (optional, improves lookup performance).
-       * @nullable
-       */
+         * Distinct ID of the event (optional, improves lookup performance).
+         * @nullable
+         */
       distinct_id?: string | null;
     }
 
@@ -13578,15 +13595,15 @@ export namespace Schemas {
       evaluation_id: string;
       /** Filter type to apply ('all', 'pass', 'fail', or 'na')
 
-    * `all` - all
-    * `pass` - pass
-    * `fail` - fail
-    * `na` - na */
+      * `all` - all
+      * `pass` - pass
+      * `fail` - fail
+      * `na` - na */
       filter?: FilterEnum;
       /**
-       * Optional: specific generation IDs to include in summary (max 250)
-       * @maxItems 250
-       */
+         * Optional: specific generation IDs to include in summary (max 250)
+         * @maxItems 250
+         */
       generation_ids?: string[];
       /** If true, bypass cache and generate a fresh summary */
       force_refresh?: boolean;
@@ -13628,10 +13645,10 @@ export namespace Schemas {
       tags?: unknown[];
       enforcement_mode?: EnforcementModeEnum;
       /**
-       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
-       * @maxLength 400
-       * @nullable
-       */
+         * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+         * @maxLength 400
+         * @nullable
+         */
       primary_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
@@ -13802,9 +13819,9 @@ export namespace Schemas {
 
     export interface ExecuteTestClusterRequest {
       /**
-       * ClickHouse SQL to run against the test cluster.
-       * @maxLength 65536
-       */
+         * ClickHouse SQL to run against the test cluster.
+         * @maxLength 65536
+         */
       sql: string;
     }
 
@@ -13812,24 +13829,24 @@ export namespace Schemas {
       /** Rows returned, each as a positional list of canonicalized values. */
       result: unknown[][];
       /**
-       * ClickHouse query_id for this execution.
-       * @nullable
-       */
+         * ClickHouse query_id for this execution.
+         * @nullable
+         */
       query_id: string | null;
       /**
-       * Server-side elapsed time in milliseconds.
-       * @nullable
-       */
+         * Server-side elapsed time in milliseconds.
+         * @nullable
+         */
       elapsed_ms: number | null;
       /**
-       * Rows read from storage (scan-side).
-       * @nullable
-       */
+         * Rows read from storage (scan-side).
+         * @nullable
+         */
       rows_read: number | null;
       /**
-       * Bytes read from storage (scan-side).
-       * @nullable
-       */
+         * Bytes read from storage (scan-side).
+         * @nullable
+         */
       bytes_read: number | null;
       /** Rows in the `result` payload. */
       rows_returned: number;
@@ -13858,9 +13875,9 @@ export namespace Schemas {
       /** @maxLength 400 */
       name: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       description?: string | null;
       filters?: unknown;
       readonly created_by: UserBasic;
@@ -14000,15 +14017,15 @@ export namespace Schemas {
     export interface Experiment {
       readonly id: number;
       /**
-       * Name of the experiment.
-       * @maxLength 400
-       */
+         * Name of the experiment.
+         * @maxLength 400
+         */
       name: string;
       /**
-       * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 3000
-       * @nullable
-       */
+         * Description of the experiment hypothesis and expected outcomes.
+         * @maxLength 3000
+         * @nullable
+         */
       description?: string | null;
       /** @nullable */
       start_date?: string | null;
@@ -14019,9 +14036,9 @@ export namespace Schemas {
       readonly feature_flag: ExperimentFeatureFlag;
       readonly holdout: ExperimentHoldout;
       /**
-       * ID of a holdout group to exclude from the experiment.
-       * @nullable
-       */
+         * ID of a holdout group to exclude from the experiment.
+         * @nullable
+         */
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
@@ -14030,9 +14047,9 @@ export namespace Schemas {
       secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
       /**
-       * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
-       * @nullable
-       */
+         * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
+         * @nullable
+         */
       saved_metrics_ids?: unknown[] | null;
       filters?: unknown;
       /** Whether the experiment is archived. */
@@ -14044,8 +14061,8 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Experiment type: web for frontend UI changes, product for backend/API changes.
 
-    * `web` - web
-    * `product` - product */
+      * `web` - web
+      * `product` - product */
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
@@ -14059,16 +14076,16 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
 
-    * `won` - won
-    * `lost` - lost
-    * `inconclusive` - inconclusive
-    * `stopped_early` - stopped_early
-    * `invalid` - invalid */
+      * `won` - won
+      * `lost` - lost
+      * `inconclusive` - inconclusive
+      * `stopped_early` - stopped_early
+      * `invalid` - invalid */
       conclusion?: ConclusionEnum | null;
       /**
-       * Comment about the experiment conclusion.
-       * @nullable
-       */
+         * Comment about the experiment conclusion.
+         * @nullable
+         */
       conclusion_comment?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
@@ -14078,9 +14095,9 @@ export namespace Schemas {
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
     }
 
@@ -14175,9 +14192,9 @@ export namespace Schemas {
       /** @maxLength 400 */
       name: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       description?: string | null;
       query: unknown;
       readonly created_by: UserBasic;
@@ -14185,9 +14202,9 @@ export namespace Schemas {
       readonly updated_at: string;
       tags?: unknown[];
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
     }
 
@@ -14247,7 +14264,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type ExternalDataSchemaTable = { [key: string]: unknown } | null | null;
+    export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
     /**
      * * `full_refresh` - full_refresh
@@ -14328,66 +14345,66 @@ export namespace Schemas {
       /** @nullable */
       readonly last_synced_at: string | null;
       /**
-       * The latest error that occurred when syncing this schema.
-       * @nullable
-       */
+         * The latest error that occurred when syncing this schema.
+         * @nullable
+         */
       readonly latest_error: string | null;
       readonly incremental: boolean;
       /** @nullable */
       readonly status: string | null;
       /** Sync strategy: incremental, full_refresh, append, or cdc.
 
-    * `full_refresh` - full_refresh
-    * `incremental` - incremental
-    * `append` - append
-    * `webhook` - webhook
-    * `cdc` - cdc */
+      * `full_refresh` - full_refresh
+      * `incremental` - incremental
+      * `append` - append
+      * `webhook` - webhook
+      * `cdc` - cdc */
       sync_type?: SyncTypeEnum | null;
       /**
-       * Column name used to track sync progress.
-       * @nullable
-       */
+         * Column name used to track sync progress.
+         * @nullable
+         */
       incremental_field?: string | null;
       /** Data type of the incremental field.
 
-    * `integer` - integer
-    * `numeric` - numeric
-    * `datetime` - datetime
-    * `date` - date
-    * `timestamp` - timestamp
-    * `objectid` - objectid */
+      * `integer` - integer
+      * `numeric` - numeric
+      * `datetime` - datetime
+      * `date` - date
+      * `timestamp` - timestamp
+      * `objectid` - objectid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
 
-    * `never` - never
-    * `1min` - 1min
-    * `5min` - 5min
-    * `15min` - 15min
-    * `30min` - 30min
-    * `1hour` - 1hour
-    * `6hour` - 6hour
-    * `12hour` - 12hour
-    * `24hour` - 24hour
-    * `7day` - 7day
-    * `30day` - 30day */
+      * `never` - never
+      * `1min` - 1min
+      * `5min` - 5min
+      * `15min` - 15min
+      * `30min` - 30min
+      * `1hour` - 1hour
+      * `6hour` - 6hour
+      * `12hour` - 12hour
+      * `24hour` - 24hour
+      * `7day` - 7day
+      * `30day` - 30day */
       sync_frequency?: SyncFrequencyEnum | null;
       /**
-       * UTC time of day to run the sync (HH:MM:SS).
-       * @nullable
-       */
+         * UTC time of day to run the sync (HH:MM:SS).
+         * @nullable
+         */
       sync_time_of_day?: string | null;
       /** @nullable */
       readonly description: string | null;
       /**
-       * Column names for primary key deduplication.
-       * @nullable
-       */
+         * Column names for primary key deduplication.
+         * @nullable
+         */
       primary_key_columns?: string[] | null;
       /** For CDC syncs: consolidated, cdc_only, or both.
 
-    * `consolidated` - consolidated
-    * `cdc_only` - cdc_only
-    * `both` - both */
+      * `consolidated` - consolidated
+      * `cdc_only` - cdc_only
+      * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
     }
 
@@ -14398,37 +14415,37 @@ export namespace Schemas {
       should_sync?: boolean;
       /** Requested sync mode for the schema.
 
-    * `full_refresh` - full_refresh
-    * `incremental` - incremental
-    * `append` - append
-    * `webhook` - webhook
-    * `cdc` - cdc */
+      * `full_refresh` - full_refresh
+      * `incremental` - incremental
+      * `append` - append
+      * `webhook` - webhook
+      * `cdc` - cdc */
       sync_type?: SyncTypeEnum | null;
       /**
-       * Incremental cursor field for incremental or append syncs.
-       * @nullable
-       */
+         * Incremental cursor field for incremental or append syncs.
+         * @nullable
+         */
       incremental_field?: string | null;
       /**
-       * Type of the incremental cursor field.
-       * @nullable
-       */
+         * Type of the incremental cursor field.
+         * @nullable
+         */
       incremental_field_type?: string | null;
       /**
-       * Human-readable sync frequency value.
-       * @nullable
-       */
+         * Human-readable sync frequency value.
+         * @nullable
+         */
       sync_frequency?: string | null;
       /**
-       * UTC anchor time for scheduled syncs.
-       * @nullable
-       */
+         * UTC anchor time for scheduled syncs.
+         * @nullable
+         */
       sync_time_of_day?: string | null;
       /** How CDC-backed tables should be exposed.
 
-    * `consolidated` - consolidated
-    * `cdc_only` - cdc_only
-    * `both` - both */
+      * `consolidated` - consolidated
+      * `cdc_only` - cdc_only
+      * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
     }
 
@@ -14438,8 +14455,8 @@ export namespace Schemas {
       readonly prefix: string | null;
       /** Backend engine detected for the direct connection.
 
-    * `duckdb` - duckdb
-    * `postgres` - postgres */
+      * `duckdb` - duckdb
+      * `postgres` - postgres */
       readonly engine: EngineEnum | null;
     }
 
@@ -14451,175 +14468,175 @@ export namespace Schemas {
     export interface ExternalDataSourceCreate {
       /** The source type (e.g. 'Postgres', 'Stripe').
 
-    * `Ashby` - Ashby
-    * `Supabase` - Supabase
-    * `CustomerIO` - CustomerIO
-    * `Github` - Github
-    * `Stripe` - Stripe
-    * `Hubspot` - Hubspot
-    * `Postgres` - Postgres
-    * `Zendesk` - Zendesk
-    * `Snowflake` - Snowflake
-    * `Salesforce` - Salesforce
-    * `MySQL` - MySQL
-    * `MongoDB` - MongoDB
-    * `MSSQL` - MSSQL
-    * `Vitally` - Vitally
-    * `BigQuery` - BigQuery
-    * `Chargebee` - Chargebee
-    * `Clerk` - Clerk
-    * `GoogleAds` - GoogleAds
-    * `TemporalIO` - TemporalIO
-    * `DoIt` - DoIt
-    * `GoogleSheets` - GoogleSheets
-    * `MetaAds` - MetaAds
-    * `Klaviyo` - Klaviyo
-    * `Mailchimp` - Mailchimp
-    * `Braze` - Braze
-    * `Mailjet` - Mailjet
-    * `Redshift` - Redshift
-    * `Polar` - Polar
-    * `RevenueCat` - RevenueCat
-    * `LinkedinAds` - LinkedinAds
-    * `RedditAds` - RedditAds
-    * `TikTokAds` - TikTokAds
-    * `BingAds` - BingAds
-    * `Shopify` - Shopify
-    * `Attio` - Attio
-    * `SnapchatAds` - SnapchatAds
-    * `Linear` - Linear
-    * `Intercom` - Intercom
-    * `Amplitude` - Amplitude
-    * `Mixpanel` - Mixpanel
-    * `Jira` - Jira
-    * `ActiveCampaign` - ActiveCampaign
-    * `Marketo` - Marketo
-    * `Adjust` - Adjust
-    * `AppsFlyer` - AppsFlyer
-    * `Freshdesk` - Freshdesk
-    * `GoogleAnalytics` - GoogleAnalytics
-    * `Pipedrive` - Pipedrive
-    * `SendGrid` - SendGrid
-    * `Slack` - Slack
-    * `PagerDuty` - PagerDuty
-    * `Asana` - Asana
-    * `Notion` - Notion
-    * `Airtable` - Airtable
-    * `Greenhouse` - Greenhouse
-    * `BambooHR` - BambooHR
-    * `Lever` - Lever
-    * `GitLab` - GitLab
-    * `Datadog` - Datadog
-    * `Sentry` - Sentry
-    * `Pendo` - Pendo
-    * `FullStory` - FullStory
-    * `AmazonAds` - AmazonAds
-    * `PinterestAds` - PinterestAds
-    * `AppleSearchAds` - AppleSearchAds
-    * `QuickBooks` - QuickBooks
-    * `Xero` - Xero
-    * `NetSuite` - NetSuite
-    * `WooCommerce` - WooCommerce
-    * `BigCommerce` - BigCommerce
-    * `PayPal` - PayPal
-    * `Square` - Square
-    * `Zoom` - Zoom
-    * `Trello` - Trello
-    * `Monday` - Monday
-    * `ClickUp` - ClickUp
-    * `Confluence` - Confluence
-    * `Recurly` - Recurly
-    * `SalesLoft` - SalesLoft
-    * `Outreach` - Outreach
-    * `Gong` - Gong
-    * `Calendly` - Calendly
-    * `Typeform` - Typeform
-    * `Iterable` - Iterable
-    * `ZohoCRM` - ZohoCRM
-    * `Close` - Close
-    * `Oracle` - Oracle
-    * `DynamoDB` - DynamoDB
-    * `Elasticsearch` - Elasticsearch
-    * `Kafka` - Kafka
-    * `LaunchDarkly` - LaunchDarkly
-    * `Braintree` - Braintree
-    * `Recharge` - Recharge
-    * `HelpScout` - HelpScout
-    * `Gorgias` - Gorgias
-    * `Instagram` - Instagram
-    * `YouTubeAnalytics` - YouTubeAnalytics
-    * `FacebookPages` - FacebookPages
-    * `TwitterAds` - TwitterAds
-    * `Workday` - Workday
-    * `ServiceNow` - ServiceNow
-    * `Pardot` - Pardot
-    * `Copper` - Copper
-    * `Front` - Front
-    * `ChartMogul` - ChartMogul
-    * `Zuora` - Zuora
-    * `Paddle` - Paddle
-    * `CircleCI` - CircleCI
-    * `CockroachDB` - CockroachDB
-    * `Firebase` - Firebase
-    * `AzureBlob` - AzureBlob
-    * `GoogleDrive` - GoogleDrive
-    * `OneDrive` - OneDrive
-    * `SharePoint` - SharePoint
-    * `Box` - Box
-    * `SFTP` - SFTP
-    * `MicrosoftTeams` - MicrosoftTeams
-    * `Aircall` - Aircall
-    * `Webflow` - Webflow
-    * `Okta` - Okta
-    * `Auth0` - Auth0
-    * `Productboard` - Productboard
-    * `Smartsheet` - Smartsheet
-    * `Wrike` - Wrike
-    * `Plaid` - Plaid
-    * `SurveyMonkey` - SurveyMonkey
-    * `Eventbrite` - Eventbrite
-    * `RingCentral` - RingCentral
-    * `Twilio` - Twilio
-    * `Freshsales` - Freshsales
-    * `Shortcut` - Shortcut
-    * `ConvertKit` - ConvertKit
-    * `Drip` - Drip
-    * `CampaignMonitor` - CampaignMonitor
-    * `MailerLite` - MailerLite
-    * `Omnisend` - Omnisend
-    * `Brevo` - Brevo
-    * `Postmark` - Postmark
-    * `Granola` - Granola
-    * `BuildBetter` - BuildBetter
-    * `Convex` - Convex
-    * `ClickHouse` - ClickHouse
-    * `Plain` - Plain
-    * `Resend` - Resend */
+      * `Ashby` - Ashby
+      * `Supabase` - Supabase
+      * `CustomerIO` - CustomerIO
+      * `Github` - Github
+      * `Stripe` - Stripe
+      * `Hubspot` - Hubspot
+      * `Postgres` - Postgres
+      * `Zendesk` - Zendesk
+      * `Snowflake` - Snowflake
+      * `Salesforce` - Salesforce
+      * `MySQL` - MySQL
+      * `MongoDB` - MongoDB
+      * `MSSQL` - MSSQL
+      * `Vitally` - Vitally
+      * `BigQuery` - BigQuery
+      * `Chargebee` - Chargebee
+      * `Clerk` - Clerk
+      * `GoogleAds` - GoogleAds
+      * `TemporalIO` - TemporalIO
+      * `DoIt` - DoIt
+      * `GoogleSheets` - GoogleSheets
+      * `MetaAds` - MetaAds
+      * `Klaviyo` - Klaviyo
+      * `Mailchimp` - Mailchimp
+      * `Braze` - Braze
+      * `Mailjet` - Mailjet
+      * `Redshift` - Redshift
+      * `Polar` - Polar
+      * `RevenueCat` - RevenueCat
+      * `LinkedinAds` - LinkedinAds
+      * `RedditAds` - RedditAds
+      * `TikTokAds` - TikTokAds
+      * `BingAds` - BingAds
+      * `Shopify` - Shopify
+      * `Attio` - Attio
+      * `SnapchatAds` - SnapchatAds
+      * `Linear` - Linear
+      * `Intercom` - Intercom
+      * `Amplitude` - Amplitude
+      * `Mixpanel` - Mixpanel
+      * `Jira` - Jira
+      * `ActiveCampaign` - ActiveCampaign
+      * `Marketo` - Marketo
+      * `Adjust` - Adjust
+      * `AppsFlyer` - AppsFlyer
+      * `Freshdesk` - Freshdesk
+      * `GoogleAnalytics` - GoogleAnalytics
+      * `Pipedrive` - Pipedrive
+      * `SendGrid` - SendGrid
+      * `Slack` - Slack
+      * `PagerDuty` - PagerDuty
+      * `Asana` - Asana
+      * `Notion` - Notion
+      * `Airtable` - Airtable
+      * `Greenhouse` - Greenhouse
+      * `BambooHR` - BambooHR
+      * `Lever` - Lever
+      * `GitLab` - GitLab
+      * `Datadog` - Datadog
+      * `Sentry` - Sentry
+      * `Pendo` - Pendo
+      * `FullStory` - FullStory
+      * `AmazonAds` - AmazonAds
+      * `PinterestAds` - PinterestAds
+      * `AppleSearchAds` - AppleSearchAds
+      * `QuickBooks` - QuickBooks
+      * `Xero` - Xero
+      * `NetSuite` - NetSuite
+      * `WooCommerce` - WooCommerce
+      * `BigCommerce` - BigCommerce
+      * `PayPal` - PayPal
+      * `Square` - Square
+      * `Zoom` - Zoom
+      * `Trello` - Trello
+      * `Monday` - Monday
+      * `ClickUp` - ClickUp
+      * `Confluence` - Confluence
+      * `Recurly` - Recurly
+      * `SalesLoft` - SalesLoft
+      * `Outreach` - Outreach
+      * `Gong` - Gong
+      * `Calendly` - Calendly
+      * `Typeform` - Typeform
+      * `Iterable` - Iterable
+      * `ZohoCRM` - ZohoCRM
+      * `Close` - Close
+      * `Oracle` - Oracle
+      * `DynamoDB` - DynamoDB
+      * `Elasticsearch` - Elasticsearch
+      * `Kafka` - Kafka
+      * `LaunchDarkly` - LaunchDarkly
+      * `Braintree` - Braintree
+      * `Recharge` - Recharge
+      * `HelpScout` - HelpScout
+      * `Gorgias` - Gorgias
+      * `Instagram` - Instagram
+      * `YouTubeAnalytics` - YouTubeAnalytics
+      * `FacebookPages` - FacebookPages
+      * `TwitterAds` - TwitterAds
+      * `Workday` - Workday
+      * `ServiceNow` - ServiceNow
+      * `Pardot` - Pardot
+      * `Copper` - Copper
+      * `Front` - Front
+      * `ChartMogul` - ChartMogul
+      * `Zuora` - Zuora
+      * `Paddle` - Paddle
+      * `CircleCI` - CircleCI
+      * `CockroachDB` - CockroachDB
+      * `Firebase` - Firebase
+      * `AzureBlob` - AzureBlob
+      * `GoogleDrive` - GoogleDrive
+      * `OneDrive` - OneDrive
+      * `SharePoint` - SharePoint
+      * `Box` - Box
+      * `SFTP` - SFTP
+      * `MicrosoftTeams` - MicrosoftTeams
+      * `Aircall` - Aircall
+      * `Webflow` - Webflow
+      * `Okta` - Okta
+      * `Auth0` - Auth0
+      * `Productboard` - Productboard
+      * `Smartsheet` - Smartsheet
+      * `Wrike` - Wrike
+      * `Plaid` - Plaid
+      * `SurveyMonkey` - SurveyMonkey
+      * `Eventbrite` - Eventbrite
+      * `RingCentral` - RingCentral
+      * `Twilio` - Twilio
+      * `Freshsales` - Freshsales
+      * `Shortcut` - Shortcut
+      * `ConvertKit` - ConvertKit
+      * `Drip` - Drip
+      * `CampaignMonitor` - CampaignMonitor
+      * `MailerLite` - MailerLite
+      * `Omnisend` - Omnisend
+      * `Brevo` - Brevo
+      * `Postmark` - Postmark
+      * `Granola` - Granola
+      * `BuildBetter` - BuildBetter
+      * `Convex` - Convex
+      * `ClickHouse` - ClickHouse
+      * `Plain` - Plain
+      * `Resend` - Resend */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
       /**
-       * Table name prefix in HogQL.
-       * @maxLength 100
-       * @nullable
-       */
+         * Table name prefix in HogQL.
+         * @maxLength 100
+         * @nullable
+         */
       prefix?: string | null;
       /**
-       * Human-readable description.
-       * @maxLength 400
-       * @nullable
-       */
+         * Human-readable description.
+         * @maxLength 400
+         * @nullable
+         */
       description?: string | null;
       /** Connection mode: 'warehouse' (import) or 'direct' (live query).
 
-    * `warehouse` - warehouse
-    * `direct` - direct */
+      * `warehouse` - warehouse
+      * `direct` - direct */
       access_method?: AccessMethodEnum;
       /** Where the request came from
 
-    * `web` - web
-    * `api` - api
-    * `mcp` - mcp */
+      * `web` - web
+      * `api` - api
+      * `mcp` - mcp */
       created_via?: CreatedViaEnum;
     }
 
@@ -14640,9 +14657,9 @@ export namespace Schemas {
       readonly created_by: string | null;
       /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
 
-    * `web` - web
-    * `api` - api
-    * `mcp` - mcp */
+      * `web` - web
+      * `api` - api
+      * `mcp` - mcp */
       created_via?: CreatedViaEnum;
       readonly status: string;
       client_secret: string;
@@ -14651,20 +14668,20 @@ export namespace Schemas {
       /** @nullable */
       readonly latest_error: string | null;
       /**
-       * @maxLength 100
-       * @nullable
-       */
+         * @maxLength 100
+         * @nullable
+         */
       prefix?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       description?: string | null;
       readonly access_method: AccessMethodEnum;
       /** Backend engine detected for the direct connection.
 
-    * `duckdb` - duckdb
-    * `postgres` - postgres */
+      * `duckdb` - duckdb
+      * `postgres` - postgres */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -14672,9 +14689,9 @@ export namespace Schemas {
       job_inputs?: unknown;
       readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
       readonly supports_webhooks: boolean;
     }
@@ -14763,18 +14780,18 @@ export namespace Schemas {
       /** @nullable */
       has_enriched_analytics?: boolean | null;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
       /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
 
-    * `feature_flags` - feature_flags
-    * `experiments` - experiments
-    * `surveys` - surveys
-    * `early_access_features` - early_access_features
-    * `web_experiments` - web_experiments
-    * `product_tours` - product_tours */
+      * `feature_flags` - feature_flags
+      * `experiments` - experiments
+      * `surveys` - surveys
+      * `early_access_features` - early_access_features
+      * `web_experiments` - web_experiments
+      * `product_tours` - product_tours */
       creation_context?: FeatureFlagCreationContextEnum;
       /** @nullable */
       is_remote_configuration?: boolean | null;
@@ -14783,19 +14800,19 @@ export namespace Schemas {
       readonly status: string;
       /** Specifies where this feature flag should be evaluated
 
-    * `server` - Server
-    * `client` - Client
-    * `all` - All */
+      * `server` - Server
+      * `client` - Client
+      * `all` - All */
       evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | null;
       /** Identifier used for bucketing users into rollout and variants
 
-    * `distinct_id` - User ID (default)
-    * `device_id` - Device ID */
+      * `distinct_id` - User ID (default)
+      * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
       /**
-       * Last time this feature flag was called (from $feature_flag_called events)
-       * @nullable
-       */
+         * Last time this feature flag was called (from $feature_flag_called events)
+         * @nullable
+         */
       last_called_at?: string | null;
       _create_in_folder?: string;
       _should_create_usage_dashboard?: boolean;
@@ -14834,9 +14851,9 @@ export namespace Schemas {
       /** Whether this condition matched properties but was excluded due to rollout */
       rollout_excluded: boolean;
       /**
-       * Variant associated with this condition
-       * @nullable
-       */
+         * Variant associated with this condition
+         * @nullable
+         */
       variant: string | null;
       /** Analysis of each property in this condition */
       properties: FeatureFlagConditionPropertyAnalysis[];
@@ -14889,34 +14906,34 @@ export namespace Schemas {
       key: string;
       /** Property filter type. Common values are 'person' and 'cohort'.
 
-    * `cohort` - cohort
-    * `person` - person
-    * `group` - group */
+      * `cohort` - cohort
+      * `person` - person
+      * `group` - group */
       type?: PropertyGroupTypeEnum;
       /**
-       * Resolved cohort name for cohort-type filters.
-       * @nullable
-       */
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
       cohort_name?: string | null;
       /**
-       * Group type index when using group-based filters.
-       * @nullable
-       */
+         * Group type index when using group-based filters.
+         * @nullable
+         */
       group_type_index?: number | null;
       /** Comparison value for the property filter. Supports strings, numbers, booleans, and arrays. */
       value: unknown;
       /** Operator used to compare the property value.
 
-    * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains
-    * `regex` - regex
-    * `not_regex` - not_regex
-    * `gt` - gt
-    * `gte` - gte
-    * `lt` - lt
-    * `lte` - lte */
+      * `exact` - exact
+      * `is_not` - is_not
+      * `icontains` - icontains
+      * `not_icontains` - not_icontains
+      * `regex` - regex
+      * `not_regex` - not_regex
+      * `gt` - gt
+      * `gte` - gte
+      * `lt` - lt
+      * `lte` - lte */
       operator: FeatureFlagFilterPropertyGenericSchemaOperatorEnum;
     }
 
@@ -14925,24 +14942,24 @@ export namespace Schemas {
       key: string;
       /** Property filter type. Common values are 'person' and 'cohort'.
 
-    * `cohort` - cohort
-    * `person` - person
-    * `group` - group */
+      * `cohort` - cohort
+      * `person` - person
+      * `group` - group */
       type?: PropertyGroupTypeEnum;
       /**
-       * Resolved cohort name for cohort-type filters.
-       * @nullable
-       */
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
       cohort_name?: string | null;
       /**
-       * Group type index when using group-based filters.
-       * @nullable
-       */
+         * Group type index when using group-based filters.
+         * @nullable
+         */
       group_type_index?: number | null;
       /** Existence operator.
 
-    * `is_set` - is_set
-    * `is_not_set` - is_not_set */
+      * `is_set` - is_set
+      * `is_not_set` - is_not_set */
       operator: ExistenceOperatorEnum;
       /** Optional value. Runtime behavior determines whether this is ignored. */
       value?: unknown;
@@ -14953,25 +14970,25 @@ export namespace Schemas {
       key: string;
       /** Property filter type. Common values are 'person' and 'cohort'.
 
-    * `cohort` - cohort
-    * `person` - person
-    * `group` - group */
+      * `cohort` - cohort
+      * `person` - person
+      * `group` - group */
       type?: PropertyGroupTypeEnum;
       /**
-       * Resolved cohort name for cohort-type filters.
-       * @nullable
-       */
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
       cohort_name?: string | null;
       /**
-       * Group type index when using group-based filters.
-       * @nullable
-       */
+         * Group type index when using group-based filters.
+         * @nullable
+         */
       group_type_index?: number | null;
       /** Date comparison operator.
 
-    * `is_date_exact` - is_date_exact
-    * `is_date_after` - is_date_after
-    * `is_date_before` - is_date_before */
+      * `is_date_exact` - is_date_exact
+      * `is_date_after` - is_date_after
+      * `is_date_before` - is_date_before */
       operator: DateOperatorEnum;
       /** Date value in ISO format or relative date expression. */
       value: string;
@@ -15008,31 +15025,31 @@ export namespace Schemas {
       key: string;
       /** Property filter type. Common values are 'person' and 'cohort'.
 
-    * `cohort` - cohort
-    * `person` - person
-    * `group` - group */
+      * `cohort` - cohort
+      * `person` - person
+      * `group` - group */
       type?: PropertyGroupTypeEnum;
       /**
-       * Resolved cohort name for cohort-type filters.
-       * @nullable
-       */
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
       cohort_name?: string | null;
       /**
-       * Group type index when using group-based filters.
-       * @nullable
-       */
+         * Group type index when using group-based filters.
+         * @nullable
+         */
       group_type_index?: number | null;
       /** Semantic version comparison operator.
 
-    * `semver_gt` - semver_gt
-    * `semver_gte` - semver_gte
-    * `semver_lt` - semver_lt
-    * `semver_lte` - semver_lte
-    * `semver_eq` - semver_eq
-    * `semver_neq` - semver_neq
-    * `semver_tilde` - semver_tilde
-    * `semver_caret` - semver_caret
-    * `semver_wildcard` - semver_wildcard */
+      * `semver_gt` - semver_gt
+      * `semver_gte` - semver_gte
+      * `semver_lt` - semver_lt
+      * `semver_lte` - semver_lte
+      * `semver_eq` - semver_eq
+      * `semver_neq` - semver_neq
+      * `semver_tilde` - semver_tilde
+      * `semver_caret` - semver_caret
+      * `semver_wildcard` - semver_wildcard */
       operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
       /** Semantic version string. */
       value: string;
@@ -15055,24 +15072,24 @@ export namespace Schemas {
       key: string;
       /** Property filter type. Common values are 'person' and 'cohort'.
 
-    * `cohort` - cohort
-    * `person` - person
-    * `group` - group */
+      * `cohort` - cohort
+      * `person` - person
+      * `group` - group */
       type?: PropertyGroupTypeEnum;
       /**
-       * Resolved cohort name for cohort-type filters.
-       * @nullable
-       */
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
       cohort_name?: string | null;
       /**
-       * Group type index when using group-based filters.
-       * @nullable
-       */
+         * Group type index when using group-based filters.
+         * @nullable
+         */
       group_type_index?: number | null;
       /** Multi-contains operator.
 
-    * `icontains_multi` - icontains_multi
-    * `not_icontains_multi` - not_icontains_multi */
+      * `icontains_multi` - icontains_multi
+      * `not_icontains_multi` - not_icontains_multi */
       operator: FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum;
       /** List of strings to evaluate against. */
       value: string[];
@@ -15105,22 +15122,22 @@ export namespace Schemas {
       key: string;
       /** Cohort property type required for in/not_in operators.
 
-    * `cohort` - cohort */
+      * `cohort` - cohort */
       type: FeatureFlagFilterPropertyCohortInSchemaTypeEnum;
       /**
-       * Resolved cohort name for cohort-type filters.
-       * @nullable
-       */
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
       cohort_name?: string | null;
       /**
-       * Group type index when using group-based filters.
-       * @nullable
-       */
+         * Group type index when using group-based filters.
+         * @nullable
+         */
       group_type_index?: number | null;
       /** Membership operator for cohort properties.
 
-    * `in` - in
-    * `not_in` - not_in */
+      * `in` - in
+      * `not_in` - not_in */
       operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnum;
       /** Cohort comparison value (single or list, depending on usage). */
       value: unknown;
@@ -15151,21 +15168,21 @@ export namespace Schemas {
       key: string;
       /** Flag property type required for flag dependency checks.
 
-    * `flag` - flag */
+      * `flag` - flag */
       type: FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum;
       /**
-       * Resolved cohort name for cohort-type filters.
-       * @nullable
-       */
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
       cohort_name?: string | null;
       /**
-       * Group type index when using group-based filters.
-       * @nullable
-       */
+         * Group type index when using group-based filters.
+         * @nullable
+         */
       group_type_index?: number | null;
       /** Operator for feature flag dependency evaluation.
 
-    * `flag_evaluates_to` - flag_evaluates_to */
+      * `flag_evaluates_to` - flag_evaluates_to */
       operator: FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum;
       /** Value to compare flag evaluation against. */
       value: unknown;
@@ -15179,14 +15196,14 @@ export namespace Schemas {
       /** Rollout percentage for this release condition group. */
       rollout_percentage?: number;
       /**
-       * Variant key override for multivariate flags.
-       * @nullable
-       */
+         * Variant key override for multivariate flags.
+         * @nullable
+         */
       variant?: string | null;
       /**
-       * Group type index for this condition set. None means person-level aggregation.
-       * @nullable
-       */
+         * Group type index for this condition set. None means person-level aggregation.
+         * @nullable
+         */
       aggregation_group_type_index?: number | null;
     }
 
@@ -15217,18 +15234,18 @@ export namespace Schemas {
       /** Multivariate configuration for variant-based rollouts. */
       multivariate?: FeatureFlagMultivariateSchema | null;
       /**
-       * Group type index for group-based feature flags.
-       * @nullable
-       */
+         * Group type index for group-based feature flags.
+         * @nullable
+         */
       aggregation_group_type_index?: number | null;
       /** Optional payload values keyed by variant key. */
       payloads?: FeatureFlagFiltersSchemaPayloads;
       /** Additional super condition groups used by experiments. */
       super_groups?: FeatureFlagFiltersSchemaSuperGroupsItem[];
       /**
-       * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
-       * @nullable
-       */
+         * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+         * @nullable
+         */
       feature_enrollment?: boolean | null;
     }
 
@@ -15260,9 +15277,9 @@ export namespace Schemas {
       /** Person ID to test against (mutually exclusive with distinct_id) */
       person_id?: string;
       /**
-       * Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.
-       * @nullable
-       */
+         * Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.
+         * @nullable
+         */
       timestamp?: string | null;
       /** Groups for feature flag evaluation (JSON object, defaults to empty dict) */
       groups?: unknown;
@@ -15281,18 +15298,18 @@ export namespace Schemas {
       /** The reason for the evaluation result */
       reason: string;
       /**
-       * The index of the condition that matched, if applicable
-       * @nullable
-       */
+         * The index of the condition that matched, if applicable
+         * @nullable
+         */
       condition_index: number | null;
       /** Payload associated with the flag result, if any */
       payload: unknown;
       /** Person properties at the time of evaluation (for historical evaluations) */
       person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
       /**
-       * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
-       * @nullable
-       */
+         * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
+         * @nullable
+         */
       evaluation_distinct_id: string | null;
       /** Detailed analysis of each condition in the feature flag */
       conditions: FeatureFlagConditionAnalysis[];
@@ -15312,10 +15329,10 @@ export namespace Schemas {
       active?: boolean;
       deleted?: boolean;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       version?: number | null;
       rollback_conditions?: unknown;
       /** @nullable */
@@ -15330,19 +15347,19 @@ export namespace Schemas {
       has_encrypted_payloads?: boolean | null;
       /** Specifies where this feature flag should be evaluated
 
-    * `server` - Server
-    * `client` - Client
-    * `all` - All */
+      * `server` - Server
+      * `client` - Client
+      * `all` - All */
       evaluation_runtime?: EvaluationRuntimeEnum | BlankEnum | null;
       /** Identifier used for bucketing users into rollout and variants
 
-    * `distinct_id` - User ID (default)
-    * `device_id` - Device ID */
+      * `distinct_id` - User ID (default)
+      * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
       /**
-       * Last time this feature flag was called (from $feature_flag_called events)
-       * @nullable
-       */
+         * Last time this feature flag was called (from $feature_flag_called events)
+         * @nullable
+         */
       last_called_at?: string | null;
       created_at?: string;
       /** @nullable */
@@ -15352,9 +15369,9 @@ export namespace Schemas {
       /** @nullable */
       readonly version_timestamp: string | null;
       /**
-       * User from the activity log entry that produced this version.
-       * @nullable
-       */
+         * User from the activity log entry that produced this version.
+         * @nullable
+         */
       readonly modified_by: number | null;
     }
 
@@ -15366,9 +15383,9 @@ export namespace Schemas {
       /** @maxLength 100 */
       type?: string;
       /**
-       * @maxLength 100
-       * @nullable
-       */
+         * @maxLength 100
+         * @nullable
+         */
       ref?: string | null;
       /** @nullable */
       href?: string | null;
@@ -15386,16 +15403,16 @@ export namespace Schemas {
       /** @maxLength 100 */
       type?: string;
       /**
-       * @maxLength 100
-       * @nullable
-       */
+         * @maxLength 100
+         * @nullable
+         */
       ref?: string | null;
       /** @nullable */
       href?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       order?: number;
       readonly created_at: string;
     }
@@ -15508,9 +15525,9 @@ export namespace Schemas {
       /** List of branch names */
       branches: string[];
       /**
-       * The default branch of the repository
-       * @nullable
-       */
+         * The default branch of the repository
+         * @nullable
+         */
       default_branch?: string | null;
       /** Whether more branches exist beyond the returned page */
       has_more: boolean;
@@ -15553,9 +15570,9 @@ export namespace Schemas {
 
     export interface Group {
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       group_type_index: number;
       /** @maxLength 400 */
       group_key: string;
@@ -15567,14 +15584,14 @@ export namespace Schemas {
       readonly group_type: string;
       readonly group_type_index: number;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name_singular?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name_plural?: string | null;
       /** @nullable */
       detail_dashboard?: number | null;
@@ -15632,38 +15649,38 @@ export namespace Schemas {
     export interface GroupUsageMetric {
       readonly id: string;
       /**
-       * Name of the usage metric. Must be unique per group type within the project.
-       * @maxLength 255
-       */
+         * Name of the usage metric. Must be unique per group type within the project.
+         * @maxLength 255
+         */
       name: string;
       /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
 
-    * `numeric` - numeric
-    * `currency` - currency */
+      * `numeric` - numeric
+      * `currency` - currency */
       format?: GroupUsageMetricFormatEnum;
       /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
       /** Visual representation in the UI. One of `number` or `sparkline`.
 
-    * `number` - number
-    * `sparkline` - sparkline */
+      * `number` - number
+      * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
       /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
 
-    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+      **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
 
-    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
+      **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
       filters: GroupUsageMetricFilters;
       /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
 
-    * `count` - count
-    * `sum` - sum */
+      * `count` - count
+      * `sum` - sum */
       math?: MathEnum;
       /**
-       * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
-       * @maxLength 255
-       * @nullable
-       */
+         * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
+         * @maxLength 255
+         * @nullable
+         */
       math_property?: string | null;
     }
 
@@ -15761,17 +15778,17 @@ export namespace Schemas {
       readonly id: string;
       readonly short_id: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /** @maxLength 2000 */
       url: string;
       /**
-       * URL for fetching heatmap data
-       * @maxLength 2000
-       * @nullable
-       */
+         * URL for fetching heatmap data
+         * @maxLength 2000
+         * @nullable
+         */
       data_url?: string | null;
       target_widths?: unknown;
       type?: HeatmapScreenshotResponseTypeEnum;
@@ -15808,10 +15825,10 @@ export namespace Schemas {
 
     export interface HogFlowMasking {
       /**
-       * @minimum 60
-       * @maximum 94608000
-       * @nullable
-       */
+         * @minimum 60
+         * @maximum 94608000
+         * @nullable
+         */
       ttl?: number | null;
       /** @nullable */
       threshold?: number | null;
@@ -15887,9 +15904,9 @@ export namespace Schemas {
     export interface HogFlow {
       readonly id: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       description?: string;
       readonly version: number;
@@ -15962,7 +15979,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type HogFlowTemplateCreatedBy = { [key: string]: unknown } | null | null;
+    export type HogFlowTemplateCreatedBy = { [key: string]: unknown } | null;
 
     export type HogFlowTemplateVariablesItem = {[key: string]: string};
 
@@ -16009,9 +16026,9 @@ export namespace Schemas {
       name: string;
       description?: string;
       /**
-       * @maxLength 8201
-       * @nullable
-       */
+         * @maxLength 8201
+         * @nullable
+         */
       image_url?: string | null;
       tags?: string[];
       scope: HogFlowTemplateScopeEnum;
@@ -16026,9 +16043,9 @@ export namespace Schemas {
       edges?: unknown;
       actions: HogFlowTemplateAction[];
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       abort_action?: string | null;
       variables?: HogFlowTemplateVariablesItem[];
     }
@@ -16136,15 +16153,15 @@ export namespace Schemas {
 
     export interface HogFunctionMasking {
       /**
-       * Time-to-live in seconds for the masking cache (60–86400).
-       * @minimum 60
-       * @maximum 86400
-       */
+         * Time-to-live in seconds for the masking cache (60–86400).
+         * @minimum 60
+         * @maximum 86400
+         */
       ttl: number;
       /**
-       * Optional threshold count before masking applies.
-       * @nullable
-       */
+         * Optional threshold count before masking applies.
+         * @nullable
+         */
       threshold?: number | null;
       /** Hog expression used to compute the masking hash. */
       hash: string;
@@ -16165,14 +16182,14 @@ export namespace Schemas {
       /** Name of this mapping template. */
       name: string;
       /**
-       * Whether this mapping is enabled by default.
-       * @nullable
-       */
+         * Whether this mapping is enabled by default.
+         * @nullable
+         */
       include_by_default?: boolean | null;
       /**
-       * Whether this mapping should match all events by default, hiding the event filter UI.
-       * @nullable
-       */
+         * Whether this mapping should match all events by default, hiding the event filter UI.
+         * @nullable
+         */
       use_all_events_by_default?: boolean | null;
       /** Event filters specific to this mapping. */
       filters?: unknown;
@@ -16186,51 +16203,51 @@ export namespace Schemas {
       /** Unique template identifier (e.g. 'template-slack'). */
       id: string;
       /**
-       * Display name of the template.
-       * @maxLength 400
-       */
+         * Display name of the template.
+         * @maxLength 400
+         */
       name: string;
       /**
-       * What this template does.
-       * @nullable
-       */
+         * What this template does.
+         * @nullable
+         */
       description?: string | null;
       /** Source code of the template. */
       code: string;
       /**
-       * Programming language: 'hog' or 'javascript'.
-       * @maxLength 20
-       */
+         * Programming language: 'hog' or 'javascript'.
+         * @maxLength 20
+         */
       code_language?: string;
       /** Schema defining configurable inputs for functions created from this template. */
       inputs_schema: unknown;
       /**
-       * Function type this template creates.
-       * @maxLength 50
-       */
+         * Function type this template creates.
+         * @maxLength 50
+         */
       type: string;
       /**
-       * Lifecycle status: alpha, beta, stable, deprecated, or hidden.
-       * @maxLength 20
-       */
+         * Lifecycle status: alpha, beta, stable, deprecated, or hidden.
+         * @maxLength 20
+         */
       status?: string;
       /** Category tags for organizing templates. */
       category?: unknown;
       /** Whether available on free plans. */
       free?: boolean;
       /**
-       * URL for the template's icon.
-       * @nullable
-       */
+         * URL for the template's icon.
+         * @nullable
+         */
       icon_url?: string | null;
       /** Default event filters. */
       filters?: unknown;
       /** Default PII masking configuration. */
       masking?: unknown;
       /**
-       * Pre-defined mapping configurations for destination templates.
-       * @nullable
-       */
+         * Pre-defined mapping configurations for destination templates.
+         * @nullable
+         */
       mapping_templates?: HogFunctionMappingTemplate[] | null;
     }
 
@@ -16263,19 +16280,19 @@ export namespace Schemas {
       readonly id: string;
       /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-    * `destination` - Destination
-    * `site_destination` - Site Destination
-    * `internal_destination` - Internal Destination
-    * `source_webhook` - Source Webhook
-    * `warehouse_source_webhook` - Warehouse Source Webhook
-    * `site_app` - Site App
-    * `transformation` - Transformation */
+      * `destination` - Destination
+      * `site_destination` - Site Destination
+      * `internal_destination` - Internal Destination
+      * `source_webhook` - Source Webhook
+      * `warehouse_source_webhook` - Warehouse Source Webhook
+      * `site_app` - Site App
+      * `transformation` - Transformation */
       type?: HogFunctionTypeEnum | null;
       /**
-       * Display name for the function.
-       * @maxLength 400
-       * @nullable
-       */
+         * Display name for the function.
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /** Human-readable description of what this function does. */
       description?: string;
@@ -16300,29 +16317,29 @@ export namespace Schemas {
       /** PII masking configuration with TTL, threshold, and hash expression. */
       masking?: HogFunctionMasking | null;
       /**
-       * Event-to-destination field mappings. Only for destination and site_destination types.
-       * @nullable
-       */
+         * Event-to-destination field mappings. Only for destination and site_destination types.
+         * @nullable
+         */
       mappings?: Mappings[] | null;
       /**
-       * URL for the function's icon displayed in the UI.
-       * @nullable
-       */
+         * URL for the function's icon displayed in the UI.
+         * @nullable
+         */
       icon_url?: string | null;
       readonly template: HogFunctionTemplate;
       /**
-       * ID of the template to create this function from.
-       * @maxLength 400
-       * @nullable
-       */
+         * ID of the template to create this function from.
+         * @maxLength 400
+         * @nullable
+         */
       template_id?: string | null;
       readonly status: HogFunctionStatus | null;
       /**
-       * Execution priority for transformations. Lower values run first.
-       * @minimum 0
-       * @maximum 32767
-       * @nullable
-       */
+         * Execution priority for transformations. Lower values run first.
+         * @minimum 0
+         * @maximum 32767
+         * @nullable
+         */
       execution_order?: number | null;
       _create_in_folder?: string;
       /** @nullable */
@@ -16353,9 +16370,9 @@ export namespace Schemas {
       /** Execution logs from the test invocation. */
       readonly logs: readonly unknown[];
       /**
-       * Optional invocation ID for correlation.
-       * @nullable
-       */
+         * Optional invocation ID for correlation.
+         * @nullable
+         */
       invocation_id?: string | null;
     }
 
@@ -16548,7 +16565,7 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebPageURLSearchQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
@@ -16640,7 +16657,7 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebTrendsQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
@@ -16714,7 +16731,7 @@ export namespace Schemas {
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      orderBy?: typeof UndefinedItem[keyof typeof UndefinedItem] [] | null;
+      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
       properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
       response?: WebNotableChangesQueryResponse | null;
       sampling?: WebAnalyticsSampling | null;
@@ -17043,7 +17060,7 @@ export namespace Schemas {
       /** count of all mouse activity in the recording, not just clicks */
       mouse_activity_count?: number | null;
       /** whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded from ClickHouse)
-    * */
+      * */
       ongoing?: boolean | null;
       person?: PersonType | null;
       /** Length of recording in seconds. */
@@ -17084,10 +17101,14 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
+    export type RecordingsQueryActions = { [key: string]: unknown }[] | null;
+
+    export type RecordingsQueryEvents = { [key: string]: unknown }[] | null;
+
     export type RecordingsQueryUserModifiedFilters = { [key: string]: unknown } | null;
 
     export interface RecordingsQuery {
-      actions?: undefinedItem[] | null;
+      actions?: RecordingsQueryActions;
       /** Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page. */
       after?: string | null;
       comment_text?: RecordingPropertyFilter | null;
@@ -17095,7 +17116,7 @@ export namespace Schemas {
       date_from?: string | null;
       date_to?: string | null;
       distinct_ids?: string[] | null;
-      events?: undefinedItem[] | null;
+      events?: RecordingsQueryEvents;
       filter_test_accounts?: boolean | null;
       having_predicates?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'RecordingsQuery';
@@ -17315,7 +17336,7 @@ export namespace Schemas {
     export type InsightResolvedDateRange = {
       readonly date_from?: string;
       readonly date_to?: string;
-    } | null | null;
+    } | null;
 
     export type InsightVizNodeKind = typeof InsightVizNodeKind[keyof typeof InsightVizNodeKind];
 
@@ -17373,54 +17394,54 @@ export namespace Schemas {
       readonly id: number;
       readonly short_id: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       derived_name?: string | null;
       query?: _InsightQuerySchema | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       order?: number | null;
       deleted?: boolean;
-      /** 
-            DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
-            A dashboard ID for each of the dashboards that this insight is displayed on.
-             */
+      /**
+              DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+              A dashboard ID for each of the dashboards that this insight is displayed on.
+               */
       dashboards?: number[];
-      /** 
-        A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
-         */
+      /**
+          A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+           */
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       /**
-       * 
-        The datetime this insight's results were generated.
-        If added to one or more dashboards the insight can be refreshed separately on each.
-        Returns the appropriate last_refresh datetime for the context the insight is viewed in
-        (see from_dashboard query parameter).
-        
-       * @nullable
-       */
+         *
+          The datetime this insight's results were generated.
+          If added to one or more dashboards the insight can be refreshed separately on each.
+          Returns the appropriate last_refresh datetime for the context the insight is viewed in
+          (see from_dashboard query parameter).
+
+         * @nullable
+         */
       readonly last_refresh: string | null;
       /**
-       * The target age of the cached results for this insight.
-       * @nullable
-       */
+         * The target age of the cached results for this insight.
+         * @nullable
+         */
       readonly cache_target_age: string | null;
       /**
-       * 
-        The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-        by querying the database.
-        
-       * @nullable
-       */
+         *
+          The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+          by querying the database.
+
+         * @nullable
+         */
       readonly next_allowed_client_refresh: string | null;
       readonly result: unknown;
       /** @nullable */
@@ -17431,9 +17452,9 @@ export namespace Schemas {
       readonly created_at: string | null;
       readonly created_by: UserBasic;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       description?: string | null;
       readonly updated_at: string;
       tags?: unknown[];
@@ -17444,14 +17465,14 @@ export namespace Schemas {
       readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
       /**
-       * The timezone this chart is displayed in.
-       * @nullable
-       */
+         * The timezone this chart is displayed in.
+         * @nullable
+         */
       readonly timezone: string | null;
       readonly is_cached: boolean;
       readonly query_status: unknown;
@@ -17505,31 +17526,31 @@ export namespace Schemas {
       /** UUID of the SQL variable. */
       readonly id: string;
       /**
-       * Human-readable name for the SQL variable.
-       * @maxLength 400
-       */
+         * Human-readable name for the SQL variable.
+         * @maxLength 400
+         */
       name: string;
       /** Variable type. Controls how the value is rendered and substituted in HogQL.
 
-    * `String` - String
-    * `Number` - Number
-    * `Boolean` - Boolean
-    * `List` - List
-    * `Date` - Date */
+      * `String` - String
+      * `Number` - Number
+      * `Boolean` - Boolean
+      * `List` - List
+      * `Date` - Date */
       type: InsightVariableTypeEnum;
       /** Default value used when a query references this variable. */
       default_value?: unknown;
       /**
-       * ID of the user who created the SQL variable.
-       * @nullable
-       */
+         * ID of the user who created the SQL variable.
+         * @nullable
+         */
       readonly created_by: number | null;
       /** Timestamp when the SQL variable was created. */
       readonly created_at: string;
       /**
-       * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
-       * @nullable
-       */
+         * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+         * @nullable
+         */
       readonly code_name: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
@@ -17706,10 +17727,10 @@ export namespace Schemas {
 
     export interface LLMPromptOutlineEntry {
       /**
-       * Markdown heading level (1-6).
-       * @minimum 1
-       * @maximum 6
-       */
+         * Markdown heading level (1-6).
+         * @minimum 1
+         * @maximum 6
+         */
       level: number;
       /** Heading text with markdown link syntax preserved. */
       text: string;
@@ -17718,9 +17739,9 @@ export namespace Schemas {
     export interface LLMPrompt {
       readonly id: string;
       /**
-       * Unique prompt name using letters, numbers, hyphens, and underscores only.
-       * @maxLength 255
-       */
+         * Unique prompt name using letters, numbers, hyphens, and underscores only.
+         * @maxLength 255
+         */
       name: string;
       /** Prompt payload as JSON or string data. */
       prompt: unknown;
@@ -17738,9 +17759,9 @@ export namespace Schemas {
 
     export interface LLMPromptDuplicate {
       /**
-       * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
-       * @maxLength 255
-       */
+         * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.
+         * @maxLength 255
+         */
       new_name: string;
     }
 
@@ -17818,10 +17839,10 @@ export namespace Schemas {
 
     export interface LLMSkillOutlineEntry {
       /**
-       * Markdown heading level (1-6).
-       * @minimum 1
-       * @maximum 6
-       */
+         * Markdown heading level (1-6).
+         * @minimum 1
+         * @maximum 6
+         */
       level: number;
       /** Heading text. */
       text: string;
@@ -17830,26 +17851,26 @@ export namespace Schemas {
     export interface LLMSkill {
       readonly id: string;
       /**
-       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
-       * @maxLength 64
-       */
+         * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+         * @maxLength 64
+         */
       name: string;
       /**
-       * What this skill does and when to use it. Max 4096 characters.
-       * @maxLength 4096
-       */
+         * What this skill does and when to use it. Max 4096 characters.
+         * @maxLength 4096
+         */
       description: string;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
-       * License name or reference to a bundled license file.
-       * @maxLength 255
-       */
+         * License name or reference to a bundled license file.
+         * @maxLength 255
+         */
       license?: string;
       /**
-       * Environment requirements (intended product, system packages, network access, etc.).
-       * @maxLength 500
-       */
+         * Environment requirements (intended product, system packages, network access, etc.).
+         * @maxLength 500
+         */
       compatibility?: string;
       /** List of pre-approved tools the skill may use. */
       allowed_tools?: string[];
@@ -17877,16 +17898,16 @@ export namespace Schemas {
 
     export interface LLMSkillFileInput {
       /**
-       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-       * @maxLength 500
-       */
+         * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+         * @maxLength 500
+         */
       path: string;
       /** Text content of the file. */
       content: string;
       /**
-       * MIME type of the file content.
-       * @maxLength 100
-       */
+         * MIME type of the file content.
+         * @maxLength 100
+         */
       content_type?: string;
     }
 
@@ -17896,26 +17917,26 @@ export namespace Schemas {
     export interface LLMSkillCreate {
       readonly id: string;
       /**
-       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
-       * @maxLength 64
-       */
+         * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+         * @maxLength 64
+         */
       name: string;
       /**
-       * What this skill does and when to use it. Max 4096 characters.
-       * @maxLength 4096
-       */
+         * What this skill does and when to use it. Max 4096 characters.
+         * @maxLength 4096
+         */
       description: string;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
-       * License name or reference to a bundled license file.
-       * @maxLength 255
-       */
+         * License name or reference to a bundled license file.
+         * @maxLength 255
+         */
       license?: string;
       /**
-       * Environment requirements (intended product, system packages, network access, etc.).
-       * @maxLength 500
-       */
+         * Environment requirements (intended product, system packages, network access, etc.).
+         * @maxLength 500
+         */
       compatibility?: string;
       /** List of pre-approved tools the skill may use. */
       allowed_tools?: string[];
@@ -17938,9 +17959,9 @@ export namespace Schemas {
 
     export interface LLMSkillDuplicate {
       /**
-       * Name for the duplicated skill. Must be unique.
-       * @maxLength 64
-       */
+         * Name for the duplicated skill. Must be unique.
+         * @maxLength 64
+         */
       new_name: string;
     }
 
@@ -17961,29 +17982,29 @@ export namespace Schemas {
 
     export interface LLMSkillFileCreate {
       /**
-       * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-       * @maxLength 500
-       */
+         * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
+         * @maxLength 500
+         */
       path: string;
       /** Text content of the file. */
       content: string;
       /**
-       * MIME type of the file content.
-       * @maxLength 100
-       */
+         * MIME type of the file content.
+         * @maxLength 100
+         */
       content_type?: string;
       /**
-       * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-       * @minimum 1
-       */
+         * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+         * @minimum 1
+         */
       base_version?: number;
     }
 
     export interface LLMSkillFileEdit {
       /**
-       * Path of the bundled file to edit. Must match an existing file on the current skill version.
-       * @maxLength 500
-       */
+         * Path of the bundled file to edit. Must match an existing file on the current skill version.
+         * @maxLength 500
+         */
       path: string;
       /** Sequential find/replace operations to apply to this file's content. */
       edits: LLMSkillEditOperation[];
@@ -17991,19 +18012,19 @@ export namespace Schemas {
 
     export interface LLMSkillFileRename {
       /**
-       * Current file path to rename.
-       * @maxLength 500
-       */
+         * Current file path to rename.
+         * @maxLength 500
+         */
       old_path: string;
       /**
-       * New file path. Must not already exist in the skill.
-       * @maxLength 500
-       */
+         * New file path. Must not already exist in the skill.
+         * @maxLength 500
+         */
       new_path: string;
       /**
-       * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-       * @minimum 1
-       */
+         * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+         * @minimum 1
+         */
       base_version?: number;
     }
 
@@ -18018,24 +18039,24 @@ export namespace Schemas {
     export interface LLMSkillList {
       readonly id: string;
       /**
-       * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
-       * @maxLength 64
-       */
+         * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
+         * @maxLength 64
+         */
       name: string;
       /**
-       * What this skill does and when to use it. Max 4096 characters.
-       * @maxLength 4096
-       */
+         * What this skill does and when to use it. Max 4096 characters.
+         * @maxLength 4096
+         */
       description: string;
       /**
-       * License name or reference to a bundled license file.
-       * @maxLength 255
-       */
+         * License name or reference to a bundled license file.
+         * @maxLength 255
+         */
       license?: string;
       /**
-       * Environment requirements (intended product, system packages, network access, etc.).
-       * @maxLength 500
-       */
+         * Environment requirements (intended product, system packages, network access, etc.).
+         * @maxLength 500
+         */
       compatibility?: string;
       /** List of pre-approved tools the skill may use. */
       allowed_tools?: string[];
@@ -18115,9 +18136,9 @@ export namespace Schemas {
       repository?: string | null;
       filename: string;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         */
       line_number: number;
       enabled?: boolean;
       /** @nullable */
@@ -18179,12 +18200,12 @@ export namespace Schemas {
       end: string;
       /** Alert state during this interval.
 
-    * `not_firing` - Not firing
-    * `firing` - Firing
-    * `pending_resolve` - Pending resolve
-    * `errored` - Errored
-    * `snoozed` - Snoozed
-    * `broken` - Broken */
+      * `not_firing` - Not firing
+      * `firing` - Firing
+      * `pending_resolve` - Pending resolve
+      * `errored` - Errored
+      * `snoozed` - Snoozed
+      * `broken` - Broken */
       state: LogsAlertConfigurationStateEnum;
       /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
       enabled: boolean;
@@ -18206,23 +18227,23 @@ export namespace Schemas {
       /** Unique identifier for this alert. */
       readonly id: string;
       /**
-       * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
-       * @maxLength 255
-       */
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
       name?: string;
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: unknown;
       /**
-       * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-       * @minimum 1
-       */
+         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
+         * @minimum 1
+         */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
-    * `above` - Above
-    * `below` - Below */
+      * `above` - Above
+      * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
       /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
@@ -18230,81 +18251,81 @@ export namespace Schemas {
       readonly check_interval_minutes: number;
       /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
 
-    * `not_firing` - Not firing
-    * `firing` - Firing
-    * `pending_resolve` - Pending resolve
-    * `errored` - Errored
-    * `snoozed` - Snoozed
-    * `broken` - Broken */
+      * `not_firing` - Not firing
+      * `firing` - Firing
+      * `pending_resolve` - Pending resolve
+      * `errored` - Errored
+      * `snoozed` - Snoozed
+      * `broken` - Broken */
       readonly state: LogsAlertConfigurationStateEnum;
       /**
-       * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
-       * @minimum 1
-       * @maximum 10
-       */
+         * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
       evaluation_periods?: number;
       /**
-       * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
-       * @minimum 1
-       * @maximum 10
-       */
+         * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
       datapoints_to_alarm?: number;
       /**
-       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
-       * @minimum 0
-       */
+         * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+         * @minimum 0
+         */
       cooldown_minutes?: number;
       /**
-       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
-       * @nullable
-       */
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
       snooze_until?: string | null;
       /**
-       * When the next evaluation is scheduled. Server-managed.
-       * @nullable
-       */
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
       readonly next_check_at: string | null;
       /**
-       * When the last notification was sent. Server-managed.
-       * @nullable
-       */
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
       readonly last_notified_at: string | null;
       /**
-       * When the alert was last evaluated. Server-managed.
-       * @nullable
-       */
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
       readonly last_checked_at: string | null;
       /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures: number;
       /**
-       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
-       * @nullable
-       */
+         * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+         * @nullable
+         */
       readonly last_error_message: string | null;
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types: readonly NotificationDestinationTypeEnum[];
       /**
-       * When the alert was first enabled. Null means the alert is still in draft state.
-       * @nullable
-       */
+         * When the alert was first enabled. Null means the alert is still in draft state.
+         * @nullable
+         */
       readonly first_enabled_at: string | null;
       /** When the alert was created. */
       readonly created_at: string;
       readonly created_by: UserBasic;
       /**
-       * When the alert was last modified.
-       * @nullable
-       */
+         * When the alert was last modified.
+         * @nullable
+         */
       readonly updated_at: string | null;
     }
 
     export interface LogsAlertCreateDestination {
       /** Destination type — slack or webhook.
 
-    * `slack` - slack
-    * `webhook` - webhook */
+      * `slack` - slack
+      * `webhook` - webhook */
       type: NotificationDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
@@ -18318,9 +18339,9 @@ export namespace Schemas {
 
     export interface LogsAlertDeleteDestination {
       /**
-       * HogFunction IDs to delete as one atomic destination group.
-       * @minItems 1
-       */
+         * HogFunction IDs to delete as one atomic destination group.
+         * @minItems 1
+         */
       hog_function_ids: string[];
     }
 
@@ -18384,39 +18405,39 @@ export namespace Schemas {
       /** Filter criteria — same format as LogsAlertConfiguration.filters. */
       filters: unknown;
       /**
-       * Threshold count to evaluate against.
-       * @minimum 1
-       */
+         * Threshold count to evaluate against.
+         * @minimum 1
+         */
       threshold_count: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
-    * `above` - Above
-    * `below` - Below */
+      * `above` - Above
+      * `below` - Below */
       threshold_operator: ThresholdOperatorEnum;
       /** Window size in minutes — determines bucket interval. */
       window_minutes: number;
       /**
-       * How often the alert is evaluated, in minutes.
-       * @minimum 1
-       * @maximum 60
-       */
+         * How often the alert is evaluated, in minutes.
+         * @minimum 1
+         * @maximum 60
+         */
       check_interval_minutes?: number;
       /**
-       * Total check periods in the N-of-M evaluation window (M).
-       * @minimum 1
-       * @maximum 10
-       */
+         * Total check periods in the N-of-M evaluation window (M).
+         * @minimum 1
+         * @maximum 10
+         */
       evaluation_periods?: number;
       /**
-       * How many periods must breach to fire (N in N-of-M).
-       * @minimum 1
-       * @maximum 10
-       */
+         * How many periods must breach to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
       datapoints_to_alarm?: number;
       /**
-       * Minutes to wait after firing before sending another notification.
-       * @minimum 0
-       */
+         * Minutes to wait after firing before sending another notification.
+         * @minimum 0
+         */
       cooldown_minutes?: number;
       /** Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d'). */
       date_from: string;
@@ -18457,35 +18478,35 @@ export namespace Schemas {
       /** Unique identifier for this sampling rule. */
       readonly id: string;
       /**
-       * User-visible label for this rule.
-       * @maxLength 255
-       */
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
       name: string;
       /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
       enabled?: boolean;
       /**
-       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
-       * @minimum 0
-       * @nullable
-       */
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
       priority?: number | null;
       /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
-    * `severity_sampling` - Severity-based reduction
-    * `path_drop` - Path exclusion
-    * `rate_limit` - Rate limit */
+      * `severity_sampling` - Severity-based reduction
+      * `path_drop` - Path exclusion
+      * `rate_limit` - Rate limit */
       rule_type: RuleTypeEnum;
       /**
-       * If set, the rule applies only to this service name; null means all services.
-       * @maxLength 512
-       * @nullable
-       */
+         * If set, the rule applies only to this service name; null means all services.
+         * @maxLength 512
+         * @nullable
+         */
       scope_service?: string | null;
       /**
-       * Optional regex matched against a path-like log attribute when present.
-       * @maxLength 1024
-       * @nullable
-       */
+         * Optional regex matched against a path-like log attribute when present.
+         * @maxLength 1024
+         * @nullable
+         */
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
@@ -18547,8 +18568,8 @@ export namespace Schemas {
       readonly id: string;
       /** Whether this submission is general feedback or a missing capability report.
 
-    * `feedback` - Feedback
-    * `missing_capability` - Missing capability */
+      * `feedback` - Feedback
+      * `missing_capability` - Missing capability */
       readonly kind: MCPAnalyticsSubmissionKindEnum;
       /** The user's goal in plain language. */
       goal: string;
@@ -18557,9 +18578,9 @@ export namespace Schemas {
       /** Feedback category when present. Empty for submissions that do not use categories. */
       readonly category: string;
       /**
-       * Whether the missing capability blocked progress. Null when not provided.
-       * @nullable
-       */
+         * Whether the missing capability blocked progress. Null when not provided.
+         * @nullable
+         */
       readonly blocked: boolean | null;
       /** The tool the user tried before submitting this feedback, if known. */
       readonly attempted_tool: string;
@@ -18613,105 +18634,105 @@ export namespace Schemas {
 
     export interface MCPFeedbackCreate {
       /**
-       * The tool the user tried before leaving feedback, if known.
-       * @maxLength 200
-       */
+         * The tool the user tried before leaving feedback, if known.
+         * @maxLength 200
+         */
       attempted_tool?: string;
       /**
-       * MCP client name, for example Claude Desktop or Cursor.
-       * @maxLength 200
-       */
+         * MCP client name, for example Claude Desktop or Cursor.
+         * @maxLength 200
+         */
       mcp_client_name?: string;
       /**
-       * Version string for the MCP client when available.
-       * @maxLength 100
-       */
+         * Version string for the MCP client when available.
+         * @maxLength 100
+         */
       mcp_client_version?: string;
       /**
-       * MCP protocol version negotiated for the session when available.
-       * @maxLength 50
-       */
+         * MCP protocol version negotiated for the session when available.
+         * @maxLength 50
+         */
       mcp_protocol_version?: string;
       /**
-       * Transport used for the MCP session, for example streamable_http or sse.
-       * @maxLength 50
-       */
+         * Transport used for the MCP session, for example streamable_http or sse.
+         * @maxLength 50
+         */
       mcp_transport?: string;
       /**
-       * Stable MCP session identifier when available.
-       * @maxLength 200
-       */
+         * Stable MCP session identifier when available.
+         * @maxLength 200
+         */
       mcp_session_id?: string;
       /**
-       * Trace identifier for the surrounding MCP workflow when available.
-       * @maxLength 200
-       */
+         * Trace identifier for the surrounding MCP workflow when available.
+         * @maxLength 200
+         */
       mcp_trace_id?: string;
       /**
-       * The user's intended outcome when using MCP.
-       * @maxLength 500
-       */
+         * The user's intended outcome when using MCP.
+         * @maxLength 500
+         */
       goal: string;
       /**
-       * Concrete feedback about the MCP experience, tool result, or workflow friction.
-       * @maxLength 5000
-       */
+         * Concrete feedback about the MCP experience, tool result, or workflow friction.
+         * @maxLength 5000
+         */
       feedback: string;
       /** High-level category for the feedback.
 
-    * `results` - Results
-    * `usability` - Usability
-    * `bug` - Bug
-    * `docs` - Docs
-    * `other` - Other */
+      * `results` - Results
+      * `usability` - Usability
+      * `bug` - Bug
+      * `docs` - Docs
+      * `other` - Other */
       category?: MCPFeedbackCreateCategoryEnum;
     }
 
     export interface MCPMissingCapabilityCreate {
       /**
-       * The tool the user tried before leaving feedback, if known.
-       * @maxLength 200
-       */
+         * The tool the user tried before leaving feedback, if known.
+         * @maxLength 200
+         */
       attempted_tool?: string;
       /**
-       * MCP client name, for example Claude Desktop or Cursor.
-       * @maxLength 200
-       */
+         * MCP client name, for example Claude Desktop or Cursor.
+         * @maxLength 200
+         */
       mcp_client_name?: string;
       /**
-       * Version string for the MCP client when available.
-       * @maxLength 100
-       */
+         * Version string for the MCP client when available.
+         * @maxLength 100
+         */
       mcp_client_version?: string;
       /**
-       * MCP protocol version negotiated for the session when available.
-       * @maxLength 50
-       */
+         * MCP protocol version negotiated for the session when available.
+         * @maxLength 50
+         */
       mcp_protocol_version?: string;
       /**
-       * Transport used for the MCP session, for example streamable_http or sse.
-       * @maxLength 50
-       */
+         * Transport used for the MCP session, for example streamable_http or sse.
+         * @maxLength 50
+         */
       mcp_transport?: string;
       /**
-       * Stable MCP session identifier when available.
-       * @maxLength 200
-       */
+         * Stable MCP session identifier when available.
+         * @maxLength 200
+         */
       mcp_session_id?: string;
       /**
-       * Trace identifier for the surrounding MCP workflow when available.
-       * @maxLength 200
-       */
+         * Trace identifier for the surrounding MCP workflow when available.
+         * @maxLength 200
+         */
       mcp_trace_id?: string;
       /**
-       * The user's intended outcome when using MCP.
-       * @maxLength 500
-       */
+         * The user's intended outcome when using MCP.
+         * @maxLength 500
+         */
       goal: string;
       /**
-       * Capability, tool, or workflow support that is currently missing.
-       * @maxLength 5000
-       */
+         * Capability, tool, or workflow support that is currently missing.
+         * @maxLength 5000
+         */
       missing_capability: string;
       /** Whether the missing capability blocked the user's progress. */
       blocked?: boolean;
@@ -18825,14 +18846,14 @@ export namespace Schemas {
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
      * @nullable
      */
-    export type MaterializationPreviewRequestBucketOverrides = {[key: string]: string} | null | null;
+    export type MaterializationPreviewRequestBucketOverrides = {[key: string]: string} | null;
 
     export interface MaterializationPreviewRequest {
       version?: number;
       /**
-       * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
-       * @nullable
-       */
+         * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
+         * @nullable
+         */
       bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
     }
 
@@ -18864,15 +18885,15 @@ export namespace Schemas {
       readonly property_definition_details: PropertyDefinition;
       property_type: PropertyDefinitionTypeEnum;
       /**
-       * @minimum 0
-       * @maximum 32767
-       */
+         * @minimum 0
+         * @maximum 32767
+         */
       slot_index: number;
       state?: MaterializedColumnSlotStateEnum;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       backfill_temporal_workflow_id?: string | null;
       /** @nullable */
       error_message?: string | null;
@@ -18908,9 +18929,9 @@ export namespace Schemas {
      */
     export interface Message {
       /**
-       * @maxLength 40000
-       * @nullable
-       */
+         * @maxLength 40000
+         * @nullable
+         */
       content: string | null;
       conversation: string;
       contextual_tools?: MessageContextualTools;
@@ -19022,9 +19043,9 @@ export namespace Schemas {
       /** Unique identifier (UUID) for this person. */
       readonly uuid: string;
       /**
-       * Timestamp of the last event from this person, or null.
-       * @nullable
-       */
+         * Timestamp of the last event from this person, or null.
+         * @nullable
+         */
       readonly last_seen_at: string | null;
     }
 
@@ -19105,23 +19126,23 @@ export namespace Schemas {
       /** Short alphanumeric identifier used in URLs and API lookups. */
       readonly short_id: string;
       /**
-       * Title of the notebook.
-       * @maxLength 256
-       * @nullable
-       */
+         * Title of the notebook.
+         * @maxLength 256
+         * @nullable
+         */
       title?: string | null;
       /** Notebook content as a ProseMirror JSON document structure. */
       content?: unknown;
       /**
-       * Plain text representation of the notebook content for search.
-       * @nullable
-       */
+         * Plain text representation of the notebook content for search.
+         * @nullable
+         */
       text_content?: string | null;
       /**
-       * Version number for optimistic concurrency control. Must match the current version when updating content.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * Version number for optimistic concurrency control. Must match the current version when updating content.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       version?: number;
       /** Whether the notebook has been soft-deleted. */
       deleted?: boolean;
@@ -19130,9 +19151,9 @@ export namespace Schemas {
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
       _create_in_folder?: string;
     }
@@ -19151,9 +19172,9 @@ export namespace Schemas {
       /** Updated notebook title. */
       title?: string;
       /**
-       * ProseMirror cursor head position after applying steps.
-       * @nullable
-       */
+         * ProseMirror cursor head position after applying steps.
+         * @nullable
+         */
       cursor_head?: number | null;
     }
 
@@ -19163,9 +19184,9 @@ export namespace Schemas {
       /** Short alphanumeric identifier used in URLs and API lookups. */
       readonly short_id: string;
       /**
-       * Title of the notebook.
-       * @nullable
-       */
+         * Title of the notebook.
+         * @nullable
+         */
       readonly title: string | null;
       /** Whether the notebook has been soft-deleted. */
       readonly deleted: boolean;
@@ -19174,9 +19195,9 @@ export namespace Schemas {
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
       _create_in_folder?: string;
     }
@@ -19230,9 +19251,9 @@ export namespace Schemas {
       /** Value for the most recent period. */
       current: number;
       /**
-       * Value for the prior period, if available.
-       * @nullable
-       */
+         * Value for the prior period, if available.
+         * @nullable
+         */
       previous: number | null;
       /** Period-over-period change, null when not meaningful. */
       change: WoWChange | null;
@@ -19240,19 +19261,19 @@ export namespace Schemas {
 
     export interface NumericScoreDefinitionConfig {
       /**
-       * Optional inclusive minimum score.
-       * @nullable
-       */
+         * Optional inclusive minimum score.
+         * @nullable
+         */
       min?: number | null;
       /**
-       * Optional inclusive maximum score.
-       * @nullable
-       */
+         * Optional inclusive maximum score.
+         * @nullable
+         */
       max?: number | null;
       /**
-       * Optional increment step for numeric input, for example 1 or 0.5.
-       * @nullable
-       */
+         * Optional increment step for numeric input, for example 1 or 0.5.
+         * @nullable
+         */
       step?: number | null;
     }
 
@@ -19299,13 +19320,13 @@ export namespace Schemas {
     export interface OnboardingSkipRequest {
       /** Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.
 
-    * `later` - Later
-    * `other` - Other */
+      * `later` - Later
+      * `other` - Other */
       reason: OnboardingSkipRequestReasonEnum;
       /**
-       * Onboarding step key the user was on when skipping, for analytics only.
-       * @maxLength 64
-       */
+         * Onboarding step key the user was on when skipping, for analytics only.
+         * @maxLength 64
+         */
       step_at_skip?: string;
     }
 
@@ -19389,30 +19410,30 @@ export namespace Schemas {
       is_ai_data_processing_approved?: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
-    * `bayesian` - Bayesian
-    * `frequentist` - Frequentist */
+      * `bayesian` - Bayesian
+      * `frequentist` - Frequentist */
       default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
-       * ID of the role to automatically assign to new members joining the organization
-       * @nullable
-       */
+         * ID of the role to automatically assign to new members joining the organization
+         * @nullable
+         */
       default_role_id?: string | null;
       /**
-       * Set this to 'No' to temporarily disable an organization.
-       * @nullable
-       */
+         * Set this to 'No' to temporarily disable an organization.
+         * @nullable
+         */
       readonly is_active: boolean | null;
       /**
-       * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
-       * @nullable
-       */
+         * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+         * @nullable
+         */
       readonly is_not_active_reason: string | null;
       /**
-       * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
-       * @nullable
-       */
+         * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+         * @nullable
+         */
       readonly is_pending_deletion: boolean | null;
     }
 
@@ -19425,29 +19446,29 @@ export namespace Schemas {
       /** @maxLength 64 */
       name: string;
       /**
-       * @maxLength 48
-       * @pattern ^[-a-zA-Z0-9_]+$
-       */
+         * @maxLength 48
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
       slug: string;
       /** @nullable */
       readonly logo_media_id: string | null;
       readonly membership_level: EffectiveMembershipLevelEnum;
       members_can_use_personal_api_keys?: boolean;
       /**
-       * Set this to 'No' to temporarily disable an organization.
-       * @nullable
-       */
+         * Set this to 'No' to temporarily disable an organization.
+         * @nullable
+         */
       is_active?: boolean | null;
       /**
-       * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
-       * @maxLength 200
-       * @nullable
-       */
+         * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+         * @maxLength 200
+         * @nullable
+         */
       is_not_active_reason?: string | null;
       /**
-       * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
-       * @nullable
-       */
+         * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+         * @nullable
+         */
       is_pending_deletion?: boolean | null;
     }
 
@@ -19466,14 +19487,14 @@ export namespace Schemas {
       /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
       readonly has_saml: boolean;
       /**
-       * @maxLength 512
-       * @nullable
-       */
+         * @maxLength 512
+         * @nullable
+         */
       saml_entity_id?: string | null;
       /**
-       * @maxLength 512
-       * @nullable
-       */
+         * @maxLength 512
+         * @nullable
+         */
       saml_acs_url?: string | null;
       /** @nullable */
       saml_x509_cert?: string | null;
@@ -19549,14 +19570,14 @@ export namespace Schemas {
       /** Email of the teammate who should complete setup on the inviter's behalf. Receives a PostHog-branded delegation invite granting admin-level membership on accept. */
       target_email: string;
       /**
-       * Optional personal message included in the delegation email (up to 1000 characters).
-       * @maxLength 1000
-       */
+         * Optional personal message included in the delegation email (up to 1000 characters).
+         * @maxLength 1000
+         */
       message?: string;
       /**
-       * Onboarding step key the delegator was on when delegating, for analytics only.
-       * @maxLength 64
-       */
+         * Onboarding step key the delegator was on when delegating, for analytics only.
+         * @maxLength 64
+         */
       step_at_delegation?: string;
     }
 
@@ -19616,10 +19637,10 @@ export namespace Schemas {
      */
     export interface Outcome {
       /**
-       * @minLength 1
-       * @maxLength 10000
-       * @nullable
-       */
+         * @minLength 1
+         * @maxLength 10000
+         * @nullable
+         */
       description?: string | null;
       /** @nullable */
       success?: boolean | null;
@@ -20556,9 +20577,9 @@ export namespace Schemas {
 
     export interface PauseStateResponse {
       /**
-       * The timestamp the pipeline is paused until, or null if not paused/not running.
-       * @nullable
-       */
+         * The timestamp the pipeline is paused until, or null if not paused/not running.
+         * @nullable
+         */
       paused_until: string | null;
     }
 
@@ -20617,9 +20638,9 @@ export namespace Schemas {
       /** Unique identifier (UUID) for this person. */
       readonly uuid: string;
       /**
-       * Timestamp of the last event from this person, or null.
-       * @nullable
-       */
+         * Timestamp of the last event from this person, or null.
+         * @nullable
+         */
       readonly last_seen_at: string | null;
     }
 
@@ -20689,7 +20710,7 @@ export namespace Schemas {
      * Return the targeting flag filters, excluding the base exclusion properties.
      * @nullable
      */
-    export type ProductTourTargetingFlagFilters = { [key: string]: unknown } | null | null;
+    export type ProductTourTargetingFlagFilters = { [key: string]: unknown } | null;
 
     /**
      * Read-only serializer for ProductTour.
@@ -20702,9 +20723,9 @@ export namespace Schemas {
       readonly internal_targeting_flag: MinimalFeatureFlag;
       readonly linked_flag: MinimalFeatureFlag;
       /**
-       * Return the targeting flag filters, excluding the base exclusion properties.
-       * @nullable
-       */
+         * Return the targeting flag filters, excluding the base exclusion properties.
+         * @nullable
+         */
       readonly targeting_flag_filters: ProductTourTargetingFlagFilters;
       content?: unknown;
       readonly draft_content: unknown;
@@ -20807,12 +20828,12 @@ export namespace Schemas {
 
     export interface QueryTabState {
       readonly id: string;
-      /** 
-                Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-                and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-                ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-                for a user.
-                 */
+      /**
+                  Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+                  and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+                  ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+                  for a user.
+                   */
       state?: unknown;
     }
 
@@ -20931,30 +20952,30 @@ export namespace Schemas {
     export interface RoleExternalReference {
       readonly id: string;
       /**
-       * Integration kind (e.g., github, linear, jira, slack).
-       * @maxLength 32
-       */
+         * Integration kind (e.g., github, linear, jira, slack).
+         * @maxLength 32
+         */
       provider: string;
       /**
-       * Provider organization/workspace/site identifier.
-       * @maxLength 255
-       */
+         * Provider organization/workspace/site identifier.
+         * @maxLength 255
+         */
       provider_organization_id: string;
       /**
-       * Stable provider role identifier.
-       * @maxLength 255
-       */
+         * Stable provider role identifier.
+         * @maxLength 255
+         */
       provider_role_id: string;
       /**
-       * Human-friendly provider role identifier.
-       * @maxLength 255
-       * @nullable
-       */
+         * Human-friendly provider role identifier.
+         * @maxLength 255
+         * @nullable
+         */
       provider_role_slug?: string | null;
       /**
-       * Display name of the provider role.
-       * @maxLength 255
-       */
+         * Display name of the provider role.
+         * @maxLength 255
+         */
       provider_role_name: string;
       /** PostHog role UUID this external role maps to. */
       role: string;
@@ -21068,13 +21089,13 @@ export namespace Schemas {
       readonly id: number;
       readonly team_id: number;
       /**
-       * The ID of the record to modify (e.g. the feature flag ID).
-       * @maxLength 200
-       */
+         * The ID of the record to modify (e.g. the feature flag ID).
+         * @maxLength 200
+         */
       record_id: string;
       /** The type of record to modify. Currently only "FeatureFlag" is supported.
 
-    * `FeatureFlag` - feature flag */
+      * `FeatureFlag` - feature flag */
       model_name: ModelNameEnum;
       /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
       payload: unknown;
@@ -21083,9 +21104,9 @@ export namespace Schemas {
       /** @nullable */
       readonly executed_at: string | null;
       /**
-       * Return the safely formatted failure reason instead of raw data.
-       * @nullable
-       */
+         * Return the safely formatted failure reason instead of raw data.
+         * @nullable
+         */
       readonly failure_reason: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -21094,22 +21115,22 @@ export namespace Schemas {
       is_recurring?: boolean;
       /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
 
-    * `daily` - daily
-    * `weekly` - weekly
-    * `monthly` - monthly
-    * `yearly` - yearly */
+      * `daily` - daily
+      * `weekly` - weekly
+      * `monthly` - monthly
+      * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | null;
       /**
-       * @maxLength 100
-       * @nullable
-       */
+         * @maxLength 100
+         * @nullable
+         */
       cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at: string | null;
       /**
-       * Optional ISO 8601 datetime after which a recurring schedule stops executing.
-       * @nullable
-       */
+         * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+         * @nullable
+         */
       end_date?: string | null;
       /** @nullable */
       readonly timezone: string | null;
@@ -21299,15 +21320,15 @@ export namespace Schemas {
       readonly id: number;
       readonly short_id: string;
       /**
-       * Human-readable name for the playlist.
-       * @maxLength 400
-       * @nullable
-       */
+         * Human-readable name for the playlist.
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       derived_name?: string | null;
       /** Optional description of the playlist's purpose or contents. */
       description?: string;
@@ -21324,8 +21345,8 @@ export namespace Schemas {
       readonly recordings_counts: SessionRecordingPlaylistRecordingsCounts;
       /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-    * `collection` - Collection
-    * `filters` - Filters */
+      * `collection` - Collection
+      * `filters` - Filters */
       type?: SessionRecordingPlaylistTypeEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic: boolean;
@@ -21379,27 +21400,27 @@ export namespace Schemas {
       readonly updated_at: string;
       readonly artefact_count: number;
       /**
-       * P0–P4 from the latest priority judgment artefact (when present).
-       * @nullable
-       */
+         * P0–P4 from the latest priority judgment artefact (when present).
+         * @nullable
+         */
       readonly priority: string | null;
       /**
-       * Actionability choice from the latest actionability judgment artefact (when present).
-       * @nullable
-       */
+         * Actionability choice from the latest actionability judgment artefact (when present).
+         * @nullable
+         */
       readonly actionability: string | null;
       /**
-       * Whether the issue appears already fixed, from the actionability judgment artefact.
-       * @nullable
-       */
+         * Whether the issue appears already fixed, from the actionability judgment artefact.
+         * @nullable
+         */
       readonly already_addressed: boolean | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
       /**
-       * PR URL from the latest implementation task run, if available.
-       * @nullable
-       */
+         * PR URL from the latest implementation task run, if available.
+         * @nullable
+         */
       readonly implementation_pr_url: string | null;
     }
 
@@ -21572,9 +21593,9 @@ export namespace Schemas {
       /** Why the run started (e.g. scheduled, manual, target_change). */
       readonly trigger_type: string;
       /**
-       * Planned send time when applicable.
-       * @nullable
-       */
+         * Planned send time when applicable.
+         * @nullable
+         */
       readonly scheduled_at: string | null;
       /** Channel snapshot at send time (email, slack, webhook). */
       readonly target_type: string;
@@ -21588,10 +21609,10 @@ export namespace Schemas {
       readonly recipient_results: unknown;
       /** Overall run status: starting, completed, failed, or skipped.
 
-    * `starting` - Starting
-    * `completed` - Completed
-    * `failed` - Failed
-    * `skipped` - Skipped */
+      * `starting` - Starting
+      * `completed` - Completed
+      * `failed` - Failed
+      * `skipped` - Skipped */
       readonly status: SubscriptionDeliveryStatusEnum;
       /** Top-level failure payload when status is failed, if any. */
       readonly error: unknown;
@@ -21600,14 +21621,14 @@ export namespace Schemas {
       /** Last ORM update to this row. */
       readonly last_updated_at: string;
       /**
-       * When the run finished, if applicable.
-       * @nullable
-       */
+         * When the run finished, if applicable.
+         * @nullable
+         */
       readonly finished_at: string | null;
       /**
-       * AI-generated summary included in this delivery, when one was produced.
-       * @nullable
-       */
+         * AI-generated summary included in this delivery, when one was produced.
+         * @nullable
+         */
       readonly change_summary: string | null;
     }
 
@@ -21677,14 +21698,14 @@ export namespace Schemas {
     export interface Subscription {
       readonly id: number;
       /**
-       * Dashboard ID to subscribe to (mutually exclusive with insight on create).
-       * @nullable
-       */
+         * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+         * @nullable
+         */
       dashboard?: number | null;
       /**
-       * Insight ID to subscribe to (mutually exclusive with dashboard on create).
-       * @nullable
-       */
+         * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+         * @nullable
+         */
       insight?: number | null;
       /** @nullable */
       readonly insight_short_id: string | null;
@@ -21694,50 +21715,50 @@ export namespace Schemas {
       dashboard_export_insights?: number[];
       /** Delivery channel: email, slack, or webhook.
 
-    * `email` - Email
-    * `slack` - Slack
-    * `webhook` - Webhook */
+      * `email` - Email
+      * `slack` - Slack
+      * `webhook` - Webhook */
       target_type: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
 
-    * `daily` - Daily
-    * `weekly` - Weekly
-    * `monthly` - Monthly
-    * `yearly` - Yearly */
+      * `daily` - Daily
+      * `weekly` - Weekly
+      * `monthly` - Monthly
+      * `yearly` - Yearly */
       frequency: SubscriptionFrequencyEnum;
       /**
-       * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       interval?: number;
       /**
-       * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-       * @nullable
-       */
+         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * @nullable
+         */
       byweekday?: SubscriptionByweekdayItem[] | null;
       /**
-       * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       bysetpos?: number | null;
       /**
-       * Total number of deliveries before the subscription stops. Null for unlimited.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * Total number of deliveries before the subscription stops. Null for unlimited.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       count?: number | null;
       /** When to start delivering (ISO 8601 datetime). */
       start_date: string;
       /**
-       * When to stop delivering (ISO 8601 datetime). Null for indefinite.
-       * @nullable
-       */
+         * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+         * @nullable
+         */
       until_date?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -21746,24 +21767,24 @@ export namespace Schemas {
       /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
       enabled?: boolean;
       /**
-       * Human-readable name for this subscription.
-       * @maxLength 100
-       * @nullable
-       */
+         * Human-readable name for this subscription.
+         * @maxLength 100
+         * @nullable
+         */
       title?: string | null;
       /** Human-readable schedule summary, e.g. 'sent daily'. */
       readonly summary: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
       /**
-       * ID of a connected Slack integration. Required when target_type is slack.
-       * @nullable
-       */
+         * ID of a connected Slack integration. Required when target_type is slack.
+         * @nullable
+         */
       integration_id?: number | null;
       /**
-       * Optional message included in the invitation email when adding new recipients.
-       * @nullable
-       */
+         * Optional message included in the invitation email when adding new recipients.
+         * @nullable
+         */
       invite_message?: string | null;
       summary_enabled?: boolean;
       /** @maxLength 500 */
@@ -21812,7 +21833,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type SurveyConditions = { [key: string]: unknown } | null | null;
+    export type SurveyConditions = { [key: string]: unknown } | null;
 
     export type SurveyFeatureFlagKeysItem = {[key: string]: string | null};
 
@@ -21834,118 +21855,118 @@ export namespace Schemas {
       linked_insight_id?: number | null;
       readonly targeting_flag: MinimalFeatureFlag;
       readonly internal_targeting_flag: MinimalFeatureFlag;
-      /** 
-            The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
+      /**
+              The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
-            Basic (open-ended question)
-            - `id`: The question ID
-            - `type`: `open`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Basic (open-ended question)
+              - `id`: The question ID
+              - `type`: `open`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Link (a question with a link)
-            - `id`: The question ID
-            - `type`: `link`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `link`: The URL associated with the question.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Link (a question with a link)
+              - `id`: The question ID
+              - `type`: `link`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `link`: The URL associated with the question.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Rating (a question with a rating scale)
-            - `id`: The question ID
-            - `type`: `rating`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `display`: Display style of the rating (`number` or `emoji`).
-            - `scale`: The scale of the rating (`number`).
-            - `lowerBoundLabel`: Label for the lower bound of the scale.
-            - `upperBoundLabel`: Label for the upper bound of the scale.
-            - `isNpsQuestion`: Whether the question is an NPS rating.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Rating (a question with a rating scale)
+              - `id`: The question ID
+              - `type`: `rating`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `display`: Display style of the rating (`number` or `emoji`).
+              - `scale`: The scale of the rating (`number`).
+              - `lowerBoundLabel`: Label for the lower bound of the scale.
+              - `upperBoundLabel`: Label for the upper bound of the scale.
+              - `isNpsQuestion`: Whether the question is an NPS rating.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Multiple choice
-            - `id`: The question ID
-            - `type`: `single_choice` or `multiple_choice`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `choices`: An array of choices for the question.
-            - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
-            - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Multiple choice
+              - `id`: The question ID
+              - `type`: `single_choice` or `multiple_choice`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `choices`: An array of choices for the question.
+              - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+              - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Branching logic can be one of the following types:
+              Branching logic can be one of the following types:
 
-            Next question: Proceeds to the next question
-            ```json
-            {
-                "type": "next_question"
-            }
-            ```
+              Next question: Proceeds to the next question
+              ```json
+              {
+                  "type": "next_question"
+              }
+              ```
 
-            End: Ends the survey, optionally displaying a confirmation message.
-            ```json
-            {
-                "type": "end"
-            }
-            ```
+              End: Ends the survey, optionally displaying a confirmation message.
+              ```json
+              {
+                  "type": "end"
+              }
+              ```
 
-            Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
-            ```json
-            {
-                "type": "response_based",
-                "responseValues": {
-                    "responseKey": "value"
-                }
-            }
-            ```
+              Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+              ```json
+              {
+                  "type": "response_based",
+                  "responseValues": {
+                      "responseKey": "value"
+                  }
+              }
+              ```
 
-            Specific question: Proceeds to a specific question by index.
-            ```json
-            {
-                "type": "specific_question",
-                "index": 2
-            }
-            ```
+              Specific question: Proceeds to a specific question by index.
+              ```json
+              {
+                  "type": "specific_question",
+                  "index": 2
+              }
+              ```
 
-            Translations: Each question can include inline translations.
-            - `translations`: Object mapping language codes to translated fields.
-            - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
-            - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+              Translations: Each question can include inline translations.
+              - `translations`: Object mapping language codes to translated fields.
+              - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+              - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
-            Example with translations:
-            ```json
-            {
-                "id": "uuid",
-                "type": "rating",
-                "question": "How satisfied are you?",
-                "lowerBoundLabel": "Not satisfied",
-                "upperBoundLabel": "Very satisfied",
-                "translations": {
-                    "es": {
-                        "question": "¿Qué tan satisfecho estás?",
-                        "lowerBoundLabel": "No satisfecho",
-                        "upperBoundLabel": "Muy satisfecho"
-                    },
-                    "fr": {
-                        "question": "Dans quelle mesure êtes-vous satisfait?"
-                    }
-                }
-            }
-            ```
-             */
+              Example with translations:
+              ```json
+              {
+                  "id": "uuid",
+                  "type": "rating",
+                  "question": "How satisfied are you?",
+                  "lowerBoundLabel": "Not satisfied",
+                  "upperBoundLabel": "Very satisfied",
+                  "translations": {
+                      "es": {
+                          "question": "¿Qué tan satisfecho estás?",
+                          "lowerBoundLabel": "No satisfecho",
+                          "upperBoundLabel": "Muy satisfecho"
+                      },
+                      "fr": {
+                          "question": "Dans quelle mesure êtes-vous satisfait?"
+                      }
+                  }
+              }
+              ```
+               */
       questions?: unknown;
       /** @nullable */
       readonly conditions: SurveyConditions;
@@ -21958,31 +21979,31 @@ export namespace Schemas {
       end_date?: string | null;
       archived?: boolean;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       responses_limit?: number | null;
       readonly feature_flag_keys: readonly SurveyFeatureFlagKeysItem[];
       /**
-       * @minimum 0
-       * @maximum 500
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 500
+         * @nullable
+         */
       iteration_count?: number | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       iteration_frequency_days?: number | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       current_iteration?: number | null;
       /** @nullable */
       current_iteration_start_date?: string | null;
@@ -21990,16 +22011,16 @@ export namespace Schemas {
       response_sampling_start_date?: string | null;
       response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       response_sampling_interval?: number | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       response_sampling_limit?: number | null;
       response_sampling_daily_limits?: unknown;
       /** @nullable */
@@ -22008,9 +22029,9 @@ export namespace Schemas {
       enable_iframe_embedding?: boolean | null;
       translations?: unknown;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
       form_content?: unknown;
     }
@@ -22058,7 +22079,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type TableExternalSchema = { [key: string]: unknown } | null | null;
+    export type TableExternalSchema = { [key: string]: unknown } | null;
 
     export type TableOptions = { [key: string]: unknown };
 
@@ -22083,9 +22104,9 @@ export namespace Schemas {
       readonly external_schema: TableExternalSchema;
       options?: TableOptions;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
     }
 
@@ -22127,15 +22148,15 @@ export namespace Schemas {
 
     export interface TaggerCondition {
       /**
-       * Stable identifier for this condition
-       * @maxLength 100
-       */
+         * Stable identifier for this condition
+         * @maxLength 100
+         */
       id: string;
       /**
-       * Percentage of matching events to apply this condition to
-       * @minimum 0
-       * @maximum 100
-       */
+         * Percentage of matching events to apply this condition to
+         * @minimum 0
+         * @maximum 100
+         */
       rollout_percentage?: number;
       /** Property filters that scope when this condition fires */
       properties?: TaggerConditionPropertiesItem[];
@@ -22195,9 +22216,9 @@ export namespace Schemas {
       /** @maxLength 128 */
       timezone?: string;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       template_id?: string | null;
       enabled?: boolean;
       /** @nullable */
@@ -22237,7 +22258,7 @@ export namespace Schemas {
      * Latest run details for this task
      * @nullable
      */
-    export type TaskLatestRun = { [key: string]: unknown } | null | null;
+    export type TaskLatestRun = { [key: string]: unknown } | null;
 
     export interface Task {
       readonly id: string;
@@ -22250,19 +22271,19 @@ export namespace Schemas {
       description?: string;
       origin_product?: OriginProductEnum;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       repository?: string | null;
       /**
-       * GitHub integration for this task
-       * @nullable
-       */
+         * GitHub integration for this task
+         * @nullable
+         */
       github_integration?: number | null;
       /**
-       * User-scoped GitHub integration to use for user-authored cloud runs.
-       * @nullable
-       */
+         * User-scoped GitHub integration to use for user-authored cloud runs.
+         * @nullable
+         */
       github_user_integration?: string | null;
       /** @nullable */
       signal_report?: string | null;
@@ -22272,17 +22293,17 @@ export namespace Schemas {
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
       /**
-       * Latest run details for this task
-       * @nullable
-       */
+         * Latest run details for this task
+         * @nullable
+         */
       readonly latest_run: TaskLatestRun;
       readonly created_at: string;
       readonly updated_at: string;
       readonly created_by: UserBasic;
       /**
-       * Custom prompt for CI fixes. If blank, a default prompt will be used.
-       * @nullable
-       */
+         * Custom prompt for CI fixes. If blank, a default prompt will be used.
+         * @nullable
+         */
       ci_prompt?: string | null;
     }
 
@@ -22370,43 +22391,43 @@ export namespace Schemas {
       readonly id: string;
       readonly task: string;
       /**
-       * Current stage for this run (e.g., 'research', 'plan', 'build')
-       * @maxLength 100
-       * @nullable
-       */
+         * Current stage for this run (e.g., 'research', 'plan', 'build')
+         * @maxLength 100
+         * @nullable
+         */
       stage?: string | null;
       /**
-       * Branch name for the run
-       * @maxLength 255
-       * @nullable
-       */
+         * Branch name for the run
+         * @maxLength 255
+         * @nullable
+         */
       branch?: string | null;
       status?: TaskRunStatusEnum;
       /** Execution environment
 
-    * `local` - Local
-    * `cloud` - Cloud */
+      * `local` - Local
+      * `cloud` - Cloud */
       environment?: TaskRunEnvironmentEnum;
       /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
       readonly runtime_adapter: RuntimeAdapterEnum | null;
       /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
       readonly provider: TaskRunDetailProviderEnum | null;
       /**
-       * Configured LLM model identifier for this run.
-       * @nullable
-       */
+         * Configured LLM model identifier for this run.
+         * @nullable
+         */
       readonly model: string | null;
       /** Configured reasoning effort for this run when the selected model supports it. */
       readonly reasoning_effort: ReasoningEffortEnum | null;
       /**
-       * Presigned S3 URL for log access (valid for 1 hour).
-       * @nullable
-       */
+         * Presigned S3 URL for log access (valid for 1 hour).
+         * @nullable
+         */
       readonly log_url: string | null;
       /**
-       * Error message if execution failed
-       * @nullable
-       */
+         * Error message if execution failed
+         * @nullable
+         */
       error_message?: string | null;
       /** Run output data (e.g., PR URL, commit SHA, etc.) */
       output?: unknown;
@@ -22461,9 +22482,9 @@ export namespace Schemas {
       readonly uuid: string;
       readonly organization: string;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       readonly project_id: number;
       readonly api_token: string;
       readonly name: string;
@@ -22538,12 +22559,12 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type TicketAssignmentUser = {[key: string]: string} | null | null;
+    export type TicketAssignmentUser = {[key: string]: string} | null;
 
     /**
      * @nullable
      */
-    export type TicketAssignmentRole = {[key: string]: string} | null | null;
+    export type TicketAssignmentRole = {[key: string]: string} | null;
 
     /**
      * Serializer for ticket assignment (user or role).
@@ -22583,17 +22604,17 @@ export namespace Schemas {
       readonly distinct_id: string;
       /** Ticket status: new, open, pending, on_hold, or resolved
 
-    * `new` - New
-    * `open` - Open
-    * `pending` - Pending
-    * `on_hold` - On hold
-    * `resolved` - Resolved */
+      * `new` - New
+      * `open` - Open
+      * `pending` - Pending
+      * `on_hold` - On hold
+      * `resolved` - Resolved */
       status?: TicketStatusEnum;
       /** Ticket priority: low, medium, or high. Null if unset.
 
-    * `low` - Low
-    * `medium` - Medium
-    * `high` - High */
+      * `low` - Low
+      * `medium` - Medium
+      * `high` - High */
       priority?: PriorityEnum | BlankEnum | null;
       readonly assignee: TicketAssignment;
       /** Customer-provided traits such as name and email */
@@ -22614,9 +22635,9 @@ export namespace Schemas {
       readonly session_id: string | null;
       readonly session_context: unknown;
       /**
-       * SLA deadline set via workflows. Null means no SLA.
-       * @nullable
-       */
+         * SLA deadline set via workflows. Null means no SLA.
+         * @nullable
+         */
       sla_due_at?: string | null;
       /** @nullable */
       snoozed_until?: string | null;
@@ -22713,14 +22734,14 @@ export namespace Schemas {
       /** Immutable scorer configuration snapshot used to validate this score. */
       readonly definition_config: ScoreDefinitionConfig;
       /**
-       * Categorical option keys selected for this score.
-       * @nullable
-       */
+         * Categorical option keys selected for this score.
+         * @nullable
+         */
       readonly categorical_values: readonly string[] | null;
       /**
-       * @nullable
-       * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
-       */
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
       readonly numeric_value: string | null;
       /** @nullable */
       readonly boolean_value: boolean | null;
@@ -22734,9 +22755,9 @@ export namespace Schemas {
       /** Trace ID for the review. */
       readonly trace_id: string;
       /**
-       * Optional comment or reasoning for the review.
-       * @nullable
-       */
+         * Optional comment or reasoning for the review.
+         * @nullable
+         */
       readonly comment: string | null;
       readonly created_at: string;
       /** @nullable */
@@ -22760,14 +22781,14 @@ export namespace Schemas {
 
     export interface UserGitHubAccount {
       /**
-       * GitHub account type for the installation (e.g. User or Organization).
-       * @nullable
-       */
+         * GitHub account type for the installation (e.g. User or Organization).
+         * @nullable
+         */
       type?: string | null;
       /**
-       * GitHub login or organization name tied to the installation.
-       * @nullable
-       */
+         * GitHub login or organization name tied to the installation.
+         * @nullable
+         */
       name?: string | null;
     }
 
@@ -22779,9 +22800,9 @@ export namespace Schemas {
       /** GitHub App installation id. */
       installation_id: string;
       /**
-       * Repository selection mode from GitHub (e.g. selected or all).
-       * @nullable
-       */
+         * Repository selection mode from GitHub (e.g. selected or all).
+         * @nullable
+         */
       repository_selection?: string | null;
       /** Installation account metadata from GitHub. */
       account?: UserGitHubAccount | null;
@@ -22905,9 +22926,9 @@ export namespace Schemas {
       /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: UserNotificationSettings;
       /**
-       * Whether PostHog should anonymize events captured for this user when identified.
-       * @nullable
-       */
+         * Whether PostHog should anonymize events captured for this user when identified.
+         * @nullable
+         */
       anonymize_data?: boolean | null;
       /** @nullable */
       allow_impersonation?: boolean | null;
@@ -22946,9 +22967,9 @@ export namespace Schemas {
       shortcut_position?: ShortcutPositionEnum | BlankEnum | null;
       role_at_organization?: RoleAtOrganizationEnum;
       /**
-       * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
-       * @nullable
-       */
+         * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+         * @nullable
+         */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
@@ -22958,9 +22979,9 @@ export namespace Schemas {
       /** @nullable */
       readonly onboarding_delegated_to_invite: string | null;
       /**
-       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
-       * @nullable
-       */
+         * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+         * @nullable
+         */
       readonly onboarding_delegated_to_organization_id: string | null;
       /** @nullable */
       readonly onboarding_delegation_accepted_at: string | null;
@@ -23088,19 +23109,19 @@ export namespace Schemas {
       readonly feature_flag_key: string;
       /** Variants for the web experiment. Example:
 
-            {
-                "control": {
-                    "transforms": [
-                        {
-                            "text": "Here comes Superman!",
-                            "html": "",
-                            "selector": "#page > #body > .header h1"
-                        }
-                    ],
-                    "conditions": "None",
-                    "rollout_percentage": 50
-                },
-            } */
+              {
+                  "control": {
+                      "transforms": [
+                          {
+                              "text": "Here comes Superman!",
+                              "html": "",
+                              "selector": "#page > #body > .header h1"
+                          }
+                      ],
+                      "conditions": "None",
+                      "rollout_percentage": 50
+                  },
+              } */
       variants: unknown;
     }
 
@@ -23119,10 +23140,10 @@ export namespace Schemas {
     export interface PatchedAction {
       readonly id?: number;
       /**
-       * Name of the action (must be unique within the project).
-       * @maxLength 400
-       * @nullable
-       */
+         * Name of the action (must be unique within the project).
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /** Human-readable description of what this action represents. */
       description?: string;
@@ -23130,9 +23151,9 @@ export namespace Schemas {
       /** Whether to post a notification to Slack when this action is triggered. */
       post_to_slack?: boolean;
       /**
-       * Custom Slack message format. Supports templates with event properties.
-       * @maxLength 1200
-       */
+         * Custom Slack message format. Supports templates with event properties.
+         * @maxLength 1200
+         */
       slack_message_format?: string;
       /** Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together. */
       steps?: ActionStepJSON[];
@@ -23146,17 +23167,17 @@ export namespace Schemas {
       /** @nullable */
       readonly bytecode_error?: string | null;
       /**
-       * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
-       * @nullable
-       */
+         * ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.
+         * @nullable
+         */
       pinned_at?: string | null;
       /** @nullable */
       readonly creation_context?: string | null;
       _create_in_folder?: string;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
     }
 
@@ -23192,36 +23213,36 @@ export namespace Schemas {
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks?: readonly AlertCheck[];
       /**
-       * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
-       * @nullable
-       */
+         * Total alert checks matching the retrieve filters (date window). Only set on alert retrieve; omitted otherwise.
+         * @nullable
+         */
       readonly checks_total?: number | null;
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
-    * `hourly` - hourly
-    * `daily` - daily
-    * `weekly` - weekly
-    * `monthly` - monthly */
+      * `hourly` - hourly
+      * `daily` - daily
+      * `weekly` - weekly
+      * `monthly` - monthly */
       calculation_interval?: CalculationIntervalEnum;
       /**
-       * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
-       * @nullable
-       */
+         * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
+         * @nullable
+         */
       snoozed_until?: string | null;
       /**
-       * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
-       * @nullable
-       */
+         * Skip alert evaluation on weekends (Saturday and Sunday, local to project timezone).
+         * @nullable
+         */
       skip_weekend?: boolean | null;
       /** Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
-       * The last calculated value from the most recent alert check.
-       * @nullable
-       */
+         * The last calculated value from the most recent alert check.
+         * @nullable
+         */
       readonly last_value?: number | null;
       /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
       investigation_agent_enabled?: boolean;
@@ -23229,28 +23250,28 @@ export namespace Schemas {
       investigation_gates_notifications?: boolean;
       /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
 
-    * `notify` - Notify
-    * `suppress` - Suppress */
+      * `notify` - Notify
+      * `suppress` - Suppress */
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
     }
 
     export interface PatchedAnnotation {
       readonly id?: number;
       /**
-       * Annotation text shown on charts to describe the change, release, or incident.
-       * @maxLength 8192
-       * @nullable
-       */
+         * Annotation text shown on charts to describe the change, release, or incident.
+         * @maxLength 8192
+         * @nullable
+         */
       content?: string | null;
       /**
-       * When this annotation happened (ISO 8601 timestamp). Used to position it on charts.
-       * @nullable
-       */
+         * When this annotation happened (ISO 8601 timestamp). Used to position it on charts.
+         * @nullable
+         */
       date_marker?: string | null;
       /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
 
-    * `USR` - user
-    * `GIT` - GitHub */
+      * `USR` - user
+      * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
       /** @nullable */
       dashboard_item?: number | null;
@@ -23272,11 +23293,11 @@ export namespace Schemas {
       deleted?: boolean;
       /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
 
-    * `dashboard_item` - insight
-    * `dashboard` - dashboard
-    * `project` - project
-    * `organization` - organization
-    * `recording` - recording */
+      * `dashboard_item` - insight
+      * `dashboard` - dashboard
+      * `project` - project
+      * `organization` - organization
+      * `recording` - recording */
       scope?: AnnotationScopeEnum;
     }
 
@@ -23310,19 +23331,19 @@ export namespace Schemas {
       name?: string;
       /** Which data model to export (events, persons, sessions).
 
-    * `events` - Events
-    * `persons` - Persons
-    * `sessions` - Sessions */
+      * `events` - Events
+      * `persons` - Persons
+      * `sessions` - Sessions */
       model?: ModelEnum;
       /** Destination configuration. Required integration_id is enforced per destination type. */
       destination?: BatchExportDestinationRequest;
       /** How often the batch export should run.
 
-    * `hour` - hour
-    * `day` - day
-    * `week` - week
-    * `every 5 minutes` - every 5 minutes
-    * `every 15 minutes` - every 15 minutes */
+      * `hour` - hour
+      * `day` - day
+      * `week` - week
+      * `every 5 minutes` - every 5 minutes
+      * `every 15 minutes` - every 15 minutes */
       interval?: IntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
@@ -23330,30 +23351,30 @@ export namespace Schemas {
       hogql_query?: string;
       filters?: unknown;
       /**
-       * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
-       * @nullable
-       */
+         * IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.
+         * @nullable
+         */
       timezone?: string | null;
       /**
-       * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday).
-       * @minimum 0
-       * @maximum 6
-       * @nullable
-       */
+         * Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday).
+         * @minimum 0
+         * @maximum 6
+         * @nullable
+         */
       offset_day?: number | null;
       /**
-       * Hour-of-day offset (0-23) for daily and weekly intervals.
-       * @minimum 0
-       * @maximum 23
-       * @nullable
-       */
+         * Hour-of-day offset (0-23) for daily and weekly intervals.
+         * @minimum 0
+         * @maximum 23
+         * @nullable
+         */
       offset_hour?: number | null;
     }
 
     /**
      * @nullable
      */
-    export type PatchedBatchImportCreatedBy = { [key: string]: unknown } | null | null;
+    export type PatchedBatchImportCreatedBy = { [key: string]: unknown } | null;
 
     /**
      * Serializer for BatchImport model
@@ -23386,9 +23407,9 @@ export namespace Schemas {
     export interface PatchedCohort {
       readonly id?: number;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /** @maxLength 1000 */
       description?: string;
@@ -23416,11 +23437,11 @@ export namespace Schemas {
       is_static?: boolean;
       /** Type of cohort based on filter complexity
 
-    * `static` - static
-    * `person_property` - person_property
-    * `behavioral` - behavioral
-    * `realtime` - realtime
-    * `analytical` - analytical */
+      * `static` - static
+      * `person_property` - person_property
+      * `behavioral` - behavioral
+      * `realtime` - realtime
+      * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
       readonly experiment_set?: readonly number[];
       _create_in_folder?: string;
@@ -23436,9 +23457,9 @@ export namespace Schemas {
       name?: string;
       filters?: unknown;
       /**
-       * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
-       * @nullable
-       */
+         * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
+         * @nullable
+         */
       order_by?: string[] | null;
       visibility?: VisibilityEnum;
       /** @nullable */
@@ -23464,17 +23485,17 @@ export namespace Schemas {
       readonly version?: number;
       readonly created_at?: string;
       /**
-       * @maxLength 72
-       * @nullable
-       */
+         * @maxLength 72
+         * @nullable
+         */
       item_id?: string | null;
       item_context?: unknown;
       /** @maxLength 79 */
       scope?: string;
       /**
-       * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
-       * @nullable
-       */
+         * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+         * @nullable
+         */
       readonly completed_at?: string | null;
       /** @nullable */
       source_comment?: string | null;
@@ -23488,9 +23509,9 @@ export namespace Schemas {
       readonly id?: string;
       readonly status?: ConversationStatus;
       /**
-       * Title of the conversation.
-       * @nullable
-       */
+         * Title of the conversation.
+         * @nullable
+         */
       readonly title?: string | null;
       readonly user?: UserBasic;
       /** @nullable */
@@ -23499,19 +23520,19 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       readonly type?: ConversationType;
       /**
-       * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
-       * @nullable
-       */
+         * Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.
+         * @nullable
+         */
       readonly is_internal?: boolean | null;
       /**
-       * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
-       * @nullable
-       */
+         * Unique key for Slack thread: '{workspace_id}:{channel}:{thread_ts}'
+         * @nullable
+         */
       readonly slack_thread_key?: string | null;
       /**
-       * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
-       * @nullable
-       */
+         * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com)
+         * @nullable
+         */
       readonly slack_workspace_domain?: string | null;
       readonly messages?: readonly PatchedConversationMessagesItem[];
       readonly has_unsupported_content?: boolean;
@@ -23520,30 +23541,30 @@ export namespace Schemas {
       readonly is_sandbox?: boolean;
       /** Return pending approval cards as structured data.
 
-    Combines metadata from conversation.approval_decisions with payload from checkpoint
-    interrupts (single source of truth for payload data). */
+      Combines metadata from conversation.approval_decisions with payload from checkpoint
+      interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
     }
 
     export interface PatchedCoreEvent {
       readonly id?: string;
       /**
-       * Display name for this core event
-       * @maxLength 255
-       */
+         * Display name for this core event
+         * @maxLength 255
+         */
       name?: string;
       /** Optional description */
       description?: string;
       /** Lifecycle category for this core event
 
-    * `acquisition` - Acquisition
-    * `activation` - Activation
-    * `monetization` - Monetization
-    * `expansion` - Expansion
-    * `referral` - Referral
-    * `retention` - Retention
-    * `churn` - Churn
-    * `reactivation` - Reactivation */
+      * `acquisition` - Acquisition
+      * `activation` - Activation
+      * `monetization` - Monetization
+      * `expansion` - Expansion
+      * `referral` - Referral
+      * `retention` - Retention
+      * `churn` - Churn
+      * `reactivation` - Reactivation */
       category?: CoreEventCategoryEnum;
       /** Filter configuration - event, action, or data warehouse node */
       filter?: unknown;
@@ -23578,16 +23599,16 @@ export namespace Schemas {
     export interface PatchedDAG {
       readonly id?: string;
       /**
-       * Human-readable name for this DAG
-       * @maxLength 2048
-       */
+         * Human-readable name for this DAG
+         * @maxLength 2048
+         */
       name?: string;
       /** Optional description of the DAG's purpose */
       description?: string;
       /**
-       * Sync frequency string (e.g. '24hour', '7day')
-       * @nullable
-       */
+         * Sync frequency string (e.g. '24hour', '7day')
+         * @nullable
+         */
       sync_frequency?: string | null;
       readonly node_count?: number;
       readonly created_at?: string;
@@ -23600,17 +23621,17 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type PatchedDashboardVariables = { [key: string]: unknown } | null | null;
+    export type PatchedDashboardVariables = { [key: string]: unknown } | null;
 
     /**
      * @nullable
      */
-    export type PatchedDashboardPersistedFilters = { [key: string]: unknown } | null | null;
+    export type PatchedDashboardPersistedFilters = { [key: string]: unknown } | null;
 
     /**
      * @nullable
      */
-    export type PatchedDashboardPersistedVariables = { [key: string]: unknown } | null | null;
+    export type PatchedDashboardPersistedVariables = { [key: string]: unknown } | null;
 
     export type PatchedDashboardTilesItem = { [key: string]: unknown };
 
@@ -23620,9 +23641,9 @@ export namespace Schemas {
     export interface PatchedDashboard {
       readonly id?: number;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       description?: string;
       pinned?: boolean;
@@ -23641,18 +23662,18 @@ export namespace Schemas {
       /** Custom color mapping for breakdown values. */
       breakdown_colors?: unknown;
       /**
-       * ID of the color theme used for chart visualizations.
-       * @nullable
-       */
+         * ID of the color theme used for chart visualizations.
+         * @nullable
+         */
       data_color_theme_id?: number | null;
       tags?: unknown[];
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level?: EffectivePrivilegeLevelEnum;
       readonly effective_privilege_level?: EffectivePrivilegeLevelEnum;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
       readonly access_control_version?: string;
       /** @nullable */
@@ -23663,18 +23684,18 @@ export namespace Schemas {
       readonly persisted_variables?: PatchedDashboardPersistedVariables;
       readonly team_id?: number;
       /**
-       * List of quick filter IDs associated with this dashboard
-       * @nullable
-       */
+         * List of quick filter IDs associated with this dashboard
+         * @nullable
+         */
       quick_filter_ids?: string[] | null;
       /** @nullable */
       readonly tiles?: readonly PatchedDashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
       use_template?: string;
       /**
-       * ID of an existing dashboard to duplicate.
-       * @nullable
-       */
+         * ID of an existing dashboard to duplicate.
+         * @nullable
+         */
       use_dashboard?: number | null;
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
@@ -23684,14 +23705,14 @@ export namespace Schemas {
     export interface PatchedDashboardTemplate {
       readonly id?: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       template_name?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       dashboard_description?: string | null;
       dashboard_filters?: unknown;
       /** @nullable */
@@ -23704,9 +23725,9 @@ export namespace Schemas {
       readonly created_at?: string | null;
       readonly created_by?: UserBasic;
       /**
-       * @maxLength 8201
-       * @nullable
-       */
+         * @maxLength 8201
+         * @nullable
+         */
       image_url?: string | null;
       /** @nullable */
       readonly team_id?: number | null;
@@ -23740,9 +23761,9 @@ export namespace Schemas {
       /** @nullable */
       deleted?: boolean | null;
       /**
-       * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
-       * @maxLength 128
-       */
+         * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+         * @maxLength 128
+         */
       name?: string;
       /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
       query?: unknown;
@@ -23753,64 +23774,64 @@ export namespace Schemas {
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
 
-    * `Cancelled` - Cancelled
-    * `Modified` - Modified
-    * `Completed` - Completed
-    * `Failed` - Failed
-    * `Running` - Running */
+      * `Cancelled` - Cancelled
+      * `Modified` - Modified
+      * `Completed` - Completed
+      * `Failed` - Failed
+      * `Running` - Running */
       readonly status?: SavedQueryStatusEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
       /** @nullable */
       readonly managed_viewset_kind?: string | null;
       /**
-       * Optional folder ID used to organize this view in the SQL editor sidebar.
-       * @nullable
-       */
+         * Optional folder ID used to organize this view in the SQL editor sidebar.
+         * @nullable
+         */
       folder_id?: string | null;
       /**
-       * Folder name used to organize this view in the SQL editor sidebar.
-       * @nullable
-       */
+         * Folder name used to organize this view in the SQL editor sidebar.
+         * @nullable
+         */
       readonly folder_name?: string | null;
       /** @nullable */
       readonly latest_error?: string | null;
       /**
-       * Activity log ID from the last known edit. Used for conflict detection.
-       * @nullable
-       */
+         * Activity log ID from the last known edit. Used for conflict detection.
+         * @nullable
+         */
       edited_history_id?: string | null;
       /** @nullable */
       readonly latest_history_id?: number | null;
       /**
-       * If true, skip column inference and validation. For saving drafts.
-       * @nullable
-       */
+         * If true, skip column inference and validation. For saving drafts.
+         * @nullable
+         */
       soft_update?: boolean | null;
       /**
-       * Optional DAG to place this view into
-       * @nullable
-       */
+         * Optional DAG to place this view into
+         * @nullable
+         */
       dag_id?: string | null;
       /** @nullable */
       readonly is_materialized?: boolean | null;
       /** Where this SavedQuery is created.
 
-    * `data_warehouse` - Data Warehouse
-    * `endpoint` - Endpoint
-    * `managed_viewset` - Managed Viewset */
+      * `data_warehouse` - Data Warehouse
+      * `endpoint` - Endpoint
+      * `managed_viewset` - Managed Viewset */
       readonly origin?: OriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
       is_test?: boolean;
       /**
-       * When this test view should be automatically deleted.
-       * @nullable
-       */
+         * When this test view should be automatically deleted.
+         * @nullable
+         */
       readonly expires_at?: string | null;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
     }
 
@@ -23826,10 +23847,10 @@ export namespace Schemas {
       /** @nullable */
       name?: string | null;
       /**
-       * view history id that the draft branched from
-       * @maxLength 255
-       * @nullable
-       */
+         * view history id that the draft branched from
+         * @maxLength 255
+         * @nullable
+         */
       edited_history_id?: string | null;
     }
 
@@ -23839,17 +23860,17 @@ export namespace Schemas {
     export interface PatchedDataWarehouseSavedQueryFolder {
       readonly id?: string;
       /**
-       * Display name for the folder used to organize saved queries in the SQL editor sidebar.
-       * @maxLength 128
-       */
+         * Display name for the folder used to organize saved queries in the SQL editor sidebar.
+         * @maxLength 128
+         */
       name?: string;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly view_count?: number;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
     }
 
@@ -23876,16 +23897,16 @@ export namespace Schemas {
       output?: unknown;
       metadata?: unknown;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       ref_trace_id?: string | null;
       /** @nullable */
       ref_timestamp?: string | null;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       ref_source_id?: string | null;
       /** @nullable */
       deleted?: boolean | null;
@@ -23906,20 +23927,20 @@ export namespace Schemas {
       recall_recording_id?: string | null;
       platform?: MeetingPlatformEnum;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       meeting_title?: string | null;
       /**
-       * @maxLength 200
-       * @nullable
-       */
+         * @maxLength 200
+         * @nullable
+         */
       meeting_url?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       duration_seconds?: number | null;
       status?: DesktopRecordingStatusEnum;
       /** @nullable */
@@ -23927,15 +23948,15 @@ export namespace Schemas {
       /** @nullable */
       error_message?: string | null;
       /**
-       * @maxLength 200
-       * @nullable
-       */
+         * @maxLength 200
+         * @nullable
+         */
       video_url?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       video_size_bytes?: number | null;
       /** List of participant names */
       participants?: string[];
@@ -23966,25 +23987,25 @@ export namespace Schemas {
       readonly id?: string;
       readonly feature_flag?: MinimalFeatureFlag;
       /**
-       * The name of the early access feature.
-       * @maxLength 200
-       */
+         * The name of the early access feature.
+         * @maxLength 200
+         */
       name?: string;
       /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
       description?: string;
       /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
 
-    * `draft` - draft
-    * `concept` - concept
-    * `alpha` - alpha
-    * `beta` - beta
-    * `general-availability` - general availability
-    * `archived` - archived */
+      * `draft` - draft
+      * `concept` - concept
+      * `alpha` - alpha
+      * `beta` - beta
+      * `general-availability` - general availability
+      * `archived` - archived */
       stage?: StageEnum;
       /**
-       * URL to external documentation for this feature. Shown to users in the opt-in UI.
-       * @maxLength 800
-       */
+         * URL to external documentation for this feature. Shown to users in the opt-in UI.
+         * @maxLength 800
+         */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
@@ -24005,45 +24026,45 @@ export namespace Schemas {
 
     export interface PatchedElement {
       /**
-       * @maxLength 10000
-       * @nullable
-       */
+         * @maxLength 10000
+         * @nullable
+         */
       text?: string | null;
       /**
-       * @maxLength 1000
-       * @nullable
-       */
+         * @maxLength 1000
+         * @nullable
+         */
       tag_name?: string | null;
       /** @nullable */
       attr_class?: string[] | null;
       /**
-       * @maxLength 10000
-       * @nullable
-       */
+         * @maxLength 10000
+         * @nullable
+         */
       href?: string | null;
       /**
-       * @maxLength 10000
-       * @nullable
-       */
+         * @maxLength 10000
+         * @nullable
+         */
       attr_id?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       nth_child?: number | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       nth_of_type?: number | null;
       attributes?: unknown;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       order?: number | null;
     }
 
@@ -24051,58 +24072,58 @@ export namespace Schemas {
      * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
      * @nullable
      */
-    export type PatchedEndpointRequestBucketOverrides = { [key: string]: unknown } | null | null;
+    export type PatchedEndpointRequestBucketOverrides = { [key: string]: unknown } | null;
 
     /**
      * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
      */
     export interface PatchedEndpointRequest {
       /**
-       * Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.
-       * @nullable
-       */
+         * Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars.
+         * @nullable
+         */
       name?: string | null;
       /** HogQL or insight query this endpoint executes. Changing this auto-creates a new version. */
       query?: unknown;
       /**
-       * Human-readable description of what this endpoint returns.
-       * @nullable
-       */
+         * Human-readable description of what this endpoint returns.
+         * @nullable
+         */
       description?: string | null;
       /**
-       * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
-       * @nullable
-       */
+         * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
+         * @nullable
+         */
       data_freshness_seconds?: number | null;
       /**
-       * Whether this endpoint is available for execution via the API.
-       * @nullable
-       */
+         * Whether this endpoint is available for execution via the API.
+         * @nullable
+         */
       is_active?: boolean | null;
       /**
-       * Whether query results are materialized to S3.
-       * @nullable
-       */
+         * Whether query results are materialized to S3.
+         * @nullable
+         */
       is_materialized?: boolean | null;
       /**
-       * Short ID of the insight this endpoint was derived from.
-       * @nullable
-       */
+         * Short ID of the insight this endpoint was derived from.
+         * @nullable
+         */
       derived_from_insight?: string | null;
       /**
-       * Target a specific version for updates (defaults to current version).
-       * @nullable
-       */
+         * Target a specific version for updates (defaults to current version).
+         * @nullable
+         */
       version?: number | null;
       /**
-       * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
-       * @nullable
-       */
+         * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
+         * @nullable
+         */
       bucket_overrides?: PatchedEndpointRequestBucketOverrides;
       /**
-       * Set to true to soft-delete this endpoint.
-       * @nullable
-       */
+         * Set to true to soft-delete this endpoint.
+         * @nullable
+         */
       deleted?: boolean | null;
     }
 
@@ -24133,10 +24154,10 @@ export namespace Schemas {
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
       /**
-       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
-       * @maxLength 400
-       * @nullable
-       */
+         * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+         * @maxLength 400
+         * @nullable
+         */
       primary_property?: string | null;
       readonly is_action?: boolean;
       readonly action_id?: number;
@@ -24177,7 +24198,7 @@ export namespace Schemas {
     export type PatchedErrorTrackingAssignmentRuleAssignee = {
       readonly type?: 'user' | 'role';
       readonly id?: number | string;
-    } | null | null;
+    } | null;
 
     export interface PatchedErrorTrackingAssignmentRule {
       readonly id?: string;
@@ -24185,9 +24206,9 @@ export namespace Schemas {
       /** @nullable */
       readonly assignee?: PatchedErrorTrackingAssignmentRuleAssignee;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       order_key?: number;
       disabled_data?: unknown;
       readonly created_at?: string;
@@ -24207,13 +24228,13 @@ export namespace Schemas {
     export type PatchedErrorTrackingGroupingRuleAssignee = {
       readonly type?: 'user' | 'role';
       readonly id?: number | string;
-    } | null | null;
+    } | null;
 
     /**
      * Issue linked to this rule
      * @nullable
      */
-    export type PatchedErrorTrackingGroupingRuleIssue = {[key: string]: string} | null | null;
+    export type PatchedErrorTrackingGroupingRuleIssue = {[key: string]: string} | null;
 
     export interface PatchedErrorTrackingGroupingRule {
       readonly id?: string;
@@ -24223,14 +24244,14 @@ export namespace Schemas {
       /** @nullable */
       description?: string | null;
       /**
-       * Issue linked to this rule
-       * @nullable
-       */
+         * Issue linked to this rule
+         * @nullable
+         */
       readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       order_key?: number;
       disabled_data?: unknown;
       readonly created_at?: string;
@@ -24243,7 +24264,7 @@ export namespace Schemas {
     export type PatchedErrorTrackingIssueFullCohort = {
       readonly id?: number;
       readonly name?: string;
-    } | null | null;
+    } | null;
 
     export interface PatchedErrorTrackingIssueFull {
       readonly id?: string;
@@ -24271,46 +24292,46 @@ export namespace Schemas {
 
     export interface PatchedErrorTrackingSettings {
       /**
-       * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
-       * @minimum 1
-       * @nullable
-       */
+         * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
+         * @minimum 1
+         * @nullable
+         */
       project_rate_limit_value?: number | null;
       /**
-       * Bucket window over which the project-wide rate limit applies, in minutes.
-       * @minimum 1
-       * @nullable
-       */
+         * Bucket window over which the project-wide rate limit applies, in minutes.
+         * @minimum 1
+         * @nullable
+         */
       project_rate_limit_bucket_size_minutes?: number | null;
       /**
-       * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
-       * @minimum 1
-       * @nullable
-       */
+         * Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.
+         * @minimum 1
+         * @nullable
+         */
       per_issue_rate_limit_value?: number | null;
       /**
-       * Bucket window over which the per-issue rate limit applies, in minutes.
-       * @minimum 1
-       * @nullable
-       */
+         * Bucket window over which the per-issue rate limit applies, in minutes.
+         * @minimum 1
+         * @nullable
+         */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
     }
 
     export interface PatchedErrorTrackingSpikeDetectionConfig {
       /**
-       * Time to wait before alerting again for the same issue after a spike is detected.
-       * @minimum 1
-       */
+         * Time to wait before alerting again for the same issue after a spike is detected.
+         * @minimum 1
+         */
       snooze_duration_minutes?: number;
       /**
-       * The factor by which the current exception count must exceed the baseline to be considered a spike.
-       * @minimum 1
-       */
+         * The factor by which the current exception count must exceed the baseline to be considered a spike.
+         * @minimum 1
+         */
       multiplier?: number;
       /**
-       * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
-       * @minimum 1
-       */
+         * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+         * @minimum 1
+         */
       threshold?: number;
     }
 
@@ -24318,9 +24339,9 @@ export namespace Schemas {
       readonly id?: string;
       filters?: unknown;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       order_key?: number;
       disabled_data?: unknown;
       sampling_rate?: number;
@@ -24332,7 +24353,7 @@ export namespace Schemas {
      * Release associated with this symbol set, if any.
      * @nullable
      */
-    export type PatchedErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
+    export type PatchedErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null;
 
     export interface PatchedErrorTrackingSymbolSet {
       /** Unique symbol set ID. */
@@ -24344,21 +24365,21 @@ export namespace Schemas {
       /** When this symbol set row was created. */
       readonly created_at?: string;
       /**
-       * When this symbol set was last used to resolve a stack frame.
-       * @nullable
-       */
+         * When this symbol set was last used to resolve a stack frame.
+         * @nullable
+         */
       readonly last_used?: string | null;
       /**
-       * Reason symbol lookup failed, if the source map is missing or invalid.
-       * @nullable
-       */
+         * Reason symbol lookup failed, if the source map is missing or invalid.
+         * @nullable
+         */
       readonly failure_reason?: string | null;
       /** Whether this symbol set has an uploaded source map file available to download. */
       readonly has_uploaded_file?: boolean;
       /**
-       * Release associated with this symbol set, if any.
-       * @nullable
-       */
+         * Release associated with this symbol set, if any.
+         * @nullable
+         */
       readonly release?: PatchedErrorTrackingSymbolSetRelease;
     }
 
@@ -24367,15 +24388,15 @@ export namespace Schemas {
      */
     export type PatchedEvaluationEvaluationConfig = {
       /**
-       * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
-       * @minLength 1
-       */
+         * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+         * @minLength 1
+         */
       prompt: string;
     } | {
       /**
-       * Hog source code. Must return true (pass), false (fail), or null for N/A.
-       * @minLength 1
-       */
+         * Hog source code. Must return true (pass), false (fail), or null for N/A.
+         * @minLength 1
+         */
       source: string;
     };
 
@@ -24390,9 +24411,9 @@ export namespace Schemas {
     export interface PatchedEvaluation {
       readonly id?: string;
       /**
-       * Name of the evaluation.
-       * @maxLength 400
-       */
+         * Name of the evaluation.
+         * @maxLength 400
+         */
       name?: string;
       /** Optional description of what this evaluation checks. */
       description?: string;
@@ -24402,14 +24423,14 @@ export namespace Schemas {
       readonly status_reason?: StatusReasonEnum | null;
       /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
-    * `llm_judge` - LLM as a judge
-    * `hog` - Hog */
+      * `llm_judge` - LLM as a judge
+      * `hog` - Hog */
       evaluation_type?: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
       /** Output format. Currently only 'boolean' is supported.
 
-    * `boolean` - Boolean (Pass/Fail) */
+      * `boolean` - Boolean (Pass/Fail) */
       output_type?: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: PatchedEvaluationOutputConfig;
@@ -24429,30 +24450,30 @@ export namespace Schemas {
       evaluation?: string;
       /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
-    * `scheduled` - Scheduled
-    * `every_n` - Every N */
+      * `scheduled` - Scheduled
+      * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
       /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-       * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
-       * @nullable
-       */
+         * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+         * @nullable
+         */
       starts_at?: string | null;
       /**
-       * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-       * @maxLength 64
-       */
+         * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
+         * @maxLength 64
+         */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
       /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
       delivery_targets?: unknown;
       /**
-       * Maximum number of evaluation runs included in each report. Defaults to 200.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * Maximum number of evaluation runs included in each report. Defaults to 200.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       max_sample_size?: number;
       /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
@@ -24463,23 +24484,23 @@ export namespace Schemas {
       /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-       * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-       * @minimum 10
-       * @maximum 10000
-       * @nullable
-       */
+         * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+         * @minimum 10
+         * @maximum 10000
+         * @nullable
+         */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
-       * @minimum 60
-       * @maximum 1440
-       */
+         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+         * @minimum 60
+         * @maximum 1440
+         */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
-       * @minimum 1
-       * @maximum 24
-       */
+         * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+         * @minimum 1
+         * @maximum 24
+         */
       daily_run_cap?: number;
       /** @nullable */
       readonly created_by?: number | null;
@@ -24503,15 +24524,15 @@ export namespace Schemas {
     export interface PatchedExperiment {
       readonly id?: number;
       /**
-       * Name of the experiment.
-       * @maxLength 400
-       */
+         * Name of the experiment.
+         * @maxLength 400
+         */
       name?: string;
       /**
-       * Description of the experiment hypothesis and expected outcomes.
-       * @maxLength 3000
-       * @nullable
-       */
+         * Description of the experiment hypothesis and expected outcomes.
+         * @maxLength 3000
+         * @nullable
+         */
       description?: string | null;
       /** @nullable */
       start_date?: string | null;
@@ -24522,9 +24543,9 @@ export namespace Schemas {
       readonly feature_flag?: PatchedExperimentFeatureFlag;
       readonly holdout?: ExperimentHoldout;
       /**
-       * ID of a holdout group to exclude from the experiment.
-       * @nullable
-       */
+         * ID of a holdout group to exclude from the experiment.
+         * @nullable
+         */
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
@@ -24533,9 +24554,9 @@ export namespace Schemas {
       secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
       /**
-       * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
-       * @nullable
-       */
+         * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
+         * @nullable
+         */
       saved_metrics_ids?: unknown[] | null;
       filters?: unknown;
       /** Whether the experiment is archived. */
@@ -24547,8 +24568,8 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Experiment type: web for frontend UI changes, product for backend/API changes.
 
-    * `web` - web
-    * `product` - product */
+      * `web` - web
+      * `product` - product */
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
@@ -24562,16 +24583,16 @@ export namespace Schemas {
       _create_in_folder?: string;
       /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
 
-    * `won` - won
-    * `lost` - lost
-    * `inconclusive` - inconclusive
-    * `stopped_early` - stopped_early
-    * `invalid` - invalid */
+      * `won` - won
+      * `lost` - lost
+      * `inconclusive` - inconclusive
+      * `stopped_early` - stopped_early
+      * `invalid` - invalid */
       conclusion?: ConclusionEnum | null;
       /**
-       * Comment about the experiment conclusion.
-       * @nullable
-       */
+         * Comment about the experiment conclusion.
+         * @nullable
+         */
       conclusion_comment?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
@@ -24581,9 +24602,9 @@ export namespace Schemas {
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
     }
 
@@ -24592,9 +24613,9 @@ export namespace Schemas {
       /** @maxLength 400 */
       name?: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       description?: string | null;
       filters?: unknown;
       readonly created_by?: UserBasic;
@@ -24610,9 +24631,9 @@ export namespace Schemas {
       /** @maxLength 400 */
       name?: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       description?: string | null;
       query?: unknown;
       readonly created_by?: UserBasic;
@@ -24620,16 +24641,16 @@ export namespace Schemas {
       readonly updated_at?: string;
       tags?: unknown[];
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
     }
 
     /**
      * @nullable
      */
-    export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null | null;
+    export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
     export interface PatchedExternalDataSchema {
       readonly id?: string;
@@ -24642,66 +24663,66 @@ export namespace Schemas {
       /** @nullable */
       readonly last_synced_at?: string | null;
       /**
-       * The latest error that occurred when syncing this schema.
-       * @nullable
-       */
+         * The latest error that occurred when syncing this schema.
+         * @nullable
+         */
       readonly latest_error?: string | null;
       readonly incremental?: boolean;
       /** @nullable */
       readonly status?: string | null;
       /** Sync strategy: incremental, full_refresh, append, or cdc.
 
-    * `full_refresh` - full_refresh
-    * `incremental` - incremental
-    * `append` - append
-    * `webhook` - webhook
-    * `cdc` - cdc */
+      * `full_refresh` - full_refresh
+      * `incremental` - incremental
+      * `append` - append
+      * `webhook` - webhook
+      * `cdc` - cdc */
       sync_type?: SyncTypeEnum | null;
       /**
-       * Column name used to track sync progress.
-       * @nullable
-       */
+         * Column name used to track sync progress.
+         * @nullable
+         */
       incremental_field?: string | null;
       /** Data type of the incremental field.
 
-    * `integer` - integer
-    * `numeric` - numeric
-    * `datetime` - datetime
-    * `date` - date
-    * `timestamp` - timestamp
-    * `objectid` - objectid */
+      * `integer` - integer
+      * `numeric` - numeric
+      * `datetime` - datetime
+      * `date` - date
+      * `timestamp` - timestamp
+      * `objectid` - objectid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
 
-    * `never` - never
-    * `1min` - 1min
-    * `5min` - 5min
-    * `15min` - 15min
-    * `30min` - 30min
-    * `1hour` - 1hour
-    * `6hour` - 6hour
-    * `12hour` - 12hour
-    * `24hour` - 24hour
-    * `7day` - 7day
-    * `30day` - 30day */
+      * `never` - never
+      * `1min` - 1min
+      * `5min` - 5min
+      * `15min` - 15min
+      * `30min` - 30min
+      * `1hour` - 1hour
+      * `6hour` - 6hour
+      * `12hour` - 12hour
+      * `24hour` - 24hour
+      * `7day` - 7day
+      * `30day` - 30day */
       sync_frequency?: SyncFrequencyEnum | null;
       /**
-       * UTC time of day to run the sync (HH:MM:SS).
-       * @nullable
-       */
+         * UTC time of day to run the sync (HH:MM:SS).
+         * @nullable
+         */
       sync_time_of_day?: string | null;
       /** @nullable */
       readonly description?: string | null;
       /**
-       * Column names for primary key deduplication.
-       * @nullable
-       */
+         * Column names for primary key deduplication.
+         * @nullable
+         */
       primary_key_columns?: string[] | null;
       /** For CDC syncs: consolidated, cdc_only, or both.
 
-    * `consolidated` - consolidated
-    * `cdc_only` - cdc_only
-    * `both` - both */
+      * `consolidated` - consolidated
+      * `cdc_only` - cdc_only
+      * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
     }
 
@@ -24722,9 +24743,9 @@ export namespace Schemas {
       readonly created_by?: string | null;
       /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
 
-    * `web` - web
-    * `api` - api
-    * `mcp` - mcp */
+      * `web` - web
+      * `api` - api
+      * `mcp` - mcp */
       created_via?: CreatedViaEnum;
       readonly status?: string;
       client_secret?: string;
@@ -24733,20 +24754,20 @@ export namespace Schemas {
       /** @nullable */
       readonly latest_error?: string | null;
       /**
-       * @maxLength 100
-       * @nullable
-       */
+         * @maxLength 100
+         * @nullable
+         */
       prefix?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       description?: string | null;
       readonly access_method?: AccessMethodEnum;
       /** Backend engine detected for the direct connection.
 
-    * `duckdb` - duckdb
-    * `postgres` - postgres */
+      * `duckdb` - duckdb
+      * `postgres` - postgres */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -24754,9 +24775,9 @@ export namespace Schemas {
       job_inputs?: unknown;
       readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfig;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
       readonly supports_webhooks?: boolean;
     }
@@ -24784,9 +24805,9 @@ export namespace Schemas {
       /** @maxLength 100 */
       type?: string;
       /**
-       * @maxLength 100
-       * @nullable
-       */
+         * @maxLength 100
+         * @nullable
+         */
       ref?: string | null;
       /** @nullable */
       href?: string | null;
@@ -24804,16 +24825,16 @@ export namespace Schemas {
       /** @maxLength 100 */
       type?: string;
       /**
-       * @maxLength 100
-       * @nullable
-       */
+         * @maxLength 100
+         * @nullable
+         */
       ref?: string | null;
       /** @nullable */
       href?: string | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       order?: number;
       readonly created_at?: string;
     }
@@ -24822,14 +24843,14 @@ export namespace Schemas {
       readonly group_type?: string;
       readonly group_type_index?: number;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name_singular?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name_plural?: string | null;
       /** @nullable */
       detail_dashboard?: number | null;
@@ -24851,38 +24872,38 @@ export namespace Schemas {
     export interface PatchedGroupUsageMetric {
       readonly id?: string;
       /**
-       * Name of the usage metric. Must be unique per group type within the project.
-       * @maxLength 255
-       */
+         * Name of the usage metric. Must be unique per group type within the project.
+         * @maxLength 255
+         */
       name?: string;
       /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
 
-    * `numeric` - numeric
-    * `currency` - currency */
+      * `numeric` - numeric
+      * `currency` - currency */
       format?: GroupUsageMetricFormatEnum;
       /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
       /** Visual representation in the UI. One of `number` or `sparkline`.
 
-    * `number` - number
-    * `sparkline` - sparkline */
+      * `number` - number
+      * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
       /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
 
-    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+      **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
 
-    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
+      **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
       filters?: PatchedGroupUsageMetricFilters;
       /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
 
-    * `count` - count
-    * `sum` - sum */
+      * `count` - count
+      * `sum` - sum */
       math?: MathEnum;
       /**
-       * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
-       * @maxLength 255
-       * @nullable
-       */
+         * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
+         * @maxLength 255
+         * @nullable
+         */
       math_property?: string | null;
     }
 
@@ -24905,17 +24926,17 @@ export namespace Schemas {
       readonly id?: string;
       readonly short_id?: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /** @maxLength 2000 */
       url?: string;
       /**
-       * URL for fetching heatmap data
-       * @maxLength 2000
-       * @nullable
-       */
+         * URL for fetching heatmap data
+         * @maxLength 2000
+         * @nullable
+         */
       data_url?: string | null;
       target_widths?: unknown;
       type?: HeatmapScreenshotResponseTypeEnum;
@@ -24935,9 +24956,9 @@ export namespace Schemas {
     export interface PatchedHogFlow {
       readonly id?: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       description?: string;
       readonly version?: number;
@@ -24960,7 +24981,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type PatchedHogFlowTemplateCreatedBy = { [key: string]: unknown } | null | null;
+    export type PatchedHogFlowTemplateCreatedBy = { [key: string]: unknown } | null;
 
     export type PatchedHogFlowTemplateVariablesItem = {[key: string]: string};
 
@@ -24974,9 +24995,9 @@ export namespace Schemas {
       name?: string;
       description?: string;
       /**
-       * @maxLength 8201
-       * @nullable
-       */
+         * @maxLength 8201
+         * @nullable
+         */
       image_url?: string | null;
       tags?: string[];
       scope?: HogFlowTemplateScopeEnum;
@@ -24991,9 +25012,9 @@ export namespace Schemas {
       edges?: unknown;
       actions?: HogFlowTemplateAction[];
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       abort_action?: string | null;
       variables?: PatchedHogFlowTemplateVariablesItem[];
     }
@@ -25007,19 +25028,19 @@ export namespace Schemas {
       readonly id?: string;
       /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-    * `destination` - Destination
-    * `site_destination` - Site Destination
-    * `internal_destination` - Internal Destination
-    * `source_webhook` - Source Webhook
-    * `warehouse_source_webhook` - Warehouse Source Webhook
-    * `site_app` - Site App
-    * `transformation` - Transformation */
+      * `destination` - Destination
+      * `site_destination` - Site Destination
+      * `internal_destination` - Internal Destination
+      * `source_webhook` - Source Webhook
+      * `warehouse_source_webhook` - Warehouse Source Webhook
+      * `site_app` - Site App
+      * `transformation` - Transformation */
       type?: HogFunctionTypeEnum | null;
       /**
-       * Display name for the function.
-       * @maxLength 400
-       * @nullable
-       */
+         * Display name for the function.
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /** Human-readable description of what this function does. */
       description?: string;
@@ -25044,29 +25065,29 @@ export namespace Schemas {
       /** PII masking configuration with TTL, threshold, and hash expression. */
       masking?: HogFunctionMasking | null;
       /**
-       * Event-to-destination field mappings. Only for destination and site_destination types.
-       * @nullable
-       */
+         * Event-to-destination field mappings. Only for destination and site_destination types.
+         * @nullable
+         */
       mappings?: Mappings[] | null;
       /**
-       * URL for the function's icon displayed in the UI.
-       * @nullable
-       */
+         * URL for the function's icon displayed in the UI.
+         * @nullable
+         */
       icon_url?: string | null;
       readonly template?: HogFunctionTemplate;
       /**
-       * ID of the template to create this function from.
-       * @maxLength 400
-       * @nullable
-       */
+         * ID of the template to create this function from.
+         * @maxLength 400
+         * @nullable
+         */
       template_id?: string | null;
       readonly status?: HogFunctionStatus | null;
       /**
-       * Execution priority for transformations. Lower values run first.
-       * @minimum 0
-       * @maximum 32767
-       * @nullable
-       */
+         * Execution priority for transformations. Lower values run first.
+         * @minimum 0
+         * @maximum 32767
+         * @nullable
+         */
       execution_order?: number | null;
       _create_in_folder?: string;
       /** @nullable */
@@ -25089,7 +25110,7 @@ export namespace Schemas {
     export type PatchedInsightResolvedDateRange = {
       readonly date_from?: string;
       readonly date_to?: string;
-    } | null | null;
+    } | null;
 
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
@@ -25098,54 +25119,54 @@ export namespace Schemas {
       readonly id?: number;
       readonly short_id?: string;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       derived_name?: string | null;
       query?: _InsightQuerySchema | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       order?: number | null;
       deleted?: boolean;
-      /** 
-            DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
-            A dashboard ID for each of the dashboards that this insight is displayed on.
-             */
+      /**
+              DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+              A dashboard ID for each of the dashboards that this insight is displayed on.
+               */
       dashboards?: number[];
-      /** 
-        A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
-         */
+      /**
+          A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+           */
       readonly dashboard_tiles?: readonly DashboardTileBasic[];
       /**
-       * 
-        The datetime this insight's results were generated.
-        If added to one or more dashboards the insight can be refreshed separately on each.
-        Returns the appropriate last_refresh datetime for the context the insight is viewed in
-        (see from_dashboard query parameter).
-        
-       * @nullable
-       */
+         *
+          The datetime this insight's results were generated.
+          If added to one or more dashboards the insight can be refreshed separately on each.
+          Returns the appropriate last_refresh datetime for the context the insight is viewed in
+          (see from_dashboard query parameter).
+
+         * @nullable
+         */
       readonly last_refresh?: string | null;
       /**
-       * The target age of the cached results for this insight.
-       * @nullable
-       */
+         * The target age of the cached results for this insight.
+         * @nullable
+         */
       readonly cache_target_age?: string | null;
       /**
-       * 
-        The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-        by querying the database.
-        
-       * @nullable
-       */
+         *
+          The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+          by querying the database.
+
+         * @nullable
+         */
       readonly next_allowed_client_refresh?: string | null;
       readonly result?: unknown;
       /** @nullable */
@@ -25156,9 +25177,9 @@ export namespace Schemas {
       readonly created_at?: string | null;
       readonly created_by?: UserBasic;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       description?: string | null;
       readonly updated_at?: string;
       tags?: unknown[];
@@ -25169,14 +25190,14 @@ export namespace Schemas {
       readonly effective_restriction_level?: EffectivePrivilegeLevelEnum;
       readonly effective_privilege_level?: EffectivePrivilegeLevelEnum;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
       /**
-       * The timezone this chart is displayed in.
-       * @nullable
-       */
+         * The timezone this chart is displayed in.
+         * @nullable
+         */
       readonly timezone?: string | null;
       readonly is_cached?: boolean;
       readonly query_status?: unknown;
@@ -25196,31 +25217,31 @@ export namespace Schemas {
       /** UUID of the SQL variable. */
       readonly id?: string;
       /**
-       * Human-readable name for the SQL variable.
-       * @maxLength 400
-       */
+         * Human-readable name for the SQL variable.
+         * @maxLength 400
+         */
       name?: string;
       /** Variable type. Controls how the value is rendered and substituted in HogQL.
 
-    * `String` - String
-    * `Number` - Number
-    * `Boolean` - Boolean
-    * `List` - List
-    * `Date` - Date */
+      * `String` - String
+      * `Number` - Number
+      * `Boolean` - Boolean
+      * `List` - List
+      * `Date` - Date */
       type?: InsightVariableTypeEnum;
       /** Default value used when a query references this variable. */
       default_value?: unknown;
       /**
-       * ID of the user who created the SQL variable.
-       * @nullable
-       */
+         * ID of the user who created the SQL variable.
+         * @nullable
+         */
       readonly created_by?: number | null;
       /** Timestamp when the SQL variable was created. */
       readonly created_at?: string;
       /**
-       * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
-       * @nullable
-       */
+         * Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.
+         * @nullable
+         */
       readonly code_name?: string | null;
       /** Allowed values for List variables. Null for other variable types. */
       values?: unknown;
@@ -25241,10 +25262,10 @@ export namespace Schemas {
 
     export interface PatchedJsSnippetVersion {
       /**
-       * Version pin: null for latest, "1.358.0" for exact, "1" for major, "1.358" for minor
-       * @maxLength 50
-       * @nullable
-       */
+         * Version pin: null for latest, "1.358.0" for exact, "1" for major, "1.358" for minor
+         * @maxLength 50
+         * @nullable
+         */
       js_snippet_version?: string | null;
     }
 
@@ -25254,9 +25275,9 @@ export namespace Schemas {
       /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
       edits?: LLMPromptEditOperation[];
       /**
-       * Latest version you are editing from. Used for optimistic concurrency checks.
-       * @minimum 1
-       */
+         * Latest version you are editing from. Used for optimistic concurrency checks.
+         * @minimum 1
+         */
       base_version?: number;
     }
 
@@ -25273,19 +25294,19 @@ export namespace Schemas {
       /** Azure OpenAI endpoint URL */
       azure_endpoint?: string;
       /**
-       * Azure OpenAI API version
-       * @maxLength 20
-       */
+         * Azure OpenAI API version
+         * @maxLength 20
+         */
       api_version?: string;
       /**
-       * Azure endpoint (read-only, for display)
-       * @nullable
-       */
+         * Azure endpoint (read-only, for display)
+         * @nullable
+         */
       readonly azure_endpoint_display?: string | null;
       /**
-       * Azure API version (read-only, for display)
-       * @nullable
-       */
+         * Azure API version (read-only, for display)
+         * @nullable
+         */
       readonly api_version_display?: string | null;
       set_as_active?: boolean;
       readonly created_at?: string;
@@ -25305,19 +25326,19 @@ export namespace Schemas {
       /** List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body. */
       edits?: LLMSkillEditOperation[];
       /**
-       * Updated description for the new version.
-       * @maxLength 4096
-       */
+         * Updated description for the new version.
+         * @maxLength 4096
+         */
       description?: string;
       /**
-       * License name or reference.
-       * @maxLength 255
-       */
+         * License name or reference.
+         * @maxLength 255
+         */
       license?: string;
       /**
-       * Environment requirements.
-       * @maxLength 500
-       */
+         * Environment requirements.
+         * @maxLength 500
+         */
       compatibility?: string;
       /** List of pre-approved tools the skill may use. */
       allowed_tools?: string[];
@@ -25328,9 +25349,9 @@ export namespace Schemas {
       /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
       file_edits?: LLMSkillFileEdit[];
       /**
-       * Latest version you are editing from. Used for optimistic concurrency checks.
-       * @minimum 1
-       */
+         * Latest version you are editing from. Used for optimistic concurrency checks.
+         * @minimum 1
+         */
       base_version?: number;
     }
 
@@ -25340,9 +25361,9 @@ export namespace Schemas {
       repository?: string | null;
       filename?: string;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         */
       line_number?: number;
       enabled?: boolean;
       /** @nullable */
@@ -25355,23 +25376,23 @@ export namespace Schemas {
       /** Unique identifier for this alert. */
       readonly id?: string;
       /**
-       * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
-       * @maxLength 255
-       */
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
       name?: string;
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: unknown;
       /**
-       * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-       * @minimum 1
-       */
+         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
+         * @minimum 1
+         */
       threshold_count?: number;
       /** Whether the alert fires when the count is above or below the threshold.
 
-    * `above` - Above
-    * `below` - Below */
+      * `above` - Above
+      * `below` - Below */
       threshold_operator?: ThresholdOperatorEnum;
       /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
       window_minutes?: number;
@@ -25379,73 +25400,73 @@ export namespace Schemas {
       readonly check_interval_minutes?: number;
       /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
 
-    * `not_firing` - Not firing
-    * `firing` - Firing
-    * `pending_resolve` - Pending resolve
-    * `errored` - Errored
-    * `snoozed` - Snoozed
-    * `broken` - Broken */
+      * `not_firing` - Not firing
+      * `firing` - Firing
+      * `pending_resolve` - Pending resolve
+      * `errored` - Errored
+      * `snoozed` - Snoozed
+      * `broken` - Broken */
       readonly state?: LogsAlertConfigurationStateEnum;
       /**
-       * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
-       * @minimum 1
-       * @maximum 10
-       */
+         * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
       evaluation_periods?: number;
       /**
-       * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
-       * @minimum 1
-       * @maximum 10
-       */
+         * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
       datapoints_to_alarm?: number;
       /**
-       * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
-       * @minimum 0
-       */
+         * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+         * @minimum 0
+         */
       cooldown_minutes?: number;
       /**
-       * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
-       * @nullable
-       */
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
       snooze_until?: string | null;
       /**
-       * When the next evaluation is scheduled. Server-managed.
-       * @nullable
-       */
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
       readonly next_check_at?: string | null;
       /**
-       * When the last notification was sent. Server-managed.
-       * @nullable
-       */
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
       readonly last_notified_at?: string | null;
       /**
-       * When the alert was last evaluated. Server-managed.
-       * @nullable
-       */
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
       readonly last_checked_at?: string | null;
       /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
       readonly consecutive_failures?: number;
       /**
-       * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
-       * @nullable
-       */
+         * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+         * @nullable
+         */
       readonly last_error_message?: string | null;
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
       readonly destination_types?: readonly NotificationDestinationTypeEnum[];
       /**
-       * When the alert was first enabled. Null means the alert is still in draft state.
-       * @nullable
-       */
+         * When the alert was first enabled. Null means the alert is still in draft state.
+         * @nullable
+         */
       readonly first_enabled_at?: string | null;
       /** When the alert was created. */
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       /**
-       * When the alert was last modified.
-       * @nullable
-       */
+         * When the alert was last modified.
+         * @nullable
+         */
       readonly updated_at?: string | null;
     }
 
@@ -25455,35 +25476,35 @@ export namespace Schemas {
       /** Unique identifier for this sampling rule. */
       readonly id?: string;
       /**
-       * User-visible label for this rule.
-       * @maxLength 255
-       */
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
       name?: string;
       /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
       enabled?: boolean;
       /**
-       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
-       * @minimum 0
-       * @nullable
-       */
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
       priority?: number | null;
       /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
-    * `severity_sampling` - Severity-based reduction
-    * `path_drop` - Path exclusion
-    * `rate_limit` - Rate limit */
+      * `severity_sampling` - Severity-based reduction
+      * `path_drop` - Path exclusion
+      * `rate_limit` - Rate limit */
       rule_type?: RuleTypeEnum;
       /**
-       * If set, the rule applies only to this service name; null means all services.
-       * @maxLength 512
-       * @nullable
-       */
+         * If set, the rule applies only to this service name; null means all services.
+         * @maxLength 512
+         * @nullable
+         */
       scope_service?: string | null;
       /**
-       * Optional regex matched against a path-like log attribute when present.
-       * @maxLength 1024
-       * @nullable
-       */
+         * Optional regex matched against a path-like log attribute when present.
+         * @maxLength 1024
+         * @nullable
+         */
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
@@ -25529,15 +25550,15 @@ export namespace Schemas {
       readonly property_definition_details?: PropertyDefinition;
       property_type?: PropertyDefinitionTypeEnum;
       /**
-       * @minimum 0
-       * @maximum 32767
-       */
+         * @minimum 0
+         * @maximum 32767
+         */
       slot_index?: number;
       state?: MaterializedColumnSlotStateEnum;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       backfill_temporal_workflow_id?: string | null;
       /** @nullable */
       error_message?: string | null;
@@ -25616,23 +25637,23 @@ export namespace Schemas {
       /** Short alphanumeric identifier used in URLs and API lookups. */
       readonly short_id?: string;
       /**
-       * Title of the notebook.
-       * @maxLength 256
-       * @nullable
-       */
+         * Title of the notebook.
+         * @maxLength 256
+         * @nullable
+         */
       title?: string | null;
       /** Notebook content as a ProseMirror JSON document structure. */
       content?: unknown;
       /**
-       * Plain text representation of the notebook content for search.
-       * @nullable
-       */
+         * Plain text representation of the notebook content for search.
+         * @nullable
+         */
       text_content?: string | null;
       /**
-       * Version number for optimistic concurrency control. Must match the current version when updating content.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * Version number for optimistic concurrency control. Must match the current version when updating content.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       version?: number;
       /** Whether the notebook has been soft-deleted. */
       deleted?: boolean;
@@ -25641,9 +25662,9 @@ export namespace Schemas {
       readonly last_modified_at?: string;
       readonly last_modified_by?: UserBasic;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
       _create_in_folder?: string;
     }
@@ -25703,30 +25724,30 @@ export namespace Schemas {
       is_ai_data_processing_approved?: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
-    * `bayesian` - Bayesian
-    * `frequentist` - Frequentist */
+      * `bayesian` - Bayesian
+      * `frequentist` - Frequentist */
       default_experiment_stats_method?: DefaultExperimentStatsMethodEnum | BlankEnum | null;
       /** Default setting for 'Discard client IP data' for new projects in this organization. */
       default_anonymize_ips?: boolean;
       /**
-       * ID of the role to automatically assign to new members joining the organization
-       * @nullable
-       */
+         * ID of the role to automatically assign to new members joining the organization
+         * @nullable
+         */
       default_role_id?: string | null;
       /**
-       * Set this to 'No' to temporarily disable an organization.
-       * @nullable
-       */
+         * Set this to 'No' to temporarily disable an organization.
+         * @nullable
+         */
       readonly is_active?: boolean | null;
       /**
-       * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
-       * @nullable
-       */
+         * (optional) reason for why the organization has been de-activated. This will be displayed to users on the web app.
+         * @nullable
+         */
       readonly is_not_active_reason?: string | null;
       /**
-       * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
-       * @nullable
-       */
+         * Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.
+         * @nullable
+         */
       readonly is_pending_deletion?: boolean | null;
     }
 
@@ -25745,14 +25766,14 @@ export namespace Schemas {
       /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
       readonly has_saml?: boolean;
       /**
-       * @maxLength 512
-       * @nullable
-       */
+         * @maxLength 512
+         * @nullable
+         */
       saml_entity_id?: string | null;
       /**
-       * @maxLength 512
-       * @nullable
-       */
+         * @maxLength 512
+         * @nullable
+         */
       saml_acs_url?: string | null;
       /** @nullable */
       saml_x509_cert?: string | null;
@@ -25813,9 +25834,9 @@ export namespace Schemas {
       /** Unique identifier (UUID) for this person. */
       readonly uuid?: string;
       /**
-       * Timestamp of the last event from this person, or null.
-       * @nullable
-       */
+         * Timestamp of the last event from this person, or null.
+         * @nullable
+         */
       readonly last_seen_at?: string | null;
     }
 
@@ -25831,21 +25852,21 @@ export namespace Schemas {
       /** Default tab title derived from the destination scene. Used when `customTitle` is not set. */
       title?: string;
       /**
-       * Optional user-provided title that overrides `title` in the navigation UI.
-       * @nullable
-       */
+         * Optional user-provided title that overrides `title` in the navigation UI.
+         * @nullable
+         */
       customTitle?: string | null;
       /** Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`. */
       iconType?: string;
       /**
-       * Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.
-       * @nullable
-       */
+         * Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.
+         * @nullable
+         */
       sceneId?: string | null;
       /**
-       * Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.
-       * @nullable
-       */
+         * Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.
+         * @nullable
+         */
       sceneKey?: string | null;
       /** Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination. */
       sceneParams?: unknown;
@@ -25897,8 +25918,8 @@ export namespace Schemas {
       archived?: boolean;
       /** Where the tour was created/updated from
 
-    * `app` - app
-    * `toolbar` - toolbar */
+      * `app` - app
+      * `toolbar` - toolbar */
       creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum;
     }
 
@@ -25952,16 +25973,16 @@ export namespace Schemas {
       readonly id?: number;
       readonly organization?: string;
       /**
-       * Human-readable project name.
-       * @minLength 1
-       * @maxLength 200
-       */
+         * Human-readable project name.
+         * @minLength 1
+         * @maxLength 200
+         */
       name?: string;
       /**
-       * Short description of what the project is about. This is helpful to give our AI agents context about your project.
-       * @maxLength 1000
-       * @nullable
-       */
+         * Short description of what the project is about. This is helpful to give our AI agents context about your project.
+         * @maxLength 1000
+         * @nullable
+         */
       product_description?: string | null;
       readonly created_at?: string;
       readonly effective_membership_level?: EffectiveMembershipLevelEnum;
@@ -25980,661 +26001,661 @@ export namespace Schemas {
       /** Filter groups that identify internal/test traffic to be excluded from insights. */
       test_account_filters?: unknown;
       /**
-       * When true, new insights default to excluding internal/test users.
-       * @nullable
-       */
+         * When true, new insights default to excluding internal/test users.
+         * @nullable
+         */
       test_account_filters_default_checked?: boolean | null;
       /** Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths. */
       path_cleaning_filters?: unknown;
       is_demo?: boolean;
       /** IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`).
 
-    * `Africa/Abidjan` - Africa/Abidjan
-    * `Africa/Accra` - Africa/Accra
-    * `Africa/Addis_Ababa` - Africa/Addis_Ababa
-    * `Africa/Algiers` - Africa/Algiers
-    * `Africa/Asmara` - Africa/Asmara
-    * `Africa/Asmera` - Africa/Asmera
-    * `Africa/Bamako` - Africa/Bamako
-    * `Africa/Bangui` - Africa/Bangui
-    * `Africa/Banjul` - Africa/Banjul
-    * `Africa/Bissau` - Africa/Bissau
-    * `Africa/Blantyre` - Africa/Blantyre
-    * `Africa/Brazzaville` - Africa/Brazzaville
-    * `Africa/Bujumbura` - Africa/Bujumbura
-    * `Africa/Cairo` - Africa/Cairo
-    * `Africa/Casablanca` - Africa/Casablanca
-    * `Africa/Ceuta` - Africa/Ceuta
-    * `Africa/Conakry` - Africa/Conakry
-    * `Africa/Dakar` - Africa/Dakar
-    * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
-    * `Africa/Djibouti` - Africa/Djibouti
-    * `Africa/Douala` - Africa/Douala
-    * `Africa/El_Aaiun` - Africa/El_Aaiun
-    * `Africa/Freetown` - Africa/Freetown
-    * `Africa/Gaborone` - Africa/Gaborone
-    * `Africa/Harare` - Africa/Harare
-    * `Africa/Johannesburg` - Africa/Johannesburg
-    * `Africa/Juba` - Africa/Juba
-    * `Africa/Kampala` - Africa/Kampala
-    * `Africa/Khartoum` - Africa/Khartoum
-    * `Africa/Kigali` - Africa/Kigali
-    * `Africa/Kinshasa` - Africa/Kinshasa
-    * `Africa/Lagos` - Africa/Lagos
-    * `Africa/Libreville` - Africa/Libreville
-    * `Africa/Lome` - Africa/Lome
-    * `Africa/Luanda` - Africa/Luanda
-    * `Africa/Lubumbashi` - Africa/Lubumbashi
-    * `Africa/Lusaka` - Africa/Lusaka
-    * `Africa/Malabo` - Africa/Malabo
-    * `Africa/Maputo` - Africa/Maputo
-    * `Africa/Maseru` - Africa/Maseru
-    * `Africa/Mbabane` - Africa/Mbabane
-    * `Africa/Mogadishu` - Africa/Mogadishu
-    * `Africa/Monrovia` - Africa/Monrovia
-    * `Africa/Nairobi` - Africa/Nairobi
-    * `Africa/Ndjamena` - Africa/Ndjamena
-    * `Africa/Niamey` - Africa/Niamey
-    * `Africa/Nouakchott` - Africa/Nouakchott
-    * `Africa/Ouagadougou` - Africa/Ouagadougou
-    * `Africa/Porto-Novo` - Africa/Porto-Novo
-    * `Africa/Sao_Tome` - Africa/Sao_Tome
-    * `Africa/Timbuktu` - Africa/Timbuktu
-    * `Africa/Tripoli` - Africa/Tripoli
-    * `Africa/Tunis` - Africa/Tunis
-    * `Africa/Windhoek` - Africa/Windhoek
-    * `America/Adak` - America/Adak
-    * `America/Anchorage` - America/Anchorage
-    * `America/Anguilla` - America/Anguilla
-    * `America/Antigua` - America/Antigua
-    * `America/Araguaina` - America/Araguaina
-    * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
-    * `America/Argentina/Catamarca` - America/Argentina/Catamarca
-    * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
-    * `America/Argentina/Cordoba` - America/Argentina/Cordoba
-    * `America/Argentina/Jujuy` - America/Argentina/Jujuy
-    * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
-    * `America/Argentina/Mendoza` - America/Argentina/Mendoza
-    * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
-    * `America/Argentina/Salta` - America/Argentina/Salta
-    * `America/Argentina/San_Juan` - America/Argentina/San_Juan
-    * `America/Argentina/San_Luis` - America/Argentina/San_Luis
-    * `America/Argentina/Tucuman` - America/Argentina/Tucuman
-    * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
-    * `America/Aruba` - America/Aruba
-    * `America/Asuncion` - America/Asuncion
-    * `America/Atikokan` - America/Atikokan
-    * `America/Atka` - America/Atka
-    * `America/Bahia` - America/Bahia
-    * `America/Bahia_Banderas` - America/Bahia_Banderas
-    * `America/Barbados` - America/Barbados
-    * `America/Belem` - America/Belem
-    * `America/Belize` - America/Belize
-    * `America/Blanc-Sablon` - America/Blanc-Sablon
-    * `America/Boa_Vista` - America/Boa_Vista
-    * `America/Bogota` - America/Bogota
-    * `America/Boise` - America/Boise
-    * `America/Buenos_Aires` - America/Buenos_Aires
-    * `America/Cambridge_Bay` - America/Cambridge_Bay
-    * `America/Campo_Grande` - America/Campo_Grande
-    * `America/Cancun` - America/Cancun
-    * `America/Caracas` - America/Caracas
-    * `America/Catamarca` - America/Catamarca
-    * `America/Cayenne` - America/Cayenne
-    * `America/Cayman` - America/Cayman
-    * `America/Chicago` - America/Chicago
-    * `America/Chihuahua` - America/Chihuahua
-    * `America/Ciudad_Juarez` - America/Ciudad_Juarez
-    * `America/Coral_Harbour` - America/Coral_Harbour
-    * `America/Cordoba` - America/Cordoba
-    * `America/Costa_Rica` - America/Costa_Rica
-    * `America/Creston` - America/Creston
-    * `America/Cuiaba` - America/Cuiaba
-    * `America/Curacao` - America/Curacao
-    * `America/Danmarkshavn` - America/Danmarkshavn
-    * `America/Dawson` - America/Dawson
-    * `America/Dawson_Creek` - America/Dawson_Creek
-    * `America/Denver` - America/Denver
-    * `America/Detroit` - America/Detroit
-    * `America/Dominica` - America/Dominica
-    * `America/Edmonton` - America/Edmonton
-    * `America/Eirunepe` - America/Eirunepe
-    * `America/El_Salvador` - America/El_Salvador
-    * `America/Ensenada` - America/Ensenada
-    * `America/Fort_Nelson` - America/Fort_Nelson
-    * `America/Fort_Wayne` - America/Fort_Wayne
-    * `America/Fortaleza` - America/Fortaleza
-    * `America/Glace_Bay` - America/Glace_Bay
-    * `America/Godthab` - America/Godthab
-    * `America/Goose_Bay` - America/Goose_Bay
-    * `America/Grand_Turk` - America/Grand_Turk
-    * `America/Grenada` - America/Grenada
-    * `America/Guadeloupe` - America/Guadeloupe
-    * `America/Guatemala` - America/Guatemala
-    * `America/Guayaquil` - America/Guayaquil
-    * `America/Guyana` - America/Guyana
-    * `America/Halifax` - America/Halifax
-    * `America/Havana` - America/Havana
-    * `America/Hermosillo` - America/Hermosillo
-    * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
-    * `America/Indiana/Knox` - America/Indiana/Knox
-    * `America/Indiana/Marengo` - America/Indiana/Marengo
-    * `America/Indiana/Petersburg` - America/Indiana/Petersburg
-    * `America/Indiana/Tell_City` - America/Indiana/Tell_City
-    * `America/Indiana/Vevay` - America/Indiana/Vevay
-    * `America/Indiana/Vincennes` - America/Indiana/Vincennes
-    * `America/Indiana/Winamac` - America/Indiana/Winamac
-    * `America/Indianapolis` - America/Indianapolis
-    * `America/Inuvik` - America/Inuvik
-    * `America/Iqaluit` - America/Iqaluit
-    * `America/Jamaica` - America/Jamaica
-    * `America/Jujuy` - America/Jujuy
-    * `America/Juneau` - America/Juneau
-    * `America/Kentucky/Louisville` - America/Kentucky/Louisville
-    * `America/Kentucky/Monticello` - America/Kentucky/Monticello
-    * `America/Knox_IN` - America/Knox_IN
-    * `America/Kralendijk` - America/Kralendijk
-    * `America/La_Paz` - America/La_Paz
-    * `America/Lima` - America/Lima
-    * `America/Los_Angeles` - America/Los_Angeles
-    * `America/Louisville` - America/Louisville
-    * `America/Lower_Princes` - America/Lower_Princes
-    * `America/Maceio` - America/Maceio
-    * `America/Managua` - America/Managua
-    * `America/Manaus` - America/Manaus
-    * `America/Marigot` - America/Marigot
-    * `America/Martinique` - America/Martinique
-    * `America/Matamoros` - America/Matamoros
-    * `America/Mazatlan` - America/Mazatlan
-    * `America/Mendoza` - America/Mendoza
-    * `America/Menominee` - America/Menominee
-    * `America/Merida` - America/Merida
-    * `America/Metlakatla` - America/Metlakatla
-    * `America/Mexico_City` - America/Mexico_City
-    * `America/Miquelon` - America/Miquelon
-    * `America/Moncton` - America/Moncton
-    * `America/Monterrey` - America/Monterrey
-    * `America/Montevideo` - America/Montevideo
-    * `America/Montreal` - America/Montreal
-    * `America/Montserrat` - America/Montserrat
-    * `America/Nassau` - America/Nassau
-    * `America/New_York` - America/New_York
-    * `America/Nipigon` - America/Nipigon
-    * `America/Nome` - America/Nome
-    * `America/Noronha` - America/Noronha
-    * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
-    * `America/North_Dakota/Center` - America/North_Dakota/Center
-    * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
-    * `America/Nuuk` - America/Nuuk
-    * `America/Ojinaga` - America/Ojinaga
-    * `America/Panama` - America/Panama
-    * `America/Pangnirtung` - America/Pangnirtung
-    * `America/Paramaribo` - America/Paramaribo
-    * `America/Phoenix` - America/Phoenix
-    * `America/Port-au-Prince` - America/Port-au-Prince
-    * `America/Port_of_Spain` - America/Port_of_Spain
-    * `America/Porto_Acre` - America/Porto_Acre
-    * `America/Porto_Velho` - America/Porto_Velho
-    * `America/Puerto_Rico` - America/Puerto_Rico
-    * `America/Punta_Arenas` - America/Punta_Arenas
-    * `America/Rainy_River` - America/Rainy_River
-    * `America/Rankin_Inlet` - America/Rankin_Inlet
-    * `America/Recife` - America/Recife
-    * `America/Regina` - America/Regina
-    * `America/Resolute` - America/Resolute
-    * `America/Rio_Branco` - America/Rio_Branco
-    * `America/Rosario` - America/Rosario
-    * `America/Santa_Isabel` - America/Santa_Isabel
-    * `America/Santarem` - America/Santarem
-    * `America/Santiago` - America/Santiago
-    * `America/Santo_Domingo` - America/Santo_Domingo
-    * `America/Sao_Paulo` - America/Sao_Paulo
-    * `America/Scoresbysund` - America/Scoresbysund
-    * `America/Shiprock` - America/Shiprock
-    * `America/Sitka` - America/Sitka
-    * `America/St_Barthelemy` - America/St_Barthelemy
-    * `America/St_Johns` - America/St_Johns
-    * `America/St_Kitts` - America/St_Kitts
-    * `America/St_Lucia` - America/St_Lucia
-    * `America/St_Thomas` - America/St_Thomas
-    * `America/St_Vincent` - America/St_Vincent
-    * `America/Swift_Current` - America/Swift_Current
-    * `America/Tegucigalpa` - America/Tegucigalpa
-    * `America/Thule` - America/Thule
-    * `America/Thunder_Bay` - America/Thunder_Bay
-    * `America/Tijuana` - America/Tijuana
-    * `America/Toronto` - America/Toronto
-    * `America/Tortola` - America/Tortola
-    * `America/Vancouver` - America/Vancouver
-    * `America/Virgin` - America/Virgin
-    * `America/Whitehorse` - America/Whitehorse
-    * `America/Winnipeg` - America/Winnipeg
-    * `America/Yakutat` - America/Yakutat
-    * `America/Yellowknife` - America/Yellowknife
-    * `Antarctica/Casey` - Antarctica/Casey
-    * `Antarctica/Davis` - Antarctica/Davis
-    * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
-    * `Antarctica/Macquarie` - Antarctica/Macquarie
-    * `Antarctica/Mawson` - Antarctica/Mawson
-    * `Antarctica/McMurdo` - Antarctica/McMurdo
-    * `Antarctica/Palmer` - Antarctica/Palmer
-    * `Antarctica/Rothera` - Antarctica/Rothera
-    * `Antarctica/South_Pole` - Antarctica/South_Pole
-    * `Antarctica/Syowa` - Antarctica/Syowa
-    * `Antarctica/Troll` - Antarctica/Troll
-    * `Antarctica/Vostok` - Antarctica/Vostok
-    * `Arctic/Longyearbyen` - Arctic/Longyearbyen
-    * `Asia/Aden` - Asia/Aden
-    * `Asia/Almaty` - Asia/Almaty
-    * `Asia/Amman` - Asia/Amman
-    * `Asia/Anadyr` - Asia/Anadyr
-    * `Asia/Aqtau` - Asia/Aqtau
-    * `Asia/Aqtobe` - Asia/Aqtobe
-    * `Asia/Ashgabat` - Asia/Ashgabat
-    * `Asia/Ashkhabad` - Asia/Ashkhabad
-    * `Asia/Atyrau` - Asia/Atyrau
-    * `Asia/Baghdad` - Asia/Baghdad
-    * `Asia/Bahrain` - Asia/Bahrain
-    * `Asia/Baku` - Asia/Baku
-    * `Asia/Bangkok` - Asia/Bangkok
-    * `Asia/Barnaul` - Asia/Barnaul
-    * `Asia/Beirut` - Asia/Beirut
-    * `Asia/Bishkek` - Asia/Bishkek
-    * `Asia/Brunei` - Asia/Brunei
-    * `Asia/Calcutta` - Asia/Calcutta
-    * `Asia/Chita` - Asia/Chita
-    * `Asia/Choibalsan` - Asia/Choibalsan
-    * `Asia/Chongqing` - Asia/Chongqing
-    * `Asia/Chungking` - Asia/Chungking
-    * `Asia/Colombo` - Asia/Colombo
-    * `Asia/Dacca` - Asia/Dacca
-    * `Asia/Damascus` - Asia/Damascus
-    * `Asia/Dhaka` - Asia/Dhaka
-    * `Asia/Dili` - Asia/Dili
-    * `Asia/Dubai` - Asia/Dubai
-    * `Asia/Dushanbe` - Asia/Dushanbe
-    * `Asia/Famagusta` - Asia/Famagusta
-    * `Asia/Gaza` - Asia/Gaza
-    * `Asia/Harbin` - Asia/Harbin
-    * `Asia/Hebron` - Asia/Hebron
-    * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
-    * `Asia/Hong_Kong` - Asia/Hong_Kong
-    * `Asia/Hovd` - Asia/Hovd
-    * `Asia/Irkutsk` - Asia/Irkutsk
-    * `Asia/Istanbul` - Asia/Istanbul
-    * `Asia/Jakarta` - Asia/Jakarta
-    * `Asia/Jayapura` - Asia/Jayapura
-    * `Asia/Jerusalem` - Asia/Jerusalem
-    * `Asia/Kabul` - Asia/Kabul
-    * `Asia/Kamchatka` - Asia/Kamchatka
-    * `Asia/Karachi` - Asia/Karachi
-    * `Asia/Kashgar` - Asia/Kashgar
-    * `Asia/Kathmandu` - Asia/Kathmandu
-    * `Asia/Katmandu` - Asia/Katmandu
-    * `Asia/Khandyga` - Asia/Khandyga
-    * `Asia/Kolkata` - Asia/Kolkata
-    * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
-    * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
-    * `Asia/Kuching` - Asia/Kuching
-    * `Asia/Kuwait` - Asia/Kuwait
-    * `Asia/Macao` - Asia/Macao
-    * `Asia/Macau` - Asia/Macau
-    * `Asia/Magadan` - Asia/Magadan
-    * `Asia/Makassar` - Asia/Makassar
-    * `Asia/Manila` - Asia/Manila
-    * `Asia/Muscat` - Asia/Muscat
-    * `Asia/Nicosia` - Asia/Nicosia
-    * `Asia/Novokuznetsk` - Asia/Novokuznetsk
-    * `Asia/Novosibirsk` - Asia/Novosibirsk
-    * `Asia/Omsk` - Asia/Omsk
-    * `Asia/Oral` - Asia/Oral
-    * `Asia/Phnom_Penh` - Asia/Phnom_Penh
-    * `Asia/Pontianak` - Asia/Pontianak
-    * `Asia/Pyongyang` - Asia/Pyongyang
-    * `Asia/Qatar` - Asia/Qatar
-    * `Asia/Qostanay` - Asia/Qostanay
-    * `Asia/Qyzylorda` - Asia/Qyzylorda
-    * `Asia/Rangoon` - Asia/Rangoon
-    * `Asia/Riyadh` - Asia/Riyadh
-    * `Asia/Saigon` - Asia/Saigon
-    * `Asia/Sakhalin` - Asia/Sakhalin
-    * `Asia/Samarkand` - Asia/Samarkand
-    * `Asia/Seoul` - Asia/Seoul
-    * `Asia/Shanghai` - Asia/Shanghai
-    * `Asia/Singapore` - Asia/Singapore
-    * `Asia/Srednekolymsk` - Asia/Srednekolymsk
-    * `Asia/Taipei` - Asia/Taipei
-    * `Asia/Tashkent` - Asia/Tashkent
-    * `Asia/Tbilisi` - Asia/Tbilisi
-    * `Asia/Tehran` - Asia/Tehran
-    * `Asia/Tel_Aviv` - Asia/Tel_Aviv
-    * `Asia/Thimbu` - Asia/Thimbu
-    * `Asia/Thimphu` - Asia/Thimphu
-    * `Asia/Tokyo` - Asia/Tokyo
-    * `Asia/Tomsk` - Asia/Tomsk
-    * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
-    * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
-    * `Asia/Ulan_Bator` - Asia/Ulan_Bator
-    * `Asia/Urumqi` - Asia/Urumqi
-    * `Asia/Ust-Nera` - Asia/Ust-Nera
-    * `Asia/Vientiane` - Asia/Vientiane
-    * `Asia/Vladivostok` - Asia/Vladivostok
-    * `Asia/Yakutsk` - Asia/Yakutsk
-    * `Asia/Yangon` - Asia/Yangon
-    * `Asia/Yekaterinburg` - Asia/Yekaterinburg
-    * `Asia/Yerevan` - Asia/Yerevan
-    * `Atlantic/Azores` - Atlantic/Azores
-    * `Atlantic/Bermuda` - Atlantic/Bermuda
-    * `Atlantic/Canary` - Atlantic/Canary
-    * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
-    * `Atlantic/Faeroe` - Atlantic/Faeroe
-    * `Atlantic/Faroe` - Atlantic/Faroe
-    * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
-    * `Atlantic/Madeira` - Atlantic/Madeira
-    * `Atlantic/Reykjavik` - Atlantic/Reykjavik
-    * `Atlantic/South_Georgia` - Atlantic/South_Georgia
-    * `Atlantic/St_Helena` - Atlantic/St_Helena
-    * `Atlantic/Stanley` - Atlantic/Stanley
-    * `Australia/ACT` - Australia/ACT
-    * `Australia/Adelaide` - Australia/Adelaide
-    * `Australia/Brisbane` - Australia/Brisbane
-    * `Australia/Broken_Hill` - Australia/Broken_Hill
-    * `Australia/Canberra` - Australia/Canberra
-    * `Australia/Currie` - Australia/Currie
-    * `Australia/Darwin` - Australia/Darwin
-    * `Australia/Eucla` - Australia/Eucla
-    * `Australia/Hobart` - Australia/Hobart
-    * `Australia/LHI` - Australia/LHI
-    * `Australia/Lindeman` - Australia/Lindeman
-    * `Australia/Lord_Howe` - Australia/Lord_Howe
-    * `Australia/Melbourne` - Australia/Melbourne
-    * `Australia/NSW` - Australia/NSW
-    * `Australia/North` - Australia/North
-    * `Australia/Perth` - Australia/Perth
-    * `Australia/Queensland` - Australia/Queensland
-    * `Australia/South` - Australia/South
-    * `Australia/Sydney` - Australia/Sydney
-    * `Australia/Tasmania` - Australia/Tasmania
-    * `Australia/Victoria` - Australia/Victoria
-    * `Australia/West` - Australia/West
-    * `Australia/Yancowinna` - Australia/Yancowinna
-    * `Brazil/Acre` - Brazil/Acre
-    * `Brazil/DeNoronha` - Brazil/DeNoronha
-    * `Brazil/East` - Brazil/East
-    * `Brazil/West` - Brazil/West
-    * `CET` - CET
-    * `CST6CDT` - CST6CDT
-    * `Canada/Atlantic` - Canada/Atlantic
-    * `Canada/Central` - Canada/Central
-    * `Canada/Eastern` - Canada/Eastern
-    * `Canada/Mountain` - Canada/Mountain
-    * `Canada/Newfoundland` - Canada/Newfoundland
-    * `Canada/Pacific` - Canada/Pacific
-    * `Canada/Saskatchewan` - Canada/Saskatchewan
-    * `Canada/Yukon` - Canada/Yukon
-    * `Chile/Continental` - Chile/Continental
-    * `Chile/EasterIsland` - Chile/EasterIsland
-    * `Cuba` - Cuba
-    * `EET` - EET
-    * `EST` - EST
-    * `EST5EDT` - EST5EDT
-    * `Egypt` - Egypt
-    * `Eire` - Eire
-    * `Etc/GMT` - Etc/GMT
-    * `Etc/GMT+0` - Etc/GMT+0
-    * `Etc/GMT+1` - Etc/GMT+1
-    * `Etc/GMT+10` - Etc/GMT+10
-    * `Etc/GMT+11` - Etc/GMT+11
-    * `Etc/GMT+12` - Etc/GMT+12
-    * `Etc/GMT+2` - Etc/GMT+2
-    * `Etc/GMT+3` - Etc/GMT+3
-    * `Etc/GMT+4` - Etc/GMT+4
-    * `Etc/GMT+5` - Etc/GMT+5
-    * `Etc/GMT+6` - Etc/GMT+6
-    * `Etc/GMT+7` - Etc/GMT+7
-    * `Etc/GMT+8` - Etc/GMT+8
-    * `Etc/GMT+9` - Etc/GMT+9
-    * `Etc/GMT-0` - Etc/GMT-0
-    * `Etc/GMT-1` - Etc/GMT-1
-    * `Etc/GMT-10` - Etc/GMT-10
-    * `Etc/GMT-11` - Etc/GMT-11
-    * `Etc/GMT-12` - Etc/GMT-12
-    * `Etc/GMT-13` - Etc/GMT-13
-    * `Etc/GMT-14` - Etc/GMT-14
-    * `Etc/GMT-2` - Etc/GMT-2
-    * `Etc/GMT-3` - Etc/GMT-3
-    * `Etc/GMT-4` - Etc/GMT-4
-    * `Etc/GMT-5` - Etc/GMT-5
-    * `Etc/GMT-6` - Etc/GMT-6
-    * `Etc/GMT-7` - Etc/GMT-7
-    * `Etc/GMT-8` - Etc/GMT-8
-    * `Etc/GMT-9` - Etc/GMT-9
-    * `Etc/GMT0` - Etc/GMT0
-    * `Etc/Greenwich` - Etc/Greenwich
-    * `Etc/UCT` - Etc/UCT
-    * `Etc/UTC` - Etc/UTC
-    * `Etc/Universal` - Etc/Universal
-    * `Etc/Zulu` - Etc/Zulu
-    * `Europe/Amsterdam` - Europe/Amsterdam
-    * `Europe/Andorra` - Europe/Andorra
-    * `Europe/Astrakhan` - Europe/Astrakhan
-    * `Europe/Athens` - Europe/Athens
-    * `Europe/Belfast` - Europe/Belfast
-    * `Europe/Belgrade` - Europe/Belgrade
-    * `Europe/Berlin` - Europe/Berlin
-    * `Europe/Bratislava` - Europe/Bratislava
-    * `Europe/Brussels` - Europe/Brussels
-    * `Europe/Bucharest` - Europe/Bucharest
-    * `Europe/Budapest` - Europe/Budapest
-    * `Europe/Busingen` - Europe/Busingen
-    * `Europe/Chisinau` - Europe/Chisinau
-    * `Europe/Copenhagen` - Europe/Copenhagen
-    * `Europe/Dublin` - Europe/Dublin
-    * `Europe/Gibraltar` - Europe/Gibraltar
-    * `Europe/Guernsey` - Europe/Guernsey
-    * `Europe/Helsinki` - Europe/Helsinki
-    * `Europe/Isle_of_Man` - Europe/Isle_of_Man
-    * `Europe/Istanbul` - Europe/Istanbul
-    * `Europe/Jersey` - Europe/Jersey
-    * `Europe/Kaliningrad` - Europe/Kaliningrad
-    * `Europe/Kiev` - Europe/Kiev
-    * `Europe/Kirov` - Europe/Kirov
-    * `Europe/Kyiv` - Europe/Kyiv
-    * `Europe/Lisbon` - Europe/Lisbon
-    * `Europe/Ljubljana` - Europe/Ljubljana
-    * `Europe/London` - Europe/London
-    * `Europe/Luxembourg` - Europe/Luxembourg
-    * `Europe/Madrid` - Europe/Madrid
-    * `Europe/Malta` - Europe/Malta
-    * `Europe/Mariehamn` - Europe/Mariehamn
-    * `Europe/Minsk` - Europe/Minsk
-    * `Europe/Monaco` - Europe/Monaco
-    * `Europe/Moscow` - Europe/Moscow
-    * `Europe/Nicosia` - Europe/Nicosia
-    * `Europe/Oslo` - Europe/Oslo
-    * `Europe/Paris` - Europe/Paris
-    * `Europe/Podgorica` - Europe/Podgorica
-    * `Europe/Prague` - Europe/Prague
-    * `Europe/Riga` - Europe/Riga
-    * `Europe/Rome` - Europe/Rome
-    * `Europe/Samara` - Europe/Samara
-    * `Europe/San_Marino` - Europe/San_Marino
-    * `Europe/Sarajevo` - Europe/Sarajevo
-    * `Europe/Saratov` - Europe/Saratov
-    * `Europe/Simferopol` - Europe/Simferopol
-    * `Europe/Skopje` - Europe/Skopje
-    * `Europe/Sofia` - Europe/Sofia
-    * `Europe/Stockholm` - Europe/Stockholm
-    * `Europe/Tallinn` - Europe/Tallinn
-    * `Europe/Tirane` - Europe/Tirane
-    * `Europe/Tiraspol` - Europe/Tiraspol
-    * `Europe/Ulyanovsk` - Europe/Ulyanovsk
-    * `Europe/Uzhgorod` - Europe/Uzhgorod
-    * `Europe/Vaduz` - Europe/Vaduz
-    * `Europe/Vatican` - Europe/Vatican
-    * `Europe/Vienna` - Europe/Vienna
-    * `Europe/Vilnius` - Europe/Vilnius
-    * `Europe/Volgograd` - Europe/Volgograd
-    * `Europe/Warsaw` - Europe/Warsaw
-    * `Europe/Zagreb` - Europe/Zagreb
-    * `Europe/Zaporozhye` - Europe/Zaporozhye
-    * `Europe/Zurich` - Europe/Zurich
-    * `GB` - GB
-    * `GB-Eire` - GB-Eire
-    * `GMT` - GMT
-    * `GMT+0` - GMT+0
-    * `GMT-0` - GMT-0
-    * `GMT0` - GMT0
-    * `Greenwich` - Greenwich
-    * `HST` - HST
-    * `Hongkong` - Hongkong
-    * `Iceland` - Iceland
-    * `Indian/Antananarivo` - Indian/Antananarivo
-    * `Indian/Chagos` - Indian/Chagos
-    * `Indian/Christmas` - Indian/Christmas
-    * `Indian/Cocos` - Indian/Cocos
-    * `Indian/Comoro` - Indian/Comoro
-    * `Indian/Kerguelen` - Indian/Kerguelen
-    * `Indian/Mahe` - Indian/Mahe
-    * `Indian/Maldives` - Indian/Maldives
-    * `Indian/Mauritius` - Indian/Mauritius
-    * `Indian/Mayotte` - Indian/Mayotte
-    * `Indian/Reunion` - Indian/Reunion
-    * `Iran` - Iran
-    * `Israel` - Israel
-    * `Jamaica` - Jamaica
-    * `Japan` - Japan
-    * `Kwajalein` - Kwajalein
-    * `Libya` - Libya
-    * `MET` - MET
-    * `MST` - MST
-    * `MST7MDT` - MST7MDT
-    * `Mexico/BajaNorte` - Mexico/BajaNorte
-    * `Mexico/BajaSur` - Mexico/BajaSur
-    * `Mexico/General` - Mexico/General
-    * `NZ` - NZ
-    * `NZ-CHAT` - NZ-CHAT
-    * `Navajo` - Navajo
-    * `PRC` - PRC
-    * `PST8PDT` - PST8PDT
-    * `Pacific/Apia` - Pacific/Apia
-    * `Pacific/Auckland` - Pacific/Auckland
-    * `Pacific/Bougainville` - Pacific/Bougainville
-    * `Pacific/Chatham` - Pacific/Chatham
-    * `Pacific/Chuuk` - Pacific/Chuuk
-    * `Pacific/Easter` - Pacific/Easter
-    * `Pacific/Efate` - Pacific/Efate
-    * `Pacific/Enderbury` - Pacific/Enderbury
-    * `Pacific/Fakaofo` - Pacific/Fakaofo
-    * `Pacific/Fiji` - Pacific/Fiji
-    * `Pacific/Funafuti` - Pacific/Funafuti
-    * `Pacific/Galapagos` - Pacific/Galapagos
-    * `Pacific/Gambier` - Pacific/Gambier
-    * `Pacific/Guadalcanal` - Pacific/Guadalcanal
-    * `Pacific/Guam` - Pacific/Guam
-    * `Pacific/Honolulu` - Pacific/Honolulu
-    * `Pacific/Johnston` - Pacific/Johnston
-    * `Pacific/Kanton` - Pacific/Kanton
-    * `Pacific/Kiritimati` - Pacific/Kiritimati
-    * `Pacific/Kosrae` - Pacific/Kosrae
-    * `Pacific/Kwajalein` - Pacific/Kwajalein
-    * `Pacific/Majuro` - Pacific/Majuro
-    * `Pacific/Marquesas` - Pacific/Marquesas
-    * `Pacific/Midway` - Pacific/Midway
-    * `Pacific/Nauru` - Pacific/Nauru
-    * `Pacific/Niue` - Pacific/Niue
-    * `Pacific/Norfolk` - Pacific/Norfolk
-    * `Pacific/Noumea` - Pacific/Noumea
-    * `Pacific/Pago_Pago` - Pacific/Pago_Pago
-    * `Pacific/Palau` - Pacific/Palau
-    * `Pacific/Pitcairn` - Pacific/Pitcairn
-    * `Pacific/Pohnpei` - Pacific/Pohnpei
-    * `Pacific/Ponape` - Pacific/Ponape
-    * `Pacific/Port_Moresby` - Pacific/Port_Moresby
-    * `Pacific/Rarotonga` - Pacific/Rarotonga
-    * `Pacific/Saipan` - Pacific/Saipan
-    * `Pacific/Samoa` - Pacific/Samoa
-    * `Pacific/Tahiti` - Pacific/Tahiti
-    * `Pacific/Tarawa` - Pacific/Tarawa
-    * `Pacific/Tongatapu` - Pacific/Tongatapu
-    * `Pacific/Truk` - Pacific/Truk
-    * `Pacific/Wake` - Pacific/Wake
-    * `Pacific/Wallis` - Pacific/Wallis
-    * `Pacific/Yap` - Pacific/Yap
-    * `Poland` - Poland
-    * `Portugal` - Portugal
-    * `ROC` - ROC
-    * `ROK` - ROK
-    * `Singapore` - Singapore
-    * `Turkey` - Turkey
-    * `UCT` - UCT
-    * `US/Alaska` - US/Alaska
-    * `US/Aleutian` - US/Aleutian
-    * `US/Arizona` - US/Arizona
-    * `US/Central` - US/Central
-    * `US/East-Indiana` - US/East-Indiana
-    * `US/Eastern` - US/Eastern
-    * `US/Hawaii` - US/Hawaii
-    * `US/Indiana-Starke` - US/Indiana-Starke
-    * `US/Michigan` - US/Michigan
-    * `US/Mountain` - US/Mountain
-    * `US/Pacific` - US/Pacific
-    * `US/Samoa` - US/Samoa
-    * `UTC` - UTC
-    * `Universal` - Universal
-    * `W-SU` - W-SU
-    * `WET` - WET
-    * `Zulu` - Zulu */
+      * `Africa/Abidjan` - Africa/Abidjan
+      * `Africa/Accra` - Africa/Accra
+      * `Africa/Addis_Ababa` - Africa/Addis_Ababa
+      * `Africa/Algiers` - Africa/Algiers
+      * `Africa/Asmara` - Africa/Asmara
+      * `Africa/Asmera` - Africa/Asmera
+      * `Africa/Bamako` - Africa/Bamako
+      * `Africa/Bangui` - Africa/Bangui
+      * `Africa/Banjul` - Africa/Banjul
+      * `Africa/Bissau` - Africa/Bissau
+      * `Africa/Blantyre` - Africa/Blantyre
+      * `Africa/Brazzaville` - Africa/Brazzaville
+      * `Africa/Bujumbura` - Africa/Bujumbura
+      * `Africa/Cairo` - Africa/Cairo
+      * `Africa/Casablanca` - Africa/Casablanca
+      * `Africa/Ceuta` - Africa/Ceuta
+      * `Africa/Conakry` - Africa/Conakry
+      * `Africa/Dakar` - Africa/Dakar
+      * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
+      * `Africa/Djibouti` - Africa/Djibouti
+      * `Africa/Douala` - Africa/Douala
+      * `Africa/El_Aaiun` - Africa/El_Aaiun
+      * `Africa/Freetown` - Africa/Freetown
+      * `Africa/Gaborone` - Africa/Gaborone
+      * `Africa/Harare` - Africa/Harare
+      * `Africa/Johannesburg` - Africa/Johannesburg
+      * `Africa/Juba` - Africa/Juba
+      * `Africa/Kampala` - Africa/Kampala
+      * `Africa/Khartoum` - Africa/Khartoum
+      * `Africa/Kigali` - Africa/Kigali
+      * `Africa/Kinshasa` - Africa/Kinshasa
+      * `Africa/Lagos` - Africa/Lagos
+      * `Africa/Libreville` - Africa/Libreville
+      * `Africa/Lome` - Africa/Lome
+      * `Africa/Luanda` - Africa/Luanda
+      * `Africa/Lubumbashi` - Africa/Lubumbashi
+      * `Africa/Lusaka` - Africa/Lusaka
+      * `Africa/Malabo` - Africa/Malabo
+      * `Africa/Maputo` - Africa/Maputo
+      * `Africa/Maseru` - Africa/Maseru
+      * `Africa/Mbabane` - Africa/Mbabane
+      * `Africa/Mogadishu` - Africa/Mogadishu
+      * `Africa/Monrovia` - Africa/Monrovia
+      * `Africa/Nairobi` - Africa/Nairobi
+      * `Africa/Ndjamena` - Africa/Ndjamena
+      * `Africa/Niamey` - Africa/Niamey
+      * `Africa/Nouakchott` - Africa/Nouakchott
+      * `Africa/Ouagadougou` - Africa/Ouagadougou
+      * `Africa/Porto-Novo` - Africa/Porto-Novo
+      * `Africa/Sao_Tome` - Africa/Sao_Tome
+      * `Africa/Timbuktu` - Africa/Timbuktu
+      * `Africa/Tripoli` - Africa/Tripoli
+      * `Africa/Tunis` - Africa/Tunis
+      * `Africa/Windhoek` - Africa/Windhoek
+      * `America/Adak` - America/Adak
+      * `America/Anchorage` - America/Anchorage
+      * `America/Anguilla` - America/Anguilla
+      * `America/Antigua` - America/Antigua
+      * `America/Araguaina` - America/Araguaina
+      * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
+      * `America/Argentina/Catamarca` - America/Argentina/Catamarca
+      * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
+      * `America/Argentina/Cordoba` - America/Argentina/Cordoba
+      * `America/Argentina/Jujuy` - America/Argentina/Jujuy
+      * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
+      * `America/Argentina/Mendoza` - America/Argentina/Mendoza
+      * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
+      * `America/Argentina/Salta` - America/Argentina/Salta
+      * `America/Argentina/San_Juan` - America/Argentina/San_Juan
+      * `America/Argentina/San_Luis` - America/Argentina/San_Luis
+      * `America/Argentina/Tucuman` - America/Argentina/Tucuman
+      * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
+      * `America/Aruba` - America/Aruba
+      * `America/Asuncion` - America/Asuncion
+      * `America/Atikokan` - America/Atikokan
+      * `America/Atka` - America/Atka
+      * `America/Bahia` - America/Bahia
+      * `America/Bahia_Banderas` - America/Bahia_Banderas
+      * `America/Barbados` - America/Barbados
+      * `America/Belem` - America/Belem
+      * `America/Belize` - America/Belize
+      * `America/Blanc-Sablon` - America/Blanc-Sablon
+      * `America/Boa_Vista` - America/Boa_Vista
+      * `America/Bogota` - America/Bogota
+      * `America/Boise` - America/Boise
+      * `America/Buenos_Aires` - America/Buenos_Aires
+      * `America/Cambridge_Bay` - America/Cambridge_Bay
+      * `America/Campo_Grande` - America/Campo_Grande
+      * `America/Cancun` - America/Cancun
+      * `America/Caracas` - America/Caracas
+      * `America/Catamarca` - America/Catamarca
+      * `America/Cayenne` - America/Cayenne
+      * `America/Cayman` - America/Cayman
+      * `America/Chicago` - America/Chicago
+      * `America/Chihuahua` - America/Chihuahua
+      * `America/Ciudad_Juarez` - America/Ciudad_Juarez
+      * `America/Coral_Harbour` - America/Coral_Harbour
+      * `America/Cordoba` - America/Cordoba
+      * `America/Costa_Rica` - America/Costa_Rica
+      * `America/Creston` - America/Creston
+      * `America/Cuiaba` - America/Cuiaba
+      * `America/Curacao` - America/Curacao
+      * `America/Danmarkshavn` - America/Danmarkshavn
+      * `America/Dawson` - America/Dawson
+      * `America/Dawson_Creek` - America/Dawson_Creek
+      * `America/Denver` - America/Denver
+      * `America/Detroit` - America/Detroit
+      * `America/Dominica` - America/Dominica
+      * `America/Edmonton` - America/Edmonton
+      * `America/Eirunepe` - America/Eirunepe
+      * `America/El_Salvador` - America/El_Salvador
+      * `America/Ensenada` - America/Ensenada
+      * `America/Fort_Nelson` - America/Fort_Nelson
+      * `America/Fort_Wayne` - America/Fort_Wayne
+      * `America/Fortaleza` - America/Fortaleza
+      * `America/Glace_Bay` - America/Glace_Bay
+      * `America/Godthab` - America/Godthab
+      * `America/Goose_Bay` - America/Goose_Bay
+      * `America/Grand_Turk` - America/Grand_Turk
+      * `America/Grenada` - America/Grenada
+      * `America/Guadeloupe` - America/Guadeloupe
+      * `America/Guatemala` - America/Guatemala
+      * `America/Guayaquil` - America/Guayaquil
+      * `America/Guyana` - America/Guyana
+      * `America/Halifax` - America/Halifax
+      * `America/Havana` - America/Havana
+      * `America/Hermosillo` - America/Hermosillo
+      * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
+      * `America/Indiana/Knox` - America/Indiana/Knox
+      * `America/Indiana/Marengo` - America/Indiana/Marengo
+      * `America/Indiana/Petersburg` - America/Indiana/Petersburg
+      * `America/Indiana/Tell_City` - America/Indiana/Tell_City
+      * `America/Indiana/Vevay` - America/Indiana/Vevay
+      * `America/Indiana/Vincennes` - America/Indiana/Vincennes
+      * `America/Indiana/Winamac` - America/Indiana/Winamac
+      * `America/Indianapolis` - America/Indianapolis
+      * `America/Inuvik` - America/Inuvik
+      * `America/Iqaluit` - America/Iqaluit
+      * `America/Jamaica` - America/Jamaica
+      * `America/Jujuy` - America/Jujuy
+      * `America/Juneau` - America/Juneau
+      * `America/Kentucky/Louisville` - America/Kentucky/Louisville
+      * `America/Kentucky/Monticello` - America/Kentucky/Monticello
+      * `America/Knox_IN` - America/Knox_IN
+      * `America/Kralendijk` - America/Kralendijk
+      * `America/La_Paz` - America/La_Paz
+      * `America/Lima` - America/Lima
+      * `America/Los_Angeles` - America/Los_Angeles
+      * `America/Louisville` - America/Louisville
+      * `America/Lower_Princes` - America/Lower_Princes
+      * `America/Maceio` - America/Maceio
+      * `America/Managua` - America/Managua
+      * `America/Manaus` - America/Manaus
+      * `America/Marigot` - America/Marigot
+      * `America/Martinique` - America/Martinique
+      * `America/Matamoros` - America/Matamoros
+      * `America/Mazatlan` - America/Mazatlan
+      * `America/Mendoza` - America/Mendoza
+      * `America/Menominee` - America/Menominee
+      * `America/Merida` - America/Merida
+      * `America/Metlakatla` - America/Metlakatla
+      * `America/Mexico_City` - America/Mexico_City
+      * `America/Miquelon` - America/Miquelon
+      * `America/Moncton` - America/Moncton
+      * `America/Monterrey` - America/Monterrey
+      * `America/Montevideo` - America/Montevideo
+      * `America/Montreal` - America/Montreal
+      * `America/Montserrat` - America/Montserrat
+      * `America/Nassau` - America/Nassau
+      * `America/New_York` - America/New_York
+      * `America/Nipigon` - America/Nipigon
+      * `America/Nome` - America/Nome
+      * `America/Noronha` - America/Noronha
+      * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
+      * `America/North_Dakota/Center` - America/North_Dakota/Center
+      * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
+      * `America/Nuuk` - America/Nuuk
+      * `America/Ojinaga` - America/Ojinaga
+      * `America/Panama` - America/Panama
+      * `America/Pangnirtung` - America/Pangnirtung
+      * `America/Paramaribo` - America/Paramaribo
+      * `America/Phoenix` - America/Phoenix
+      * `America/Port-au-Prince` - America/Port-au-Prince
+      * `America/Port_of_Spain` - America/Port_of_Spain
+      * `America/Porto_Acre` - America/Porto_Acre
+      * `America/Porto_Velho` - America/Porto_Velho
+      * `America/Puerto_Rico` - America/Puerto_Rico
+      * `America/Punta_Arenas` - America/Punta_Arenas
+      * `America/Rainy_River` - America/Rainy_River
+      * `America/Rankin_Inlet` - America/Rankin_Inlet
+      * `America/Recife` - America/Recife
+      * `America/Regina` - America/Regina
+      * `America/Resolute` - America/Resolute
+      * `America/Rio_Branco` - America/Rio_Branco
+      * `America/Rosario` - America/Rosario
+      * `America/Santa_Isabel` - America/Santa_Isabel
+      * `America/Santarem` - America/Santarem
+      * `America/Santiago` - America/Santiago
+      * `America/Santo_Domingo` - America/Santo_Domingo
+      * `America/Sao_Paulo` - America/Sao_Paulo
+      * `America/Scoresbysund` - America/Scoresbysund
+      * `America/Shiprock` - America/Shiprock
+      * `America/Sitka` - America/Sitka
+      * `America/St_Barthelemy` - America/St_Barthelemy
+      * `America/St_Johns` - America/St_Johns
+      * `America/St_Kitts` - America/St_Kitts
+      * `America/St_Lucia` - America/St_Lucia
+      * `America/St_Thomas` - America/St_Thomas
+      * `America/St_Vincent` - America/St_Vincent
+      * `America/Swift_Current` - America/Swift_Current
+      * `America/Tegucigalpa` - America/Tegucigalpa
+      * `America/Thule` - America/Thule
+      * `America/Thunder_Bay` - America/Thunder_Bay
+      * `America/Tijuana` - America/Tijuana
+      * `America/Toronto` - America/Toronto
+      * `America/Tortola` - America/Tortola
+      * `America/Vancouver` - America/Vancouver
+      * `America/Virgin` - America/Virgin
+      * `America/Whitehorse` - America/Whitehorse
+      * `America/Winnipeg` - America/Winnipeg
+      * `America/Yakutat` - America/Yakutat
+      * `America/Yellowknife` - America/Yellowknife
+      * `Antarctica/Casey` - Antarctica/Casey
+      * `Antarctica/Davis` - Antarctica/Davis
+      * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
+      * `Antarctica/Macquarie` - Antarctica/Macquarie
+      * `Antarctica/Mawson` - Antarctica/Mawson
+      * `Antarctica/McMurdo` - Antarctica/McMurdo
+      * `Antarctica/Palmer` - Antarctica/Palmer
+      * `Antarctica/Rothera` - Antarctica/Rothera
+      * `Antarctica/South_Pole` - Antarctica/South_Pole
+      * `Antarctica/Syowa` - Antarctica/Syowa
+      * `Antarctica/Troll` - Antarctica/Troll
+      * `Antarctica/Vostok` - Antarctica/Vostok
+      * `Arctic/Longyearbyen` - Arctic/Longyearbyen
+      * `Asia/Aden` - Asia/Aden
+      * `Asia/Almaty` - Asia/Almaty
+      * `Asia/Amman` - Asia/Amman
+      * `Asia/Anadyr` - Asia/Anadyr
+      * `Asia/Aqtau` - Asia/Aqtau
+      * `Asia/Aqtobe` - Asia/Aqtobe
+      * `Asia/Ashgabat` - Asia/Ashgabat
+      * `Asia/Ashkhabad` - Asia/Ashkhabad
+      * `Asia/Atyrau` - Asia/Atyrau
+      * `Asia/Baghdad` - Asia/Baghdad
+      * `Asia/Bahrain` - Asia/Bahrain
+      * `Asia/Baku` - Asia/Baku
+      * `Asia/Bangkok` - Asia/Bangkok
+      * `Asia/Barnaul` - Asia/Barnaul
+      * `Asia/Beirut` - Asia/Beirut
+      * `Asia/Bishkek` - Asia/Bishkek
+      * `Asia/Brunei` - Asia/Brunei
+      * `Asia/Calcutta` - Asia/Calcutta
+      * `Asia/Chita` - Asia/Chita
+      * `Asia/Choibalsan` - Asia/Choibalsan
+      * `Asia/Chongqing` - Asia/Chongqing
+      * `Asia/Chungking` - Asia/Chungking
+      * `Asia/Colombo` - Asia/Colombo
+      * `Asia/Dacca` - Asia/Dacca
+      * `Asia/Damascus` - Asia/Damascus
+      * `Asia/Dhaka` - Asia/Dhaka
+      * `Asia/Dili` - Asia/Dili
+      * `Asia/Dubai` - Asia/Dubai
+      * `Asia/Dushanbe` - Asia/Dushanbe
+      * `Asia/Famagusta` - Asia/Famagusta
+      * `Asia/Gaza` - Asia/Gaza
+      * `Asia/Harbin` - Asia/Harbin
+      * `Asia/Hebron` - Asia/Hebron
+      * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
+      * `Asia/Hong_Kong` - Asia/Hong_Kong
+      * `Asia/Hovd` - Asia/Hovd
+      * `Asia/Irkutsk` - Asia/Irkutsk
+      * `Asia/Istanbul` - Asia/Istanbul
+      * `Asia/Jakarta` - Asia/Jakarta
+      * `Asia/Jayapura` - Asia/Jayapura
+      * `Asia/Jerusalem` - Asia/Jerusalem
+      * `Asia/Kabul` - Asia/Kabul
+      * `Asia/Kamchatka` - Asia/Kamchatka
+      * `Asia/Karachi` - Asia/Karachi
+      * `Asia/Kashgar` - Asia/Kashgar
+      * `Asia/Kathmandu` - Asia/Kathmandu
+      * `Asia/Katmandu` - Asia/Katmandu
+      * `Asia/Khandyga` - Asia/Khandyga
+      * `Asia/Kolkata` - Asia/Kolkata
+      * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
+      * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
+      * `Asia/Kuching` - Asia/Kuching
+      * `Asia/Kuwait` - Asia/Kuwait
+      * `Asia/Macao` - Asia/Macao
+      * `Asia/Macau` - Asia/Macau
+      * `Asia/Magadan` - Asia/Magadan
+      * `Asia/Makassar` - Asia/Makassar
+      * `Asia/Manila` - Asia/Manila
+      * `Asia/Muscat` - Asia/Muscat
+      * `Asia/Nicosia` - Asia/Nicosia
+      * `Asia/Novokuznetsk` - Asia/Novokuznetsk
+      * `Asia/Novosibirsk` - Asia/Novosibirsk
+      * `Asia/Omsk` - Asia/Omsk
+      * `Asia/Oral` - Asia/Oral
+      * `Asia/Phnom_Penh` - Asia/Phnom_Penh
+      * `Asia/Pontianak` - Asia/Pontianak
+      * `Asia/Pyongyang` - Asia/Pyongyang
+      * `Asia/Qatar` - Asia/Qatar
+      * `Asia/Qostanay` - Asia/Qostanay
+      * `Asia/Qyzylorda` - Asia/Qyzylorda
+      * `Asia/Rangoon` - Asia/Rangoon
+      * `Asia/Riyadh` - Asia/Riyadh
+      * `Asia/Saigon` - Asia/Saigon
+      * `Asia/Sakhalin` - Asia/Sakhalin
+      * `Asia/Samarkand` - Asia/Samarkand
+      * `Asia/Seoul` - Asia/Seoul
+      * `Asia/Shanghai` - Asia/Shanghai
+      * `Asia/Singapore` - Asia/Singapore
+      * `Asia/Srednekolymsk` - Asia/Srednekolymsk
+      * `Asia/Taipei` - Asia/Taipei
+      * `Asia/Tashkent` - Asia/Tashkent
+      * `Asia/Tbilisi` - Asia/Tbilisi
+      * `Asia/Tehran` - Asia/Tehran
+      * `Asia/Tel_Aviv` - Asia/Tel_Aviv
+      * `Asia/Thimbu` - Asia/Thimbu
+      * `Asia/Thimphu` - Asia/Thimphu
+      * `Asia/Tokyo` - Asia/Tokyo
+      * `Asia/Tomsk` - Asia/Tomsk
+      * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
+      * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
+      * `Asia/Ulan_Bator` - Asia/Ulan_Bator
+      * `Asia/Urumqi` - Asia/Urumqi
+      * `Asia/Ust-Nera` - Asia/Ust-Nera
+      * `Asia/Vientiane` - Asia/Vientiane
+      * `Asia/Vladivostok` - Asia/Vladivostok
+      * `Asia/Yakutsk` - Asia/Yakutsk
+      * `Asia/Yangon` - Asia/Yangon
+      * `Asia/Yekaterinburg` - Asia/Yekaterinburg
+      * `Asia/Yerevan` - Asia/Yerevan
+      * `Atlantic/Azores` - Atlantic/Azores
+      * `Atlantic/Bermuda` - Atlantic/Bermuda
+      * `Atlantic/Canary` - Atlantic/Canary
+      * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
+      * `Atlantic/Faeroe` - Atlantic/Faeroe
+      * `Atlantic/Faroe` - Atlantic/Faroe
+      * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
+      * `Atlantic/Madeira` - Atlantic/Madeira
+      * `Atlantic/Reykjavik` - Atlantic/Reykjavik
+      * `Atlantic/South_Georgia` - Atlantic/South_Georgia
+      * `Atlantic/St_Helena` - Atlantic/St_Helena
+      * `Atlantic/Stanley` - Atlantic/Stanley
+      * `Australia/ACT` - Australia/ACT
+      * `Australia/Adelaide` - Australia/Adelaide
+      * `Australia/Brisbane` - Australia/Brisbane
+      * `Australia/Broken_Hill` - Australia/Broken_Hill
+      * `Australia/Canberra` - Australia/Canberra
+      * `Australia/Currie` - Australia/Currie
+      * `Australia/Darwin` - Australia/Darwin
+      * `Australia/Eucla` - Australia/Eucla
+      * `Australia/Hobart` - Australia/Hobart
+      * `Australia/LHI` - Australia/LHI
+      * `Australia/Lindeman` - Australia/Lindeman
+      * `Australia/Lord_Howe` - Australia/Lord_Howe
+      * `Australia/Melbourne` - Australia/Melbourne
+      * `Australia/NSW` - Australia/NSW
+      * `Australia/North` - Australia/North
+      * `Australia/Perth` - Australia/Perth
+      * `Australia/Queensland` - Australia/Queensland
+      * `Australia/South` - Australia/South
+      * `Australia/Sydney` - Australia/Sydney
+      * `Australia/Tasmania` - Australia/Tasmania
+      * `Australia/Victoria` - Australia/Victoria
+      * `Australia/West` - Australia/West
+      * `Australia/Yancowinna` - Australia/Yancowinna
+      * `Brazil/Acre` - Brazil/Acre
+      * `Brazil/DeNoronha` - Brazil/DeNoronha
+      * `Brazil/East` - Brazil/East
+      * `Brazil/West` - Brazil/West
+      * `CET` - CET
+      * `CST6CDT` - CST6CDT
+      * `Canada/Atlantic` - Canada/Atlantic
+      * `Canada/Central` - Canada/Central
+      * `Canada/Eastern` - Canada/Eastern
+      * `Canada/Mountain` - Canada/Mountain
+      * `Canada/Newfoundland` - Canada/Newfoundland
+      * `Canada/Pacific` - Canada/Pacific
+      * `Canada/Saskatchewan` - Canada/Saskatchewan
+      * `Canada/Yukon` - Canada/Yukon
+      * `Chile/Continental` - Chile/Continental
+      * `Chile/EasterIsland` - Chile/EasterIsland
+      * `Cuba` - Cuba
+      * `EET` - EET
+      * `EST` - EST
+      * `EST5EDT` - EST5EDT
+      * `Egypt` - Egypt
+      * `Eire` - Eire
+      * `Etc/GMT` - Etc/GMT
+      * `Etc/GMT+0` - Etc/GMT+0
+      * `Etc/GMT+1` - Etc/GMT+1
+      * `Etc/GMT+10` - Etc/GMT+10
+      * `Etc/GMT+11` - Etc/GMT+11
+      * `Etc/GMT+12` - Etc/GMT+12
+      * `Etc/GMT+2` - Etc/GMT+2
+      * `Etc/GMT+3` - Etc/GMT+3
+      * `Etc/GMT+4` - Etc/GMT+4
+      * `Etc/GMT+5` - Etc/GMT+5
+      * `Etc/GMT+6` - Etc/GMT+6
+      * `Etc/GMT+7` - Etc/GMT+7
+      * `Etc/GMT+8` - Etc/GMT+8
+      * `Etc/GMT+9` - Etc/GMT+9
+      * `Etc/GMT-0` - Etc/GMT-0
+      * `Etc/GMT-1` - Etc/GMT-1
+      * `Etc/GMT-10` - Etc/GMT-10
+      * `Etc/GMT-11` - Etc/GMT-11
+      * `Etc/GMT-12` - Etc/GMT-12
+      * `Etc/GMT-13` - Etc/GMT-13
+      * `Etc/GMT-14` - Etc/GMT-14
+      * `Etc/GMT-2` - Etc/GMT-2
+      * `Etc/GMT-3` - Etc/GMT-3
+      * `Etc/GMT-4` - Etc/GMT-4
+      * `Etc/GMT-5` - Etc/GMT-5
+      * `Etc/GMT-6` - Etc/GMT-6
+      * `Etc/GMT-7` - Etc/GMT-7
+      * `Etc/GMT-8` - Etc/GMT-8
+      * `Etc/GMT-9` - Etc/GMT-9
+      * `Etc/GMT0` - Etc/GMT0
+      * `Etc/Greenwich` - Etc/Greenwich
+      * `Etc/UCT` - Etc/UCT
+      * `Etc/UTC` - Etc/UTC
+      * `Etc/Universal` - Etc/Universal
+      * `Etc/Zulu` - Etc/Zulu
+      * `Europe/Amsterdam` - Europe/Amsterdam
+      * `Europe/Andorra` - Europe/Andorra
+      * `Europe/Astrakhan` - Europe/Astrakhan
+      * `Europe/Athens` - Europe/Athens
+      * `Europe/Belfast` - Europe/Belfast
+      * `Europe/Belgrade` - Europe/Belgrade
+      * `Europe/Berlin` - Europe/Berlin
+      * `Europe/Bratislava` - Europe/Bratislava
+      * `Europe/Brussels` - Europe/Brussels
+      * `Europe/Bucharest` - Europe/Bucharest
+      * `Europe/Budapest` - Europe/Budapest
+      * `Europe/Busingen` - Europe/Busingen
+      * `Europe/Chisinau` - Europe/Chisinau
+      * `Europe/Copenhagen` - Europe/Copenhagen
+      * `Europe/Dublin` - Europe/Dublin
+      * `Europe/Gibraltar` - Europe/Gibraltar
+      * `Europe/Guernsey` - Europe/Guernsey
+      * `Europe/Helsinki` - Europe/Helsinki
+      * `Europe/Isle_of_Man` - Europe/Isle_of_Man
+      * `Europe/Istanbul` - Europe/Istanbul
+      * `Europe/Jersey` - Europe/Jersey
+      * `Europe/Kaliningrad` - Europe/Kaliningrad
+      * `Europe/Kiev` - Europe/Kiev
+      * `Europe/Kirov` - Europe/Kirov
+      * `Europe/Kyiv` - Europe/Kyiv
+      * `Europe/Lisbon` - Europe/Lisbon
+      * `Europe/Ljubljana` - Europe/Ljubljana
+      * `Europe/London` - Europe/London
+      * `Europe/Luxembourg` - Europe/Luxembourg
+      * `Europe/Madrid` - Europe/Madrid
+      * `Europe/Malta` - Europe/Malta
+      * `Europe/Mariehamn` - Europe/Mariehamn
+      * `Europe/Minsk` - Europe/Minsk
+      * `Europe/Monaco` - Europe/Monaco
+      * `Europe/Moscow` - Europe/Moscow
+      * `Europe/Nicosia` - Europe/Nicosia
+      * `Europe/Oslo` - Europe/Oslo
+      * `Europe/Paris` - Europe/Paris
+      * `Europe/Podgorica` - Europe/Podgorica
+      * `Europe/Prague` - Europe/Prague
+      * `Europe/Riga` - Europe/Riga
+      * `Europe/Rome` - Europe/Rome
+      * `Europe/Samara` - Europe/Samara
+      * `Europe/San_Marino` - Europe/San_Marino
+      * `Europe/Sarajevo` - Europe/Sarajevo
+      * `Europe/Saratov` - Europe/Saratov
+      * `Europe/Simferopol` - Europe/Simferopol
+      * `Europe/Skopje` - Europe/Skopje
+      * `Europe/Sofia` - Europe/Sofia
+      * `Europe/Stockholm` - Europe/Stockholm
+      * `Europe/Tallinn` - Europe/Tallinn
+      * `Europe/Tirane` - Europe/Tirane
+      * `Europe/Tiraspol` - Europe/Tiraspol
+      * `Europe/Ulyanovsk` - Europe/Ulyanovsk
+      * `Europe/Uzhgorod` - Europe/Uzhgorod
+      * `Europe/Vaduz` - Europe/Vaduz
+      * `Europe/Vatican` - Europe/Vatican
+      * `Europe/Vienna` - Europe/Vienna
+      * `Europe/Vilnius` - Europe/Vilnius
+      * `Europe/Volgograd` - Europe/Volgograd
+      * `Europe/Warsaw` - Europe/Warsaw
+      * `Europe/Zagreb` - Europe/Zagreb
+      * `Europe/Zaporozhye` - Europe/Zaporozhye
+      * `Europe/Zurich` - Europe/Zurich
+      * `GB` - GB
+      * `GB-Eire` - GB-Eire
+      * `GMT` - GMT
+      * `GMT+0` - GMT+0
+      * `GMT-0` - GMT-0
+      * `GMT0` - GMT0
+      * `Greenwich` - Greenwich
+      * `HST` - HST
+      * `Hongkong` - Hongkong
+      * `Iceland` - Iceland
+      * `Indian/Antananarivo` - Indian/Antananarivo
+      * `Indian/Chagos` - Indian/Chagos
+      * `Indian/Christmas` - Indian/Christmas
+      * `Indian/Cocos` - Indian/Cocos
+      * `Indian/Comoro` - Indian/Comoro
+      * `Indian/Kerguelen` - Indian/Kerguelen
+      * `Indian/Mahe` - Indian/Mahe
+      * `Indian/Maldives` - Indian/Maldives
+      * `Indian/Mauritius` - Indian/Mauritius
+      * `Indian/Mayotte` - Indian/Mayotte
+      * `Indian/Reunion` - Indian/Reunion
+      * `Iran` - Iran
+      * `Israel` - Israel
+      * `Jamaica` - Jamaica
+      * `Japan` - Japan
+      * `Kwajalein` - Kwajalein
+      * `Libya` - Libya
+      * `MET` - MET
+      * `MST` - MST
+      * `MST7MDT` - MST7MDT
+      * `Mexico/BajaNorte` - Mexico/BajaNorte
+      * `Mexico/BajaSur` - Mexico/BajaSur
+      * `Mexico/General` - Mexico/General
+      * `NZ` - NZ
+      * `NZ-CHAT` - NZ-CHAT
+      * `Navajo` - Navajo
+      * `PRC` - PRC
+      * `PST8PDT` - PST8PDT
+      * `Pacific/Apia` - Pacific/Apia
+      * `Pacific/Auckland` - Pacific/Auckland
+      * `Pacific/Bougainville` - Pacific/Bougainville
+      * `Pacific/Chatham` - Pacific/Chatham
+      * `Pacific/Chuuk` - Pacific/Chuuk
+      * `Pacific/Easter` - Pacific/Easter
+      * `Pacific/Efate` - Pacific/Efate
+      * `Pacific/Enderbury` - Pacific/Enderbury
+      * `Pacific/Fakaofo` - Pacific/Fakaofo
+      * `Pacific/Fiji` - Pacific/Fiji
+      * `Pacific/Funafuti` - Pacific/Funafuti
+      * `Pacific/Galapagos` - Pacific/Galapagos
+      * `Pacific/Gambier` - Pacific/Gambier
+      * `Pacific/Guadalcanal` - Pacific/Guadalcanal
+      * `Pacific/Guam` - Pacific/Guam
+      * `Pacific/Honolulu` - Pacific/Honolulu
+      * `Pacific/Johnston` - Pacific/Johnston
+      * `Pacific/Kanton` - Pacific/Kanton
+      * `Pacific/Kiritimati` - Pacific/Kiritimati
+      * `Pacific/Kosrae` - Pacific/Kosrae
+      * `Pacific/Kwajalein` - Pacific/Kwajalein
+      * `Pacific/Majuro` - Pacific/Majuro
+      * `Pacific/Marquesas` - Pacific/Marquesas
+      * `Pacific/Midway` - Pacific/Midway
+      * `Pacific/Nauru` - Pacific/Nauru
+      * `Pacific/Niue` - Pacific/Niue
+      * `Pacific/Norfolk` - Pacific/Norfolk
+      * `Pacific/Noumea` - Pacific/Noumea
+      * `Pacific/Pago_Pago` - Pacific/Pago_Pago
+      * `Pacific/Palau` - Pacific/Palau
+      * `Pacific/Pitcairn` - Pacific/Pitcairn
+      * `Pacific/Pohnpei` - Pacific/Pohnpei
+      * `Pacific/Ponape` - Pacific/Ponape
+      * `Pacific/Port_Moresby` - Pacific/Port_Moresby
+      * `Pacific/Rarotonga` - Pacific/Rarotonga
+      * `Pacific/Saipan` - Pacific/Saipan
+      * `Pacific/Samoa` - Pacific/Samoa
+      * `Pacific/Tahiti` - Pacific/Tahiti
+      * `Pacific/Tarawa` - Pacific/Tarawa
+      * `Pacific/Tongatapu` - Pacific/Tongatapu
+      * `Pacific/Truk` - Pacific/Truk
+      * `Pacific/Wake` - Pacific/Wake
+      * `Pacific/Wallis` - Pacific/Wallis
+      * `Pacific/Yap` - Pacific/Yap
+      * `Poland` - Poland
+      * `Portugal` - Portugal
+      * `ROC` - ROC
+      * `ROK` - ROK
+      * `Singapore` - Singapore
+      * `Turkey` - Turkey
+      * `UCT` - UCT
+      * `US/Alaska` - US/Alaska
+      * `US/Aleutian` - US/Aleutian
+      * `US/Arizona` - US/Arizona
+      * `US/Central` - US/Central
+      * `US/East-Indiana` - US/East-Indiana
+      * `US/Eastern` - US/Eastern
+      * `US/Hawaii` - US/Hawaii
+      * `US/Indiana-Starke` - US/Indiana-Starke
+      * `US/Michigan` - US/Michigan
+      * `US/Mountain` - US/Mountain
+      * `US/Pacific` - US/Pacific
+      * `US/Samoa` - US/Samoa
+      * `UTC` - UTC
+      * `Universal` - Universal
+      * `W-SU` - W-SU
+      * `WET` - WET
+      * `Zulu` - Zulu */
       timezone?: string;
       /** Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`). */
       data_attributes?: unknown;
       /**
-       * Ordered list of person properties used to render a human-friendly display name in the UI.
-       * @nullable
-       */
+         * Ordered list of person properties used to render a human-friendly display name in the UI.
+         * @nullable
+         */
       person_display_name_properties?: string[] | null;
       correlation_config?: unknown;
       /**
-       * Disables posthog-js autocapture (clicks, page views) when true.
-       * @nullable
-       */
+         * Disables posthog-js autocapture (clicks, page views) when true.
+         * @nullable
+         */
       autocapture_opt_out?: boolean | null;
       /**
-       * Enables automatic capture of JavaScript exceptions via the SDK.
-       * @nullable
-       */
+         * Enables automatic capture of JavaScript exceptions via the SDK.
+         * @nullable
+         */
       autocapture_exceptions_opt_in?: boolean | null;
       /**
-       * Enables automatic capture of Core Web Vitals performance metrics.
-       * @nullable
-       */
+         * Enables automatic capture of Core Web Vitals performance metrics.
+         * @nullable
+         */
       autocapture_web_vitals_opt_in?: boolean | null;
       autocapture_web_vitals_allowed_metrics?: unknown;
       autocapture_exceptions_errors_to_ignore?: unknown;
       /**
-       * Enables capturing browser console logs alongside session replays.
-       * @nullable
-       */
+         * Enables capturing browser console logs alongside session replays.
+         * @nullable
+         */
       capture_console_log_opt_in?: boolean | null;
       /**
-       * Enables capturing performance timing and network requests.
-       * @nullable
-       */
+         * Enables capturing performance timing and network requests.
+         * @nullable
+         */
       capture_performance_opt_in?: boolean | null;
       /** Enables session replay recording for this project. */
       session_recording_opt_in?: boolean;
       /**
-       * Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
+         * Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).
+         * @nullable
+         * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+         */
       session_recording_sample_rate?: string | null;
       /**
-       * Skip saving sessions shorter than this many milliseconds.
-       * @minimum 0
-       * @maximum 30000
-       * @nullable
-       */
+         * Skip saving sessions shorter than this many milliseconds.
+         * @minimum 0
+         * @maximum 30000
+         * @nullable
+         */
       session_recording_minimum_duration_milliseconds?: number | null;
       session_recording_linked_flag?: unknown;
       session_recording_network_payload_capture_config?: unknown;
@@ -26646,38 +26667,38 @@ export namespace Schemas {
       /** @nullable */
       session_recording_event_trigger_config?: (string | null)[] | null;
       /**
-       * @maxLength 24
-       * @nullable
-       */
+         * @maxLength 24
+         * @nullable
+         */
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
       session_recording_trigger_groups?: unknown;
       /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
 
-    * `30d` - 30 Days
-    * `90d` - 90 Days
-    * `1y` - 1 Year
-    * `5y` - 5 Years */
+      * `30d` - 30 Days
+      * `90d` - 90 Days
+      * `1y` - 1 Year
+      * `5y` - 5 Years */
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown;
       survey_config?: unknown;
       access_control?: boolean;
       /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
-    * `0` - Sunday
-    * `1` - Monday */
+      * `0` - Sunday
+      * `1` - Monday */
       week_start_day?: WeekStartDayEnum | null;
       /**
-       * ID of the dashboard shown as the project's default landing dashboard.
-       * @nullable
-       */
+         * ID of the dashboard shown as the project's default landing dashboard.
+         * @nullable
+         */
       primary_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
       /**
-       * Origins permitted to record session replays and heatmaps. Empty list allows all origins.
-       * @nullable
-       */
+         * Origins permitted to record session replays and heatmaps. Empty list allows all origins.
+         * @nullable
+         */
       recording_domains?: (string | null)[] | null;
       readonly person_on_events_querying_enabled?: boolean;
       /** @nullable */
@@ -26687,20 +26708,20 @@ export namespace Schemas {
       readonly default_modifiers?: PatchedProjectBackwardCompatDefaultModifiers;
       has_completed_onboarding_for?: unknown;
       /**
-       * Enables displaying surveys via posthog-js on allowed origins.
-       * @nullable
-       */
+         * Enables displaying surveys via posthog-js on allowed origins.
+         * @nullable
+         */
       surveys_opt_in?: boolean | null;
       /**
-       * Enables heatmap recording on pages that host posthog-js.
-       * @nullable
-       */
+         * Enables heatmap recording on pages that host posthog-js.
+         * @nullable
+         */
       heatmaps_opt_in?: boolean | null;
       readonly product_intents?: readonly PatchedProjectBackwardCompatProductIntentsItem[];
       /**
-       * Default value for the `persist` option on newly created feature flags.
-       * @nullable
-       */
+         * Default value for the `persist` option on newly created feature flags.
+         * @nullable
+         */
       flags_persistence_default?: boolean | null;
       /** @nullable */
       readonly secret_api_token?: string | null;
@@ -26710,14 +26731,14 @@ export namespace Schemas {
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
 
-    * `b2b` - B2B
-    * `b2c` - B2C
-    * `other` - Other */
+      * `b2b` - B2B
+      * `b2c` - B2C
+      * `other` - Other */
       business_model?: BusinessModelEnum | BlankEnum | null;
       /**
-       * Enables the customer conversations / live chat product for this project.
-       * @nullable
-       */
+         * Enables the customer conversations / live chat product for this project.
+         * @nullable
+         */
       conversations_enabled?: boolean | null;
       conversations_settings?: unknown;
       logs_settings?: unknown;
@@ -26745,12 +26766,12 @@ export namespace Schemas {
 
     export interface PatchedQueryTabState {
       readonly id?: string;
-      /** 
-                Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
-                and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
-                ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
-                for a user.
-                 */
+      /**
+                  Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+                  and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+                  ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+                  for a user.
+                   */
       state?: unknown;
     }
 
@@ -26779,9 +26800,9 @@ export namespace Schemas {
 
     export interface PatchedReviewQueueUpdate {
       /**
-       * Human-readable queue name.
-       * @maxLength 255
-       */
+         * Human-readable queue name.
+         * @maxLength 255
+         */
       name?: string;
     }
 
@@ -26828,13 +26849,13 @@ export namespace Schemas {
       readonly id?: number;
       readonly team_id?: number;
       /**
-       * The ID of the record to modify (e.g. the feature flag ID).
-       * @maxLength 200
-       */
+         * The ID of the record to modify (e.g. the feature flag ID).
+         * @maxLength 200
+         */
       record_id?: string;
       /** The type of record to modify. Currently only "FeatureFlag" is supported.
 
-    * `FeatureFlag` - feature flag */
+      * `FeatureFlag` - feature flag */
       model_name?: ModelNameEnum;
       /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
       payload?: unknown;
@@ -26843,9 +26864,9 @@ export namespace Schemas {
       /** @nullable */
       readonly executed_at?: string | null;
       /**
-       * Return the safely formatted failure reason instead of raw data.
-       * @nullable
-       */
+         * Return the safely formatted failure reason instead of raw data.
+         * @nullable
+         */
       readonly failure_reason?: string | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -26854,22 +26875,22 @@ export namespace Schemas {
       is_recurring?: boolean;
       /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
 
-    * `daily` - daily
-    * `weekly` - weekly
-    * `monthly` - monthly
-    * `yearly` - yearly */
+      * `daily` - daily
+      * `weekly` - weekly
+      * `monthly` - monthly
+      * `yearly` - yearly */
       recurrence_interval?: RecurrenceIntervalEnum | null;
       /**
-       * @maxLength 100
-       * @nullable
-       */
+         * @maxLength 100
+         * @nullable
+         */
       cron_expression?: string | null;
       /** @nullable */
       readonly last_executed_at?: string | null;
       /**
-       * Optional ISO 8601 datetime after which a recurring schedule stops executing.
-       * @nullable
-       */
+         * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+         * @nullable
+         */
       end_date?: string | null;
       /** @nullable */
       readonly timezone?: string | null;
@@ -26889,14 +26910,14 @@ export namespace Schemas {
 
     export interface PatchedScoreDefinitionMetadata {
       /**
-       * Updated scorer name.
-       * @maxLength 255
-       */
+         * Updated scorer name.
+         * @maxLength 255
+         */
       name?: string;
       /**
-       * Updated scorer description.
-       * @nullable
-       */
+         * Updated scorer description.
+         * @nullable
+         */
       description?: string | null;
       /** Whether the scorer is archived. */
       archived?: boolean;
@@ -26999,15 +27020,15 @@ export namespace Schemas {
       readonly id?: number;
       readonly short_id?: string;
       /**
-       * Human-readable name for the playlist.
-       * @maxLength 400
-       * @nullable
-       */
+         * Human-readable name for the playlist.
+         * @maxLength 400
+         * @nullable
+         */
       name?: string | null;
       /**
-       * @maxLength 400
-       * @nullable
-       */
+         * @maxLength 400
+         * @nullable
+         */
       derived_name?: string | null;
       /** Optional description of the playlist's purpose or contents. */
       description?: string;
@@ -27024,8 +27045,8 @@ export namespace Schemas {
       readonly recordings_counts?: PatchedSessionRecordingPlaylistRecordingsCounts;
       /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-    * `collection` - Collection
-    * `filters` - Filters */
+      * `collection` - Collection
+      * `filters` - Filters */
       type?: SessionRecordingPlaylistTypeEnum | null;
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
@@ -27034,9 +27055,9 @@ export namespace Schemas {
 
     export interface PatchedSessionSummariesConfig {
       /**
-       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
-       * @maxLength 10000
-       */
+         * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+         * @maxLength 10000
+         */
       product_context?: string;
     }
 
@@ -27080,14 +27101,14 @@ export namespace Schemas {
     export interface PatchedSubscription {
       readonly id?: number;
       /**
-       * Dashboard ID to subscribe to (mutually exclusive with insight on create).
-       * @nullable
-       */
+         * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+         * @nullable
+         */
       dashboard?: number | null;
       /**
-       * Insight ID to subscribe to (mutually exclusive with dashboard on create).
-       * @nullable
-       */
+         * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+         * @nullable
+         */
       insight?: number | null;
       /** @nullable */
       readonly insight_short_id?: string | null;
@@ -27097,50 +27118,50 @@ export namespace Schemas {
       dashboard_export_insights?: number[];
       /** Delivery channel: email, slack, or webhook.
 
-    * `email` - Email
-    * `slack` - Slack
-    * `webhook` - Webhook */
+      * `email` - Email
+      * `slack` - Slack
+      * `webhook` - Webhook */
       target_type?: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value?: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
 
-    * `daily` - Daily
-    * `weekly` - Weekly
-    * `monthly` - Monthly
-    * `yearly` - Yearly */
+      * `daily` - Daily
+      * `weekly` - Weekly
+      * `monthly` - Monthly
+      * `yearly` - Yearly */
       frequency?: SubscriptionFrequencyEnum;
       /**
-       * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       interval?: number;
       /**
-       * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
-       * @nullable
-       */
+         * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * @nullable
+         */
       byweekday?: PatchedSubscriptionByweekdayItem[] | null;
       /**
-       * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       bysetpos?: number | null;
       /**
-       * Total number of deliveries before the subscription stops. Null for unlimited.
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * Total number of deliveries before the subscription stops. Null for unlimited.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       count?: number | null;
       /** When to start delivering (ISO 8601 datetime). */
       start_date?: string;
       /**
-       * When to stop delivering (ISO 8601 datetime). Null for indefinite.
-       * @nullable
-       */
+         * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+         * @nullable
+         */
       until_date?: string | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -27149,24 +27170,24 @@ export namespace Schemas {
       /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
       enabled?: boolean;
       /**
-       * Human-readable name for this subscription.
-       * @maxLength 100
-       * @nullable
-       */
+         * Human-readable name for this subscription.
+         * @maxLength 100
+         * @nullable
+         */
       title?: string | null;
       /** Human-readable schedule summary, e.g. 'sent daily'. */
       readonly summary?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
       /**
-       * ID of a connected Slack integration. Required when target_type is slack.
-       * @nullable
-       */
+         * ID of a connected Slack integration. Required when target_type is slack.
+         * @nullable
+         */
       integration_id?: number | null;
       /**
-       * Optional message included in the invitation email when adding new recipients.
-       * @nullable
-       */
+         * Optional message included in the invitation email when adding new recipients.
+         * @nullable
+         */
       invite_message?: string | null;
       summary_enabled?: boolean;
       /** @maxLength 500 */
@@ -27205,8 +27226,8 @@ export namespace Schemas {
       description?: string;
       /** Format for the description field.
 
-    * `text` - text
-    * `html` - html */
+      * `text` - text
+      * `html` - html */
       descriptionContentType?: DescriptionContentTypeEnum;
       /** Whether respondents may skip this question. */
       optional?: boolean;
@@ -27232,8 +27253,8 @@ export namespace Schemas {
       description?: string;
       /** Format for the description field.
 
-    * `text` - text
-    * `html` - html */
+      * `text` - text
+      * `html` - html */
       descriptionContentType?: DescriptionContentTypeEnum;
       /** Whether respondents may skip this question. */
       optional?: boolean;
@@ -27278,7 +27299,7 @@ export namespace Schemas {
     export interface SurveyNextQuestionBranching {
       /** Continue to the next question in sequence.
 
-    * `next_question` - next_question */
+      * `next_question` - next_question */
       type: SurveyNextQuestionBranchingTypeEnum;
     }
 
@@ -27295,7 +27316,7 @@ export namespace Schemas {
     export interface SurveyEndBranching {
       /** End the survey.
 
-    * `end` - end */
+      * `end` - end */
       type: SurveyEndBranchingTypeEnum;
     }
 
@@ -27312,12 +27333,12 @@ export namespace Schemas {
     export interface SurveySpecificQuestionBranching {
       /** Jump to a specific question index.
 
-    * `specific_question` - specific_question */
+      * `specific_question` - specific_question */
       type: SurveySpecificQuestionBranchingTypeEnum;
       /**
-       * 0-based index of the next question.
-       * @minimum 0
-       */
+         * 0-based index of the next question.
+         * @minimum 0
+         */
       index: number;
     }
 
@@ -27339,7 +27360,7 @@ export namespace Schemas {
     export interface SurveyResponseBasedBranching {
       /** Branch based on the selected or entered response.
 
-    * `response_based` - response_based */
+      * `response_based` - response_based */
       type: SurveyResponseBasedBranchingTypeEnum;
       /** Response-based branching map. Values can be a question index or 'end'. */
       responseValues: SurveyResponseBasedBranchingResponseValues;
@@ -27355,8 +27376,8 @@ export namespace Schemas {
       description?: string;
       /** Format for the description field.
 
-    * `text` - text
-    * `html` - html */
+      * `text` - text
+      * `html` - html */
       descriptionContentType?: DescriptionContentTypeEnum;
       /** Whether respondents may skip this question. */
       optional?: boolean;
@@ -27364,13 +27385,13 @@ export namespace Schemas {
       buttonText?: string;
       /** Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.
 
-    * `number` - number
-    * `emoji` - emoji */
+      * `number` - number
+      * `emoji` - emoji */
       display?: SurveyRatingQuestionSchemaDisplayEnum;
       /**
-       * Rating scale can be one of 3, 5, or 7
-       * @minimum 1
-       */
+         * Rating scale can be one of 3, 5, or 7
+         * @minimum 1
+         */
       scale?: number;
       /** Label for the lowest rating (e.g., 'Very Poor') */
       lowerBoundLabel?: string;
@@ -27397,18 +27418,18 @@ export namespace Schemas {
       description?: string;
       /** Format for the description field.
 
-    * `text` - text
-    * `html` - html */
+      * `text` - text
+      * `html` - html */
       descriptionContentType?: DescriptionContentTypeEnum;
       /** Whether respondents may skip this question. */
       optional?: boolean;
       /** Custom button label. */
       buttonText?: string;
       /**
-       * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
-       * @minItems 2
-       * @maxItems 20
-       */
+         * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
+         * @minItems 2
+         * @maxItems 20
+         */
       choices: string[];
       /** Whether to randomize the order of choices for each respondent. */
       shuffleOptions?: boolean;
@@ -27435,18 +27456,18 @@ export namespace Schemas {
       description?: string;
       /** Format for the description field.
 
-    * `text` - text
-    * `html` - html */
+      * `text` - text
+      * `html` - html */
       descriptionContentType?: DescriptionContentTypeEnum;
       /** Whether respondents may skip this question. */
       optional?: boolean;
       /** Custom button label. */
       buttonText?: string;
       /**
-       * Array of choice options. Multiple selections allowed. No branching logic supported.
-       * @minItems 2
-       * @maxItems 20
-       */
+         * Array of choice options. Multiple selections allowed. No branching logic supported.
+         * @minItems 2
+         * @maxItems 20
+         */
       choices: string[];
       /** Whether to randomize the order of choices for each respondent. */
       shuffleOptions?: boolean;
@@ -27472,30 +27493,30 @@ export namespace Schemas {
       url?: string;
       selector?: string;
       /**
-       * Don't show this survey to users who saw any survey in the last x days.
-       * @minimum 0
-       */
+         * Don't show this survey to users who saw any survey in the last x days.
+         * @minimum 0
+         */
       seenSurveyWaitPeriodInDays?: number;
       /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).
 
-    * `regex` - regex
-    * `not_regex` - not_regex
-    * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains */
+      * `regex` - regex
+      * `not_regex` - not_regex
+      * `exact` - exact
+      * `is_not` - is_not
+      * `icontains` - icontains
+      * `not_icontains` - not_icontains */
       urlMatchType?: StringMatchOperatorEnum;
       events?: SurveyEventsConditionSchema;
       /** Device types that should match for this survey to be shown. */
       deviceTypes?: DeviceTypesEnum[];
       /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).
 
-    * `regex` - regex
-    * `not_regex` - not_regex
-    * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains */
+      * `regex` - regex
+      * `not_regex` - not_regex
+      * `exact` - exact
+      * `is_not` - is_not
+      * `icontains` - icontains
+      * `not_icontains` - not_icontains */
       deviceTypesMatchType?: StringMatchOperatorEnum;
       /** The variant of the feature flag linked to this survey. */
       linkedFlagVariant?: string;
@@ -27550,31 +27571,31 @@ export namespace Schemas {
     export interface PatchedSurveySerializerCreateUpdateOnlySchema {
       readonly id?: string;
       /**
-       * Survey name.
-       * @minLength 1
-       * @maxLength 400
-       */
+         * Survey name.
+         * @minLength 1
+         * @maxLength 400
+         */
       name?: string;
       /** Survey description. */
       description?: string;
       /** Survey type.
 
-    * `popover` - popover
-    * `widget` - widget
-    * `external_survey` - external survey
-    * `api` - api */
+      * `popover` - popover
+      * `widget` - widget
+      * `external_survey` - external survey
+      * `api` - api */
       type?: SurveyType;
       /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
 
-    * `once` - once
-    * `recurring` - recurring
-    * `always` - always */
+      * `once` - once
+      * `recurring` - recurring
+      * `always` - always */
       schedule?: ScheduleEnum | null;
       readonly linked_flag?: MinimalFeatureFlag;
       /**
-       * The feature flag linked to this survey.
-       * @nullable
-       */
+         * The feature flag linked to this survey.
+         * @nullable
+         */
       linked_flag_id?: number | null;
       /** @nullable */
       linked_insight_id?: number | null;
@@ -27585,125 +27606,125 @@ export namespace Schemas {
       /** Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]} */
       targeting_flag_filters?: FeatureFlagFiltersSchema | null;
       /**
-       * Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).
-       * @nullable
-       */
+         * Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).
+         * @nullable
+         */
       remove_targeting_flag?: boolean | null;
       /**
-       * 
-            The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
+         *
+              The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
-            Basic (open-ended question)
-            - `id`: The question ID
-            - `type`: `open`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Basic (open-ended question)
+              - `id`: The question ID
+              - `type`: `open`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Link (a question with a link)
-            - `id`: The question ID
-            - `type`: `link`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `link`: The URL associated with the question.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Link (a question with a link)
+              - `id`: The question ID
+              - `type`: `link`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `link`: The URL associated with the question.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Rating (a question with a rating scale)
-            - `id`: The question ID
-            - `type`: `rating`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `display`: Display style of the rating (`number` or `emoji`).
-            - `scale`: The scale of the rating (`number`).
-            - `lowerBoundLabel`: Label for the lower bound of the scale.
-            - `upperBoundLabel`: Label for the upper bound of the scale.
-            - `isNpsQuestion`: Whether the question is an NPS rating.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Rating (a question with a rating scale)
+              - `id`: The question ID
+              - `type`: `rating`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `display`: Display style of the rating (`number` or `emoji`).
+              - `scale`: The scale of the rating (`number`).
+              - `lowerBoundLabel`: Label for the lower bound of the scale.
+              - `upperBoundLabel`: Label for the upper bound of the scale.
+              - `isNpsQuestion`: Whether the question is an NPS rating.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Multiple choice
-            - `id`: The question ID
-            - `type`: `single_choice` or `multiple_choice`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `choices`: An array of choices for the question.
-            - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
-            - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Multiple choice
+              - `id`: The question ID
+              - `type`: `single_choice` or `multiple_choice`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `choices`: An array of choices for the question.
+              - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+              - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Branching logic can be one of the following types:
+              Branching logic can be one of the following types:
 
-            Next question: Proceeds to the next question
-            ```json
-            {
-                "type": "next_question"
-            }
-            ```
+              Next question: Proceeds to the next question
+              ```json
+              {
+                  "type": "next_question"
+              }
+              ```
 
-            End: Ends the survey, optionally displaying a confirmation message.
-            ```json
-            {
-                "type": "end"
-            }
-            ```
+              End: Ends the survey, optionally displaying a confirmation message.
+              ```json
+              {
+                  "type": "end"
+              }
+              ```
 
-            Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
-            ```json
-            {
-                "type": "response_based",
-                "responseValues": {
-                    "responseKey": "value"
-                }
-            }
-            ```
+              Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+              ```json
+              {
+                  "type": "response_based",
+                  "responseValues": {
+                      "responseKey": "value"
+                  }
+              }
+              ```
 
-            Specific question: Proceeds to a specific question by index.
-            ```json
-            {
-                "type": "specific_question",
-                "index": 2
-            }
-            ```
+              Specific question: Proceeds to a specific question by index.
+              ```json
+              {
+                  "type": "specific_question",
+                  "index": 2
+              }
+              ```
 
-            Translations: Each question can include inline translations.
-            - `translations`: Object mapping language codes to translated fields.
-            - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
-            - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+              Translations: Each question can include inline translations.
+              - `translations`: Object mapping language codes to translated fields.
+              - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+              - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
-            Example with translations:
-            ```json
-            {
-                "id": "uuid",
-                "type": "rating",
-                "question": "How satisfied are you?",
-                "lowerBoundLabel": "Not satisfied",
-                "upperBoundLabel": "Very satisfied",
-                "translations": {
-                    "es": {
-                        "question": "¿Qué tan satisfecho estás?",
-                        "lowerBoundLabel": "No satisfecho",
-                        "upperBoundLabel": "Muy satisfecho"
-                    },
-                    "fr": {
-                        "question": "Dans quelle mesure êtes-vous satisfait?"
-                    }
-                }
-            }
-            ```
-            
-       * @nullable
-       */
+              Example with translations:
+              ```json
+              {
+                  "id": "uuid",
+                  "type": "rating",
+                  "question": "How satisfied are you?",
+                  "lowerBoundLabel": "Not satisfied",
+                  "upperBoundLabel": "Very satisfied",
+                  "translations": {
+                      "es": {
+                          "question": "¿Qué tan satisfecho estás?",
+                          "lowerBoundLabel": "No satisfecho",
+                          "upperBoundLabel": "Muy satisfecho"
+                      },
+                      "fr": {
+                          "question": "Dans quelle mesure êtes-vous satisfait?"
+                      }
+                  }
+              }
+              ```
+
+         * @nullable
+         */
       questions?: SurveyQuestionInputSchema[] | null;
       /** Display and targeting conditions for the survey. */
       conditions?: SurveyConditionsSchema | null;
@@ -27712,43 +27733,43 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       /**
-       * Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.
-       * @nullable
-       */
+         * Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.
+         * @nullable
+         */
       start_date?: string | null;
       /**
-       * When the survey stopped being shown to users. Setting this will complete the survey.
-       * @nullable
-       */
+         * When the survey stopped being shown to users. Setting this will complete the survey.
+         * @nullable
+         */
       end_date?: string | null;
       /** Archive state for the survey. */
       archived?: boolean;
       /**
-       * The maximum number of responses before automatically stopping the survey.
-       * @nullable
-       */
+         * The maximum number of responses before automatically stopping the survey.
+         * @nullable
+         */
       responses_limit?: number | null;
       /**
-       * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
-       * @minimum 1
-       * @maximum 500
-       * @nullable
-       */
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * @minimum 1
+         * @maximum 500
+         * @nullable
+         */
       iteration_count?: number | null;
       /**
-       * For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.
-       * @minimum 1
-       * @maximum 365
-       * @nullable
-       */
+         * For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.
+         * @minimum 1
+         * @maximum 365
+         * @nullable
+         */
       iteration_frequency_days?: number | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       current_iteration?: number | null;
       /** @nullable */
       current_iteration_start_date?: string | null;
@@ -27756,22 +27777,22 @@ export namespace Schemas {
       response_sampling_start_date?: string | null;
       response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       response_sampling_interval?: number | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       response_sampling_limit?: number | null;
       response_sampling_daily_limits?: unknown;
       /**
-       * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
-       * @nullable
-       */
+         * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
+         * @nullable
+         */
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
@@ -27785,7 +27806,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type PatchedTableExternalSchema = { [key: string]: unknown } | null | null;
+    export type PatchedTableExternalSchema = { [key: string]: unknown } | null;
 
     export type PatchedTableOptions = { [key: string]: unknown };
 
@@ -27810,9 +27831,9 @@ export namespace Schemas {
       readonly external_schema?: PatchedTableExternalSchema;
       options?: PatchedTableOptions;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
     }
 
@@ -27838,7 +27859,7 @@ export namespace Schemas {
      * Latest run details for this task
      * @nullable
      */
-    export type PatchedTaskLatestRun = { [key: string]: unknown } | null | null;
+    export type PatchedTaskLatestRun = { [key: string]: unknown } | null;
 
     export interface PatchedTask {
       readonly id?: string;
@@ -27851,19 +27872,19 @@ export namespace Schemas {
       description?: string;
       origin_product?: OriginProductEnum;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       repository?: string | null;
       /**
-       * GitHub integration for this task
-       * @nullable
-       */
+         * GitHub integration for this task
+         * @nullable
+         */
       github_integration?: number | null;
       /**
-       * User-scoped GitHub integration to use for user-authored cloud runs.
-       * @nullable
-       */
+         * User-scoped GitHub integration to use for user-authored cloud runs.
+         * @nullable
+         */
       github_user_integration?: string | null;
       /** @nullable */
       signal_report?: string | null;
@@ -27873,17 +27894,17 @@ export namespace Schemas {
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
       /**
-       * Latest run details for this task
-       * @nullable
-       */
+         * Latest run details for this task
+         * @nullable
+         */
       readonly latest_run?: PatchedTaskLatestRun;
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly created_by?: UserBasic;
       /**
-       * Custom prompt for CI fixes. If blank, a default prompt will be used.
-       * @nullable
-       */
+         * Custom prompt for CI fixes. If blank, a default prompt will be used.
+         * @nullable
+         */
       ci_prompt?: string | null;
     }
 
@@ -27901,9 +27922,9 @@ export namespace Schemas {
       /** @maxLength 128 */
       timezone?: string;
       /**
-       * @maxLength 255
-       * @nullable
-       */
+         * @maxLength 255
+         * @nullable
+         */
       template_id?: string | null;
       enabled?: boolean;
       /** @nullable */
@@ -27958,22 +27979,22 @@ export namespace Schemas {
     export interface PatchedTaskRunUpdate {
       /** Current execution status
 
-    * `not_started` - not_started
-    * `queued` - queued
-    * `in_progress` - in_progress
-    * `completed` - completed
-    * `failed` - failed
-    * `cancelled` - cancelled */
+      * `not_started` - not_started
+      * `queued` - queued
+      * `in_progress` - in_progress
+      * `completed` - completed
+      * `failed` - failed
+      * `cancelled` - cancelled */
       status?: TaskRunUpdateStatusEnum;
       /**
-       * Git branch name to associate with the task
-       * @nullable
-       */
+         * Git branch name to associate with the task
+         * @nullable
+         */
       branch?: string | null;
       /**
-       * Current stage of the run (e.g. research, plan, build)
-       * @nullable
-       */
+         * Current stage of the run (e.g. research, plan, build)
+         * @nullable
+         */
       stage?: string | null;
       /** Output from the run */
       output?: unknown;
@@ -27982,13 +28003,13 @@ export namespace Schemas {
       /** State keys to remove atomically before applying any state updates. */
       state_remove_keys?: string[];
       /**
-       * Error message if execution failed
-       * @nullable
-       */
+         * Error message if execution failed
+         * @nullable
+         */
       error_message?: string | null;
       /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
 
-    * `local` - local */
+      * `local` - local */
       environment?: TaskRunUpdateEnvironmentEnum;
     }
 
@@ -28011,9 +28032,9 @@ export namespace Schemas {
       sources_map?: unknown;
       conversion_goals?: unknown;
       /**
-       * @minimum 1
-       * @maximum 90
-       */
+         * @minimum 1
+         * @maximum 90
+         */
       attribution_window_days?: number;
       attribution_mode?: AttributionModeEnum;
       campaign_name_mappings?: unknown;
@@ -28033,16 +28054,16 @@ export namespace Schemas {
       readonly id?: number;
       readonly uuid?: string;
       /**
-       * @minLength 1
-       * @maxLength 200
-       */
+         * @minLength 1
+         * @maxLength 200
+         */
       name?: string;
       access_control?: boolean;
       readonly organization?: string;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       readonly project_id?: number;
       readonly api_token?: string;
       /** @nullable */
@@ -28055,9 +28076,9 @@ export namespace Schemas {
       readonly default_modifiers?: PatchedTeamDefaultModifiers;
       readonly person_on_events_querying_enabled?: boolean;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level?: string | null;
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
@@ -28087,15 +28108,15 @@ export namespace Schemas {
       capture_performance_opt_in?: boolean | null;
       session_recording_opt_in?: boolean;
       /**
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
+         * @nullable
+         * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+         */
       session_recording_sample_rate?: string | null;
       /**
-       * @minimum 0
-       * @maximum 30000
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 30000
+         * @nullable
+         */
       session_recording_minimum_duration_milliseconds?: number | null;
       session_recording_linked_flag?: unknown;
       session_recording_network_payload_capture_config?: unknown;
@@ -28107,9 +28128,9 @@ export namespace Schemas {
       /** @nullable */
       session_recording_event_trigger_config?: (string | null)[] | null;
       /**
-       * @maxLength 24
-       * @nullable
-       */
+         * @maxLength 24
+         * @nullable
+         */
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
       session_recording_trigger_groups?: unknown;
@@ -28142,22 +28163,22 @@ export namespace Schemas {
       /** @nullable */
       feature_flag_confirmation_message?: string | null;
       /**
-       * Whether to automatically apply default evaluation contexts to new feature flags
-       * @nullable
-       */
+         * Whether to automatically apply default evaluation contexts to new feature flags
+         * @nullable
+         */
       default_evaluation_contexts_enabled?: boolean | null;
       /**
-       * Whether to require at least one evaluation context tag when creating new feature flags
-       * @nullable
-       */
+         * Whether to require at least one evaluation context tag when creating new feature flags
+         * @nullable
+         */
       require_evaluation_contexts?: boolean | null;
       /** @nullable */
       capture_dead_clicks?: boolean | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       default_data_theme?: number | null;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
@@ -28170,9 +28191,9 @@ export namespace Schemas {
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
 
-    * `b2b` - B2B
-    * `b2c` - B2C
-    * `other` - Other */
+      * `b2b` - B2B
+      * `b2c` - B2C
+      * `other` - Other */
       business_model?: BusinessModelEnum | BlankEnum | null;
       /** @nullable */
       conversations_enabled?: boolean | null;
@@ -28200,17 +28221,17 @@ export namespace Schemas {
       readonly distinct_id?: string;
       /** Ticket status: new, open, pending, on_hold, or resolved
 
-    * `new` - New
-    * `open` - Open
-    * `pending` - Pending
-    * `on_hold` - On hold
-    * `resolved` - Resolved */
+      * `new` - New
+      * `open` - Open
+      * `pending` - Pending
+      * `on_hold` - On hold
+      * `resolved` - Resolved */
       status?: TicketStatusEnum;
       /** Ticket priority: low, medium, or high. Null if unset.
 
-    * `low` - Low
-    * `medium` - Medium
-    * `high` - High */
+      * `low` - Low
+      * `medium` - Medium
+      * `high` - High */
       priority?: PriorityEnum | BlankEnum | null;
       readonly assignee?: TicketAssignment;
       /** Customer-provided traits such as name and email */
@@ -28231,9 +28252,9 @@ export namespace Schemas {
       readonly session_id?: string | null;
       readonly session_context?: unknown;
       /**
-       * SLA deadline set via workflows. Null means no SLA.
-       * @nullable
-       */
+         * SLA deadline set via workflows. Null means no SLA.
+         * @nullable
+         */
       sla_due_at?: string | null;
       /** @nullable */
       snoozed_until?: string | null;
@@ -28280,53 +28301,53 @@ export namespace Schemas {
       /** Stable scorer definition ID. */
       definition_id: string;
       /**
-       * Optional immutable scorer version ID. Defaults to the scorer's current version.
-       * @nullable
-       */
+         * Optional immutable scorer version ID. Defaults to the scorer's current version.
+         * @nullable
+         */
       definition_version_id?: string | null;
       /**
-       * Categorical option keys selected for this score.
-       * @minItems 1
-       * @nullable
-       */
+         * Categorical option keys selected for this score.
+         * @minItems 1
+         * @nullable
+         */
       categorical_values?: string[] | null;
       /**
-       * Numeric value selected for this score.
-       * @nullable
-       * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
-       */
+         * Numeric value selected for this score.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
       numeric_value?: string | null;
       /**
-       * Boolean value selected for this score.
-       * @nullable
-       */
+         * Boolean value selected for this score.
+         * @nullable
+         */
       boolean_value?: boolean | null;
     }
 
     export interface PatchedTraceReviewUpdate {
       /**
-       * Trace ID for the review. Only one active review can exist per trace and team.
-       * @maxLength 255
-       */
+         * Trace ID for the review. Only one active review can exist per trace and team.
+         * @maxLength 255
+         */
       trace_id?: string;
       /**
-       * Optional comment or reasoning for the review.
-       * @nullable
-       */
+         * Optional comment or reasoning for the review.
+         * @nullable
+         */
       comment?: string | null;
       /** Full desired score set for this review. Omit scorers you want to leave blank. */
       scores?: TraceReviewScoreWrite[];
       /**
-       * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
-       * @nullable
-       */
+         * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+         * @nullable
+         */
       queue_id?: string | null;
     }
 
     /**
      * @nullable
      */
-    export type PatchedUpdateRepoRequestInputBaselineFilePaths = {[key: string]: string} | null | null;
+    export type PatchedUpdateRepoRequestInputBaselineFilePaths = {[key: string]: string} | null;
 
     export interface PatchedUpdateRepoRequestInput {
       /** @nullable */
@@ -28358,9 +28379,9 @@ export namespace Schemas {
       /** Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is. */
       notification_settings?: PatchedUserNotificationSettings;
       /**
-       * Whether PostHog should anonymize events captured for this user when identified.
-       * @nullable
-       */
+         * Whether PostHog should anonymize events captured for this user when identified.
+         * @nullable
+         */
       anonymize_data?: boolean | null;
       /** @nullable */
       allow_impersonation?: boolean | null;
@@ -28399,9 +28420,9 @@ export namespace Schemas {
       shortcut_position?: ShortcutPositionEnum | BlankEnum | null;
       role_at_organization?: RoleAtOrganizationEnum;
       /**
-       * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
-       * @nullable
-       */
+         * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+         * @nullable
+         */
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
@@ -28411,9 +28432,9 @@ export namespace Schemas {
       /** @nullable */
       readonly onboarding_delegated_to_invite?: string | null;
       /**
-       * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
-       * @nullable
-       */
+         * Organization ID of the pending delegation invite, if any. Used by the frontend to scope the 'waiting for teammate' UI to the org where delegation was initiated.
+         * @nullable
+         */
       readonly onboarding_delegated_to_organization_id?: string | null;
       /** @nullable */
       readonly onboarding_delegation_accepted_at?: string | null;
@@ -28491,19 +28512,19 @@ export namespace Schemas {
       readonly feature_flag_key?: string;
       /** Variants for the web experiment. Example:
 
-            {
-                "control": {
-                    "transforms": [
-                        {
-                            "text": "Here comes Superman!",
-                            "html": "",
-                            "selector": "#page > #body > .header h1"
-                        }
-                    ],
-                    "conditions": "None",
-                    "rollout_percentage": 50
-                },
-            } */
+              {
+                  "control": {
+                      "transforms": [
+                          {
+                              "text": "Here comes Superman!",
+                              "html": "",
+                              "selector": "#page > #body > .header h1"
+                          }
+                      ],
+                      "conditions": "None",
+                      "rollout_percentage": 50
+                  },
+              } */
       variants?: unknown;
     }
 
@@ -28561,14 +28582,14 @@ export namespace Schemas {
       /** Whether $set_once operations were included */
       include_set_once: boolean;
       /**
-       * The distinct_id parameter used in the request
-       * @nullable
-       */
+         * The distinct_id parameter used in the request
+         * @nullable
+         */
       distinct_id_used: string | null;
       /**
-       * The person_id parameter used in the request
-       * @nullable
-       */
+         * The person_id parameter used in the request
+         * @nullable
+         */
       person_id_used: string | null;
       /** Whether the query used 'distinct_id' or 'person_id' mode */
       query_mode: string;
@@ -28600,9 +28621,9 @@ export namespace Schemas {
       /** The person's UUID */
       uuid: string;
       /**
-       * When the person was last seen
-       * @nullable
-       */
+         * When the person was last seen
+         * @nullable
+         */
       last_seen_at: string | null;
       /** Metadata about the point-in-time query */
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
@@ -28657,8 +28678,8 @@ export namespace Schemas {
       archived?: boolean;
       /** Where the tour was created/updated from
 
-    * `app` - app
-    * `toolbar` - toolbar */
+      * `app` - app
+      * `toolbar` - toolbar */
       creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum;
     }
 
@@ -28684,16 +28705,16 @@ export namespace Schemas {
       readonly id: number;
       readonly organization: string;
       /**
-       * Human-readable project name.
-       * @minLength 1
-       * @maxLength 200
-       */
+         * Human-readable project name.
+         * @minLength 1
+         * @maxLength 200
+         */
       name?: string;
       /**
-       * Short description of what the project is about. This is helpful to give our AI agents context about your project.
-       * @maxLength 1000
-       * @nullable
-       */
+         * Short description of what the project is about. This is helpful to give our AI agents context about your project.
+         * @maxLength 1000
+         * @nullable
+         */
       product_description?: string | null;
       readonly created_at: string;
       readonly effective_membership_level: EffectiveMembershipLevelEnum;
@@ -28712,661 +28733,661 @@ export namespace Schemas {
       /** Filter groups that identify internal/test traffic to be excluded from insights. */
       test_account_filters?: unknown;
       /**
-       * When true, new insights default to excluding internal/test users.
-       * @nullable
-       */
+         * When true, new insights default to excluding internal/test users.
+         * @nullable
+         */
       test_account_filters_default_checked?: boolean | null;
       /** Regex rewrite rules that collapse dynamic path segments (e.g. user IDs) before displaying URLs in paths. */
       path_cleaning_filters?: unknown;
       is_demo?: boolean;
       /** IANA timezone used for date-based filters and reporting (e.g. `America/Los_Angeles`).
 
-    * `Africa/Abidjan` - Africa/Abidjan
-    * `Africa/Accra` - Africa/Accra
-    * `Africa/Addis_Ababa` - Africa/Addis_Ababa
-    * `Africa/Algiers` - Africa/Algiers
-    * `Africa/Asmara` - Africa/Asmara
-    * `Africa/Asmera` - Africa/Asmera
-    * `Africa/Bamako` - Africa/Bamako
-    * `Africa/Bangui` - Africa/Bangui
-    * `Africa/Banjul` - Africa/Banjul
-    * `Africa/Bissau` - Africa/Bissau
-    * `Africa/Blantyre` - Africa/Blantyre
-    * `Africa/Brazzaville` - Africa/Brazzaville
-    * `Africa/Bujumbura` - Africa/Bujumbura
-    * `Africa/Cairo` - Africa/Cairo
-    * `Africa/Casablanca` - Africa/Casablanca
-    * `Africa/Ceuta` - Africa/Ceuta
-    * `Africa/Conakry` - Africa/Conakry
-    * `Africa/Dakar` - Africa/Dakar
-    * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
-    * `Africa/Djibouti` - Africa/Djibouti
-    * `Africa/Douala` - Africa/Douala
-    * `Africa/El_Aaiun` - Africa/El_Aaiun
-    * `Africa/Freetown` - Africa/Freetown
-    * `Africa/Gaborone` - Africa/Gaborone
-    * `Africa/Harare` - Africa/Harare
-    * `Africa/Johannesburg` - Africa/Johannesburg
-    * `Africa/Juba` - Africa/Juba
-    * `Africa/Kampala` - Africa/Kampala
-    * `Africa/Khartoum` - Africa/Khartoum
-    * `Africa/Kigali` - Africa/Kigali
-    * `Africa/Kinshasa` - Africa/Kinshasa
-    * `Africa/Lagos` - Africa/Lagos
-    * `Africa/Libreville` - Africa/Libreville
-    * `Africa/Lome` - Africa/Lome
-    * `Africa/Luanda` - Africa/Luanda
-    * `Africa/Lubumbashi` - Africa/Lubumbashi
-    * `Africa/Lusaka` - Africa/Lusaka
-    * `Africa/Malabo` - Africa/Malabo
-    * `Africa/Maputo` - Africa/Maputo
-    * `Africa/Maseru` - Africa/Maseru
-    * `Africa/Mbabane` - Africa/Mbabane
-    * `Africa/Mogadishu` - Africa/Mogadishu
-    * `Africa/Monrovia` - Africa/Monrovia
-    * `Africa/Nairobi` - Africa/Nairobi
-    * `Africa/Ndjamena` - Africa/Ndjamena
-    * `Africa/Niamey` - Africa/Niamey
-    * `Africa/Nouakchott` - Africa/Nouakchott
-    * `Africa/Ouagadougou` - Africa/Ouagadougou
-    * `Africa/Porto-Novo` - Africa/Porto-Novo
-    * `Africa/Sao_Tome` - Africa/Sao_Tome
-    * `Africa/Timbuktu` - Africa/Timbuktu
-    * `Africa/Tripoli` - Africa/Tripoli
-    * `Africa/Tunis` - Africa/Tunis
-    * `Africa/Windhoek` - Africa/Windhoek
-    * `America/Adak` - America/Adak
-    * `America/Anchorage` - America/Anchorage
-    * `America/Anguilla` - America/Anguilla
-    * `America/Antigua` - America/Antigua
-    * `America/Araguaina` - America/Araguaina
-    * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
-    * `America/Argentina/Catamarca` - America/Argentina/Catamarca
-    * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
-    * `America/Argentina/Cordoba` - America/Argentina/Cordoba
-    * `America/Argentina/Jujuy` - America/Argentina/Jujuy
-    * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
-    * `America/Argentina/Mendoza` - America/Argentina/Mendoza
-    * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
-    * `America/Argentina/Salta` - America/Argentina/Salta
-    * `America/Argentina/San_Juan` - America/Argentina/San_Juan
-    * `America/Argentina/San_Luis` - America/Argentina/San_Luis
-    * `America/Argentina/Tucuman` - America/Argentina/Tucuman
-    * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
-    * `America/Aruba` - America/Aruba
-    * `America/Asuncion` - America/Asuncion
-    * `America/Atikokan` - America/Atikokan
-    * `America/Atka` - America/Atka
-    * `America/Bahia` - America/Bahia
-    * `America/Bahia_Banderas` - America/Bahia_Banderas
-    * `America/Barbados` - America/Barbados
-    * `America/Belem` - America/Belem
-    * `America/Belize` - America/Belize
-    * `America/Blanc-Sablon` - America/Blanc-Sablon
-    * `America/Boa_Vista` - America/Boa_Vista
-    * `America/Bogota` - America/Bogota
-    * `America/Boise` - America/Boise
-    * `America/Buenos_Aires` - America/Buenos_Aires
-    * `America/Cambridge_Bay` - America/Cambridge_Bay
-    * `America/Campo_Grande` - America/Campo_Grande
-    * `America/Cancun` - America/Cancun
-    * `America/Caracas` - America/Caracas
-    * `America/Catamarca` - America/Catamarca
-    * `America/Cayenne` - America/Cayenne
-    * `America/Cayman` - America/Cayman
-    * `America/Chicago` - America/Chicago
-    * `America/Chihuahua` - America/Chihuahua
-    * `America/Ciudad_Juarez` - America/Ciudad_Juarez
-    * `America/Coral_Harbour` - America/Coral_Harbour
-    * `America/Cordoba` - America/Cordoba
-    * `America/Costa_Rica` - America/Costa_Rica
-    * `America/Creston` - America/Creston
-    * `America/Cuiaba` - America/Cuiaba
-    * `America/Curacao` - America/Curacao
-    * `America/Danmarkshavn` - America/Danmarkshavn
-    * `America/Dawson` - America/Dawson
-    * `America/Dawson_Creek` - America/Dawson_Creek
-    * `America/Denver` - America/Denver
-    * `America/Detroit` - America/Detroit
-    * `America/Dominica` - America/Dominica
-    * `America/Edmonton` - America/Edmonton
-    * `America/Eirunepe` - America/Eirunepe
-    * `America/El_Salvador` - America/El_Salvador
-    * `America/Ensenada` - America/Ensenada
-    * `America/Fort_Nelson` - America/Fort_Nelson
-    * `America/Fort_Wayne` - America/Fort_Wayne
-    * `America/Fortaleza` - America/Fortaleza
-    * `America/Glace_Bay` - America/Glace_Bay
-    * `America/Godthab` - America/Godthab
-    * `America/Goose_Bay` - America/Goose_Bay
-    * `America/Grand_Turk` - America/Grand_Turk
-    * `America/Grenada` - America/Grenada
-    * `America/Guadeloupe` - America/Guadeloupe
-    * `America/Guatemala` - America/Guatemala
-    * `America/Guayaquil` - America/Guayaquil
-    * `America/Guyana` - America/Guyana
-    * `America/Halifax` - America/Halifax
-    * `America/Havana` - America/Havana
-    * `America/Hermosillo` - America/Hermosillo
-    * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
-    * `America/Indiana/Knox` - America/Indiana/Knox
-    * `America/Indiana/Marengo` - America/Indiana/Marengo
-    * `America/Indiana/Petersburg` - America/Indiana/Petersburg
-    * `America/Indiana/Tell_City` - America/Indiana/Tell_City
-    * `America/Indiana/Vevay` - America/Indiana/Vevay
-    * `America/Indiana/Vincennes` - America/Indiana/Vincennes
-    * `America/Indiana/Winamac` - America/Indiana/Winamac
-    * `America/Indianapolis` - America/Indianapolis
-    * `America/Inuvik` - America/Inuvik
-    * `America/Iqaluit` - America/Iqaluit
-    * `America/Jamaica` - America/Jamaica
-    * `America/Jujuy` - America/Jujuy
-    * `America/Juneau` - America/Juneau
-    * `America/Kentucky/Louisville` - America/Kentucky/Louisville
-    * `America/Kentucky/Monticello` - America/Kentucky/Monticello
-    * `America/Knox_IN` - America/Knox_IN
-    * `America/Kralendijk` - America/Kralendijk
-    * `America/La_Paz` - America/La_Paz
-    * `America/Lima` - America/Lima
-    * `America/Los_Angeles` - America/Los_Angeles
-    * `America/Louisville` - America/Louisville
-    * `America/Lower_Princes` - America/Lower_Princes
-    * `America/Maceio` - America/Maceio
-    * `America/Managua` - America/Managua
-    * `America/Manaus` - America/Manaus
-    * `America/Marigot` - America/Marigot
-    * `America/Martinique` - America/Martinique
-    * `America/Matamoros` - America/Matamoros
-    * `America/Mazatlan` - America/Mazatlan
-    * `America/Mendoza` - America/Mendoza
-    * `America/Menominee` - America/Menominee
-    * `America/Merida` - America/Merida
-    * `America/Metlakatla` - America/Metlakatla
-    * `America/Mexico_City` - America/Mexico_City
-    * `America/Miquelon` - America/Miquelon
-    * `America/Moncton` - America/Moncton
-    * `America/Monterrey` - America/Monterrey
-    * `America/Montevideo` - America/Montevideo
-    * `America/Montreal` - America/Montreal
-    * `America/Montserrat` - America/Montserrat
-    * `America/Nassau` - America/Nassau
-    * `America/New_York` - America/New_York
-    * `America/Nipigon` - America/Nipigon
-    * `America/Nome` - America/Nome
-    * `America/Noronha` - America/Noronha
-    * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
-    * `America/North_Dakota/Center` - America/North_Dakota/Center
-    * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
-    * `America/Nuuk` - America/Nuuk
-    * `America/Ojinaga` - America/Ojinaga
-    * `America/Panama` - America/Panama
-    * `America/Pangnirtung` - America/Pangnirtung
-    * `America/Paramaribo` - America/Paramaribo
-    * `America/Phoenix` - America/Phoenix
-    * `America/Port-au-Prince` - America/Port-au-Prince
-    * `America/Port_of_Spain` - America/Port_of_Spain
-    * `America/Porto_Acre` - America/Porto_Acre
-    * `America/Porto_Velho` - America/Porto_Velho
-    * `America/Puerto_Rico` - America/Puerto_Rico
-    * `America/Punta_Arenas` - America/Punta_Arenas
-    * `America/Rainy_River` - America/Rainy_River
-    * `America/Rankin_Inlet` - America/Rankin_Inlet
-    * `America/Recife` - America/Recife
-    * `America/Regina` - America/Regina
-    * `America/Resolute` - America/Resolute
-    * `America/Rio_Branco` - America/Rio_Branco
-    * `America/Rosario` - America/Rosario
-    * `America/Santa_Isabel` - America/Santa_Isabel
-    * `America/Santarem` - America/Santarem
-    * `America/Santiago` - America/Santiago
-    * `America/Santo_Domingo` - America/Santo_Domingo
-    * `America/Sao_Paulo` - America/Sao_Paulo
-    * `America/Scoresbysund` - America/Scoresbysund
-    * `America/Shiprock` - America/Shiprock
-    * `America/Sitka` - America/Sitka
-    * `America/St_Barthelemy` - America/St_Barthelemy
-    * `America/St_Johns` - America/St_Johns
-    * `America/St_Kitts` - America/St_Kitts
-    * `America/St_Lucia` - America/St_Lucia
-    * `America/St_Thomas` - America/St_Thomas
-    * `America/St_Vincent` - America/St_Vincent
-    * `America/Swift_Current` - America/Swift_Current
-    * `America/Tegucigalpa` - America/Tegucigalpa
-    * `America/Thule` - America/Thule
-    * `America/Thunder_Bay` - America/Thunder_Bay
-    * `America/Tijuana` - America/Tijuana
-    * `America/Toronto` - America/Toronto
-    * `America/Tortola` - America/Tortola
-    * `America/Vancouver` - America/Vancouver
-    * `America/Virgin` - America/Virgin
-    * `America/Whitehorse` - America/Whitehorse
-    * `America/Winnipeg` - America/Winnipeg
-    * `America/Yakutat` - America/Yakutat
-    * `America/Yellowknife` - America/Yellowknife
-    * `Antarctica/Casey` - Antarctica/Casey
-    * `Antarctica/Davis` - Antarctica/Davis
-    * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
-    * `Antarctica/Macquarie` - Antarctica/Macquarie
-    * `Antarctica/Mawson` - Antarctica/Mawson
-    * `Antarctica/McMurdo` - Antarctica/McMurdo
-    * `Antarctica/Palmer` - Antarctica/Palmer
-    * `Antarctica/Rothera` - Antarctica/Rothera
-    * `Antarctica/South_Pole` - Antarctica/South_Pole
-    * `Antarctica/Syowa` - Antarctica/Syowa
-    * `Antarctica/Troll` - Antarctica/Troll
-    * `Antarctica/Vostok` - Antarctica/Vostok
-    * `Arctic/Longyearbyen` - Arctic/Longyearbyen
-    * `Asia/Aden` - Asia/Aden
-    * `Asia/Almaty` - Asia/Almaty
-    * `Asia/Amman` - Asia/Amman
-    * `Asia/Anadyr` - Asia/Anadyr
-    * `Asia/Aqtau` - Asia/Aqtau
-    * `Asia/Aqtobe` - Asia/Aqtobe
-    * `Asia/Ashgabat` - Asia/Ashgabat
-    * `Asia/Ashkhabad` - Asia/Ashkhabad
-    * `Asia/Atyrau` - Asia/Atyrau
-    * `Asia/Baghdad` - Asia/Baghdad
-    * `Asia/Bahrain` - Asia/Bahrain
-    * `Asia/Baku` - Asia/Baku
-    * `Asia/Bangkok` - Asia/Bangkok
-    * `Asia/Barnaul` - Asia/Barnaul
-    * `Asia/Beirut` - Asia/Beirut
-    * `Asia/Bishkek` - Asia/Bishkek
-    * `Asia/Brunei` - Asia/Brunei
-    * `Asia/Calcutta` - Asia/Calcutta
-    * `Asia/Chita` - Asia/Chita
-    * `Asia/Choibalsan` - Asia/Choibalsan
-    * `Asia/Chongqing` - Asia/Chongqing
-    * `Asia/Chungking` - Asia/Chungking
-    * `Asia/Colombo` - Asia/Colombo
-    * `Asia/Dacca` - Asia/Dacca
-    * `Asia/Damascus` - Asia/Damascus
-    * `Asia/Dhaka` - Asia/Dhaka
-    * `Asia/Dili` - Asia/Dili
-    * `Asia/Dubai` - Asia/Dubai
-    * `Asia/Dushanbe` - Asia/Dushanbe
-    * `Asia/Famagusta` - Asia/Famagusta
-    * `Asia/Gaza` - Asia/Gaza
-    * `Asia/Harbin` - Asia/Harbin
-    * `Asia/Hebron` - Asia/Hebron
-    * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
-    * `Asia/Hong_Kong` - Asia/Hong_Kong
-    * `Asia/Hovd` - Asia/Hovd
-    * `Asia/Irkutsk` - Asia/Irkutsk
-    * `Asia/Istanbul` - Asia/Istanbul
-    * `Asia/Jakarta` - Asia/Jakarta
-    * `Asia/Jayapura` - Asia/Jayapura
-    * `Asia/Jerusalem` - Asia/Jerusalem
-    * `Asia/Kabul` - Asia/Kabul
-    * `Asia/Kamchatka` - Asia/Kamchatka
-    * `Asia/Karachi` - Asia/Karachi
-    * `Asia/Kashgar` - Asia/Kashgar
-    * `Asia/Kathmandu` - Asia/Kathmandu
-    * `Asia/Katmandu` - Asia/Katmandu
-    * `Asia/Khandyga` - Asia/Khandyga
-    * `Asia/Kolkata` - Asia/Kolkata
-    * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
-    * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
-    * `Asia/Kuching` - Asia/Kuching
-    * `Asia/Kuwait` - Asia/Kuwait
-    * `Asia/Macao` - Asia/Macao
-    * `Asia/Macau` - Asia/Macau
-    * `Asia/Magadan` - Asia/Magadan
-    * `Asia/Makassar` - Asia/Makassar
-    * `Asia/Manila` - Asia/Manila
-    * `Asia/Muscat` - Asia/Muscat
-    * `Asia/Nicosia` - Asia/Nicosia
-    * `Asia/Novokuznetsk` - Asia/Novokuznetsk
-    * `Asia/Novosibirsk` - Asia/Novosibirsk
-    * `Asia/Omsk` - Asia/Omsk
-    * `Asia/Oral` - Asia/Oral
-    * `Asia/Phnom_Penh` - Asia/Phnom_Penh
-    * `Asia/Pontianak` - Asia/Pontianak
-    * `Asia/Pyongyang` - Asia/Pyongyang
-    * `Asia/Qatar` - Asia/Qatar
-    * `Asia/Qostanay` - Asia/Qostanay
-    * `Asia/Qyzylorda` - Asia/Qyzylorda
-    * `Asia/Rangoon` - Asia/Rangoon
-    * `Asia/Riyadh` - Asia/Riyadh
-    * `Asia/Saigon` - Asia/Saigon
-    * `Asia/Sakhalin` - Asia/Sakhalin
-    * `Asia/Samarkand` - Asia/Samarkand
-    * `Asia/Seoul` - Asia/Seoul
-    * `Asia/Shanghai` - Asia/Shanghai
-    * `Asia/Singapore` - Asia/Singapore
-    * `Asia/Srednekolymsk` - Asia/Srednekolymsk
-    * `Asia/Taipei` - Asia/Taipei
-    * `Asia/Tashkent` - Asia/Tashkent
-    * `Asia/Tbilisi` - Asia/Tbilisi
-    * `Asia/Tehran` - Asia/Tehran
-    * `Asia/Tel_Aviv` - Asia/Tel_Aviv
-    * `Asia/Thimbu` - Asia/Thimbu
-    * `Asia/Thimphu` - Asia/Thimphu
-    * `Asia/Tokyo` - Asia/Tokyo
-    * `Asia/Tomsk` - Asia/Tomsk
-    * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
-    * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
-    * `Asia/Ulan_Bator` - Asia/Ulan_Bator
-    * `Asia/Urumqi` - Asia/Urumqi
-    * `Asia/Ust-Nera` - Asia/Ust-Nera
-    * `Asia/Vientiane` - Asia/Vientiane
-    * `Asia/Vladivostok` - Asia/Vladivostok
-    * `Asia/Yakutsk` - Asia/Yakutsk
-    * `Asia/Yangon` - Asia/Yangon
-    * `Asia/Yekaterinburg` - Asia/Yekaterinburg
-    * `Asia/Yerevan` - Asia/Yerevan
-    * `Atlantic/Azores` - Atlantic/Azores
-    * `Atlantic/Bermuda` - Atlantic/Bermuda
-    * `Atlantic/Canary` - Atlantic/Canary
-    * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
-    * `Atlantic/Faeroe` - Atlantic/Faeroe
-    * `Atlantic/Faroe` - Atlantic/Faroe
-    * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
-    * `Atlantic/Madeira` - Atlantic/Madeira
-    * `Atlantic/Reykjavik` - Atlantic/Reykjavik
-    * `Atlantic/South_Georgia` - Atlantic/South_Georgia
-    * `Atlantic/St_Helena` - Atlantic/St_Helena
-    * `Atlantic/Stanley` - Atlantic/Stanley
-    * `Australia/ACT` - Australia/ACT
-    * `Australia/Adelaide` - Australia/Adelaide
-    * `Australia/Brisbane` - Australia/Brisbane
-    * `Australia/Broken_Hill` - Australia/Broken_Hill
-    * `Australia/Canberra` - Australia/Canberra
-    * `Australia/Currie` - Australia/Currie
-    * `Australia/Darwin` - Australia/Darwin
-    * `Australia/Eucla` - Australia/Eucla
-    * `Australia/Hobart` - Australia/Hobart
-    * `Australia/LHI` - Australia/LHI
-    * `Australia/Lindeman` - Australia/Lindeman
-    * `Australia/Lord_Howe` - Australia/Lord_Howe
-    * `Australia/Melbourne` - Australia/Melbourne
-    * `Australia/NSW` - Australia/NSW
-    * `Australia/North` - Australia/North
-    * `Australia/Perth` - Australia/Perth
-    * `Australia/Queensland` - Australia/Queensland
-    * `Australia/South` - Australia/South
-    * `Australia/Sydney` - Australia/Sydney
-    * `Australia/Tasmania` - Australia/Tasmania
-    * `Australia/Victoria` - Australia/Victoria
-    * `Australia/West` - Australia/West
-    * `Australia/Yancowinna` - Australia/Yancowinna
-    * `Brazil/Acre` - Brazil/Acre
-    * `Brazil/DeNoronha` - Brazil/DeNoronha
-    * `Brazil/East` - Brazil/East
-    * `Brazil/West` - Brazil/West
-    * `CET` - CET
-    * `CST6CDT` - CST6CDT
-    * `Canada/Atlantic` - Canada/Atlantic
-    * `Canada/Central` - Canada/Central
-    * `Canada/Eastern` - Canada/Eastern
-    * `Canada/Mountain` - Canada/Mountain
-    * `Canada/Newfoundland` - Canada/Newfoundland
-    * `Canada/Pacific` - Canada/Pacific
-    * `Canada/Saskatchewan` - Canada/Saskatchewan
-    * `Canada/Yukon` - Canada/Yukon
-    * `Chile/Continental` - Chile/Continental
-    * `Chile/EasterIsland` - Chile/EasterIsland
-    * `Cuba` - Cuba
-    * `EET` - EET
-    * `EST` - EST
-    * `EST5EDT` - EST5EDT
-    * `Egypt` - Egypt
-    * `Eire` - Eire
-    * `Etc/GMT` - Etc/GMT
-    * `Etc/GMT+0` - Etc/GMT+0
-    * `Etc/GMT+1` - Etc/GMT+1
-    * `Etc/GMT+10` - Etc/GMT+10
-    * `Etc/GMT+11` - Etc/GMT+11
-    * `Etc/GMT+12` - Etc/GMT+12
-    * `Etc/GMT+2` - Etc/GMT+2
-    * `Etc/GMT+3` - Etc/GMT+3
-    * `Etc/GMT+4` - Etc/GMT+4
-    * `Etc/GMT+5` - Etc/GMT+5
-    * `Etc/GMT+6` - Etc/GMT+6
-    * `Etc/GMT+7` - Etc/GMT+7
-    * `Etc/GMT+8` - Etc/GMT+8
-    * `Etc/GMT+9` - Etc/GMT+9
-    * `Etc/GMT-0` - Etc/GMT-0
-    * `Etc/GMT-1` - Etc/GMT-1
-    * `Etc/GMT-10` - Etc/GMT-10
-    * `Etc/GMT-11` - Etc/GMT-11
-    * `Etc/GMT-12` - Etc/GMT-12
-    * `Etc/GMT-13` - Etc/GMT-13
-    * `Etc/GMT-14` - Etc/GMT-14
-    * `Etc/GMT-2` - Etc/GMT-2
-    * `Etc/GMT-3` - Etc/GMT-3
-    * `Etc/GMT-4` - Etc/GMT-4
-    * `Etc/GMT-5` - Etc/GMT-5
-    * `Etc/GMT-6` - Etc/GMT-6
-    * `Etc/GMT-7` - Etc/GMT-7
-    * `Etc/GMT-8` - Etc/GMT-8
-    * `Etc/GMT-9` - Etc/GMT-9
-    * `Etc/GMT0` - Etc/GMT0
-    * `Etc/Greenwich` - Etc/Greenwich
-    * `Etc/UCT` - Etc/UCT
-    * `Etc/UTC` - Etc/UTC
-    * `Etc/Universal` - Etc/Universal
-    * `Etc/Zulu` - Etc/Zulu
-    * `Europe/Amsterdam` - Europe/Amsterdam
-    * `Europe/Andorra` - Europe/Andorra
-    * `Europe/Astrakhan` - Europe/Astrakhan
-    * `Europe/Athens` - Europe/Athens
-    * `Europe/Belfast` - Europe/Belfast
-    * `Europe/Belgrade` - Europe/Belgrade
-    * `Europe/Berlin` - Europe/Berlin
-    * `Europe/Bratislava` - Europe/Bratislava
-    * `Europe/Brussels` - Europe/Brussels
-    * `Europe/Bucharest` - Europe/Bucharest
-    * `Europe/Budapest` - Europe/Budapest
-    * `Europe/Busingen` - Europe/Busingen
-    * `Europe/Chisinau` - Europe/Chisinau
-    * `Europe/Copenhagen` - Europe/Copenhagen
-    * `Europe/Dublin` - Europe/Dublin
-    * `Europe/Gibraltar` - Europe/Gibraltar
-    * `Europe/Guernsey` - Europe/Guernsey
-    * `Europe/Helsinki` - Europe/Helsinki
-    * `Europe/Isle_of_Man` - Europe/Isle_of_Man
-    * `Europe/Istanbul` - Europe/Istanbul
-    * `Europe/Jersey` - Europe/Jersey
-    * `Europe/Kaliningrad` - Europe/Kaliningrad
-    * `Europe/Kiev` - Europe/Kiev
-    * `Europe/Kirov` - Europe/Kirov
-    * `Europe/Kyiv` - Europe/Kyiv
-    * `Europe/Lisbon` - Europe/Lisbon
-    * `Europe/Ljubljana` - Europe/Ljubljana
-    * `Europe/London` - Europe/London
-    * `Europe/Luxembourg` - Europe/Luxembourg
-    * `Europe/Madrid` - Europe/Madrid
-    * `Europe/Malta` - Europe/Malta
-    * `Europe/Mariehamn` - Europe/Mariehamn
-    * `Europe/Minsk` - Europe/Minsk
-    * `Europe/Monaco` - Europe/Monaco
-    * `Europe/Moscow` - Europe/Moscow
-    * `Europe/Nicosia` - Europe/Nicosia
-    * `Europe/Oslo` - Europe/Oslo
-    * `Europe/Paris` - Europe/Paris
-    * `Europe/Podgorica` - Europe/Podgorica
-    * `Europe/Prague` - Europe/Prague
-    * `Europe/Riga` - Europe/Riga
-    * `Europe/Rome` - Europe/Rome
-    * `Europe/Samara` - Europe/Samara
-    * `Europe/San_Marino` - Europe/San_Marino
-    * `Europe/Sarajevo` - Europe/Sarajevo
-    * `Europe/Saratov` - Europe/Saratov
-    * `Europe/Simferopol` - Europe/Simferopol
-    * `Europe/Skopje` - Europe/Skopje
-    * `Europe/Sofia` - Europe/Sofia
-    * `Europe/Stockholm` - Europe/Stockholm
-    * `Europe/Tallinn` - Europe/Tallinn
-    * `Europe/Tirane` - Europe/Tirane
-    * `Europe/Tiraspol` - Europe/Tiraspol
-    * `Europe/Ulyanovsk` - Europe/Ulyanovsk
-    * `Europe/Uzhgorod` - Europe/Uzhgorod
-    * `Europe/Vaduz` - Europe/Vaduz
-    * `Europe/Vatican` - Europe/Vatican
-    * `Europe/Vienna` - Europe/Vienna
-    * `Europe/Vilnius` - Europe/Vilnius
-    * `Europe/Volgograd` - Europe/Volgograd
-    * `Europe/Warsaw` - Europe/Warsaw
-    * `Europe/Zagreb` - Europe/Zagreb
-    * `Europe/Zaporozhye` - Europe/Zaporozhye
-    * `Europe/Zurich` - Europe/Zurich
-    * `GB` - GB
-    * `GB-Eire` - GB-Eire
-    * `GMT` - GMT
-    * `GMT+0` - GMT+0
-    * `GMT-0` - GMT-0
-    * `GMT0` - GMT0
-    * `Greenwich` - Greenwich
-    * `HST` - HST
-    * `Hongkong` - Hongkong
-    * `Iceland` - Iceland
-    * `Indian/Antananarivo` - Indian/Antananarivo
-    * `Indian/Chagos` - Indian/Chagos
-    * `Indian/Christmas` - Indian/Christmas
-    * `Indian/Cocos` - Indian/Cocos
-    * `Indian/Comoro` - Indian/Comoro
-    * `Indian/Kerguelen` - Indian/Kerguelen
-    * `Indian/Mahe` - Indian/Mahe
-    * `Indian/Maldives` - Indian/Maldives
-    * `Indian/Mauritius` - Indian/Mauritius
-    * `Indian/Mayotte` - Indian/Mayotte
-    * `Indian/Reunion` - Indian/Reunion
-    * `Iran` - Iran
-    * `Israel` - Israel
-    * `Jamaica` - Jamaica
-    * `Japan` - Japan
-    * `Kwajalein` - Kwajalein
-    * `Libya` - Libya
-    * `MET` - MET
-    * `MST` - MST
-    * `MST7MDT` - MST7MDT
-    * `Mexico/BajaNorte` - Mexico/BajaNorte
-    * `Mexico/BajaSur` - Mexico/BajaSur
-    * `Mexico/General` - Mexico/General
-    * `NZ` - NZ
-    * `NZ-CHAT` - NZ-CHAT
-    * `Navajo` - Navajo
-    * `PRC` - PRC
-    * `PST8PDT` - PST8PDT
-    * `Pacific/Apia` - Pacific/Apia
-    * `Pacific/Auckland` - Pacific/Auckland
-    * `Pacific/Bougainville` - Pacific/Bougainville
-    * `Pacific/Chatham` - Pacific/Chatham
-    * `Pacific/Chuuk` - Pacific/Chuuk
-    * `Pacific/Easter` - Pacific/Easter
-    * `Pacific/Efate` - Pacific/Efate
-    * `Pacific/Enderbury` - Pacific/Enderbury
-    * `Pacific/Fakaofo` - Pacific/Fakaofo
-    * `Pacific/Fiji` - Pacific/Fiji
-    * `Pacific/Funafuti` - Pacific/Funafuti
-    * `Pacific/Galapagos` - Pacific/Galapagos
-    * `Pacific/Gambier` - Pacific/Gambier
-    * `Pacific/Guadalcanal` - Pacific/Guadalcanal
-    * `Pacific/Guam` - Pacific/Guam
-    * `Pacific/Honolulu` - Pacific/Honolulu
-    * `Pacific/Johnston` - Pacific/Johnston
-    * `Pacific/Kanton` - Pacific/Kanton
-    * `Pacific/Kiritimati` - Pacific/Kiritimati
-    * `Pacific/Kosrae` - Pacific/Kosrae
-    * `Pacific/Kwajalein` - Pacific/Kwajalein
-    * `Pacific/Majuro` - Pacific/Majuro
-    * `Pacific/Marquesas` - Pacific/Marquesas
-    * `Pacific/Midway` - Pacific/Midway
-    * `Pacific/Nauru` - Pacific/Nauru
-    * `Pacific/Niue` - Pacific/Niue
-    * `Pacific/Norfolk` - Pacific/Norfolk
-    * `Pacific/Noumea` - Pacific/Noumea
-    * `Pacific/Pago_Pago` - Pacific/Pago_Pago
-    * `Pacific/Palau` - Pacific/Palau
-    * `Pacific/Pitcairn` - Pacific/Pitcairn
-    * `Pacific/Pohnpei` - Pacific/Pohnpei
-    * `Pacific/Ponape` - Pacific/Ponape
-    * `Pacific/Port_Moresby` - Pacific/Port_Moresby
-    * `Pacific/Rarotonga` - Pacific/Rarotonga
-    * `Pacific/Saipan` - Pacific/Saipan
-    * `Pacific/Samoa` - Pacific/Samoa
-    * `Pacific/Tahiti` - Pacific/Tahiti
-    * `Pacific/Tarawa` - Pacific/Tarawa
-    * `Pacific/Tongatapu` - Pacific/Tongatapu
-    * `Pacific/Truk` - Pacific/Truk
-    * `Pacific/Wake` - Pacific/Wake
-    * `Pacific/Wallis` - Pacific/Wallis
-    * `Pacific/Yap` - Pacific/Yap
-    * `Poland` - Poland
-    * `Portugal` - Portugal
-    * `ROC` - ROC
-    * `ROK` - ROK
-    * `Singapore` - Singapore
-    * `Turkey` - Turkey
-    * `UCT` - UCT
-    * `US/Alaska` - US/Alaska
-    * `US/Aleutian` - US/Aleutian
-    * `US/Arizona` - US/Arizona
-    * `US/Central` - US/Central
-    * `US/East-Indiana` - US/East-Indiana
-    * `US/Eastern` - US/Eastern
-    * `US/Hawaii` - US/Hawaii
-    * `US/Indiana-Starke` - US/Indiana-Starke
-    * `US/Michigan` - US/Michigan
-    * `US/Mountain` - US/Mountain
-    * `US/Pacific` - US/Pacific
-    * `US/Samoa` - US/Samoa
-    * `UTC` - UTC
-    * `Universal` - Universal
-    * `W-SU` - W-SU
-    * `WET` - WET
-    * `Zulu` - Zulu */
+      * `Africa/Abidjan` - Africa/Abidjan
+      * `Africa/Accra` - Africa/Accra
+      * `Africa/Addis_Ababa` - Africa/Addis_Ababa
+      * `Africa/Algiers` - Africa/Algiers
+      * `Africa/Asmara` - Africa/Asmara
+      * `Africa/Asmera` - Africa/Asmera
+      * `Africa/Bamako` - Africa/Bamako
+      * `Africa/Bangui` - Africa/Bangui
+      * `Africa/Banjul` - Africa/Banjul
+      * `Africa/Bissau` - Africa/Bissau
+      * `Africa/Blantyre` - Africa/Blantyre
+      * `Africa/Brazzaville` - Africa/Brazzaville
+      * `Africa/Bujumbura` - Africa/Bujumbura
+      * `Africa/Cairo` - Africa/Cairo
+      * `Africa/Casablanca` - Africa/Casablanca
+      * `Africa/Ceuta` - Africa/Ceuta
+      * `Africa/Conakry` - Africa/Conakry
+      * `Africa/Dakar` - Africa/Dakar
+      * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
+      * `Africa/Djibouti` - Africa/Djibouti
+      * `Africa/Douala` - Africa/Douala
+      * `Africa/El_Aaiun` - Africa/El_Aaiun
+      * `Africa/Freetown` - Africa/Freetown
+      * `Africa/Gaborone` - Africa/Gaborone
+      * `Africa/Harare` - Africa/Harare
+      * `Africa/Johannesburg` - Africa/Johannesburg
+      * `Africa/Juba` - Africa/Juba
+      * `Africa/Kampala` - Africa/Kampala
+      * `Africa/Khartoum` - Africa/Khartoum
+      * `Africa/Kigali` - Africa/Kigali
+      * `Africa/Kinshasa` - Africa/Kinshasa
+      * `Africa/Lagos` - Africa/Lagos
+      * `Africa/Libreville` - Africa/Libreville
+      * `Africa/Lome` - Africa/Lome
+      * `Africa/Luanda` - Africa/Luanda
+      * `Africa/Lubumbashi` - Africa/Lubumbashi
+      * `Africa/Lusaka` - Africa/Lusaka
+      * `Africa/Malabo` - Africa/Malabo
+      * `Africa/Maputo` - Africa/Maputo
+      * `Africa/Maseru` - Africa/Maseru
+      * `Africa/Mbabane` - Africa/Mbabane
+      * `Africa/Mogadishu` - Africa/Mogadishu
+      * `Africa/Monrovia` - Africa/Monrovia
+      * `Africa/Nairobi` - Africa/Nairobi
+      * `Africa/Ndjamena` - Africa/Ndjamena
+      * `Africa/Niamey` - Africa/Niamey
+      * `Africa/Nouakchott` - Africa/Nouakchott
+      * `Africa/Ouagadougou` - Africa/Ouagadougou
+      * `Africa/Porto-Novo` - Africa/Porto-Novo
+      * `Africa/Sao_Tome` - Africa/Sao_Tome
+      * `Africa/Timbuktu` - Africa/Timbuktu
+      * `Africa/Tripoli` - Africa/Tripoli
+      * `Africa/Tunis` - Africa/Tunis
+      * `Africa/Windhoek` - Africa/Windhoek
+      * `America/Adak` - America/Adak
+      * `America/Anchorage` - America/Anchorage
+      * `America/Anguilla` - America/Anguilla
+      * `America/Antigua` - America/Antigua
+      * `America/Araguaina` - America/Araguaina
+      * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
+      * `America/Argentina/Catamarca` - America/Argentina/Catamarca
+      * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
+      * `America/Argentina/Cordoba` - America/Argentina/Cordoba
+      * `America/Argentina/Jujuy` - America/Argentina/Jujuy
+      * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
+      * `America/Argentina/Mendoza` - America/Argentina/Mendoza
+      * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
+      * `America/Argentina/Salta` - America/Argentina/Salta
+      * `America/Argentina/San_Juan` - America/Argentina/San_Juan
+      * `America/Argentina/San_Luis` - America/Argentina/San_Luis
+      * `America/Argentina/Tucuman` - America/Argentina/Tucuman
+      * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
+      * `America/Aruba` - America/Aruba
+      * `America/Asuncion` - America/Asuncion
+      * `America/Atikokan` - America/Atikokan
+      * `America/Atka` - America/Atka
+      * `America/Bahia` - America/Bahia
+      * `America/Bahia_Banderas` - America/Bahia_Banderas
+      * `America/Barbados` - America/Barbados
+      * `America/Belem` - America/Belem
+      * `America/Belize` - America/Belize
+      * `America/Blanc-Sablon` - America/Blanc-Sablon
+      * `America/Boa_Vista` - America/Boa_Vista
+      * `America/Bogota` - America/Bogota
+      * `America/Boise` - America/Boise
+      * `America/Buenos_Aires` - America/Buenos_Aires
+      * `America/Cambridge_Bay` - America/Cambridge_Bay
+      * `America/Campo_Grande` - America/Campo_Grande
+      * `America/Cancun` - America/Cancun
+      * `America/Caracas` - America/Caracas
+      * `America/Catamarca` - America/Catamarca
+      * `America/Cayenne` - America/Cayenne
+      * `America/Cayman` - America/Cayman
+      * `America/Chicago` - America/Chicago
+      * `America/Chihuahua` - America/Chihuahua
+      * `America/Ciudad_Juarez` - America/Ciudad_Juarez
+      * `America/Coral_Harbour` - America/Coral_Harbour
+      * `America/Cordoba` - America/Cordoba
+      * `America/Costa_Rica` - America/Costa_Rica
+      * `America/Creston` - America/Creston
+      * `America/Cuiaba` - America/Cuiaba
+      * `America/Curacao` - America/Curacao
+      * `America/Danmarkshavn` - America/Danmarkshavn
+      * `America/Dawson` - America/Dawson
+      * `America/Dawson_Creek` - America/Dawson_Creek
+      * `America/Denver` - America/Denver
+      * `America/Detroit` - America/Detroit
+      * `America/Dominica` - America/Dominica
+      * `America/Edmonton` - America/Edmonton
+      * `America/Eirunepe` - America/Eirunepe
+      * `America/El_Salvador` - America/El_Salvador
+      * `America/Ensenada` - America/Ensenada
+      * `America/Fort_Nelson` - America/Fort_Nelson
+      * `America/Fort_Wayne` - America/Fort_Wayne
+      * `America/Fortaleza` - America/Fortaleza
+      * `America/Glace_Bay` - America/Glace_Bay
+      * `America/Godthab` - America/Godthab
+      * `America/Goose_Bay` - America/Goose_Bay
+      * `America/Grand_Turk` - America/Grand_Turk
+      * `America/Grenada` - America/Grenada
+      * `America/Guadeloupe` - America/Guadeloupe
+      * `America/Guatemala` - America/Guatemala
+      * `America/Guayaquil` - America/Guayaquil
+      * `America/Guyana` - America/Guyana
+      * `America/Halifax` - America/Halifax
+      * `America/Havana` - America/Havana
+      * `America/Hermosillo` - America/Hermosillo
+      * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
+      * `America/Indiana/Knox` - America/Indiana/Knox
+      * `America/Indiana/Marengo` - America/Indiana/Marengo
+      * `America/Indiana/Petersburg` - America/Indiana/Petersburg
+      * `America/Indiana/Tell_City` - America/Indiana/Tell_City
+      * `America/Indiana/Vevay` - America/Indiana/Vevay
+      * `America/Indiana/Vincennes` - America/Indiana/Vincennes
+      * `America/Indiana/Winamac` - America/Indiana/Winamac
+      * `America/Indianapolis` - America/Indianapolis
+      * `America/Inuvik` - America/Inuvik
+      * `America/Iqaluit` - America/Iqaluit
+      * `America/Jamaica` - America/Jamaica
+      * `America/Jujuy` - America/Jujuy
+      * `America/Juneau` - America/Juneau
+      * `America/Kentucky/Louisville` - America/Kentucky/Louisville
+      * `America/Kentucky/Monticello` - America/Kentucky/Monticello
+      * `America/Knox_IN` - America/Knox_IN
+      * `America/Kralendijk` - America/Kralendijk
+      * `America/La_Paz` - America/La_Paz
+      * `America/Lima` - America/Lima
+      * `America/Los_Angeles` - America/Los_Angeles
+      * `America/Louisville` - America/Louisville
+      * `America/Lower_Princes` - America/Lower_Princes
+      * `America/Maceio` - America/Maceio
+      * `America/Managua` - America/Managua
+      * `America/Manaus` - America/Manaus
+      * `America/Marigot` - America/Marigot
+      * `America/Martinique` - America/Martinique
+      * `America/Matamoros` - America/Matamoros
+      * `America/Mazatlan` - America/Mazatlan
+      * `America/Mendoza` - America/Mendoza
+      * `America/Menominee` - America/Menominee
+      * `America/Merida` - America/Merida
+      * `America/Metlakatla` - America/Metlakatla
+      * `America/Mexico_City` - America/Mexico_City
+      * `America/Miquelon` - America/Miquelon
+      * `America/Moncton` - America/Moncton
+      * `America/Monterrey` - America/Monterrey
+      * `America/Montevideo` - America/Montevideo
+      * `America/Montreal` - America/Montreal
+      * `America/Montserrat` - America/Montserrat
+      * `America/Nassau` - America/Nassau
+      * `America/New_York` - America/New_York
+      * `America/Nipigon` - America/Nipigon
+      * `America/Nome` - America/Nome
+      * `America/Noronha` - America/Noronha
+      * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
+      * `America/North_Dakota/Center` - America/North_Dakota/Center
+      * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
+      * `America/Nuuk` - America/Nuuk
+      * `America/Ojinaga` - America/Ojinaga
+      * `America/Panama` - America/Panama
+      * `America/Pangnirtung` - America/Pangnirtung
+      * `America/Paramaribo` - America/Paramaribo
+      * `America/Phoenix` - America/Phoenix
+      * `America/Port-au-Prince` - America/Port-au-Prince
+      * `America/Port_of_Spain` - America/Port_of_Spain
+      * `America/Porto_Acre` - America/Porto_Acre
+      * `America/Porto_Velho` - America/Porto_Velho
+      * `America/Puerto_Rico` - America/Puerto_Rico
+      * `America/Punta_Arenas` - America/Punta_Arenas
+      * `America/Rainy_River` - America/Rainy_River
+      * `America/Rankin_Inlet` - America/Rankin_Inlet
+      * `America/Recife` - America/Recife
+      * `America/Regina` - America/Regina
+      * `America/Resolute` - America/Resolute
+      * `America/Rio_Branco` - America/Rio_Branco
+      * `America/Rosario` - America/Rosario
+      * `America/Santa_Isabel` - America/Santa_Isabel
+      * `America/Santarem` - America/Santarem
+      * `America/Santiago` - America/Santiago
+      * `America/Santo_Domingo` - America/Santo_Domingo
+      * `America/Sao_Paulo` - America/Sao_Paulo
+      * `America/Scoresbysund` - America/Scoresbysund
+      * `America/Shiprock` - America/Shiprock
+      * `America/Sitka` - America/Sitka
+      * `America/St_Barthelemy` - America/St_Barthelemy
+      * `America/St_Johns` - America/St_Johns
+      * `America/St_Kitts` - America/St_Kitts
+      * `America/St_Lucia` - America/St_Lucia
+      * `America/St_Thomas` - America/St_Thomas
+      * `America/St_Vincent` - America/St_Vincent
+      * `America/Swift_Current` - America/Swift_Current
+      * `America/Tegucigalpa` - America/Tegucigalpa
+      * `America/Thule` - America/Thule
+      * `America/Thunder_Bay` - America/Thunder_Bay
+      * `America/Tijuana` - America/Tijuana
+      * `America/Toronto` - America/Toronto
+      * `America/Tortola` - America/Tortola
+      * `America/Vancouver` - America/Vancouver
+      * `America/Virgin` - America/Virgin
+      * `America/Whitehorse` - America/Whitehorse
+      * `America/Winnipeg` - America/Winnipeg
+      * `America/Yakutat` - America/Yakutat
+      * `America/Yellowknife` - America/Yellowknife
+      * `Antarctica/Casey` - Antarctica/Casey
+      * `Antarctica/Davis` - Antarctica/Davis
+      * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
+      * `Antarctica/Macquarie` - Antarctica/Macquarie
+      * `Antarctica/Mawson` - Antarctica/Mawson
+      * `Antarctica/McMurdo` - Antarctica/McMurdo
+      * `Antarctica/Palmer` - Antarctica/Palmer
+      * `Antarctica/Rothera` - Antarctica/Rothera
+      * `Antarctica/South_Pole` - Antarctica/South_Pole
+      * `Antarctica/Syowa` - Antarctica/Syowa
+      * `Antarctica/Troll` - Antarctica/Troll
+      * `Antarctica/Vostok` - Antarctica/Vostok
+      * `Arctic/Longyearbyen` - Arctic/Longyearbyen
+      * `Asia/Aden` - Asia/Aden
+      * `Asia/Almaty` - Asia/Almaty
+      * `Asia/Amman` - Asia/Amman
+      * `Asia/Anadyr` - Asia/Anadyr
+      * `Asia/Aqtau` - Asia/Aqtau
+      * `Asia/Aqtobe` - Asia/Aqtobe
+      * `Asia/Ashgabat` - Asia/Ashgabat
+      * `Asia/Ashkhabad` - Asia/Ashkhabad
+      * `Asia/Atyrau` - Asia/Atyrau
+      * `Asia/Baghdad` - Asia/Baghdad
+      * `Asia/Bahrain` - Asia/Bahrain
+      * `Asia/Baku` - Asia/Baku
+      * `Asia/Bangkok` - Asia/Bangkok
+      * `Asia/Barnaul` - Asia/Barnaul
+      * `Asia/Beirut` - Asia/Beirut
+      * `Asia/Bishkek` - Asia/Bishkek
+      * `Asia/Brunei` - Asia/Brunei
+      * `Asia/Calcutta` - Asia/Calcutta
+      * `Asia/Chita` - Asia/Chita
+      * `Asia/Choibalsan` - Asia/Choibalsan
+      * `Asia/Chongqing` - Asia/Chongqing
+      * `Asia/Chungking` - Asia/Chungking
+      * `Asia/Colombo` - Asia/Colombo
+      * `Asia/Dacca` - Asia/Dacca
+      * `Asia/Damascus` - Asia/Damascus
+      * `Asia/Dhaka` - Asia/Dhaka
+      * `Asia/Dili` - Asia/Dili
+      * `Asia/Dubai` - Asia/Dubai
+      * `Asia/Dushanbe` - Asia/Dushanbe
+      * `Asia/Famagusta` - Asia/Famagusta
+      * `Asia/Gaza` - Asia/Gaza
+      * `Asia/Harbin` - Asia/Harbin
+      * `Asia/Hebron` - Asia/Hebron
+      * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
+      * `Asia/Hong_Kong` - Asia/Hong_Kong
+      * `Asia/Hovd` - Asia/Hovd
+      * `Asia/Irkutsk` - Asia/Irkutsk
+      * `Asia/Istanbul` - Asia/Istanbul
+      * `Asia/Jakarta` - Asia/Jakarta
+      * `Asia/Jayapura` - Asia/Jayapura
+      * `Asia/Jerusalem` - Asia/Jerusalem
+      * `Asia/Kabul` - Asia/Kabul
+      * `Asia/Kamchatka` - Asia/Kamchatka
+      * `Asia/Karachi` - Asia/Karachi
+      * `Asia/Kashgar` - Asia/Kashgar
+      * `Asia/Kathmandu` - Asia/Kathmandu
+      * `Asia/Katmandu` - Asia/Katmandu
+      * `Asia/Khandyga` - Asia/Khandyga
+      * `Asia/Kolkata` - Asia/Kolkata
+      * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
+      * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
+      * `Asia/Kuching` - Asia/Kuching
+      * `Asia/Kuwait` - Asia/Kuwait
+      * `Asia/Macao` - Asia/Macao
+      * `Asia/Macau` - Asia/Macau
+      * `Asia/Magadan` - Asia/Magadan
+      * `Asia/Makassar` - Asia/Makassar
+      * `Asia/Manila` - Asia/Manila
+      * `Asia/Muscat` - Asia/Muscat
+      * `Asia/Nicosia` - Asia/Nicosia
+      * `Asia/Novokuznetsk` - Asia/Novokuznetsk
+      * `Asia/Novosibirsk` - Asia/Novosibirsk
+      * `Asia/Omsk` - Asia/Omsk
+      * `Asia/Oral` - Asia/Oral
+      * `Asia/Phnom_Penh` - Asia/Phnom_Penh
+      * `Asia/Pontianak` - Asia/Pontianak
+      * `Asia/Pyongyang` - Asia/Pyongyang
+      * `Asia/Qatar` - Asia/Qatar
+      * `Asia/Qostanay` - Asia/Qostanay
+      * `Asia/Qyzylorda` - Asia/Qyzylorda
+      * `Asia/Rangoon` - Asia/Rangoon
+      * `Asia/Riyadh` - Asia/Riyadh
+      * `Asia/Saigon` - Asia/Saigon
+      * `Asia/Sakhalin` - Asia/Sakhalin
+      * `Asia/Samarkand` - Asia/Samarkand
+      * `Asia/Seoul` - Asia/Seoul
+      * `Asia/Shanghai` - Asia/Shanghai
+      * `Asia/Singapore` - Asia/Singapore
+      * `Asia/Srednekolymsk` - Asia/Srednekolymsk
+      * `Asia/Taipei` - Asia/Taipei
+      * `Asia/Tashkent` - Asia/Tashkent
+      * `Asia/Tbilisi` - Asia/Tbilisi
+      * `Asia/Tehran` - Asia/Tehran
+      * `Asia/Tel_Aviv` - Asia/Tel_Aviv
+      * `Asia/Thimbu` - Asia/Thimbu
+      * `Asia/Thimphu` - Asia/Thimphu
+      * `Asia/Tokyo` - Asia/Tokyo
+      * `Asia/Tomsk` - Asia/Tomsk
+      * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
+      * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
+      * `Asia/Ulan_Bator` - Asia/Ulan_Bator
+      * `Asia/Urumqi` - Asia/Urumqi
+      * `Asia/Ust-Nera` - Asia/Ust-Nera
+      * `Asia/Vientiane` - Asia/Vientiane
+      * `Asia/Vladivostok` - Asia/Vladivostok
+      * `Asia/Yakutsk` - Asia/Yakutsk
+      * `Asia/Yangon` - Asia/Yangon
+      * `Asia/Yekaterinburg` - Asia/Yekaterinburg
+      * `Asia/Yerevan` - Asia/Yerevan
+      * `Atlantic/Azores` - Atlantic/Azores
+      * `Atlantic/Bermuda` - Atlantic/Bermuda
+      * `Atlantic/Canary` - Atlantic/Canary
+      * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
+      * `Atlantic/Faeroe` - Atlantic/Faeroe
+      * `Atlantic/Faroe` - Atlantic/Faroe
+      * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
+      * `Atlantic/Madeira` - Atlantic/Madeira
+      * `Atlantic/Reykjavik` - Atlantic/Reykjavik
+      * `Atlantic/South_Georgia` - Atlantic/South_Georgia
+      * `Atlantic/St_Helena` - Atlantic/St_Helena
+      * `Atlantic/Stanley` - Atlantic/Stanley
+      * `Australia/ACT` - Australia/ACT
+      * `Australia/Adelaide` - Australia/Adelaide
+      * `Australia/Brisbane` - Australia/Brisbane
+      * `Australia/Broken_Hill` - Australia/Broken_Hill
+      * `Australia/Canberra` - Australia/Canberra
+      * `Australia/Currie` - Australia/Currie
+      * `Australia/Darwin` - Australia/Darwin
+      * `Australia/Eucla` - Australia/Eucla
+      * `Australia/Hobart` - Australia/Hobart
+      * `Australia/LHI` - Australia/LHI
+      * `Australia/Lindeman` - Australia/Lindeman
+      * `Australia/Lord_Howe` - Australia/Lord_Howe
+      * `Australia/Melbourne` - Australia/Melbourne
+      * `Australia/NSW` - Australia/NSW
+      * `Australia/North` - Australia/North
+      * `Australia/Perth` - Australia/Perth
+      * `Australia/Queensland` - Australia/Queensland
+      * `Australia/South` - Australia/South
+      * `Australia/Sydney` - Australia/Sydney
+      * `Australia/Tasmania` - Australia/Tasmania
+      * `Australia/Victoria` - Australia/Victoria
+      * `Australia/West` - Australia/West
+      * `Australia/Yancowinna` - Australia/Yancowinna
+      * `Brazil/Acre` - Brazil/Acre
+      * `Brazil/DeNoronha` - Brazil/DeNoronha
+      * `Brazil/East` - Brazil/East
+      * `Brazil/West` - Brazil/West
+      * `CET` - CET
+      * `CST6CDT` - CST6CDT
+      * `Canada/Atlantic` - Canada/Atlantic
+      * `Canada/Central` - Canada/Central
+      * `Canada/Eastern` - Canada/Eastern
+      * `Canada/Mountain` - Canada/Mountain
+      * `Canada/Newfoundland` - Canada/Newfoundland
+      * `Canada/Pacific` - Canada/Pacific
+      * `Canada/Saskatchewan` - Canada/Saskatchewan
+      * `Canada/Yukon` - Canada/Yukon
+      * `Chile/Continental` - Chile/Continental
+      * `Chile/EasterIsland` - Chile/EasterIsland
+      * `Cuba` - Cuba
+      * `EET` - EET
+      * `EST` - EST
+      * `EST5EDT` - EST5EDT
+      * `Egypt` - Egypt
+      * `Eire` - Eire
+      * `Etc/GMT` - Etc/GMT
+      * `Etc/GMT+0` - Etc/GMT+0
+      * `Etc/GMT+1` - Etc/GMT+1
+      * `Etc/GMT+10` - Etc/GMT+10
+      * `Etc/GMT+11` - Etc/GMT+11
+      * `Etc/GMT+12` - Etc/GMT+12
+      * `Etc/GMT+2` - Etc/GMT+2
+      * `Etc/GMT+3` - Etc/GMT+3
+      * `Etc/GMT+4` - Etc/GMT+4
+      * `Etc/GMT+5` - Etc/GMT+5
+      * `Etc/GMT+6` - Etc/GMT+6
+      * `Etc/GMT+7` - Etc/GMT+7
+      * `Etc/GMT+8` - Etc/GMT+8
+      * `Etc/GMT+9` - Etc/GMT+9
+      * `Etc/GMT-0` - Etc/GMT-0
+      * `Etc/GMT-1` - Etc/GMT-1
+      * `Etc/GMT-10` - Etc/GMT-10
+      * `Etc/GMT-11` - Etc/GMT-11
+      * `Etc/GMT-12` - Etc/GMT-12
+      * `Etc/GMT-13` - Etc/GMT-13
+      * `Etc/GMT-14` - Etc/GMT-14
+      * `Etc/GMT-2` - Etc/GMT-2
+      * `Etc/GMT-3` - Etc/GMT-3
+      * `Etc/GMT-4` - Etc/GMT-4
+      * `Etc/GMT-5` - Etc/GMT-5
+      * `Etc/GMT-6` - Etc/GMT-6
+      * `Etc/GMT-7` - Etc/GMT-7
+      * `Etc/GMT-8` - Etc/GMT-8
+      * `Etc/GMT-9` - Etc/GMT-9
+      * `Etc/GMT0` - Etc/GMT0
+      * `Etc/Greenwich` - Etc/Greenwich
+      * `Etc/UCT` - Etc/UCT
+      * `Etc/UTC` - Etc/UTC
+      * `Etc/Universal` - Etc/Universal
+      * `Etc/Zulu` - Etc/Zulu
+      * `Europe/Amsterdam` - Europe/Amsterdam
+      * `Europe/Andorra` - Europe/Andorra
+      * `Europe/Astrakhan` - Europe/Astrakhan
+      * `Europe/Athens` - Europe/Athens
+      * `Europe/Belfast` - Europe/Belfast
+      * `Europe/Belgrade` - Europe/Belgrade
+      * `Europe/Berlin` - Europe/Berlin
+      * `Europe/Bratislava` - Europe/Bratislava
+      * `Europe/Brussels` - Europe/Brussels
+      * `Europe/Bucharest` - Europe/Bucharest
+      * `Europe/Budapest` - Europe/Budapest
+      * `Europe/Busingen` - Europe/Busingen
+      * `Europe/Chisinau` - Europe/Chisinau
+      * `Europe/Copenhagen` - Europe/Copenhagen
+      * `Europe/Dublin` - Europe/Dublin
+      * `Europe/Gibraltar` - Europe/Gibraltar
+      * `Europe/Guernsey` - Europe/Guernsey
+      * `Europe/Helsinki` - Europe/Helsinki
+      * `Europe/Isle_of_Man` - Europe/Isle_of_Man
+      * `Europe/Istanbul` - Europe/Istanbul
+      * `Europe/Jersey` - Europe/Jersey
+      * `Europe/Kaliningrad` - Europe/Kaliningrad
+      * `Europe/Kiev` - Europe/Kiev
+      * `Europe/Kirov` - Europe/Kirov
+      * `Europe/Kyiv` - Europe/Kyiv
+      * `Europe/Lisbon` - Europe/Lisbon
+      * `Europe/Ljubljana` - Europe/Ljubljana
+      * `Europe/London` - Europe/London
+      * `Europe/Luxembourg` - Europe/Luxembourg
+      * `Europe/Madrid` - Europe/Madrid
+      * `Europe/Malta` - Europe/Malta
+      * `Europe/Mariehamn` - Europe/Mariehamn
+      * `Europe/Minsk` - Europe/Minsk
+      * `Europe/Monaco` - Europe/Monaco
+      * `Europe/Moscow` - Europe/Moscow
+      * `Europe/Nicosia` - Europe/Nicosia
+      * `Europe/Oslo` - Europe/Oslo
+      * `Europe/Paris` - Europe/Paris
+      * `Europe/Podgorica` - Europe/Podgorica
+      * `Europe/Prague` - Europe/Prague
+      * `Europe/Riga` - Europe/Riga
+      * `Europe/Rome` - Europe/Rome
+      * `Europe/Samara` - Europe/Samara
+      * `Europe/San_Marino` - Europe/San_Marino
+      * `Europe/Sarajevo` - Europe/Sarajevo
+      * `Europe/Saratov` - Europe/Saratov
+      * `Europe/Simferopol` - Europe/Simferopol
+      * `Europe/Skopje` - Europe/Skopje
+      * `Europe/Sofia` - Europe/Sofia
+      * `Europe/Stockholm` - Europe/Stockholm
+      * `Europe/Tallinn` - Europe/Tallinn
+      * `Europe/Tirane` - Europe/Tirane
+      * `Europe/Tiraspol` - Europe/Tiraspol
+      * `Europe/Ulyanovsk` - Europe/Ulyanovsk
+      * `Europe/Uzhgorod` - Europe/Uzhgorod
+      * `Europe/Vaduz` - Europe/Vaduz
+      * `Europe/Vatican` - Europe/Vatican
+      * `Europe/Vienna` - Europe/Vienna
+      * `Europe/Vilnius` - Europe/Vilnius
+      * `Europe/Volgograd` - Europe/Volgograd
+      * `Europe/Warsaw` - Europe/Warsaw
+      * `Europe/Zagreb` - Europe/Zagreb
+      * `Europe/Zaporozhye` - Europe/Zaporozhye
+      * `Europe/Zurich` - Europe/Zurich
+      * `GB` - GB
+      * `GB-Eire` - GB-Eire
+      * `GMT` - GMT
+      * `GMT+0` - GMT+0
+      * `GMT-0` - GMT-0
+      * `GMT0` - GMT0
+      * `Greenwich` - Greenwich
+      * `HST` - HST
+      * `Hongkong` - Hongkong
+      * `Iceland` - Iceland
+      * `Indian/Antananarivo` - Indian/Antananarivo
+      * `Indian/Chagos` - Indian/Chagos
+      * `Indian/Christmas` - Indian/Christmas
+      * `Indian/Cocos` - Indian/Cocos
+      * `Indian/Comoro` - Indian/Comoro
+      * `Indian/Kerguelen` - Indian/Kerguelen
+      * `Indian/Mahe` - Indian/Mahe
+      * `Indian/Maldives` - Indian/Maldives
+      * `Indian/Mauritius` - Indian/Mauritius
+      * `Indian/Mayotte` - Indian/Mayotte
+      * `Indian/Reunion` - Indian/Reunion
+      * `Iran` - Iran
+      * `Israel` - Israel
+      * `Jamaica` - Jamaica
+      * `Japan` - Japan
+      * `Kwajalein` - Kwajalein
+      * `Libya` - Libya
+      * `MET` - MET
+      * `MST` - MST
+      * `MST7MDT` - MST7MDT
+      * `Mexico/BajaNorte` - Mexico/BajaNorte
+      * `Mexico/BajaSur` - Mexico/BajaSur
+      * `Mexico/General` - Mexico/General
+      * `NZ` - NZ
+      * `NZ-CHAT` - NZ-CHAT
+      * `Navajo` - Navajo
+      * `PRC` - PRC
+      * `PST8PDT` - PST8PDT
+      * `Pacific/Apia` - Pacific/Apia
+      * `Pacific/Auckland` - Pacific/Auckland
+      * `Pacific/Bougainville` - Pacific/Bougainville
+      * `Pacific/Chatham` - Pacific/Chatham
+      * `Pacific/Chuuk` - Pacific/Chuuk
+      * `Pacific/Easter` - Pacific/Easter
+      * `Pacific/Efate` - Pacific/Efate
+      * `Pacific/Enderbury` - Pacific/Enderbury
+      * `Pacific/Fakaofo` - Pacific/Fakaofo
+      * `Pacific/Fiji` - Pacific/Fiji
+      * `Pacific/Funafuti` - Pacific/Funafuti
+      * `Pacific/Galapagos` - Pacific/Galapagos
+      * `Pacific/Gambier` - Pacific/Gambier
+      * `Pacific/Guadalcanal` - Pacific/Guadalcanal
+      * `Pacific/Guam` - Pacific/Guam
+      * `Pacific/Honolulu` - Pacific/Honolulu
+      * `Pacific/Johnston` - Pacific/Johnston
+      * `Pacific/Kanton` - Pacific/Kanton
+      * `Pacific/Kiritimati` - Pacific/Kiritimati
+      * `Pacific/Kosrae` - Pacific/Kosrae
+      * `Pacific/Kwajalein` - Pacific/Kwajalein
+      * `Pacific/Majuro` - Pacific/Majuro
+      * `Pacific/Marquesas` - Pacific/Marquesas
+      * `Pacific/Midway` - Pacific/Midway
+      * `Pacific/Nauru` - Pacific/Nauru
+      * `Pacific/Niue` - Pacific/Niue
+      * `Pacific/Norfolk` - Pacific/Norfolk
+      * `Pacific/Noumea` - Pacific/Noumea
+      * `Pacific/Pago_Pago` - Pacific/Pago_Pago
+      * `Pacific/Palau` - Pacific/Palau
+      * `Pacific/Pitcairn` - Pacific/Pitcairn
+      * `Pacific/Pohnpei` - Pacific/Pohnpei
+      * `Pacific/Ponape` - Pacific/Ponape
+      * `Pacific/Port_Moresby` - Pacific/Port_Moresby
+      * `Pacific/Rarotonga` - Pacific/Rarotonga
+      * `Pacific/Saipan` - Pacific/Saipan
+      * `Pacific/Samoa` - Pacific/Samoa
+      * `Pacific/Tahiti` - Pacific/Tahiti
+      * `Pacific/Tarawa` - Pacific/Tarawa
+      * `Pacific/Tongatapu` - Pacific/Tongatapu
+      * `Pacific/Truk` - Pacific/Truk
+      * `Pacific/Wake` - Pacific/Wake
+      * `Pacific/Wallis` - Pacific/Wallis
+      * `Pacific/Yap` - Pacific/Yap
+      * `Poland` - Poland
+      * `Portugal` - Portugal
+      * `ROC` - ROC
+      * `ROK` - ROK
+      * `Singapore` - Singapore
+      * `Turkey` - Turkey
+      * `UCT` - UCT
+      * `US/Alaska` - US/Alaska
+      * `US/Aleutian` - US/Aleutian
+      * `US/Arizona` - US/Arizona
+      * `US/Central` - US/Central
+      * `US/East-Indiana` - US/East-Indiana
+      * `US/Eastern` - US/Eastern
+      * `US/Hawaii` - US/Hawaii
+      * `US/Indiana-Starke` - US/Indiana-Starke
+      * `US/Michigan` - US/Michigan
+      * `US/Mountain` - US/Mountain
+      * `US/Pacific` - US/Pacific
+      * `US/Samoa` - US/Samoa
+      * `UTC` - UTC
+      * `Universal` - Universal
+      * `W-SU` - W-SU
+      * `WET` - WET
+      * `Zulu` - Zulu */
       timezone?: string;
       /** Element attributes that posthog-js should capture as action identifiers (e.g. `['data-attr']`). */
       data_attributes?: unknown;
       /**
-       * Ordered list of person properties used to render a human-friendly display name in the UI.
-       * @nullable
-       */
+         * Ordered list of person properties used to render a human-friendly display name in the UI.
+         * @nullable
+         */
       person_display_name_properties?: string[] | null;
       correlation_config?: unknown;
       /**
-       * Disables posthog-js autocapture (clicks, page views) when true.
-       * @nullable
-       */
+         * Disables posthog-js autocapture (clicks, page views) when true.
+         * @nullable
+         */
       autocapture_opt_out?: boolean | null;
       /**
-       * Enables automatic capture of JavaScript exceptions via the SDK.
-       * @nullable
-       */
+         * Enables automatic capture of JavaScript exceptions via the SDK.
+         * @nullable
+         */
       autocapture_exceptions_opt_in?: boolean | null;
       /**
-       * Enables automatic capture of Core Web Vitals performance metrics.
-       * @nullable
-       */
+         * Enables automatic capture of Core Web Vitals performance metrics.
+         * @nullable
+         */
       autocapture_web_vitals_opt_in?: boolean | null;
       autocapture_web_vitals_allowed_metrics?: unknown;
       autocapture_exceptions_errors_to_ignore?: unknown;
       /**
-       * Enables capturing browser console logs alongside session replays.
-       * @nullable
-       */
+         * Enables capturing browser console logs alongside session replays.
+         * @nullable
+         */
       capture_console_log_opt_in?: boolean | null;
       /**
-       * Enables capturing performance timing and network requests.
-       * @nullable
-       */
+         * Enables capturing performance timing and network requests.
+         * @nullable
+         */
       capture_performance_opt_in?: boolean | null;
       /** Enables session replay recording for this project. */
       session_recording_opt_in?: boolean;
       /**
-       * Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
+         * Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).
+         * @nullable
+         * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+         */
       session_recording_sample_rate?: string | null;
       /**
-       * Skip saving sessions shorter than this many milliseconds.
-       * @minimum 0
-       * @maximum 30000
-       * @nullable
-       */
+         * Skip saving sessions shorter than this many milliseconds.
+         * @minimum 0
+         * @maximum 30000
+         * @nullable
+         */
       session_recording_minimum_duration_milliseconds?: number | null;
       session_recording_linked_flag?: unknown;
       session_recording_network_payload_capture_config?: unknown;
@@ -29378,38 +29399,38 @@ export namespace Schemas {
       /** @nullable */
       session_recording_event_trigger_config?: (string | null)[] | null;
       /**
-       * @maxLength 24
-       * @nullable
-       */
+         * @maxLength 24
+         * @nullable
+         */
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
       session_recording_trigger_groups?: unknown;
       /** How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).
 
-    * `30d` - 30 Days
-    * `90d` - 90 Days
-    * `1y` - 1 Year
-    * `5y` - 5 Years */
+      * `30d` - 30 Days
+      * `90d` - 90 Days
+      * `1y` - 1 Year
+      * `5y` - 5 Years */
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown;
       survey_config?: unknown;
       access_control?: boolean;
       /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
-    * `0` - Sunday
-    * `1` - Monday */
+      * `0` - Sunday
+      * `1` - Monday */
       week_start_day?: WeekStartDayEnum | null;
       /**
-       * ID of the dashboard shown as the project's default landing dashboard.
-       * @nullable
-       */
+         * ID of the dashboard shown as the project's default landing dashboard.
+         * @nullable
+         */
       primary_dashboard?: number | null;
       /** @nullable */
       live_events_columns?: string[] | null;
       /**
-       * Origins permitted to record session replays and heatmaps. Empty list allows all origins.
-       * @nullable
-       */
+         * Origins permitted to record session replays and heatmaps. Empty list allows all origins.
+         * @nullable
+         */
       recording_domains?: (string | null)[] | null;
       readonly person_on_events_querying_enabled: boolean;
       /** @nullable */
@@ -29419,20 +29440,20 @@ export namespace Schemas {
       readonly default_modifiers: ProjectBackwardCompatDefaultModifiers;
       has_completed_onboarding_for?: unknown;
       /**
-       * Enables displaying surveys via posthog-js on allowed origins.
-       * @nullable
-       */
+         * Enables displaying surveys via posthog-js on allowed origins.
+         * @nullable
+         */
       surveys_opt_in?: boolean | null;
       /**
-       * Enables heatmap recording on pages that host posthog-js.
-       * @nullable
-       */
+         * Enables heatmap recording on pages that host posthog-js.
+         * @nullable
+         */
       heatmaps_opt_in?: boolean | null;
       readonly product_intents: readonly ProjectBackwardCompatProductIntentsItem[];
       /**
-       * Default value for the `persist` option on newly created feature flags.
-       * @nullable
-       */
+         * Default value for the `persist` option on newly created feature flags.
+         * @nullable
+         */
       flags_persistence_default?: boolean | null;
       /** @nullable */
       readonly secret_api_token: string | null;
@@ -29442,14 +29463,14 @@ export namespace Schemas {
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
 
-    * `b2b` - B2B
-    * `b2c` - B2C
-    * `other` - Other */
+      * `b2b` - B2B
+      * `b2c` - B2C
+      * `other` - Other */
       business_model?: BusinessModelEnum | BlankEnum | null;
       /**
-       * Enables the customer conversations / live chat product for this project.
-       * @nullable
-       */
+         * Enables the customer conversations / live chat product for this project.
+         * @nullable
+         */
       conversations_enabled?: boolean | null;
       conversations_settings?: unknown;
       logs_settings?: unknown;
@@ -29500,59 +29521,60 @@ export namespace Schemas {
       NotIn: 'not_in',
     } as const;
 
+    export const PropertyItemType = {...PropertyFilterTypeEnum,...BlankEnum,} as const
     export interface PropertyItem {
       /** Key of the property you're filtering on. For example `email` or `$current_url` */
       key: string;
       /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
       value: string | number | boolean | (string | number)[];
       operator?: PropertyItemOperatorEnum | BlankEnum | null;
-      type?: PropertyFilterTypeEnum | BlankEnum;
+      type?: typeof PropertyItemType[keyof typeof PropertyItemType];
     }
 
     export interface Property {
-      /** 
-     You can use a simplified version:
-    ```json
-    {
-        "properties": [
-            {
-                "key": "email",
-                "value": "x@y.com",
-                "operator": "exact",
-                "type": "event"
-            }
-        ]
-    }
-    ```
+      /**
+       You can use a simplified version:
+      ```json
+      {
+          "properties": [
+              {
+                  "key": "email",
+                  "value": "x@y.com",
+                  "operator": "exact",
+                  "type": "event"
+              }
+          ]
+      }
+      ```
 
-    Or you can create more complicated queries with AND and OR:
-    ```json
-    {
-        "properties": {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "OR",
-                    "values": [
-                        {"key": "email", ...},
-                        {"key": "email", ...}
-                    ]
-                },
-                {
-                    "type": "AND",
-                    "values": [
-                        {"key": "email", ...},
-                        {"key": "email", ...}
-                    ]
-                }
-            ]
-        ]
-    }
-    ```
+      Or you can create more complicated queries with AND and OR:
+      ```json
+      {
+          "properties": {
+              "type": "AND",
+              "values": [
+                  {
+                      "type": "OR",
+                      "values": [
+                          {"key": "email", ...},
+                          {"key": "email", ...}
+                      ]
+                  },
+                  {
+                      "type": "AND",
+                      "values": [
+                          {"key": "email", ...},
+                          {"key": "email", ...}
+                      ]
+                  }
+              ]
+          ]
+      }
+      ```
 
 
-    * `AND` - AND
-    * `OR` - OR */
+      * `AND` - AND
+      * `OR` - OR */
       type?: PropertyGroupOperator;
       values: PropertyItem[];
     }
@@ -29642,18 +29664,18 @@ export namespace Schemas {
       readonly target_cname: string;
       /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
 
-    * `waiting` - Waiting
-    * `issuing` - Issuing
-    * `valid` - Valid
-    * `warning` - Warning
-    * `erroring` - Erroring
-    * `deleting` - Deleting
-    * `timed_out` - Timed Out */
+      * `waiting` - Waiting
+      * `issuing` - Issuing
+      * `valid` - Valid
+      * `warning` - Warning
+      * `erroring` - Erroring
+      * `deleting` - Deleting
+      * `timed_out` - Timed Out */
       readonly status: ProxyRecordStatusEnum;
       /**
-       * Human-readable status message with details about errors or warnings, if any.
-       * @nullable
-       */
+         * Human-readable status message with details about errors or warnings, if any.
+         * @nullable
+         */
       readonly message: string | null;
       /** When this proxy record was created. */
       readonly created_at: string;
@@ -29834,23 +29856,23 @@ export namespace Schemas {
       name?: string | null;
       /** Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.
 
-    Example payload:
+      Example payload:
 
-    ```
+      ```
 
-    {"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}
+      {"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}
 
-    ```
+      ```
 
-    For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
+      For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
-    - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
-    - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
-    - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
-    - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
-    - `'force_async'` - kick off background calculation, even if fresh results are already cached
-    - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field. */
+      - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+      - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+      - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+      - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+      - `'force_async'` - kick off background calculation, even if fresh results are already cached
+      - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field. */
       refresh?: RefreshType | null;
       variables_override?: QueryRequestVariablesOverride;
     }
@@ -30166,6 +30188,8 @@ export namespace Schemas {
 
     export type QueryResponseAlternative20CredibleIntervals = {[key: string]: number[]} | null;
 
+    export type QueryResponseAlternative20Insight = { [key: string]: unknown }[] | null;
+
     export type QueryResponseAlternative20Probability = {[key: string]: number} | null;
 
     export interface QueryResponseAlternative20 {
@@ -30175,7 +30199,7 @@ export namespace Schemas {
       clickhouse_sql?: string | null;
       credible_intervals?: QueryResponseAlternative20CredibleIntervals;
       hogql?: string | null;
-      insight?: undefinedItem[] | null;
+      insight?: QueryResponseAlternative20Insight;
       /** Whether exposures were served from the precomputation system */
       is_precomputed?: boolean | null;
       kind?: 'ExperimentQuery';
@@ -30296,9 +30320,9 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
-       * @minItems 1
-       * @maxItems 1
-       */
+         * @minItems 1
+         * @maxItems 1
+         */
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
@@ -30670,9 +30694,9 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
-       * @minItems 1
-       * @maxItems 1
-       */
+         * @minItems 1
+         * @maxItems 1
+         */
       results: WebVitalsPathBreakdownResult[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
@@ -31417,9 +31441,9 @@ export namespace Schemas {
 
     export interface ReorderTilesRequest {
       /**
-       * Array of tile IDs in the desired display order (top to bottom, left to right).
-       * @minItems 1
-       */
+         * Array of tile IDs in the desired display order (top to bottom, left to right).
+         * @minItems 1
+         */
       tile_order: number[];
     }
 
@@ -31472,9 +31496,9 @@ export namespace Schemas {
 
     export interface ReviewQueueCreate {
       /**
-       * Human-readable queue name.
-       * @maxLength 255
-       */
+         * Human-readable queue name.
+         * @maxLength 255
+         */
       name: string;
     }
 
@@ -31482,9 +31506,9 @@ export namespace Schemas {
       /** Review queue ID that should own this pending trace. */
       queue_id: string;
       /**
-       * Trace ID to add to the selected review queue.
-       * @maxLength 255
-       */
+         * Trace ID to add to the selected review queue.
+         * @maxLength 255
+         */
       trace_id: string;
     }
 
@@ -31545,20 +31569,20 @@ export namespace Schemas {
 
     export interface ScoreDefinitionCreate {
       /**
-       * Human-readable scorer name.
-       * @maxLength 255
-       */
+         * Human-readable scorer name.
+         * @maxLength 255
+         */
       name: string;
       /**
-       * Optional human-readable description.
-       * @nullable
-       */
+         * Optional human-readable description.
+         * @nullable
+         */
       description?: string | null;
       /** Scorer kind. This cannot be changed after creation.
 
-    * `categorical` - categorical
-    * `numeric` - numeric
-    * `boolean` - boolean */
+      * `categorical` - categorical
+      * `numeric` - numeric
+      * `boolean` - boolean */
       kind: ExperimentMetricKindEnum;
       /** New scorers are always created as active. */
       archived?: boolean;
@@ -31593,19 +31617,19 @@ export namespace Schemas {
       /** Timestamp of the most recent event seen for this version (ISO 8601). */
       max_timestamp: string;
       /**
-       * When this version was published on GitHub (ISO 8601), or null if unknown.
-       * @nullable
-       */
+         * When this version was published on GitHub (ISO 8601), or null if unknown.
+         * @nullable
+         */
       release_date: string | null;
       /**
-       * Days since this version was released, or null if unknown.
-       * @nullable
-       */
+         * Days since this version was released, or null if unknown.
+         * @nullable
+         */
       days_since_release: number | null;
       /**
-       * Human-readable relative release age matching the UI (e.g. '5 months ago'). Null when release_date is unknown.
-       * @nullable
-       */
+         * Human-readable relative release age matching the UI (e.g. '5 months ago'). Null when release_date is unknown.
+         * @nullable
+         */
       released_ago: string | null;
       /** True when this version is flagged as outdated by smart-semver rules. */
       is_outdated: boolean;
@@ -31638,9 +31662,9 @@ export namespace Schemas {
       is_old: boolean;
       /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
 
-    * `none` - none
-    * `warning` - warning
-    * `danger` - danger */
+      * `none` - none
+      * `warning` - warning
+      * `danger` - danger */
       severity: SdkAssessmentSeverityEnum;
       /** Per-SDK programmatic summary (used for ranking/filtering). For user-facing copy, prefer releases[].status_reason (badge tooltip) and banners (top-level alert text) — those match the UI exactly. */
       reason: string;
@@ -31655,14 +31679,14 @@ export namespace Schemas {
     export interface SdkHealthReport {
       /** 'healthy' when no SDKs need updating, 'needs_attention' otherwise.
 
-    * `healthy` - healthy
-    * `needs_attention` - needs_attention */
+      * `healthy` - healthy
+      * `needs_attention` - needs_attention */
       overall_health: OverallHealthEnum;
       /** UI-level status — 'success' when healthy, 'warning' when some SDKs are outdated, 'danger' when the majority are outdated.
 
-    * `success` - success
-    * `warning` - warning
-    * `danger` - danger */
+      * `success` - success
+      * `warning` - warning
+      * `danger` - danger */
       health: HealthEnum;
       /** Number of SDKs that need updating. */
       needs_updating_count: number;
@@ -31719,27 +31743,27 @@ export namespace Schemas {
 
     export interface SentimentRequest {
       /**
-       * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
-       * @minItems 1
-       * @maxItems 5
-       */
+         * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
+         * @minItems 1
+         * @maxItems 5
+         */
       ids: string[];
       /** Whether the IDs are 'trace' IDs or 'generation' IDs.
 
-    * `trace` - trace
-    * `generation` - generation */
+      * `trace` - trace
+      * `generation` - generation */
       analysis_level?: SentimentRequestAnalysisLevelEnum;
       /** If true, bypass cache and reclassify. */
       force_refresh?: boolean;
       /**
-       * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
-       * @nullable
-       */
+         * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+         * @nullable
+         */
       date_from?: string | null;
       /**
-       * End of date range for the lookup. Defaults to now.
-       * @nullable
-       */
+         * End of date range for the lookup. Defaults to now.
+         * @nullable
+         */
       date_to?: string | null;
     }
 
@@ -31762,23 +31786,23 @@ export namespace Schemas {
 
     export interface SessionSummaries {
       /**
-       * List of session IDs to summarize (max 300)
-       * @minItems 1
-       * @maxItems 300
-       */
+         * List of session IDs to summarize (max 300)
+         * @minItems 1
+         * @maxItems 300
+         */
       session_ids: string[];
       /**
-       * Optional focus area for the summarization
-       * @maxLength 500
-       */
+         * Optional focus area for the summarization
+         * @maxLength 500
+         */
       focus_area?: string;
     }
 
     export interface SessionSummariesConfig {
       /**
-       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
-       * @maxLength 10000
-       */
+         * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+         * @maxLength 10000
+         */
       product_context?: string;
     }
 
@@ -31806,9 +31830,9 @@ export namespace Schemas {
       readonly id: number;
       readonly created_at: string;
       /**
-       * @maxLength 100
-       * @nullable
-       */
+         * @maxLength 100
+         * @nullable
+         */
       note?: string | null;
       readonly created_by_email: string;
       readonly is_active: boolean;
@@ -31827,16 +31851,16 @@ export namespace Schemas {
     export interface ShipVariant {
       /** The conclusion of the experiment.
 
-    * `won` - won
-    * `lost` - lost
-    * `inconclusive` - inconclusive
-    * `stopped_early` - stopped_early
-    * `invalid` - invalid */
+      * `won` - won
+      * `lost` - lost
+      * `inconclusive` - inconclusive
+      * `stopped_early` - stopped_early
+      * `invalid` - invalid */
       conclusion?: ConclusionEnum | null;
       /**
-       * Optional comment about the experiment conclusion.
-       * @nullable
-       */
+         * Optional comment about the experiment conclusion.
+         * @nullable
+         */
       conclusion_comment?: string | null;
       /** The key of the variant to ship to 100% of users. */
       variant_key: string;
@@ -31877,9 +31901,9 @@ export namespace Schemas {
       /** Slack channels visible to the PostHog Slack app. */
       channels: SlackChannel[];
       /**
-       * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
-       * @nullable
-       */
+         * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
+         * @nullable
+         */
       lastRefreshedAt?: string | null;
     }
 
@@ -31949,36 +31973,36 @@ export namespace Schemas {
     export interface SummarizeRequest {
       /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
 
-    * `trace` - trace
-    * `event` - event */
+      * `trace` - trace
+      * `event` - event */
       summarize_type?: SummarizeTypeEnum;
       /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
-    * `minimal` - minimal
-    * `detailed` - detailed */
+      * `minimal` - minimal
+      * `detailed` - detailed */
       mode?: DetailModeValueEnum;
       /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
       data?: unknown;
       /** Force regenerate summary, bypassing cache */
       force_refresh?: boolean;
       /**
-       * LLM model to use (defaults based on provider)
-       * @nullable
-       */
+         * LLM model to use (defaults based on provider)
+         * @nullable
+         */
       model?: string | null;
       /** Trace ID to summarize. The backend fetches the trace data automatically. Requires date_from for efficient lookup. */
       trace_id?: string;
       /** Generation event UUID to summarize. The backend fetches the event data automatically. Requires date_from for efficient lookup. */
       generation_id?: string;
       /**
-       * Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
-       * @nullable
-       */
+         * Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+         * @nullable
+         */
       date_from?: string | null;
       /**
-       * End of date range for ID-based lookup. Defaults to now.
-       * @nullable
-       */
+         * End of date range for ID-based lookup. Defaults to now.
+         * @nullable
+         */
       date_to?: string | null;
     }
 
@@ -32027,118 +32051,118 @@ export namespace Schemas {
       targeting_flag_filters?: unknown;
       /** @nullable */
       remove_targeting_flag?: boolean | null;
-      /** 
-            The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
+      /**
+              The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
-            Basic (open-ended question)
-            - `id`: The question ID
-            - `type`: `open`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Basic (open-ended question)
+              - `id`: The question ID
+              - `type`: `open`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Link (a question with a link)
-            - `id`: The question ID
-            - `type`: `link`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `link`: The URL associated with the question.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Link (a question with a link)
+              - `id`: The question ID
+              - `type`: `link`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `link`: The URL associated with the question.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Rating (a question with a rating scale)
-            - `id`: The question ID
-            - `type`: `rating`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `display`: Display style of the rating (`number` or `emoji`).
-            - `scale`: The scale of the rating (`number`).
-            - `lowerBoundLabel`: Label for the lower bound of the scale.
-            - `upperBoundLabel`: Label for the upper bound of the scale.
-            - `isNpsQuestion`: Whether the question is an NPS rating.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Rating (a question with a rating scale)
+              - `id`: The question ID
+              - `type`: `rating`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `display`: Display style of the rating (`number` or `emoji`).
+              - `scale`: The scale of the rating (`number`).
+              - `lowerBoundLabel`: Label for the lower bound of the scale.
+              - `upperBoundLabel`: Label for the upper bound of the scale.
+              - `isNpsQuestion`: Whether the question is an NPS rating.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Multiple choice
-            - `id`: The question ID
-            - `type`: `single_choice` or `multiple_choice`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `choices`: An array of choices for the question.
-            - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
-            - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Multiple choice
+              - `id`: The question ID
+              - `type`: `single_choice` or `multiple_choice`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `choices`: An array of choices for the question.
+              - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+              - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Branching logic can be one of the following types:
+              Branching logic can be one of the following types:
 
-            Next question: Proceeds to the next question
-            ```json
-            {
-                "type": "next_question"
-            }
-            ```
+              Next question: Proceeds to the next question
+              ```json
+              {
+                  "type": "next_question"
+              }
+              ```
 
-            End: Ends the survey, optionally displaying a confirmation message.
-            ```json
-            {
-                "type": "end"
-            }
-            ```
+              End: Ends the survey, optionally displaying a confirmation message.
+              ```json
+              {
+                  "type": "end"
+              }
+              ```
 
-            Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
-            ```json
-            {
-                "type": "response_based",
-                "responseValues": {
-                    "responseKey": "value"
-                }
-            }
-            ```
+              Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+              ```json
+              {
+                  "type": "response_based",
+                  "responseValues": {
+                      "responseKey": "value"
+                  }
+              }
+              ```
 
-            Specific question: Proceeds to a specific question by index.
-            ```json
-            {
-                "type": "specific_question",
-                "index": 2
-            }
-            ```
+              Specific question: Proceeds to a specific question by index.
+              ```json
+              {
+                  "type": "specific_question",
+                  "index": 2
+              }
+              ```
 
-            Translations: Each question can include inline translations.
-            - `translations`: Object mapping language codes to translated fields.
-            - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
-            - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+              Translations: Each question can include inline translations.
+              - `translations`: Object mapping language codes to translated fields.
+              - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+              - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
-            Example with translations:
-            ```json
-            {
-                "id": "uuid",
-                "type": "rating",
-                "question": "How satisfied are you?",
-                "lowerBoundLabel": "Not satisfied",
-                "upperBoundLabel": "Very satisfied",
-                "translations": {
-                    "es": {
-                        "question": "¿Qué tan satisfecho estás?",
-                        "lowerBoundLabel": "No satisfecho",
-                        "upperBoundLabel": "Muy satisfecho"
-                    },
-                    "fr": {
-                        "question": "Dans quelle mesure êtes-vous satisfait?"
-                    }
-                }
-            }
-            ```
-             */
+              Example with translations:
+              ```json
+              {
+                  "id": "uuid",
+                  "type": "rating",
+                  "question": "How satisfied are you?",
+                  "lowerBoundLabel": "Not satisfied",
+                  "upperBoundLabel": "Very satisfied",
+                  "translations": {
+                      "es": {
+                          "question": "¿Qué tan satisfecho estás?",
+                          "lowerBoundLabel": "No satisfecho",
+                          "upperBoundLabel": "Muy satisfecho"
+                      },
+                      "fr": {
+                          "question": "Dans quelle mesure êtes-vous satisfait?"
+                      }
+                  }
+              }
+              ```
+               */
       questions?: unknown;
       conditions?: unknown;
       appearance?: unknown;
@@ -32150,30 +32174,30 @@ export namespace Schemas {
       end_date?: string | null;
       archived?: boolean;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       responses_limit?: number | null;
       /**
-       * @minimum 0
-       * @maximum 500
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 500
+         * @nullable
+         */
       iteration_count?: number | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       iteration_frequency_days?: number | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       current_iteration?: number | null;
       /** @nullable */
       current_iteration_start_date?: string | null;
@@ -32181,16 +32205,16 @@ export namespace Schemas {
       response_sampling_start_date?: string | null;
       response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       response_sampling_interval?: number | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       response_sampling_limit?: number | null;
       response_sampling_daily_limits?: unknown;
       /** @nullable */
@@ -32205,31 +32229,31 @@ export namespace Schemas {
     export interface SurveySerializerCreateUpdateOnlySchema {
       readonly id: string;
       /**
-       * Survey name.
-       * @minLength 1
-       * @maxLength 400
-       */
+         * Survey name.
+         * @minLength 1
+         * @maxLength 400
+         */
       name: string;
       /** Survey description. */
       description?: string;
       /** Survey type.
 
-    * `popover` - popover
-    * `widget` - widget
-    * `external_survey` - external survey
-    * `api` - api */
+      * `popover` - popover
+      * `widget` - widget
+      * `external_survey` - external survey
+      * `api` - api */
       type: SurveyType;
       /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
 
-    * `once` - once
-    * `recurring` - recurring
-    * `always` - always */
+      * `once` - once
+      * `recurring` - recurring
+      * `always` - always */
       schedule?: ScheduleEnum | null;
       readonly linked_flag: MinimalFeatureFlag;
       /**
-       * The feature flag linked to this survey.
-       * @nullable
-       */
+         * The feature flag linked to this survey.
+         * @nullable
+         */
       linked_flag_id?: number | null;
       /** @nullable */
       linked_insight_id?: number | null;
@@ -32240,125 +32264,125 @@ export namespace Schemas {
       /** Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]} */
       targeting_flag_filters?: FeatureFlagFiltersSchema | null;
       /**
-       * Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).
-       * @nullable
-       */
+         * Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).
+         * @nullable
+         */
       remove_targeting_flag?: boolean | null;
       /**
-       * 
-            The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
+         *
+              The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
-            Basic (open-ended question)
-            - `id`: The question ID
-            - `type`: `open`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Basic (open-ended question)
+              - `id`: The question ID
+              - `type`: `open`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Link (a question with a link)
-            - `id`: The question ID
-            - `type`: `link`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `link`: The URL associated with the question.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Link (a question with a link)
+              - `id`: The question ID
+              - `type`: `link`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `link`: The URL associated with the question.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Rating (a question with a rating scale)
-            - `id`: The question ID
-            - `type`: `rating`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `display`: Display style of the rating (`number` or `emoji`).
-            - `scale`: The scale of the rating (`number`).
-            - `lowerBoundLabel`: Label for the lower bound of the scale.
-            - `upperBoundLabel`: Label for the upper bound of the scale.
-            - `isNpsQuestion`: Whether the question is an NPS rating.
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Rating (a question with a rating scale)
+              - `id`: The question ID
+              - `type`: `rating`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `display`: Display style of the rating (`number` or `emoji`).
+              - `scale`: The scale of the rating (`number`).
+              - `lowerBoundLabel`: Label for the lower bound of the scale.
+              - `upperBoundLabel`: Label for the upper bound of the scale.
+              - `isNpsQuestion`: Whether the question is an NPS rating.
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Multiple choice
-            - `id`: The question ID
-            - `type`: `single_choice` or `multiple_choice`
-            - `question`: The text of the question.
-            - `description`: Optional description of the question.
-            - `descriptionContentType`: Content type of the description (`html` or `text`).
-            - `optional`: Whether the question is optional (`boolean`).
-            - `buttonText`: Text displayed on the submit button.
-            - `choices`: An array of choices for the question.
-            - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
-            - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
-            - `branching`: Branching logic for the question. See branching types below for details.
+              Multiple choice
+              - `id`: The question ID
+              - `type`: `single_choice` or `multiple_choice`
+              - `question`: The text of the question.
+              - `description`: Optional description of the question.
+              - `descriptionContentType`: Content type of the description (`html` or `text`).
+              - `optional`: Whether the question is optional (`boolean`).
+              - `buttonText`: Text displayed on the submit button.
+              - `choices`: An array of choices for the question.
+              - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+              - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
+              - `branching`: Branching logic for the question. See branching types below for details.
 
-            Branching logic can be one of the following types:
+              Branching logic can be one of the following types:
 
-            Next question: Proceeds to the next question
-            ```json
-            {
-                "type": "next_question"
-            }
-            ```
+              Next question: Proceeds to the next question
+              ```json
+              {
+                  "type": "next_question"
+              }
+              ```
 
-            End: Ends the survey, optionally displaying a confirmation message.
-            ```json
-            {
-                "type": "end"
-            }
-            ```
+              End: Ends the survey, optionally displaying a confirmation message.
+              ```json
+              {
+                  "type": "end"
+              }
+              ```
 
-            Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
-            ```json
-            {
-                "type": "response_based",
-                "responseValues": {
-                    "responseKey": "value"
-                }
-            }
-            ```
+              Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+              ```json
+              {
+                  "type": "response_based",
+                  "responseValues": {
+                      "responseKey": "value"
+                  }
+              }
+              ```
 
-            Specific question: Proceeds to a specific question by index.
-            ```json
-            {
-                "type": "specific_question",
-                "index": 2
-            }
-            ```
+              Specific question: Proceeds to a specific question by index.
+              ```json
+              {
+                  "type": "specific_question",
+                  "index": 2
+              }
+              ```
 
-            Translations: Each question can include inline translations.
-            - `translations`: Object mapping language codes to translated fields.
-            - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
-            - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+              Translations: Each question can include inline translations.
+              - `translations`: Object mapping language codes to translated fields.
+              - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+              - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
-            Example with translations:
-            ```json
-            {
-                "id": "uuid",
-                "type": "rating",
-                "question": "How satisfied are you?",
-                "lowerBoundLabel": "Not satisfied",
-                "upperBoundLabel": "Very satisfied",
-                "translations": {
-                    "es": {
-                        "question": "¿Qué tan satisfecho estás?",
-                        "lowerBoundLabel": "No satisfecho",
-                        "upperBoundLabel": "Muy satisfecho"
-                    },
-                    "fr": {
-                        "question": "Dans quelle mesure êtes-vous satisfait?"
-                    }
-                }
-            }
-            ```
-            
-       * @nullable
-       */
+              Example with translations:
+              ```json
+              {
+                  "id": "uuid",
+                  "type": "rating",
+                  "question": "How satisfied are you?",
+                  "lowerBoundLabel": "Not satisfied",
+                  "upperBoundLabel": "Very satisfied",
+                  "translations": {
+                      "es": {
+                          "question": "¿Qué tan satisfecho estás?",
+                          "lowerBoundLabel": "No satisfecho",
+                          "upperBoundLabel": "Muy satisfecho"
+                      },
+                      "fr": {
+                          "question": "Dans quelle mesure êtes-vous satisfait?"
+                      }
+                  }
+              }
+              ```
+
+         * @nullable
+         */
       questions?: SurveyQuestionInputSchema[] | null;
       /** Display and targeting conditions for the survey. */
       conditions?: SurveyConditionsSchema | null;
@@ -32367,43 +32391,43 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       /**
-       * Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.
-       * @nullable
-       */
+         * Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.
+         * @nullable
+         */
       start_date?: string | null;
       /**
-       * When the survey stopped being shown to users. Setting this will complete the survey.
-       * @nullable
-       */
+         * When the survey stopped being shown to users. Setting this will complete the survey.
+         * @nullable
+         */
       end_date?: string | null;
       /** Archive state for the survey. */
       archived?: boolean;
       /**
-       * The maximum number of responses before automatically stopping the survey.
-       * @nullable
-       */
+         * The maximum number of responses before automatically stopping the survey.
+         * @nullable
+         */
       responses_limit?: number | null;
       /**
-       * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
-       * @minimum 1
-       * @maximum 500
-       * @nullable
-       */
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * @minimum 1
+         * @maximum 500
+         * @nullable
+         */
       iteration_count?: number | null;
       /**
-       * For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.
-       * @minimum 1
-       * @maximum 365
-       * @nullable
-       */
+         * For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.
+         * @minimum 1
+         * @maximum 365
+         * @nullable
+         */
       iteration_frequency_days?: number | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       current_iteration?: number | null;
       /** @nullable */
       current_iteration_start_date?: string | null;
@@ -32411,22 +32435,22 @@ export namespace Schemas {
       response_sampling_start_date?: string | null;
       response_sampling_interval_type?: ResponseSamplingIntervalTypeEnum | BlankEnum | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       response_sampling_interval?: number | null;
       /**
-       * @minimum 0
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
       response_sampling_limit?: number | null;
       response_sampling_daily_limits?: unknown;
       /**
-       * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
-       * @nullable
-       */
+         * When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).
+         * @nullable
+         */
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
@@ -32449,14 +32473,14 @@ export namespace Schemas {
       /** The survey ID these stats belong to. */
       survey_id: string;
       /**
-       * When the survey started collecting responses.
-       * @nullable
-       */
+         * When the survey started collecting responses.
+         * @nullable
+         */
       start_date: string | null;
       /**
-       * When the survey stopped collecting responses.
-       * @nullable
-       */
+         * When the survey stopped collecting responses.
+         * @nullable
+         */
       end_date: string | null;
       /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
       stats: SurveyStatsResponseStats;
@@ -32502,68 +32526,68 @@ export namespace Schemas {
       /** Stable identifier returned by the prepare upload endpoint */
       id: string;
       /**
-       * File name associated with the artifact
-       * @maxLength 255
-       */
+         * File name associated with the artifact
+         * @maxLength 255
+         */
       name: string;
       /** Classification for the artifact
 
-    * `plan` - plan
-    * `context` - context
-    * `reference` - reference
-    * `output` - output
-    * `artifact` - artifact
-    * `tree_snapshot` - tree_snapshot
-    * `user_attachment` - user_attachment */
+      * `plan` - plan
+      * `context` - context
+      * `reference` - reference
+      * `output` - output
+      * `artifact` - artifact
+      * `tree_snapshot` - tree_snapshot
+      * `user_attachment` - user_attachment */
       type: TaskRunArtifactTypeEnum;
       /**
-       * Optional source label for the artifact, such as agent_output or user_attachment
-       * @maxLength 64
-       */
+         * Optional source label for the artifact, such as agent_output or user_attachment
+         * @maxLength 64
+         */
       source?: string;
       /**
-       * S3 object key returned by the prepare step
-       * @maxLength 500
-       */
+         * S3 object key returned by the prepare step
+         * @maxLength 500
+         */
       storage_path: string;
       /**
-       * Optional MIME type recorded for the artifact
-       * @maxLength 255
-       */
+         * Optional MIME type recorded for the artifact
+         * @maxLength 255
+         */
       content_type?: string;
     }
 
     export interface TaskRunArtifactPrepareUpload {
       /**
-       * File name to associate with the artifact
-       * @maxLength 255
-       */
+         * File name to associate with the artifact
+         * @maxLength 255
+         */
       name: string;
       /** Classification for the artifact
 
-    * `plan` - plan
-    * `context` - context
-    * `reference` - reference
-    * `output` - output
-    * `artifact` - artifact
-    * `tree_snapshot` - tree_snapshot
-    * `user_attachment` - user_attachment */
+      * `plan` - plan
+      * `context` - context
+      * `reference` - reference
+      * `output` - output
+      * `artifact` - artifact
+      * `tree_snapshot` - tree_snapshot
+      * `user_attachment` - user_attachment */
       type: TaskRunArtifactTypeEnum;
       /**
-       * Optional source label for the artifact, such as agent_output or user_attachment
-       * @maxLength 64
-       */
+         * Optional source label for the artifact, such as agent_output or user_attachment
+         * @maxLength 64
+         */
       source?: string;
       /**
-       * Expected upload size in bytes (max 31457280 bytes)
-       * @minimum 1
-       * @maximum 31457280
-       */
+         * Expected upload size in bytes (max 31457280 bytes)
+         * @minimum 1
+         * @maximum 31457280
+         */
       size: number;
       /**
-       * Optional MIME type for the artifact upload
-       * @maxLength 255
-       */
+         * Optional MIME type for the artifact upload
+         * @maxLength 255
+         */
       content_type?: string;
     }
 
@@ -32590,9 +32614,9 @@ export namespace Schemas {
 
     export interface TaskRunArtifactPresignRequest {
       /**
-       * S3 storage path returned in the artifact manifest
-       * @maxLength 500
-       */
+         * S3 storage path returned in the artifact manifest
+         * @maxLength 500
+         */
       storage_path: string;
     }
 
@@ -32605,36 +32629,36 @@ export namespace Schemas {
 
     export interface TaskRunArtifactUpload {
       /**
-       * File name to associate with the artifact
-       * @maxLength 255
-       */
+         * File name to associate with the artifact
+         * @maxLength 255
+         */
       name: string;
       /** Classification for the artifact
 
-    * `plan` - plan
-    * `context` - context
-    * `reference` - reference
-    * `output` - output
-    * `artifact` - artifact
-    * `tree_snapshot` - tree_snapshot
-    * `user_attachment` - user_attachment */
+      * `plan` - plan
+      * `context` - context
+      * `reference` - reference
+      * `output` - output
+      * `artifact` - artifact
+      * `tree_snapshot` - tree_snapshot
+      * `user_attachment` - user_attachment */
       type: TaskRunArtifactTypeEnum;
       /**
-       * Optional source label for the artifact, such as agent_output or user_attachment
-       * @maxLength 64
-       */
+         * Optional source label for the artifact, such as agent_output or user_attachment
+         * @maxLength 64
+         */
       source?: string;
       /** Artifact contents encoded according to content_encoding */
       content: string;
       /** Encoding used for content. Use base64 for binary files and utf-8 for text payloads.
 
-    * `utf-8` - utf-8
-    * `base64` - base64 */
+      * `utf-8` - utf-8
+      * `base64` - base64 */
       content_encoding?: ContentEncodingEnum;
       /**
-       * Optional MIME type for the artifact
-       * @maxLength 255
-       */
+         * Optional MIME type for the artifact
+         * @maxLength 255
+         */
       content_type?: string;
     }
 
@@ -32708,60 +32732,60 @@ export namespace Schemas {
     export interface TaskRunBootstrapCreateRequest {
       /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
 
-    * `local` - local
-    * `cloud` - cloud */
+      * `local` - local
+      * `cloud` - cloud */
       environment?: TaskRunBootstrapCreateRequestEnvironmentEnum;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
 
-    * `interactive` - interactive
-    * `background` - background */
+      * `interactive` - interactive
+      * `background` - background */
       mode?: TaskExecutionModeEnum;
       /**
-       * Git branch to checkout in the sandbox
-       * @maxLength 255
-       * @nullable
-       */
+         * Git branch to checkout in the sandbox
+         * @maxLength 255
+         * @nullable
+         */
       branch?: string | null;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
 
-    * `user` - user
-    * `bot` - bot */
+      * `user` - user
+      * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
 
-    * `manual` - manual
-    * `signal_report` - signal_report */
+      * `manual` - manual
+      * `signal_report` - signal_report */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
       /** Agent runtime adapter to launch for this run. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime.
 
-    * `claude` - claude
-    * `codex` - codex */
+      * `claude` - claude
+      * `codex` - codex */
       runtime_adapter?: RuntimeAdapterEnum;
       /** LLM model identifier to run in the selected runtime. */
       model?: string;
       /** Reasoning effort to request for models that expose an effort control.
 
-    * `low` - low
-    * `medium` - medium
-    * `high` - high
-    * `xhigh` - xhigh
-    * `max` - max */
+      * `low` - low
+      * `medium` - medium
+      * `high` - high
+      * `xhigh` - xhigh
+      * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
       github_user_token?: string;
       /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.
 
-    * `default` - default
-    * `acceptEdits` - acceptEdits
-    * `plan` - plan
-    * `bypassPermissions` - bypassPermissions
-    * `auto` - auto
-    * `read-only` - read-only
-    * `full-access` - full-access */
+      * `default` - default
+      * `acceptEdits` - acceptEdits
+      * `plan` - plan
+      * `bypassPermissions` - bypassPermissions
+      * `auto` - auto
+      * `read-only` - read-only
+      * `full-access` - full-access */
       initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
     }
 
@@ -32776,15 +32800,15 @@ export namespace Schemas {
     export interface TaskRunCommandRequest {
       /** JSON-RPC version, must be '2.0'
 
-    * `2.0` - 2.0 */
+      * `2.0` - 2.0 */
       jsonrpc: JsonrpcEnum;
       /** Command method to execute on the agent server
 
-    * `user_message` - user_message
-    * `cancel` - cancel
-    * `close` - close
-    * `permission_response` - permission_response
-    * `set_config_option` - set_config_option */
+      * `user_message` - user_message
+      * `cancel` - cancel
+      * `close` - close
+      * `permission_response` - permission_response
+      * `set_config_option` - set_config_option */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
@@ -32819,14 +32843,14 @@ export namespace Schemas {
     export interface TaskRunResumeRequestSchema {
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
 
-    * `interactive` - interactive
-    * `background` - background */
+      * `interactive` - interactive
+      * `background` - background */
       mode?: TaskExecutionModeEnum;
       /**
-       * Git branch to checkout in the sandbox
-       * @maxLength 255
-       * @nullable
-       */
+         * Git branch to checkout in the sandbox
+         * @maxLength 255
+         * @nullable
+         */
       branch?: string | null;
       /** ID of a previous run to resume from. Must belong to the same task. */
       resume_from_run_id?: string;
@@ -32836,13 +32860,13 @@ export namespace Schemas {
       sandbox_environment_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
 
-    * `user` - user
-    * `bot` - bot */
+      * `user` - user
+      * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
 
-    * `manual` - manual
-    * `signal_report` - signal_report */
+      * `manual` - manual
+      * `signal_report` - signal_report */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
@@ -32890,68 +32914,68 @@ export namespace Schemas {
       /** Stable identifier returned by the staged prepare upload endpoint */
       id: string;
       /**
-       * File name associated with the staged artifact
-       * @maxLength 255
-       */
+         * File name associated with the staged artifact
+         * @maxLength 255
+         */
       name: string;
       /** Classification for the artifact
 
-    * `plan` - plan
-    * `context` - context
-    * `reference` - reference
-    * `output` - output
-    * `artifact` - artifact
-    * `tree_snapshot` - tree_snapshot
-    * `user_attachment` - user_attachment */
+      * `plan` - plan
+      * `context` - context
+      * `reference` - reference
+      * `output` - output
+      * `artifact` - artifact
+      * `tree_snapshot` - tree_snapshot
+      * `user_attachment` - user_attachment */
       type: TaskRunArtifactTypeEnum;
       /**
-       * Optional source label for the artifact, such as agent_output or user_attachment
-       * @maxLength 64
-       */
+         * Optional source label for the artifact, such as agent_output or user_attachment
+         * @maxLength 64
+         */
       source?: string;
       /**
-       * S3 object key returned by the prepare step
-       * @maxLength 500
-       */
+         * S3 object key returned by the prepare step
+         * @maxLength 500
+         */
       storage_path: string;
       /**
-       * Optional MIME type recorded for the artifact
-       * @maxLength 255
-       */
+         * Optional MIME type recorded for the artifact
+         * @maxLength 255
+         */
       content_type?: string;
     }
 
     export interface TaskStagedArtifactPrepareUpload {
       /**
-       * File name to associate with the staged artifact
-       * @maxLength 255
-       */
+         * File name to associate with the staged artifact
+         * @maxLength 255
+         */
       name: string;
       /** Classification for the artifact
 
-    * `plan` - plan
-    * `context` - context
-    * `reference` - reference
-    * `output` - output
-    * `artifact` - artifact
-    * `tree_snapshot` - tree_snapshot
-    * `user_attachment` - user_attachment */
+      * `plan` - plan
+      * `context` - context
+      * `reference` - reference
+      * `output` - output
+      * `artifact` - artifact
+      * `tree_snapshot` - tree_snapshot
+      * `user_attachment` - user_attachment */
       type: TaskRunArtifactTypeEnum;
       /**
-       * Optional source label for the artifact, such as agent_output or user_attachment
-       * @maxLength 64
-       */
+         * Optional source label for the artifact, such as agent_output or user_attachment
+         * @maxLength 64
+         */
       source?: string;
       /**
-       * Expected upload size in bytes (max 31457280 bytes)
-       * @minimum 1
-       * @maximum 31457280
-       */
+         * Expected upload size in bytes (max 31457280 bytes)
+         * @minimum 1
+         * @maximum 31457280
+         */
       size: number;
       /**
-       * Optional MIME type for the artifact upload
-       * @maxLength 255
-       */
+         * Optional MIME type for the artifact upload
+         * @maxLength 255
+         */
       content_type?: string;
     }
 
@@ -32998,9 +33022,9 @@ export namespace Schemas {
 
     export interface TaskSummariesRequest {
       /**
-       * Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.
-       * @maxItems 5000
-       */
+         * Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.
+         * @maxItems 5000
+         */
       ids: string[];
     }
 
@@ -33016,16 +33040,16 @@ export namespace Schemas {
       readonly id: number;
       readonly uuid: string;
       /**
-       * @minLength 1
-       * @maxLength 200
-       */
+         * @minLength 1
+         * @maxLength 200
+         */
       name?: string;
       access_control?: boolean;
       readonly organization: string;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
       readonly project_id: number;
       readonly api_token: string;
       /** @nullable */
@@ -33038,9 +33062,9 @@ export namespace Schemas {
       readonly default_modifiers: TeamDefaultModifiers;
       readonly person_on_events_querying_enabled: boolean;
       /**
-       * The effective access level the user has for this object
-       * @nullable
-       */
+         * The effective access level the user has for this object
+         * @nullable
+         */
       readonly user_access_level: string | null;
       app_urls?: (string | null)[];
       anonymize_ips?: boolean;
@@ -33070,15 +33094,15 @@ export namespace Schemas {
       capture_performance_opt_in?: boolean | null;
       session_recording_opt_in?: boolean;
       /**
-       * @nullable
-       * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-       */
+         * @nullable
+         * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+         */
       session_recording_sample_rate?: string | null;
       /**
-       * @minimum 0
-       * @maximum 30000
-       * @nullable
-       */
+         * @minimum 0
+         * @maximum 30000
+         * @nullable
+         */
       session_recording_minimum_duration_milliseconds?: number | null;
       session_recording_linked_flag?: unknown;
       session_recording_network_payload_capture_config?: unknown;
@@ -33090,9 +33114,9 @@ export namespace Schemas {
       /** @nullable */
       session_recording_event_trigger_config?: (string | null)[] | null;
       /**
-       * @maxLength 24
-       * @nullable
-       */
+         * @maxLength 24
+         * @nullable
+         */
       session_recording_trigger_match_type_config?: string | null;
       /** V2 trigger groups configuration for session recording. If present, takes precedence over legacy trigger fields. */
       session_recording_trigger_groups?: unknown;
@@ -33125,22 +33149,22 @@ export namespace Schemas {
       /** @nullable */
       feature_flag_confirmation_message?: string | null;
       /**
-       * Whether to automatically apply default evaluation contexts to new feature flags
-       * @nullable
-       */
+         * Whether to automatically apply default evaluation contexts to new feature flags
+         * @nullable
+         */
       default_evaluation_contexts_enabled?: boolean | null;
       /**
-       * Whether to require at least one evaluation context tag when creating new feature flags
-       * @nullable
-       */
+         * Whether to require at least one evaluation context tag when creating new feature flags
+         * @nullable
+         */
       require_evaluation_contexts?: boolean | null;
       /** @nullable */
       capture_dead_clicks?: boolean | null;
       /**
-       * @minimum -2147483648
-       * @maximum 2147483647
-       * @nullable
-       */
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
       default_data_theme?: number | null;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
@@ -33153,9 +33177,9 @@ export namespace Schemas {
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
 
-    * `b2b` - B2B
-    * `b2c` - B2C
-    * `other` - Other */
+      * `b2b` - B2B
+      * `b2c` - B2C
+      * `other` - Other */
       business_model?: BusinessModelEnum | BlankEnum | null;
       /** @nullable */
       conversations_enabled?: boolean | null;
@@ -33176,15 +33200,15 @@ export namespace Schemas {
 
     export interface TestHogRequest {
       /**
-       * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
-       * @minLength 1
-       */
+         * Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.
+         * @minLength 1
+         */
       source: string;
       /**
-       * Number of recent $ai_generation events to test against (1–10, default 5).
-       * @minimum 1
-       * @maximum 10
-       */
+         * Number of recent $ai_generation events to test against (1–10, default 5).
+         * @minimum 1
+         * @maximum 10
+         */
       sample_count?: number;
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
@@ -33196,28 +33220,28 @@ export namespace Schemas {
       /** UUID of the $ai_generation event. */
       event_uuid: string;
       /**
-       * Trace ID if available.
-       * @nullable
-       */
+         * Trace ID if available.
+         * @nullable
+         */
       trace_id?: string | null;
       /** First 200 chars of the generation input. */
       input_preview: string;
       /** First 200 chars of the generation output. */
       output_preview: string;
       /**
-       * True = pass, False = fail, null = N/A or error.
-       * @nullable
-       */
+         * True = pass, False = fail, null = N/A or error.
+         * @nullable
+         */
       result: boolean | null;
       /**
-       * Hog evaluation reasoning string, if any.
-       * @nullable
-       */
+         * Hog evaluation reasoning string, if any.
+         * @nullable
+         */
       reasoning: string | null;
       /**
-       * Error message if the Hog code raised an exception.
-       * @nullable
-       */
+         * Error message if the Hog code raised an exception.
+         * @nullable
+         */
       error: string | null;
     }
 
@@ -33263,10 +33287,10 @@ export namespace Schemas {
     export interface TextReprRequest {
       /** Type of LLM event to stringify
 
-    * `$ai_generation` - $ai_generation
-    * `$ai_span` - $ai_span
-    * `$ai_embedding` - $ai_embedding
-    * `$ai_trace` - $ai_trace */
+      * `$ai_generation` - $ai_generation
+      * `$ai_span` - $ai_span
+      * `$ai_embedding` - $ai_embedding
+      * `$ai_trace` - $ai_trace */
       event_type: EventTypeEnum;
       /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
       data: unknown;
@@ -33303,34 +33327,34 @@ export namespace Schemas {
 
     export interface TraceReviewCreate {
       /**
-       * Trace ID for the review. Only one active review can exist per trace and team.
-       * @maxLength 255
-       */
+         * Trace ID for the review. Only one active review can exist per trace and team.
+         * @maxLength 255
+         */
       trace_id: string;
       /**
-       * Optional comment or reasoning for the review.
-       * @nullable
-       */
+         * Optional comment or reasoning for the review.
+         * @nullable
+         */
       comment?: string | null;
       /** Full desired score set for this review. Omit scorers you want to leave blank. */
       scores?: TraceReviewScoreWrite[];
       /**
-       * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
-       * @nullable
-       */
+         * Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.
+         * @nullable
+         */
       queue_id?: string | null;
     }
 
     export interface TranslateRequest {
       /**
-       * The text to translate
-       * @maxLength 10000
-       */
+         * The text to translate
+         * @maxLength 10000
+         */
       text: string;
       /**
-       * Target language code (default: 'en' for English)
-       * @maxLength 10
-       */
+         * Target language code (default: 'en' for English)
+         * @maxLength 10
+         */
       target_language?: string;
     }
 
@@ -33343,9 +33367,9 @@ export namespace Schemas {
       /** The release condition to evaluate */
       condition: UserBlastRadiusRequestCondition;
       /**
-       * Group type index for group-based flags (null for person-based flags)
-       * @nullable
-       */
+         * Group type index for group-based flags (null for person-based flags)
+         * @nullable
+         */
       group_type_index?: number | null;
     }
 
@@ -33358,9 +33382,9 @@ export namespace Schemas {
 
     export interface UserGitHubLinkStartRequest {
       /**
-       * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
-       * @nullable
-       */
+         * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+         * @nullable
+         */
       team_id?: number | null;
       /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
       connect_from?: string;
@@ -33382,20 +33406,20 @@ export namespace Schemas {
       event_count: number;
       /** How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)
 
-    * `none` - none
-    * `auto` - auto
-    * `mapped` - mapped */
+      * `none` - none
+      * `auto` - auto
+      * `mapped` - mapped */
       campaign_match: SourceMatchEnum;
       /** How utm_source matched: none, auto (default source), or mapped (custom mapping)
 
-    * `none` - none
-    * `auto` - auto
-    * `mapped` - mapped */
+      * `none` - none
+      * `auto` - auto
+      * `mapped` - mapped */
       source_match: SourceMatchEnum;
       /**
-       * Name of the matched campaign, if any
-       * @nullable
-       */
+         * Name of the matched campaign, if any
+         * @nullable
+         */
       matched_campaign: string | null;
     }
 
@@ -33529,14 +33553,14 @@ export namespace Schemas {
 
     export interface _DateRange {
       /**
-       * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.
-       * @nullable
-       */
+         * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.
+         * @nullable
+         */
       date_from?: string | null;
       /**
-       * End of the date range. Same format as date_from. Omit or null for "now".
-       * @nullable
-       */
+         * End of the date range. Same format as date_from. Omit or null for "now".
+         * @nullable
+         */
       date_to?: string | null;
     }
 
@@ -33546,13 +33570,13 @@ export namespace Schemas {
       propertyFilterType: string;
       /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
 
-    * `key` - key
-    * `value` - value */
+      * `key` - key
+      * `value` - value */
       matchedOn: MatchedOnEnum;
       /**
-       * Sample matching value — only set when matchedOn is "value".
-       * @nullable
-       */
+         * Sample matching value — only set when matchedOn is "value".
+         * @nullable
+         */
       matchedValue?: string | null;
     }
 
@@ -33653,25 +33677,25 @@ export namespace Schemas {
       key: string;
       /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
 
-    * `log` - log
-    * `log_attribute` - log_attribute
-    * `log_resource_attribute` - log_resource_attribute */
+      * `log` - log
+      * `log_attribute` - log_attribute
+      * `log_resource_attribute` - log_resource_attribute */
       type: _LogPropertyFilterTypeEnum;
       /** Comparison operator.
 
-    * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains
-    * `regex` - regex
-    * `not_regex` - not_regex
-    * `gt` - gt
-    * `lt` - lt
-    * `is_date_exact` - is_date_exact
-    * `is_date_before` - is_date_before
-    * `is_date_after` - is_date_after
-    * `is_set` - is_set
-    * `is_not_set` - is_not_set */
+      * `exact` - exact
+      * `is_not` - is_not
+      * `icontains` - icontains
+      * `not_icontains` - not_icontains
+      * `regex` - regex
+      * `not_regex` - not_regex
+      * `gt` - gt
+      * `lt` - lt
+      * `is_date_exact` - is_date_exact
+      * `is_date_before` - is_date_before
+      * `is_date_after` - is_date_after
+      * `is_set` - is_set
+      * `is_not_set` - is_not_set */
       operator: _LogPropertyFilterOperatorEnum;
       /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
       value?: unknown;
@@ -33710,10 +33734,10 @@ export namespace Schemas {
       /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
       dateRange?: _DateRange;
       /**
-       * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
-       * @minimum 1
-       * @maximum 100
-       */
+         * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
+         * @minimum 1
+         * @maximum 100
+         */
       targetBuckets?: number;
       /** Filter by log severity levels. Applied before bucketing. */
       severityLevels?: SeverityLevelsEnum[];
@@ -33756,8 +33780,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Order results by timestamp.
 
-    * `latest` - latest
-    * `earliest` - earliest */
+      * `latest` - latest
+      * `earliest` - earliest */
       orderBy?: OrderByEnum;
       /** Full-text search term to filter log bodies. */
       searchTerm?: string;
@@ -33787,9 +33811,9 @@ export namespace Schemas {
       /** True if more results exist beyond this page. */
       hasMore: boolean;
       /**
-       * Opaque cursor to pass as `after` in the next request to fetch the next page. Null when hasMore is false.
-       * @nullable
-       */
+         * Opaque cursor to pass as `after` in the next request to fetch the next page. Null when hasMore is false.
+         * @nullable
+         */
       nextCursor?: string | null;
       /** Maximum number of rows the `export` endpoint will produce — informational. */
       maxExportableLogs: number;
@@ -33879,8 +33903,8 @@ export namespace Schemas {
       filterGroup?: _LogPropertyFilter[];
       /** Break down sparkline by "severity" (default) or "service".
 
-    * `severity` - severity
-    * `service` - service */
+      * `severity` - severity
+      * `service` - service */
       sparklineBreakdownBy?: SparklineBreakdownByEnum;
     }
 
@@ -33958,22 +33982,22 @@ export namespace Schemas {
       key: string;
       /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
 
-    * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute */
+      * `span` - span
+      * `span_attribute` - span_attribute
+      * `span_resource_attribute` - span_resource_attribute */
       type: _SpanPropertyFilterTypeEnum;
       /** Comparison operator.
 
-    * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains
-    * `regex` - regex
-    * `not_regex` - not_regex
-    * `gt` - gt
-    * `lt` - lt
-    * `is_set` - is_set
-    * `is_not_set` - is_not_set */
+      * `exact` - exact
+      * `is_not` - is_not
+      * `icontains` - icontains
+      * `not_icontains` - not_icontains
+      * `regex` - regex
+      * `not_regex` - not_regex
+      * `gt` - gt
+      * `lt` - lt
+      * `is_set` - is_set
+      * `is_not_set` - is_not_set */
       operator: _SpanPropertyFilterOperatorEnum;
       /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
       value?: unknown;
@@ -33986,14 +34010,14 @@ export namespace Schemas {
 
     export interface _TracingDateRange {
       /**
-       * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.
-       * @nullable
-       */
+         * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.
+         * @nullable
+         */
       date_from?: string | null;
       /**
-       * End of the date range. Same format as date_from. Omit or null for "now".
-       * @nullable
-       */
+         * End of the date range. Same format as date_from. Omit or null for "now".
+         * @nullable
+         */
       date_to?: string | null;
     }
 
@@ -34006,8 +34030,8 @@ export namespace Schemas {
       statusCodes?: number[];
       /** Order results by timestamp. Defaults to latest.
 
-    * `latest` - latest
-    * `earliest` - earliest */
+      * `latest` - latest
+      * `earliest` - earliest */
       orderBy?: OrderByEnum;
       /** Property filters for the query. */
       filterGroup?: _SpanPropertyFilter[];
@@ -35345,7 +35369,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * 
+     *
     Whether to refresh the retrieved insights, how aggressively, and if sync or async:
     - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
@@ -35440,13 +35464,13 @@ export namespace Schemas {
     filters_override?: string;
     format?: EnvironmentsInsightsRetrieveFormat;
     /**
-     * 
+     *
     Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
     When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
     /**
-     * 
+     *
     Whether to refresh the insight, how aggresively, and if sync or async:
     - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
@@ -40039,7 +40063,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * 
+     *
     Whether to refresh the retrieved insights, how aggressively, and if sync or async:
     - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
@@ -40134,13 +40158,13 @@ export namespace Schemas {
     filters_override?: string;
     format?: InsightsRetrieveFormat;
     /**
-     * 
+     *
     Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
     When set, the specified dashboard's filters and date range override will be applied.
      */
     from_dashboard?: number;
     /**
-     * 
+     *
     Whether to refresh the insight, how aggresively, and if sync or async:
     - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache

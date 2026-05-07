@@ -21,7 +21,7 @@ export const MessagingCategoriesCreateBody = /* @__PURE__ */ zod.object({
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
 })
 
@@ -42,7 +42,7 @@ export const MessagingCategoriesImportFromCustomerioCreateBody = /* @__PURE__ */
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
 })
 
@@ -62,7 +62,7 @@ export const MessagingCategoriesImportPreferencesCsvCreateBody = /* @__PURE__ */
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
 })
 
@@ -87,7 +87,7 @@ export const MessagingCategoriesSaveTrackConfigCreateBody = /* @__PURE__ */ zod.
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
 })
 
@@ -110,7 +110,7 @@ export const MessagingCategoriesSaveWebhookConfigCreateBody = /* @__PURE__ */ zo
     category_type: zod
         .enum(['marketing', 'transactional'])
         .optional()
-        .describe('* `marketing` - Marketing\n* `transactional` - Transactional'),
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
     deleted: zod.boolean().optional(),
 })
 
@@ -123,7 +123,7 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().optional(),
     content: zod
         .object({
-            templating: zod.enum(['hog', 'liquid']).optional().describe('* `hog` - hog\n* `liquid` - liquid'),
+            templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
             email: zod
                 .union([
                     zod.object({

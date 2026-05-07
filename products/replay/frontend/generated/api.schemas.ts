@@ -53,7 +53,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -119,8 +119,8 @@ export interface SessionRecordingPlaylistApi {
     readonly recordings_counts: SessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-* `collection` - Collection
-* `filters` - Filters */
+  * `collection` - Collection
+  * `filters` - Filters */
     type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
@@ -169,8 +169,8 @@ export interface PatchedSessionRecordingPlaylistApi {
     readonly recordings_counts?: PatchedSessionRecordingPlaylistApiRecordingsCounts
     /** Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.
 
-* `collection` - Collection
-* `filters` - Filters */
+  * `collection` - Collection
+  * `filters` - Filters */
     type?: SessionRecordingPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean

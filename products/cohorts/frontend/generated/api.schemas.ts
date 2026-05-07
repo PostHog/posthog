@@ -123,7 +123,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -196,11 +196,11 @@ export interface CohortApi {
     is_static?: boolean
     /** Type of cohort based on filter complexity
 
-* `static` - static
-* `person_property` - person_property
-* `behavioral` - behavioral
-* `realtime` - realtime
-* `analytical` - analytical */
+  * `static` - static
+  * `person_property` - person_property
+  * `behavioral` - behavioral
+  * `realtime` - realtime
+  * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set: readonly number[]
     _create_in_folder?: string
@@ -249,11 +249,11 @@ export interface PatchedCohortApi {
     is_static?: boolean
     /** Type of cohort based on filter complexity
 
-* `static` - static
-* `person_property` - person_property
-* `behavioral` - behavioral
-* `realtime` - realtime
-* `analytical` - analytical */
+  * `static` - static
+  * `person_property` - person_property
+  * `behavioral` - behavioral
+  * `realtime` - realtime
+  * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set?: readonly number[]
     _create_in_folder?: string

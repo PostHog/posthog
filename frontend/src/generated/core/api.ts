@@ -77,10 +77,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * Paginated delivery history for a subscription. Requires premium subscriptions.
- * @summary List subscription deliveries
- */
 export const getSubscriptionsDeliveriesListUrl = (
     projectId: string,
     subscriptionId: number,
@@ -101,6 +97,10 @@ export const getSubscriptionsDeliveriesListUrl = (
         : `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/`
 }
 
+/**
+ * Paginated delivery history for a subscription. Requires premium subscriptions.
+ * @summary List subscription deliveries
+ */
 export const subscriptionsDeliveriesList = async (
     projectId: string,
     subscriptionId: number,
@@ -116,14 +116,14 @@ export const subscriptionsDeliveriesList = async (
     )
 }
 
-/**
- * Fetch one delivery row by id.
- * @summary Retrieve subscription delivery
- */
 export const getSubscriptionsDeliveriesRetrieveUrl = (projectId: string, subscriptionId: number, id: string) => {
     return `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/${id}/`
 }
 
+/**
+ * Fetch one delivery row by id.
+ * @summary Retrieve subscription delivery
+ */
 export const subscriptionsDeliveriesRetrieve = async (
     projectId: string,
     subscriptionId: number,
@@ -220,7 +220,7 @@ export const getDomainsPartialUpdateUrl = (organizationId: string, id: string) =
 export const domainsPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedOrganizationDomainApi: NonReadonly<PatchedOrganizationDomainApi>,
+    patchedOrganizationDomainApi?: NonReadonly<PatchedOrganizationDomainApi>,
     options?: RequestInit
 ): Promise<OrganizationDomainApi> => {
     return apiMutator<OrganizationDomainApi>(getDomainsPartialUpdateUrl(organizationId, id), {
@@ -242,13 +242,13 @@ export const domainsDestroy = async (organizationId: string, id: string, options
     })
 }
 
-/**
- * Regenerate SCIM bearer token.
- */
 export const getDomainsScimTokenCreateUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/domains/${id}/scim/token/`
 }
 
+/**
+ * Regenerate SCIM bearer token.
+ */
 export const domainsScimTokenCreate = async (
     organizationId: string,
     id: string,
@@ -353,14 +353,14 @@ export const invitesBulkCreate = async (
     })
 }
 
-/**
- * Create an onboarding delegation invite: an admin-level invite flagged as a setup delegation.
-Sends a single dedicated delegation email and records the inviting user as having delegated.
- */
 export const getInvitesDelegateCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/invites/delegate/`
 }
 
+/**
+ * Create an onboarding delegation invite: an admin-level invite flagged as a setup delegation.
+Sends a single dedicated delegation email and records the inviting user as having delegated.
+ */
 export const invitesDelegateCreate = async (
     organizationId: string,
     organizationInviteDelegateApi: OrganizationInviteDelegateApi,
@@ -374,9 +374,6 @@ export const invitesDelegateCreate = async (
     })
 }
 
-/**
- * ViewSet for listing OAuth applications at the organization level (read-only).
- */
 export const getOauthApplicationsListUrl = (organizationId: string, params?: OauthApplicationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -393,6 +390,9 @@ export const getOauthApplicationsListUrl = (organizationId: string, params?: Oau
         : `/api/organizations/${organizationId}/oauth_applications/`
 }
 
+/**
+ * ViewSet for listing OAuth applications at the organization level (read-only).
+ */
 export const oauthApplicationsList = async (
     organizationId: string,
     params?: OauthApplicationsListParams,
@@ -407,9 +407,6 @@ export const oauthApplicationsList = async (
     )
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsListUrl = (organizationId: string, params?: OrganizationsProjectsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -426,6 +423,9 @@ export const getOrganizationsProjectsListUrl = (organizationId: string, params?:
         : `/api/organizations/${organizationId}/projects/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsList = async (
     organizationId: string,
     params?: OrganizationsProjectsListParams,
@@ -440,16 +440,16 @@ export const organizationsProjectsList = async (
     )
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/projects/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsCreate = async (
     organizationId: string,
-    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsCreateUrl(organizationId), {
@@ -460,13 +460,13 @@ export const organizationsProjectsCreate = async (
     })
 }
 
-/**
- * Retrieve a project and its settings.
- */
 export const getOrganizationsProjectsRetrieveUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
 }
 
+/**
+ * Retrieve a project and its settings.
+ */
 export const organizationsProjectsRetrieve = async (
     organizationId: string,
     id: number,
@@ -478,17 +478,17 @@ export const organizationsProjectsRetrieve = async (
     })
 }
 
-/**
- * Replace a project and its settings. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
- */
 export const getOrganizationsProjectsUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
 }
 
+/**
+ * Replace a project and its settings. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
+ */
 export const organizationsProjectsUpdate = async (
     organizationId: string,
     id: number,
-    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsUpdateUrl(organizationId, id), {
@@ -499,17 +499,17 @@ export const organizationsProjectsUpdate = async (
     })
 }
 
-/**
- * Update one or more of a project's settings. Only the fields included in the request body are changed.
- */
 export const getOrganizationsProjectsPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
 }
 
+/**
+ * Update one or more of a project's settings. Only the fields included in the request body are changed.
+ */
 export const organizationsProjectsPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
+    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsPartialUpdateUrl(organizationId, id), {
@@ -520,13 +520,13 @@ export const organizationsProjectsPartialUpdate = async (
     })
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsDestroyUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsDestroy = async (
     organizationId: string,
     id: number,
@@ -538,13 +538,13 @@ export const organizationsProjectsDestroy = async (
     })
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsActivityRetrieveUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/activity/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsActivityRetrieve = async (
     organizationId: string,
     id: number,
@@ -556,17 +556,17 @@ export const organizationsProjectsActivityRetrieve = async (
     })
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsAddProductIntentPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/add_product_intent/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsAddProductIntentPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
+    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -580,17 +580,17 @@ export const organizationsProjectsAddProductIntentPartialUpdate = async (
     )
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsChangeOrganizationCreateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/change_organization/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsChangeOrganizationCreate = async (
     organizationId: string,
     id: number,
-    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -604,9 +604,6 @@ export const organizationsProjectsChangeOrganizationCreate = async (
     )
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsCompleteProductOnboardingPartialUpdateUrl = (
     organizationId: string,
     id: number
@@ -614,10 +611,13 @@ export const getOrganizationsProjectsCompleteProductOnboardingPartialUpdateUrl =
     return `/api/organizations/${organizationId}/projects/${id}/complete_product_onboarding/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsCompleteProductOnboardingPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
+    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -631,17 +631,17 @@ export const organizationsProjectsCompleteProductOnboardingPartialUpdate = async
     )
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/delete_secret_token_backup/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
+    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -655,9 +655,6 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
     )
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsGenerateConversationsPublicTokenCreateUrl = (
     organizationId: string,
     id: number
@@ -665,10 +662,13 @@ export const getOrganizationsProjectsGenerateConversationsPublicTokenCreateUrl =
     return `/api/organizations/${organizationId}/projects/${id}/generate_conversations_public_token/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsGenerateConversationsPublicTokenCreate = async (
     organizationId: string,
     id: number,
-    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -682,13 +682,13 @@ export const organizationsProjectsGenerateConversationsPublicTokenCreate = async
     )
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsIsGeneratingDemoDataRetrieveUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/is_generating_demo_data/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsIsGeneratingDemoDataRetrieve = async (
     organizationId: string,
     id: number,
@@ -703,17 +703,17 @@ export const organizationsProjectsIsGeneratingDemoDataRetrieve = async (
     )
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsResetTokenPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/reset_token/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsResetTokenPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
+    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -727,17 +727,17 @@ export const organizationsProjectsResetTokenPartialUpdate = async (
     )
 }
 
-/**
- * Projects for the current organization.
- */
 export const getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/rotate_secret_token/`
 }
 
+/**
+ * Projects for the current organization.
+ */
 export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
+    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -773,7 +773,7 @@ export const getDashboardTemplatesUpdateUrl = (projectId: string, id: string) =>
 export const dashboardTemplatesUpdate = async (
     projectId: string,
     id: string,
-    dashboardTemplateApi: NonReadonly<DashboardTemplateApi>,
+    dashboardTemplateApi?: NonReadonly<DashboardTemplateApi>,
     options?: RequestInit
 ): Promise<DashboardTemplateApi> => {
     return apiMutator<DashboardTemplateApi>(getDashboardTemplatesUpdateUrl(projectId, id), {
@@ -791,7 +791,7 @@ export const getDashboardTemplatesPartialUpdateUrl = (projectId: string, id: str
 export const dashboardTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDashboardTemplateApi: NonReadonly<PatchedDashboardTemplateApi>,
+    patchedDashboardTemplateApi?: NonReadonly<PatchedDashboardTemplateApi>,
     options?: RequestInit
 ): Promise<DashboardTemplateApi> => {
     return apiMutator<DashboardTemplateApi>(getDashboardTemplatesPartialUpdateUrl(projectId, id), {
@@ -802,13 +802,13 @@ export const dashboardTemplatesPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getDashboardTemplatesDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/dashboard_templates/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const dashboardTemplatesDestroy = async (
     projectId: string,
     id: string,
@@ -974,7 +974,7 @@ export const getFileSystemPartialUpdateUrl = (projectId: string, id: string) => 
 export const fileSystemPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedFileSystemApi: NonReadonly<PatchedFileSystemApi>,
+    patchedFileSystemApi?: NonReadonly<PatchedFileSystemApi>,
     options?: RequestInit
 ): Promise<FileSystemApi> => {
     return apiMutator<FileSystemApi>(getFileSystemPartialUpdateUrl(projectId, id), {
@@ -996,13 +996,13 @@ export const fileSystemDestroy = async (projectId: string, id: string, options?:
     })
 }
 
-/**
- * Get count of all files in a folder.
- */
 export const getFileSystemCountCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/file_system/${id}/count/`
 }
 
+/**
+ * Get count of all files in a folder.
+ */
 export const fileSystemCountCreate = async (
     projectId: string,
     id: string,
@@ -1053,13 +1053,13 @@ export const fileSystemMoveCreate = async (
     })
 }
 
-/**
- * Get count of all files in a folder.
- */
 export const getFileSystemCountByPathCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/file_system/count_by_path/`
 }
 
+/**
+ * Get count of all files in a folder.
+ */
 export const fileSystemCountByPathCreate = async (
     projectId: string,
     fileSystemApi: NonReadonly<FileSystemApi>,
@@ -1129,15 +1129,6 @@ export const fileSystemUnfiledRetrieve = async (projectId: string, options?: Req
     })
 }
 
-/**
- * Get possible values for a feature flag.
-
-Query parameters:
-- key: The flag ID (required)
-Returns:
-
-- Array of objects with 'name' field containing possible values
- */
 export const getFlagValueValuesRetrieveUrl = (projectId: string, params?: FlagValueValuesRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1154,6 +1145,15 @@ export const getFlagValueValuesRetrieveUrl = (projectId: string, params?: FlagVa
         : `/api/projects/${projectId}/flag_value/values/`
 }
 
+/**
+ * Get possible values for a feature flag.
+
+Query parameters:
+- key: The flag ID (required)
+Returns:
+
+- Array of objects with 'name' field containing possible values
+ */
 export const flagValueValuesRetrieve = async (
     projectId: string,
     params?: FlagValueValuesRetrieveParams,
@@ -1165,13 +1165,13 @@ export const flagValueValuesRetrieve = async (
     })
 }
 
-export const getInsightsSharingListUrl = (projectId: string, insightId: number | null) => {
+export const getInsightsSharingListUrl = (projectId: string, insightId: number) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/`
 }
 
 export const insightsSharingList = async (
     projectId: string,
-    insightId: number | null,
+    insightId: number,
     options?: RequestInit
 ): Promise<SharingConfigurationApi[]> => {
     return apiMutator<SharingConfigurationApi[]>(getInsightsSharingListUrl(projectId, insightId), {
@@ -1180,17 +1180,17 @@ export const insightsSharingList = async (
     })
 }
 
-/**
- * Create a new password for the sharing configuration.
- */
-export const getInsightsSharingPasswordsCreateUrl = (projectId: string, insightId: number | null) => {
+export const getInsightsSharingPasswordsCreateUrl = (projectId: string, insightId: number) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/passwords/`
 }
 
+/**
+ * Create a new password for the sharing configuration.
+ */
 export const insightsSharingPasswordsCreate = async (
     projectId: string,
-    insightId: number | null,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
+    insightId: number,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
     return apiMutator<SharingConfigurationApi>(getInsightsSharingPasswordsCreateUrl(projectId, insightId), {
@@ -1201,20 +1201,16 @@ export const insightsSharingPasswordsCreate = async (
     })
 }
 
-/**
- * Delete a password from the sharing configuration.
- */
-export const getInsightsSharingPasswordsDestroyUrl = (
-    projectId: string,
-    insightId: number | null,
-    passwordId: string
-) => {
+export const getInsightsSharingPasswordsDestroyUrl = (projectId: string, insightId: number, passwordId: string) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/passwords/${passwordId}/`
 }
 
+/**
+ * Delete a password from the sharing configuration.
+ */
 export const insightsSharingPasswordsDestroy = async (
     projectId: string,
-    insightId: number | null,
+    insightId: number,
     passwordId: string,
     options?: RequestInit
 ): Promise<void> => {
@@ -1224,14 +1220,14 @@ export const insightsSharingPasswordsDestroy = async (
     })
 }
 
-export const getInsightsSharingRefreshCreateUrl = (projectId: string, insightId: number | null) => {
+export const getInsightsSharingRefreshCreateUrl = (projectId: string, insightId: number) => {
     return `/api/projects/${projectId}/insights/${insightId}/sharing/refresh/`
 }
 
 export const insightsSharingRefreshCreate = async (
     projectId: string,
-    insightId: number | null,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
+    insightId: number,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
     return apiMutator<SharingConfigurationApi>(getInsightsSharingRefreshCreateUrl(projectId, insightId), {
@@ -1326,7 +1322,7 @@ export const getProjectSecretApiKeysPartialUpdateUrl = (projectId: string, id: s
 export const projectSecretApiKeysPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedProjectSecretAPIKeyApi: NonReadonly<PatchedProjectSecretAPIKeyApi>,
+    patchedProjectSecretAPIKeyApi?: NonReadonly<PatchedProjectSecretAPIKeyApi>,
     options?: RequestInit
 ): Promise<ProjectSecretAPIKeyApi> => {
     return apiMutator<ProjectSecretAPIKeyApi>(getProjectSecretApiKeysPartialUpdateUrl(projectId, id), {
@@ -1352,13 +1348,13 @@ export const projectSecretApiKeysDestroy = async (
     })
 }
 
-/**
- * Roll a project secret API key
- */
 export const getProjectSecretApiKeysRollCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/project_secret_api_keys/${id}/roll/`
 }
 
+/**
+ * Roll a project secret API key
+ */
 export const projectSecretApiKeysRollCreate = async (
     projectId: string,
     id: string,
@@ -1419,7 +1415,7 @@ export const getPropertyDefinitionsUpdateUrl = (projectId: string, id: string) =
 export const propertyDefinitionsUpdate = async (
     projectId: string,
     id: string,
-    enterprisePropertyDefinitionApi: NonReadonly<EnterprisePropertyDefinitionApi>,
+    enterprisePropertyDefinitionApi?: NonReadonly<EnterprisePropertyDefinitionApi>,
     options?: RequestInit
 ): Promise<EnterprisePropertyDefinitionApi> => {
     return apiMutator<EnterprisePropertyDefinitionApi>(getPropertyDefinitionsUpdateUrl(projectId, id), {
@@ -1437,7 +1433,7 @@ export const getPropertyDefinitionsPartialUpdateUrl = (projectId: string, id: st
 export const propertyDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEnterprisePropertyDefinitionApi: NonReadonly<PatchedEnterprisePropertyDefinitionApi>,
+    patchedEnterprisePropertyDefinitionApi?: NonReadonly<PatchedEnterprisePropertyDefinitionApi>,
     options?: RequestInit
 ): Promise<EnterprisePropertyDefinitionApi> => {
     return apiMutator<EnterprisePropertyDefinitionApi>(getPropertyDefinitionsPartialUpdateUrl(projectId, id), {
@@ -1463,6 +1459,10 @@ export const propertyDefinitionsDestroy = async (
     })
 }
 
+export const getPropertyDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/property_definitions/bulk_update_tags/`
+}
+
 /**
  * Bulk update tags on multiple objects.
 
@@ -1474,10 +1474,6 @@ Actions:
 - "remove": Remove specific tags from each object
 - "set": Replace all tags on each object with the provided list
  */
-export const getPropertyDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/property_definitions/bulk_update_tags/`
-}
-
 export const propertyDefinitionsBulkUpdateTagsCreate = async (
     projectId: string,
     bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
@@ -1491,14 +1487,14 @@ export const propertyDefinitionsBulkUpdateTagsCreate = async (
     })
 }
 
-/**
- * Allows a caller to provide a list of event names and a single property name
-Returns a map of the event names to a boolean representing whether that property has ever been seen with that event_name
- */
 export const getPropertyDefinitionsSeenTogetherRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/property_definitions/seen_together/`
 }
 
+/**
+ * Allows a caller to provide a list of event names and a single property name
+Returns a map of the event names to a boolean representing whether that property has ever been seen with that event_name
+ */
 export const propertyDefinitionsSeenTogetherRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -1509,13 +1505,13 @@ export const propertyDefinitionsSeenTogetherRetrieve = async (
     })
 }
 
-export const getSessionRecordingsSharingListUrl = (projectId: string, recordingId: string | null) => {
+export const getSessionRecordingsSharingListUrl = (projectId: string, recordingId: string) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/`
 }
 
 export const sessionRecordingsSharingList = async (
     projectId: string,
-    recordingId: string | null,
+    recordingId: string,
     options?: RequestInit
 ): Promise<SharingConfigurationApi[]> => {
     return apiMutator<SharingConfigurationApi[]>(getSessionRecordingsSharingListUrl(projectId, recordingId), {
@@ -1524,17 +1520,17 @@ export const sessionRecordingsSharingList = async (
     })
 }
 
-/**
- * Create a new password for the sharing configuration.
- */
-export const getSessionRecordingsSharingPasswordsCreateUrl = (projectId: string, recordingId: string | null) => {
+export const getSessionRecordingsSharingPasswordsCreateUrl = (projectId: string, recordingId: string) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/passwords/`
 }
 
+/**
+ * Create a new password for the sharing configuration.
+ */
 export const sessionRecordingsSharingPasswordsCreate = async (
     projectId: string,
-    recordingId: string | null,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
+    recordingId: string,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
     return apiMutator<SharingConfigurationApi>(getSessionRecordingsSharingPasswordsCreateUrl(projectId, recordingId), {
@@ -1545,20 +1541,20 @@ export const sessionRecordingsSharingPasswordsCreate = async (
     })
 }
 
-/**
- * Delete a password from the sharing configuration.
- */
 export const getSessionRecordingsSharingPasswordsDestroyUrl = (
     projectId: string,
-    recordingId: string | null,
+    recordingId: string,
     passwordId: string
 ) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/passwords/${passwordId}/`
 }
 
+/**
+ * Delete a password from the sharing configuration.
+ */
 export const sessionRecordingsSharingPasswordsDestroy = async (
     projectId: string,
-    recordingId: string | null,
+    recordingId: string,
     passwordId: string,
     options?: RequestInit
 ): Promise<void> => {
@@ -1568,14 +1564,14 @@ export const sessionRecordingsSharingPasswordsDestroy = async (
     })
 }
 
-export const getSessionRecordingsSharingRefreshCreateUrl = (projectId: string, recordingId: string | null) => {
+export const getSessionRecordingsSharingRefreshCreateUrl = (projectId: string, recordingId: string) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/refresh/`
 }
 
 export const sessionRecordingsSharingRefreshCreate = async (
     projectId: string,
-    recordingId: string | null,
-    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
+    recordingId: string,
+    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
     return apiMutator<SharingConfigurationApi>(getSessionRecordingsSharingRefreshCreateUrl(projectId, recordingId), {
@@ -1670,7 +1666,7 @@ export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: number) 
 export const subscriptionsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedSubscriptionApi: NonReadonly<PatchedSubscriptionApi>,
+    patchedSubscriptionApi?: NonReadonly<PatchedSubscriptionApi>,
     options?: RequestInit
 ): Promise<SubscriptionApi> => {
     return apiMutator<SubscriptionApi>(getSubscriptionsPartialUpdateUrl(projectId, id), {
@@ -1681,13 +1677,13 @@ export const subscriptionsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getSubscriptionsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/subscriptions/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const subscriptionsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getSubscriptionsDestroyUrl(projectId, id), {
         ...options,
@@ -1745,13 +1741,13 @@ export const usersList = async (params?: UsersListParams, options?: RequestInit)
     })
 }
 
-/**
- * Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account.
- */
 export const getUsersRetrieveUrl = (uuid: string) => {
     return `/api/users/${uuid}/`
 }
 
+/**
+ * Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account.
+ */
 export const usersRetrieve = async (uuid: string, options?: RequestInit): Promise<UserApi> => {
     return apiMutator<UserApi>(getUsersRetrieveUrl(uuid), {
         ...options,
@@ -1759,13 +1755,13 @@ export const usersRetrieve = async (uuid: string, options?: RequestInit): Promis
     })
 }
 
-/**
- * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
- */
 export const getUsersUpdateUrl = (uuid: string) => {
     return `/api/users/${uuid}/`
 }
 
+/**
+ * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
+ */
 export const usersUpdate = async (
     uuid: string,
     userApi: NonReadonly<UserApi>,
@@ -1779,16 +1775,16 @@ export const usersUpdate = async (
     })
 }
 
-/**
- * Update one or more of the authenticated user's profile fields or settings.
- */
 export const getUsersPartialUpdateUrl = (uuid: string) => {
     return `/api/users/${uuid}/`
 }
 
+/**
+ * Update one or more of the authenticated user's profile fields or settings.
+ */
 export const usersPartialUpdate = async (
     uuid: string,
-    patchedUserApi: NonReadonly<PatchedUserApi>,
+    patchedUserApi?: NonReadonly<PatchedUserApi>,
     options?: RequestInit
 ): Promise<UserApi> => {
     return apiMutator<UserApi>(getUsersPartialUpdateUrl(uuid), {
@@ -1838,7 +1834,7 @@ export const getUsersHedgehogConfigPartialUpdateUrl = (uuid: string) => {
 
 export const usersHedgehogConfigPartialUpdate = async (
     uuid: string,
-    patchedUserApi: NonReadonly<PatchedUserApi>,
+    patchedUserApi?: NonReadonly<PatchedUserApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getUsersHedgehogConfigPartialUpdateUrl(uuid), {
@@ -1847,6 +1843,10 @@ export const usersHedgehogConfigPartialUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedUserApi),
     })
+}
+
+export const getUsersOnboardingSkipCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/onboarding/skip/`
 }
 
 /**
@@ -1858,10 +1858,6 @@ Callers wanting to delegate setup to a teammate must use the dedicated
 invite and sets reason="delegated". This endpoint rejects that reason so state
 can't be faked without a real invite.
  */
-export const getUsersOnboardingSkipCreateUrl = (uuid: string) => {
-    return `/api/users/${uuid}/onboarding/skip/`
-}
-
 export const usersOnboardingSkipCreate = async (
     uuid: string,
     onboardingSkipRequestApi: OnboardingSkipRequestApi,
@@ -1903,13 +1899,13 @@ export const usersStart2faSetupRetrieve = async (uuid: string, options?: Request
     })
 }
 
-/**
- * Generate new backup codes, invalidating any existing ones
- */
 export const getUsersTwoFactorBackupCodesCreateUrl = (uuid: string) => {
     return `/api/users/${uuid}/two_factor_backup_codes/`
 }
 
+/**
+ * Generate new backup codes, invalidating any existing ones
+ */
 export const usersTwoFactorBackupCodesCreate = async (
     uuid: string,
     userApi: NonReadonly<UserApi>,
@@ -1923,13 +1919,13 @@ export const usersTwoFactorBackupCodesCreate = async (
     })
 }
 
-/**
- * Disable 2FA and remove all related devices
- */
 export const getUsersTwoFactorDisableCreateUrl = (uuid: string) => {
     return `/api/users/${uuid}/two_factor_disable/`
 }
 
+/**
+ * Disable 2FA and remove all related devices
+ */
 export const usersTwoFactorDisableCreate = async (
     uuid: string,
     userApi: NonReadonly<UserApi>,
@@ -1954,13 +1950,13 @@ export const usersTwoFactorStartSetupRetrieve = async (uuid: string, options?: R
     })
 }
 
-/**
- * Get current 2FA status including backup codes if enabled
- */
 export const getUsersTwoFactorStatusRetrieveUrl = (uuid: string) => {
     return `/api/users/${uuid}/two_factor_status/`
 }
 
+/**
+ * Get current 2FA status including backup codes if enabled
+ */
 export const usersTwoFactorStatusRetrieve = async (uuid: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getUsersTwoFactorStatusRetrieveUrl(uuid), {
         ...options,
@@ -2007,7 +2003,7 @@ export const getUsersCancelEmailChangeRequestPartialUpdateUrl = () => {
 }
 
 export const usersCancelEmailChangeRequestPartialUpdate = async (
-    patchedUserApi: NonReadonly<PatchedUserApi>,
+    patchedUserApi?: NonReadonly<PatchedUserApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getUsersCancelEmailChangeRequestPartialUpdateUrl(), {

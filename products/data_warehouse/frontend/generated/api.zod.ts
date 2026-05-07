@@ -62,13 +62,13 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
                 .describe(
-                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -76,13 +76,13 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
                 .describe(
-                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
         ),
     sync_frequency: zod
         .union([
@@ -101,13 +101,13 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
                     '30day',
                 ])
                 .describe(
-                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -115,12 +115,12 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
-                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+                .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
 })
 
@@ -131,13 +131,13 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
                 .describe(
-                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -145,13 +145,13 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
                 .describe(
-                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
         ),
     sync_frequency: zod
         .union([
@@ -170,13 +170,13 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
                     '30day',
                 ])
                 .describe(
-                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -184,12 +184,12 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
-                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+                .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
 })
 
@@ -200,13 +200,13 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
                 .describe(
-                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -214,13 +214,13 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
                 .describe(
-                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
         ),
     sync_frequency: zod
         .union([
@@ -239,13 +239,13 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
                     '30day',
                 ])
                 .describe(
-                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -253,12 +253,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
-                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+                .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
 })
 
@@ -269,13 +269,13 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
                 .describe(
-                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -283,13 +283,13 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
                 .describe(
-                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
         ),
     sync_frequency: zod
         .union([
@@ -308,13 +308,13 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
                     '30day',
                 ])
                 .describe(
-                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -322,12 +322,12 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
-                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+                .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
 })
 
@@ -338,13 +338,13 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
             zod
                 .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
                 .describe(
-                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -352,13 +352,13 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
             zod
                 .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
                 .describe(
-                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
         ),
     sync_frequency: zod
         .union([
@@ -377,13 +377,13 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
                     '30day',
                 ])
                 .describe(
-                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -391,12 +391,12 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .union([
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
-                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+                .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
 })
 
@@ -407,13 +407,13 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
                 .describe(
-                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -421,13 +421,13 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
                 .describe(
-                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
         ),
     sync_frequency: zod
         .union([
@@ -446,13 +446,13 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
                     '30day',
                 ])
                 .describe(
-                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -460,12 +460,12 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
-                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+                .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
 })
 
@@ -476,13 +476,13 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
                 .describe(
-                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
@@ -490,13 +490,13 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
                 .describe(
-                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
         ),
     sync_frequency: zod
         .union([
@@ -515,13 +515,13 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
                     '30day',
                 ])
                 .describe(
-                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
+            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -529,12 +529,12 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['consolidated', 'cdc_only', 'both'])
-                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+                .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
             zod.null(),
         ])
         .optional()
         .describe(
-            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+            'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
 })
 
@@ -697,10 +697,10 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
             'Resend',
         ])
         .describe(
-            '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend'
+            '\* `Ashby` - Ashby\n\* `Supabase` - Supabase\n\* `CustomerIO` - CustomerIO\n\* `Github` - Github\n\* `Stripe` - Stripe\n\* `Hubspot` - Hubspot\n\* `Postgres` - Postgres\n\* `Zendesk` - Zendesk\n\* `Snowflake` - Snowflake\n\* `Salesforce` - Salesforce\n\* `MySQL` - MySQL\n\* `MongoDB` - MongoDB\n\* `MSSQL` - MSSQL\n\* `Vitally` - Vitally\n\* `BigQuery` - BigQuery\n\* `Chargebee` - Chargebee\n\* `Clerk` - Clerk\n\* `GoogleAds` - GoogleAds\n\* `TemporalIO` - TemporalIO\n\* `DoIt` - DoIt\n\* `GoogleSheets` - GoogleSheets\n\* `MetaAds` - MetaAds\n\* `Klaviyo` - Klaviyo\n\* `Mailchimp` - Mailchimp\n\* `Braze` - Braze\n\* `Mailjet` - Mailjet\n\* `Redshift` - Redshift\n\* `Polar` - Polar\n\* `RevenueCat` - RevenueCat\n\* `LinkedinAds` - LinkedinAds\n\* `RedditAds` - RedditAds\n\* `TikTokAds` - TikTokAds\n\* `BingAds` - BingAds\n\* `Shopify` - Shopify\n\* `Attio` - Attio\n\* `SnapchatAds` - SnapchatAds\n\* `Linear` - Linear\n\* `Intercom` - Intercom\n\* `Amplitude` - Amplitude\n\* `Mixpanel` - Mixpanel\n\* `Jira` - Jira\n\* `ActiveCampaign` - ActiveCampaign\n\* `Marketo` - Marketo\n\* `Adjust` - Adjust\n\* `AppsFlyer` - AppsFlyer\n\* `Freshdesk` - Freshdesk\n\* `GoogleAnalytics` - GoogleAnalytics\n\* `Pipedrive` - Pipedrive\n\* `SendGrid` - SendGrid\n\* `Slack` - Slack\n\* `PagerDuty` - PagerDuty\n\* `Asana` - Asana\n\* `Notion` - Notion\n\* `Airtable` - Airtable\n\* `Greenhouse` - Greenhouse\n\* `BambooHR` - BambooHR\n\* `Lever` - Lever\n\* `GitLab` - GitLab\n\* `Datadog` - Datadog\n\* `Sentry` - Sentry\n\* `Pendo` - Pendo\n\* `FullStory` - FullStory\n\* `AmazonAds` - AmazonAds\n\* `PinterestAds` - PinterestAds\n\* `AppleSearchAds` - AppleSearchAds\n\* `QuickBooks` - QuickBooks\n\* `Xero` - Xero\n\* `NetSuite` - NetSuite\n\* `WooCommerce` - WooCommerce\n\* `BigCommerce` - BigCommerce\n\* `PayPal` - PayPal\n\* `Square` - Square\n\* `Zoom` - Zoom\n\* `Trello` - Trello\n\* `Monday` - Monday\n\* `ClickUp` - ClickUp\n\* `Confluence` - Confluence\n\* `Recurly` - Recurly\n\* `SalesLoft` - SalesLoft\n\* `Outreach` - Outreach\n\* `Gong` - Gong\n\* `Calendly` - Calendly\n\* `Typeform` - Typeform\n\* `Iterable` - Iterable\n\* `ZohoCRM` - ZohoCRM\n\* `Close` - Close\n\* `Oracle` - Oracle\n\* `DynamoDB` - DynamoDB\n\* `Elasticsearch` - Elasticsearch\n\* `Kafka` - Kafka\n\* `LaunchDarkly` - LaunchDarkly\n\* `Braintree` - Braintree\n\* `Recharge` - Recharge\n\* `HelpScout` - HelpScout\n\* `Gorgias` - Gorgias\n\* `Instagram` - Instagram\n\* `YouTubeAnalytics` - YouTubeAnalytics\n\* `FacebookPages` - FacebookPages\n\* `TwitterAds` - TwitterAds\n\* `Workday` - Workday\n\* `ServiceNow` - ServiceNow\n\* `Pardot` - Pardot\n\* `Copper` - Copper\n\* `Front` - Front\n\* `ChartMogul` - ChartMogul\n\* `Zuora` - Zuora\n\* `Paddle` - Paddle\n\* `CircleCI` - CircleCI\n\* `CockroachDB` - CockroachDB\n\* `Firebase` - Firebase\n\* `AzureBlob` - AzureBlob\n\* `GoogleDrive` - GoogleDrive\n\* `OneDrive` - OneDrive\n\* `SharePoint` - SharePoint\n\* `Box` - Box\n\* `SFTP` - SFTP\n\* `MicrosoftTeams` - MicrosoftTeams\n\* `Aircall` - Aircall\n\* `Webflow` - Webflow\n\* `Okta` - Okta\n\* `Auth0` - Auth0\n\* `Productboard` - Productboard\n\* `Smartsheet` - Smartsheet\n\* `Wrike` - Wrike\n\* `Plaid` - Plaid\n\* `SurveyMonkey` - SurveyMonkey\n\* `Eventbrite` - Eventbrite\n\* `RingCentral` - RingCentral\n\* `Twilio` - Twilio\n\* `Freshsales` - Freshsales\n\* `Shortcut` - Shortcut\n\* `ConvertKit` - ConvertKit\n\* `Drip` - Drip\n\* `CampaignMonitor` - CampaignMonitor\n\* `MailerLite` - MailerLite\n\* `Omnisend` - Omnisend\n\* `Brevo` - Brevo\n\* `Postmark` - Postmark\n\* `Granola` - Granola\n\* `BuildBetter` - BuildBetter\n\* `Convex` - Convex\n\* `ClickHouse` - ClickHouse\n\* `Plain` - Plain\n\* `Resend` - Resend'
         )
         .describe(
-            "The source type (e.g. 'Postgres', 'Stripe').\n\n* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend"
+            "The source type (e.g. 'Postgres', 'Stripe').\n\n\* `Ashby` - Ashby\n\* `Supabase` - Supabase\n\* `CustomerIO` - CustomerIO\n\* `Github` - Github\n\* `Stripe` - Stripe\n\* `Hubspot` - Hubspot\n\* `Postgres` - Postgres\n\* `Zendesk` - Zendesk\n\* `Snowflake` - Snowflake\n\* `Salesforce` - Salesforce\n\* `MySQL` - MySQL\n\* `MongoDB` - MongoDB\n\* `MSSQL` - MSSQL\n\* `Vitally` - Vitally\n\* `BigQuery` - BigQuery\n\* `Chargebee` - Chargebee\n\* `Clerk` - Clerk\n\* `GoogleAds` - GoogleAds\n\* `TemporalIO` - TemporalIO\n\* `DoIt` - DoIt\n\* `GoogleSheets` - GoogleSheets\n\* `MetaAds` - MetaAds\n\* `Klaviyo` - Klaviyo\n\* `Mailchimp` - Mailchimp\n\* `Braze` - Braze\n\* `Mailjet` - Mailjet\n\* `Redshift` - Redshift\n\* `Polar` - Polar\n\* `RevenueCat` - RevenueCat\n\* `LinkedinAds` - LinkedinAds\n\* `RedditAds` - RedditAds\n\* `TikTokAds` - TikTokAds\n\* `BingAds` - BingAds\n\* `Shopify` - Shopify\n\* `Attio` - Attio\n\* `SnapchatAds` - SnapchatAds\n\* `Linear` - Linear\n\* `Intercom` - Intercom\n\* `Amplitude` - Amplitude\n\* `Mixpanel` - Mixpanel\n\* `Jira` - Jira\n\* `ActiveCampaign` - ActiveCampaign\n\* `Marketo` - Marketo\n\* `Adjust` - Adjust\n\* `AppsFlyer` - AppsFlyer\n\* `Freshdesk` - Freshdesk\n\* `GoogleAnalytics` - GoogleAnalytics\n\* `Pipedrive` - Pipedrive\n\* `SendGrid` - SendGrid\n\* `Slack` - Slack\n\* `PagerDuty` - PagerDuty\n\* `Asana` - Asana\n\* `Notion` - Notion\n\* `Airtable` - Airtable\n\* `Greenhouse` - Greenhouse\n\* `BambooHR` - BambooHR\n\* `Lever` - Lever\n\* `GitLab` - GitLab\n\* `Datadog` - Datadog\n\* `Sentry` - Sentry\n\* `Pendo` - Pendo\n\* `FullStory` - FullStory\n\* `AmazonAds` - AmazonAds\n\* `PinterestAds` - PinterestAds\n\* `AppleSearchAds` - AppleSearchAds\n\* `QuickBooks` - QuickBooks\n\* `Xero` - Xero\n\* `NetSuite` - NetSuite\n\* `WooCommerce` - WooCommerce\n\* `BigCommerce` - BigCommerce\n\* `PayPal` - PayPal\n\* `Square` - Square\n\* `Zoom` - Zoom\n\* `Trello` - Trello\n\* `Monday` - Monday\n\* `ClickUp` - ClickUp\n\* `Confluence` - Confluence\n\* `Recurly` - Recurly\n\* `SalesLoft` - SalesLoft\n\* `Outreach` - Outreach\n\* `Gong` - Gong\n\* `Calendly` - Calendly\n\* `Typeform` - Typeform\n\* `Iterable` - Iterable\n\* `ZohoCRM` - ZohoCRM\n\* `Close` - Close\n\* `Oracle` - Oracle\n\* `DynamoDB` - DynamoDB\n\* `Elasticsearch` - Elasticsearch\n\* `Kafka` - Kafka\n\* `LaunchDarkly` - LaunchDarkly\n\* `Braintree` - Braintree\n\* `Recharge` - Recharge\n\* `HelpScout` - HelpScout\n\* `Gorgias` - Gorgias\n\* `Instagram` - Instagram\n\* `YouTubeAnalytics` - YouTubeAnalytics\n\* `FacebookPages` - FacebookPages\n\* `TwitterAds` - TwitterAds\n\* `Workday` - Workday\n\* `ServiceNow` - ServiceNow\n\* `Pardot` - Pardot\n\* `Copper` - Copper\n\* `Front` - Front\n\* `ChartMogul` - ChartMogul\n\* `Zuora` - Zuora\n\* `Paddle` - Paddle\n\* `CircleCI` - CircleCI\n\* `CockroachDB` - CockroachDB\n\* `Firebase` - Firebase\n\* `AzureBlob` - AzureBlob\n\* `GoogleDrive` - GoogleDrive\n\* `OneDrive` - OneDrive\n\* `SharePoint` - SharePoint\n\* `Box` - Box\n\* `SFTP` - SFTP\n\* `MicrosoftTeams` - MicrosoftTeams\n\* `Aircall` - Aircall\n\* `Webflow` - Webflow\n\* `Okta` - Okta\n\* `Auth0` - Auth0\n\* `Productboard` - Productboard\n\* `Smartsheet` - Smartsheet\n\* `Wrike` - Wrike\n\* `Plaid` - Plaid\n\* `SurveyMonkey` - SurveyMonkey\n\* `Eventbrite` - Eventbrite\n\* `RingCentral` - RingCentral\n\* `Twilio` - Twilio\n\* `Freshsales` - Freshsales\n\* `Shortcut` - Shortcut\n\* `ConvertKit` - ConvertKit\n\* `Drip` - Drip\n\* `CampaignMonitor` - CampaignMonitor\n\* `MailerLite` - MailerLite\n\* `Omnisend` - Omnisend\n\* `Brevo` - Brevo\n\* `Postmark` - Postmark\n\* `Granola` - Granola\n\* `BuildBetter` - BuildBetter\n\* `Convex` - Convex\n\* `ClickHouse` - ClickHouse\n\* `Plain` - Plain\n\* `Resend` - Resend"
         ),
     payload: zod
         .record(zod.string(), zod.unknown())
@@ -713,16 +713,16 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable description.'),
     access_method: zod
         .enum(['warehouse', 'direct'])
-        .describe('* `warehouse` - warehouse\n* `direct` - direct')
+        .describe('\* `warehouse` - warehouse\n\* `direct` - direct')
         .default(externalDataSourcesCreateBodyAccessMethodDefault)
         .describe(
-            "Connection mode: 'warehouse' (import) or 'direct' (live query).\n\n* `warehouse` - warehouse\n* `direct` - direct"
+            "Connection mode: 'warehouse' (import) or 'direct' (live query).\n\n\* `warehouse` - warehouse\n\* `direct` - direct"
         ),
     created_via: zod
         .enum(['web', 'api', 'mcp'])
-        .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
         .default(externalDataSourcesCreateBodyCreatedViaDefault)
-        .describe('Where the request came from\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'),
+        .describe('Where the request came from\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'),
 })
 
 /**
@@ -736,10 +736,10 @@ export const ExternalDataSourcesUpdateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
             .enum(['web', 'api', 'mcp'])
-            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -760,10 +760,10 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
             .enum(['web', 'api', 'mcp'])
-            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
             ),
         client_secret: zod.string().optional(),
         account_id: zod.string().optional(),
@@ -781,19 +781,19 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
         .array(
             zod.object({
                 id: zod.uuid().describe('Schema identifier to update.'),
-                should_sync: zod.boolean().optional().describe('Whether the schema should be queryable/synced.'),
+                should_sync: zod.boolean().optional().describe('Whether the schema should be queryable\/synced.'),
                 sync_type: zod
                     .union([
                         zod
                             .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
                             .describe(
-                                '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                                '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
                             ),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'Requested sync mode for the schema.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc'
+                        'Requested sync mode for the schema.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
                     ),
                 incremental_field: zod
                     .string()
@@ -806,12 +806,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     .union([
                         zod
                             .enum(['consolidated', 'cdc_only', 'both'])
-                            .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
+                            .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'How CDC-backed tables should be exposed.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+                        'How CDC-backed tables should be exposed.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
                     ),
             })
         )
@@ -830,10 +830,10 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
             .enum(['web', 'api', 'mcp'])
-            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -854,10 +854,10 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
             .enum(['web', 'api', 'mcp'])
-            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -878,10 +878,10 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
             .enum(['web', 'api', 'mcp'])
-            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -902,10 +902,10 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
             .enum(['web', 'api', 'mcp'])
-            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -926,10 +926,10 @@ export const ExternalDataSourcesRevenueAnalyticsConfigPartialUpdateBody = /* @__
     .object({
         created_via: zod
             .enum(['web', 'api', 'mcp'])
-            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
             ),
         client_secret: zod.string().optional(),
         account_id: zod.string().optional(),
@@ -953,10 +953,10 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
     .object({
         created_via: zod
             .enum(['web', 'api', 'mcp'])
-            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -1119,10 +1119,10 @@ export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
                 'Resend',
             ])
             .describe(
-                '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend'
+                '\* `Ashby` - Ashby\n\* `Supabase` - Supabase\n\* `CustomerIO` - CustomerIO\n\* `Github` - Github\n\* `Stripe` - Stripe\n\* `Hubspot` - Hubspot\n\* `Postgres` - Postgres\n\* `Zendesk` - Zendesk\n\* `Snowflake` - Snowflake\n\* `Salesforce` - Salesforce\n\* `MySQL` - MySQL\n\* `MongoDB` - MongoDB\n\* `MSSQL` - MSSQL\n\* `Vitally` - Vitally\n\* `BigQuery` - BigQuery\n\* `Chargebee` - Chargebee\n\* `Clerk` - Clerk\n\* `GoogleAds` - GoogleAds\n\* `TemporalIO` - TemporalIO\n\* `DoIt` - DoIt\n\* `GoogleSheets` - GoogleSheets\n\* `MetaAds` - MetaAds\n\* `Klaviyo` - Klaviyo\n\* `Mailchimp` - Mailchimp\n\* `Braze` - Braze\n\* `Mailjet` - Mailjet\n\* `Redshift` - Redshift\n\* `Polar` - Polar\n\* `RevenueCat` - RevenueCat\n\* `LinkedinAds` - LinkedinAds\n\* `RedditAds` - RedditAds\n\* `TikTokAds` - TikTokAds\n\* `BingAds` - BingAds\n\* `Shopify` - Shopify\n\* `Attio` - Attio\n\* `SnapchatAds` - SnapchatAds\n\* `Linear` - Linear\n\* `Intercom` - Intercom\n\* `Amplitude` - Amplitude\n\* `Mixpanel` - Mixpanel\n\* `Jira` - Jira\n\* `ActiveCampaign` - ActiveCampaign\n\* `Marketo` - Marketo\n\* `Adjust` - Adjust\n\* `AppsFlyer` - AppsFlyer\n\* `Freshdesk` - Freshdesk\n\* `GoogleAnalytics` - GoogleAnalytics\n\* `Pipedrive` - Pipedrive\n\* `SendGrid` - SendGrid\n\* `Slack` - Slack\n\* `PagerDuty` - PagerDuty\n\* `Asana` - Asana\n\* `Notion` - Notion\n\* `Airtable` - Airtable\n\* `Greenhouse` - Greenhouse\n\* `BambooHR` - BambooHR\n\* `Lever` - Lever\n\* `GitLab` - GitLab\n\* `Datadog` - Datadog\n\* `Sentry` - Sentry\n\* `Pendo` - Pendo\n\* `FullStory` - FullStory\n\* `AmazonAds` - AmazonAds\n\* `PinterestAds` - PinterestAds\n\* `AppleSearchAds` - AppleSearchAds\n\* `QuickBooks` - QuickBooks\n\* `Xero` - Xero\n\* `NetSuite` - NetSuite\n\* `WooCommerce` - WooCommerce\n\* `BigCommerce` - BigCommerce\n\* `PayPal` - PayPal\n\* `Square` - Square\n\* `Zoom` - Zoom\n\* `Trello` - Trello\n\* `Monday` - Monday\n\* `ClickUp` - ClickUp\n\* `Confluence` - Confluence\n\* `Recurly` - Recurly\n\* `SalesLoft` - SalesLoft\n\* `Outreach` - Outreach\n\* `Gong` - Gong\n\* `Calendly` - Calendly\n\* `Typeform` - Typeform\n\* `Iterable` - Iterable\n\* `ZohoCRM` - ZohoCRM\n\* `Close` - Close\n\* `Oracle` - Oracle\n\* `DynamoDB` - DynamoDB\n\* `Elasticsearch` - Elasticsearch\n\* `Kafka` - Kafka\n\* `LaunchDarkly` - LaunchDarkly\n\* `Braintree` - Braintree\n\* `Recharge` - Recharge\n\* `HelpScout` - HelpScout\n\* `Gorgias` - Gorgias\n\* `Instagram` - Instagram\n\* `YouTubeAnalytics` - YouTubeAnalytics\n\* `FacebookPages` - FacebookPages\n\* `TwitterAds` - TwitterAds\n\* `Workday` - Workday\n\* `ServiceNow` - ServiceNow\n\* `Pardot` - Pardot\n\* `Copper` - Copper\n\* `Front` - Front\n\* `ChartMogul` - ChartMogul\n\* `Zuora` - Zuora\n\* `Paddle` - Paddle\n\* `CircleCI` - CircleCI\n\* `CockroachDB` - CockroachDB\n\* `Firebase` - Firebase\n\* `AzureBlob` - AzureBlob\n\* `GoogleDrive` - GoogleDrive\n\* `OneDrive` - OneDrive\n\* `SharePoint` - SharePoint\n\* `Box` - Box\n\* `SFTP` - SFTP\n\* `MicrosoftTeams` - MicrosoftTeams\n\* `Aircall` - Aircall\n\* `Webflow` - Webflow\n\* `Okta` - Okta\n\* `Auth0` - Auth0\n\* `Productboard` - Productboard\n\* `Smartsheet` - Smartsheet\n\* `Wrike` - Wrike\n\* `Plaid` - Plaid\n\* `SurveyMonkey` - SurveyMonkey\n\* `Eventbrite` - Eventbrite\n\* `RingCentral` - RingCentral\n\* `Twilio` - Twilio\n\* `Freshsales` - Freshsales\n\* `Shortcut` - Shortcut\n\* `ConvertKit` - ConvertKit\n\* `Drip` - Drip\n\* `CampaignMonitor` - CampaignMonitor\n\* `MailerLite` - MailerLite\n\* `Omnisend` - Omnisend\n\* `Brevo` - Brevo\n\* `Postmark` - Postmark\n\* `Granola` - Granola\n\* `BuildBetter` - BuildBetter\n\* `Convex` - Convex\n\* `ClickHouse` - ClickHouse\n\* `Plain` - Plain\n\* `Resend` - Resend'
             )
             .describe(
-                'The source type to validate against.\n\n* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter\n* `Convex` - Convex\n* `ClickHouse` - ClickHouse\n* `Plain` - Plain\n* `Resend` - Resend'
+                'The source type to validate against.\n\n\* `Ashby` - Ashby\n\* `Supabase` - Supabase\n\* `CustomerIO` - CustomerIO\n\* `Github` - Github\n\* `Stripe` - Stripe\n\* `Hubspot` - Hubspot\n\* `Postgres` - Postgres\n\* `Zendesk` - Zendesk\n\* `Snowflake` - Snowflake\n\* `Salesforce` - Salesforce\n\* `MySQL` - MySQL\n\* `MongoDB` - MongoDB\n\* `MSSQL` - MSSQL\n\* `Vitally` - Vitally\n\* `BigQuery` - BigQuery\n\* `Chargebee` - Chargebee\n\* `Clerk` - Clerk\n\* `GoogleAds` - GoogleAds\n\* `TemporalIO` - TemporalIO\n\* `DoIt` - DoIt\n\* `GoogleSheets` - GoogleSheets\n\* `MetaAds` - MetaAds\n\* `Klaviyo` - Klaviyo\n\* `Mailchimp` - Mailchimp\n\* `Braze` - Braze\n\* `Mailjet` - Mailjet\n\* `Redshift` - Redshift\n\* `Polar` - Polar\n\* `RevenueCat` - RevenueCat\n\* `LinkedinAds` - LinkedinAds\n\* `RedditAds` - RedditAds\n\* `TikTokAds` - TikTokAds\n\* `BingAds` - BingAds\n\* `Shopify` - Shopify\n\* `Attio` - Attio\n\* `SnapchatAds` - SnapchatAds\n\* `Linear` - Linear\n\* `Intercom` - Intercom\n\* `Amplitude` - Amplitude\n\* `Mixpanel` - Mixpanel\n\* `Jira` - Jira\n\* `ActiveCampaign` - ActiveCampaign\n\* `Marketo` - Marketo\n\* `Adjust` - Adjust\n\* `AppsFlyer` - AppsFlyer\n\* `Freshdesk` - Freshdesk\n\* `GoogleAnalytics` - GoogleAnalytics\n\* `Pipedrive` - Pipedrive\n\* `SendGrid` - SendGrid\n\* `Slack` - Slack\n\* `PagerDuty` - PagerDuty\n\* `Asana` - Asana\n\* `Notion` - Notion\n\* `Airtable` - Airtable\n\* `Greenhouse` - Greenhouse\n\* `BambooHR` - BambooHR\n\* `Lever` - Lever\n\* `GitLab` - GitLab\n\* `Datadog` - Datadog\n\* `Sentry` - Sentry\n\* `Pendo` - Pendo\n\* `FullStory` - FullStory\n\* `AmazonAds` - AmazonAds\n\* `PinterestAds` - PinterestAds\n\* `AppleSearchAds` - AppleSearchAds\n\* `QuickBooks` - QuickBooks\n\* `Xero` - Xero\n\* `NetSuite` - NetSuite\n\* `WooCommerce` - WooCommerce\n\* `BigCommerce` - BigCommerce\n\* `PayPal` - PayPal\n\* `Square` - Square\n\* `Zoom` - Zoom\n\* `Trello` - Trello\n\* `Monday` - Monday\n\* `ClickUp` - ClickUp\n\* `Confluence` - Confluence\n\* `Recurly` - Recurly\n\* `SalesLoft` - SalesLoft\n\* `Outreach` - Outreach\n\* `Gong` - Gong\n\* `Calendly` - Calendly\n\* `Typeform` - Typeform\n\* `Iterable` - Iterable\n\* `ZohoCRM` - ZohoCRM\n\* `Close` - Close\n\* `Oracle` - Oracle\n\* `DynamoDB` - DynamoDB\n\* `Elasticsearch` - Elasticsearch\n\* `Kafka` - Kafka\n\* `LaunchDarkly` - LaunchDarkly\n\* `Braintree` - Braintree\n\* `Recharge` - Recharge\n\* `HelpScout` - HelpScout\n\* `Gorgias` - Gorgias\n\* `Instagram` - Instagram\n\* `YouTubeAnalytics` - YouTubeAnalytics\n\* `FacebookPages` - FacebookPages\n\* `TwitterAds` - TwitterAds\n\* `Workday` - Workday\n\* `ServiceNow` - ServiceNow\n\* `Pardot` - Pardot\n\* `Copper` - Copper\n\* `Front` - Front\n\* `ChartMogul` - ChartMogul\n\* `Zuora` - Zuora\n\* `Paddle` - Paddle\n\* `CircleCI` - CircleCI\n\* `CockroachDB` - CockroachDB\n\* `Firebase` - Firebase\n\* `AzureBlob` - AzureBlob\n\* `GoogleDrive` - GoogleDrive\n\* `OneDrive` - OneDrive\n\* `SharePoint` - SharePoint\n\* `Box` - Box\n\* `SFTP` - SFTP\n\* `MicrosoftTeams` - MicrosoftTeams\n\* `Aircall` - Aircall\n\* `Webflow` - Webflow\n\* `Okta` - Okta\n\* `Auth0` - Auth0\n\* `Productboard` - Productboard\n\* `Smartsheet` - Smartsheet\n\* `Wrike` - Wrike\n\* `Plaid` - Plaid\n\* `SurveyMonkey` - SurveyMonkey\n\* `Eventbrite` - Eventbrite\n\* `RingCentral` - RingCentral\n\* `Twilio` - Twilio\n\* `Freshsales` - Freshsales\n\* `Shortcut` - Shortcut\n\* `ConvertKit` - ConvertKit\n\* `Drip` - Drip\n\* `CampaignMonitor` - CampaignMonitor\n\* `MailerLite` - MailerLite\n\* `Omnisend` - Omnisend\n\* `Brevo` - Brevo\n\* `Postmark` - Postmark\n\* `Granola` - Granola\n\* `BuildBetter` - BuildBetter\n\* `Convex` - Convex\n\* `ClickHouse` - ClickHouse\n\* `Plain` - Plain\n\* `Resend` - Resend'
             ),
     })
     .describe(
@@ -1140,10 +1140,10 @@ export const ExternalDataSourcesSourcePrefixCreateBody = /* @__PURE__ */ zod
     .object({
         created_via: zod
             .enum(['web', 'api', 'mcp'])
-            .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp')
+            .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
             .optional()
             .describe(
-                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+                'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls. Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -1159,9 +1159,11 @@ export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(insightVariablesCreateBodyNameMax).describe('Human-readable name for the SQL variable.'),
     type: zod
         .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
-        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
         .describe(
-            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+            '\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
+        )
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
         ),
     default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
     values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
@@ -1173,9 +1175,11 @@ export const InsightVariablesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(insightVariablesUpdateBodyNameMax).describe('Human-readable name for the SQL variable.'),
     type: zod
         .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
-        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
         .describe(
-            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+            '\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
+        )
+        .describe(
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
         ),
     default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
     values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
@@ -1191,10 +1195,12 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable name for the SQL variable.'),
     type: zod
         .enum(['String', 'Number', 'Boolean', 'List', 'Date'])
-        .describe('* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date')
+        .describe(
+            '\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
+        )
         .optional()
         .describe(
-            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date'
+            'Variable type. Controls how the value is rendered and substituted in HogQL.\n\n\* `String` - String\n\* `Number` - Number\n\* `Boolean` - Boolean\n\* `List` - List\n\* `Date` - Date'
         ),
     default_value: zod.unknown().optional().describe('Default value used when a query references this variable.'),
     values: zod.unknown().optional().describe('Allowed values for List variables. Null for other variable types.'),
@@ -1254,7 +1260,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1293,7 +1299,7 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1333,7 +1339,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1376,7 +1382,7 @@ export const WarehouseSavedQueriesAncestorsCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1415,7 +1421,7 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1458,7 +1464,7 @@ export const WarehouseSavedQueriesDescendantsCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1497,7 +1503,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1537,7 +1543,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1576,7 +1582,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1618,7 +1624,7 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
             .unknown()
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
+                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT \* FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}'
             ),
         folder_id: zod
             .uuid()
@@ -1688,7 +1694,7 @@ export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
         format: zod
             .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
             .describe(
-                '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
             ),
         url_pattern: zod.string().max(warehouseTablesCreateBodyUrlPatternMax),
         credential: zod.object({
@@ -1716,14 +1722,14 @@ export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
                                 'other',
                             ])
                             .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
                             ),
                         zod.enum(['']),
                         zod.null(),
                     ])
                     .optional(),
             }),
-            created_at: zod.iso.datetime({}),
+            created_at: zod.iso.datetime({ offset: true }),
             access_key: zod.string().max(warehouseTablesCreateBodyCredentialAccessKeyMax),
             access_secret: zod.string().max(warehouseTablesCreateBodyCredentialAccessSecretMax),
         }),
@@ -1757,7 +1763,7 @@ export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
         format: zod
             .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
             .describe(
-                '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
             ),
         url_pattern: zod.string().max(warehouseTablesFileCreateBodyUrlPatternMax),
         credential: zod.object({
@@ -1791,14 +1797,14 @@ export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
                                 'other',
                             ])
                             .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
                             ),
                         zod.enum(['']),
                         zod.null(),
                     ])
                     .optional(),
             }),
-            created_at: zod.iso.datetime({}),
+            created_at: zod.iso.datetime({ offset: true }),
             access_key: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessKeyMax),
             access_secret: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessSecretMax),
         }),

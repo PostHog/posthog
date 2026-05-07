@@ -11,15 +11,15 @@ import * as zod from 'zod'
 
 export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const ErrorTrackingAssignmentRulesUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const ErrorTrackingAssignmentRulesPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMax = 2147483647
@@ -42,7 +42,7 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.obj
 
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const errorTrackingGroupingRulesUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingGroupingRulesUpdateBodyOrderKeyMax = 2147483647
@@ -90,11 +90,11 @@ export const ErrorTrackingIssuesCreateBody = /* @__PURE__ */ zod.object({
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
         .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
+            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
         ),
     name: zod.string().nullish(),
     description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({}),
+    first_seen: zod.iso.datetime({ offset: true }),
     assignee: zod.object({
         id: zod.union([zod.number(), zod.string(), zod.null()]),
         type: zod.string(),
@@ -120,11 +120,11 @@ export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
         .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
+            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
         ),
     name: zod.string().nullish(),
     description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({}),
+    first_seen: zod.iso.datetime({ offset: true }),
     assignee: zod.object({
         id: zod.union([zod.number(), zod.string(), zod.null()]),
         type: zod.string(),
@@ -150,11 +150,11 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
         .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
+            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
         ),
     name: zod.string().nullish(),
     description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({}).optional(),
+    first_seen: zod.iso.datetime({ offset: true }).optional(),
     assignee: zod
         .object({
             id: zod.union([zod.number(), zod.string(), zod.null()]),
@@ -184,11 +184,11 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.ob
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
         .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
+            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
         ),
     name: zod.string().nullish(),
     description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({}).optional(),
+    first_seen: zod.iso.datetime({ offset: true }).optional(),
     assignee: zod
         .object({
             id: zod.union([zod.number(), zod.string(), zod.null()]),
@@ -218,11 +218,11 @@ export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod.object({
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
         .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
+            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
         ),
     name: zod.string().nullish(),
     description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({}),
+    first_seen: zod.iso.datetime({ offset: true }),
     assignee: zod.object({
         id: zod.union([zod.number(), zod.string(), zod.null()]),
         type: zod.string(),
@@ -271,11 +271,11 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
         .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
+            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
         ),
     name: zod.string().nullish(),
     description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({}),
+    first_seen: zod.iso.datetime({ offset: true }),
     assignee: zod.object({
         id: zod.union([zod.number(), zod.string(), zod.null()]),
         type: zod.string(),
@@ -350,7 +350,7 @@ export const ErrorTrackingStackFramesBatchGetCreateBody = /* @__PURE__ */ zod.ob
 
 export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
-    .describe('Deep/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const errorTrackingSuppressionRulesUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingSuppressionRulesUpdateBodyOrderKeyMax = 2147483647
@@ -414,11 +414,11 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
     project: zod.string().optional(),
 })
 
-export const ErrorTrackingSymbolSetsCreateBody = /* @__PURE__ */ zod.object({})
+export const ErrorTrackingSymbolSetsCreateBody = /* @__PURE__ */ zod.looseObject({})
 
-export const ErrorTrackingSymbolSetsUpdateBody = /* @__PURE__ */ zod.object({})
+export const ErrorTrackingSymbolSetsUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
-export const ErrorTrackingSymbolSetsPartialUpdateBody = /* @__PURE__ */ zod.object({})
+export const ErrorTrackingSymbolSetsPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const ErrorTrackingSymbolSetsFinishUploadUpdateBody = /* @__PURE__ */ zod.object({
     content_hash: zod.string().describe('Hash of the uploaded symbol set content.'),
@@ -462,4 +462,4 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .describe('Whether to overwrite uploaded symbol sets whose content hash changed.'),
 })
 
-export const ErrorTrackingSymbolSetsStartUploadCreateBody = /* @__PURE__ */ zod.object({})
+export const ErrorTrackingSymbolSetsStartUploadCreateBody = /* @__PURE__ */ zod.looseObject({})

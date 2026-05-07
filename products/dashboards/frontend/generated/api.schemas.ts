@@ -39,7 +39,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -186,8 +186,8 @@ export interface DashboardBasicApi {
     tags?: unknown[]
     /** Controls who can edit the dashboard.
 
-* `21` - Everyone in the project can edit
-* `37` - Only those invited to this dashboard can edit */
+  * `21` - Everyone in the project can edit
+  * `37` - Only those invited to this dashboard can edit */
     readonly restriction_level: RestrictionLevelEnumApi
     readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
@@ -216,17 +216,17 @@ export type DashboardApiFilters = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type DashboardApiVariables = { [key: string]: unknown } | null | null
+export type DashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
@@ -334,17 +334,17 @@ export type PatchedDashboardApiFilters = { [key: string]: unknown }
 /**
  * @nullable
  */
-export type PatchedDashboardApiVariables = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null | null
+export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type PatchedDashboardApiTilesItem = { [key: string]: unknown }
 
@@ -477,9 +477,9 @@ export interface BulkUpdateTagsRequestApi {
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
 
-* `add` - add
-* `remove` - remove
-* `set` - set */
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]

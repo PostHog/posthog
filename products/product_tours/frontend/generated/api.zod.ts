@@ -21,14 +21,14 @@ export const ProductToursCreateBody = /* @__PURE__ */ zod
         targeting_flag_filters: zod.unknown().optional(),
         content: zod.unknown().optional(),
         auto_launch: zod.boolean().optional(),
-        start_date: zod.iso.datetime({}).nullish(),
-        end_date: zod.iso.datetime({}).nullish(),
+        start_date: zod.iso.datetime({ offset: true }).nullish(),
+        end_date: zod.iso.datetime({ offset: true }).nullish(),
         archived: zod.boolean().optional(),
         creation_context: zod
             .enum(['app', 'toolbar'])
-            .describe('* `app` - app\n* `toolbar` - toolbar')
+            .describe('\* `app` - app\n\* `toolbar` - toolbar')
             .default(productToursCreateBodyCreationContextDefault)
-            .describe('Where the tour was created/updated from\n\n* `app` - app\n* `toolbar` - toolbar'),
+            .describe('Where the tour was created\/updated from\n\n\* `app` - app\n\* `toolbar` - toolbar'),
     })
     .describe('Serializer for creating and updating ProductTour.')
 
@@ -40,8 +40,8 @@ export const ProductToursUpdateBody = /* @__PURE__ */ zod
         description: zod.string().optional(),
         content: zod.unknown().optional(),
         auto_launch: zod.boolean().optional(),
-        start_date: zod.iso.datetime({}).nullish(),
-        end_date: zod.iso.datetime({}).nullish(),
+        start_date: zod.iso.datetime({ offset: true }).nullish(),
+        end_date: zod.iso.datetime({ offset: true }).nullish(),
         archived: zod.boolean().optional(),
     })
     .describe('Read-only serializer for ProductTour.')
@@ -58,14 +58,14 @@ export const ProductToursPartialUpdateBody = /* @__PURE__ */ zod
         targeting_flag_filters: zod.unknown().optional(),
         content: zod.unknown().optional(),
         auto_launch: zod.boolean().optional(),
-        start_date: zod.iso.datetime({}).nullish(),
-        end_date: zod.iso.datetime({}).nullish(),
+        start_date: zod.iso.datetime({ offset: true }).nullish(),
+        end_date: zod.iso.datetime({ offset: true }).nullish(),
         archived: zod.boolean().optional(),
         creation_context: zod
             .enum(['app', 'toolbar'])
-            .describe('* `app` - app\n* `toolbar` - toolbar')
+            .describe('\* `app` - app\n\* `toolbar` - toolbar')
             .default(productToursPartialUpdateBodyCreationContextDefault)
-            .describe('Where the tour was created/updated from\n\n* `app` - app\n* `toolbar` - toolbar'),
+            .describe('Where the tour was created\/updated from\n\n\* `app` - app\n\* `toolbar` - toolbar'),
     })
     .describe('Serializer for creating and updating ProductTour.')
 
@@ -84,14 +84,14 @@ export const ProductToursDraftPartialUpdateBody = /* @__PURE__ */ zod
         targeting_flag_filters: zod.unknown().optional(),
         content: zod.unknown().optional(),
         auto_launch: zod.boolean().optional(),
-        start_date: zod.iso.datetime({}).nullish(),
-        end_date: zod.iso.datetime({}).nullish(),
+        start_date: zod.iso.datetime({ offset: true }).nullish(),
+        end_date: zod.iso.datetime({ offset: true }).nullish(),
         archived: zod.boolean().optional(),
         creation_context: zod
             .enum(['app', 'toolbar'])
-            .describe('* `app` - app\n* `toolbar` - toolbar')
+            .describe('\* `app` - app\n\* `toolbar` - toolbar')
             .default(productToursDraftPartialUpdateBodyCreationContextDefault)
-            .describe('Where the tour was created/updated from\n\n* `app` - app\n* `toolbar` - toolbar'),
+            .describe('Where the tour was created\/updated from\n\n\* `app` - app\n\* `toolbar` - toolbar'),
     })
     .describe('Serializer for creating and updating ProductTour.')
 
@@ -125,13 +125,13 @@ export const ProductToursPublishDraftCreateBody = /* @__PURE__ */ zod
         targeting_flag_filters: zod.unknown().optional(),
         content: zod.unknown().optional(),
         auto_launch: zod.boolean().optional(),
-        start_date: zod.iso.datetime({}).nullish(),
-        end_date: zod.iso.datetime({}).nullish(),
+        start_date: zod.iso.datetime({ offset: true }).nullish(),
+        end_date: zod.iso.datetime({ offset: true }).nullish(),
         archived: zod.boolean().optional(),
         creation_context: zod
             .enum(['app', 'toolbar'])
-            .describe('* `app` - app\n* `toolbar` - toolbar')
+            .describe('\* `app` - app\n\* `toolbar` - toolbar')
             .default(productToursPublishDraftCreateBodyCreationContextDefault)
-            .describe('Where the tour was created/updated from\n\n* `app` - app\n* `toolbar` - toolbar'),
+            .describe('Where the tour was created\/updated from\n\n\* `app` - app\n\* `toolbar` - toolbar'),
     })
     .describe('Serializer for creating and updating ProductTour.')

@@ -78,22 +78,22 @@ export interface _SpanPropertyFilterApi {
     key: string
     /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
 
-* `span` - span
-* `span_attribute` - span_attribute
-* `span_resource_attribute` - span_resource_attribute */
+  * `span` - span
+  * `span_attribute` - span_attribute
+  * `span_resource_attribute` - span_resource_attribute */
     type: _SpanPropertyFilterTypeEnumApi
     /** Comparison operator.
 
-* `exact` - exact
-* `is_not` - is_not
-* `icontains` - icontains
-* `not_icontains` - not_icontains
-* `regex` - regex
-* `not_regex` - not_regex
-* `gt` - gt
-* `lt` - lt
-* `is_set` - is_set
-* `is_not_set` - is_not_set */
+  * `exact` - exact
+  * `is_not` - is_not
+  * `icontains` - icontains
+  * `not_icontains` - not_icontains
+  * `regex` - regex
+  * `not_regex` - not_regex
+  * `gt` - gt
+  * `lt` - lt
+  * `is_set` - is_set
+  * `is_not_set` - is_not_set */
     operator: _SpanPropertyFilterOperatorEnumApi
     /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
     value?: unknown
@@ -108,8 +108,8 @@ export interface _TracingQueryBodyApi {
     statusCodes?: number[]
     /** Order results by timestamp. Defaults to latest.
 
-* `latest` - latest
-* `earliest` - earliest */
+  * `latest` - latest
+  * `earliest` - earliest */
     orderBy?: OrderByEnumApi
     /** Property filters for the query. */
     filterGroup?: _SpanPropertyFilterApi[]

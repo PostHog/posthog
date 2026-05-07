@@ -50,7 +50,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -105,8 +105,8 @@ export interface AnnotationApi {
     date_marker?: string | null
     /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
 
-* `USR` - user
-* `GIT` - GitHub */
+  * `USR` - user
+  * `GIT` - GitHub */
     creation_type?: CreationTypeEnumApi
     /** @nullable */
     dashboard_item?: number | null
@@ -128,11 +128,11 @@ export interface AnnotationApi {
     deleted?: boolean
     /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
 
-* `dashboard_item` - insight
-* `dashboard` - dashboard
-* `project` - project
-* `organization` - organization
-* `recording` - recording */
+  * `dashboard_item` - insight
+  * `dashboard` - dashboard
+  * `project` - project
+  * `organization` - organization
+  * `recording` - recording */
     scope?: AnnotationScopeEnumApi
 }
 
@@ -160,8 +160,8 @@ export interface PatchedAnnotationApi {
     date_marker?: string | null
     /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
 
-* `USR` - user
-* `GIT` - GitHub */
+  * `USR` - user
+  * `GIT` - GitHub */
     creation_type?: CreationTypeEnumApi
     /** @nullable */
     dashboard_item?: number | null
@@ -183,11 +183,11 @@ export interface PatchedAnnotationApi {
     deleted?: boolean
     /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
 
-* `dashboard_item` - insight
-* `dashboard` - dashboard
-* `project` - project
-* `organization` - organization
-* `recording` - recording */
+  * `dashboard_item` - insight
+  * `dashboard` - dashboard
+  * `project` - project
+  * `organization` - organization
+  * `recording` - recording */
     scope?: AnnotationScopeEnumApi
 }
 

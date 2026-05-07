@@ -119,7 +119,7 @@ export interface HogFlowTemplateActionApi {
 /**
  * @nullable
  */
-export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
+export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
 export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
 
@@ -169,7 +169,7 @@ export interface PaginatedHogFlowTemplateListApi {
 /**
  * @nullable
  */
-export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null | null
+export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
 export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
 
@@ -252,7 +252,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number

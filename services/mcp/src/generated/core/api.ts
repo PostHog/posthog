@@ -181,8 +181,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Enables session replay recording for this project.'),
         session_recording_sample_rate: zod
-            .string()
-            .regex(organizationsProjectsPartialUpdateBodySessionRecordingSampleRateRegExp)
+            .stringFormat('decimal', organizationsProjectsPartialUpdateBodySessionRecordingSampleRateRegExp)
             .nullish()
             .describe(
                 'Fraction of sessions to record, as a decimal string between `0.00` and `1.00` (e.g. `0.1` = 10%).'
@@ -380,9 +379,9 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({}).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
         until_date: zod.iso
-            .datetime({})
+            .datetime({ offset: true })
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
@@ -507,9 +506,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .max(subscriptionsPartialUpdateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({}).optional().describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe('When to start delivering (ISO 8601 datetime).'),
         until_date: zod.iso
-            .datetime({})
+            .datetime({ offset: true })
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),

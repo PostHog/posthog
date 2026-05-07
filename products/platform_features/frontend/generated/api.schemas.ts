@@ -39,7 +39,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -264,8 +264,8 @@ export interface OrganizationApi {
     is_ai_data_processing_approved?: boolean | null
     /** Default statistical method for new experiments in this organization.
 
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist */
+  * `bayesian` - Bayesian
+  * `frequentist` - Frequentist */
     default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
@@ -338,8 +338,8 @@ export interface PatchedOrganizationApi {
     is_ai_data_processing_approved?: boolean | null
     /** Default statistical method for new experiments in this organization.
 
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist */
+  * `bayesian` - Bayesian
+  * `frequentist` - Frequentist */
     default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean

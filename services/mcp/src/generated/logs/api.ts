@@ -97,7 +97,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .default(logsAlertsCreateBodyCooldownMinutesDefault)
         .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
     snooze_until: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })
@@ -180,7 +180,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
     snooze_until: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
 })

@@ -308,7 +308,7 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
     activities: zod.array(zod.string()).default(advancedActivityLogsListQueryActivitiesDefault),
     clients: zod.array(zod.string()).default(advancedActivityLogsListQueryClientsDefault),
     detail_filters: zod.string().optional(),
-    end_date: zod.iso.datetime({}).optional(),
+    end_date: zod.iso.datetime({ offset: true }).optional(),
     hogql_filter: zod.string().optional(),
     is_system: zod.boolean().nullish(),
     item_ids: zod.array(zod.string()).default(advancedActivityLogsListQueryItemIdsDefault),
@@ -327,7 +327,7 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .describe('Number of results per page (default: 100, max: 1000). Only used with page-based pagination.'),
     scopes: zod.array(zod.string()).default(advancedActivityLogsListQueryScopesDefault),
     search_text: zod.string().optional(),
-    start_date: zod.iso.datetime({}).optional(),
+    start_date: zod.iso.datetime({ offset: true }).optional(),
     users: zod.array(zod.string()).default(advancedActivityLogsListQueryUsersDefault),
     was_impersonated: zod.boolean().nullish(),
 })

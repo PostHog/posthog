@@ -237,7 +237,7 @@ export interface CustomEventConversionGoalApi {
 
 export interface DateRangeApi {
     /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
--1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+  -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
     date_from?: string | null
     /** End of the date range. Same format as date_from. Omit or null for "now". */
     date_to?: string | null
@@ -2750,7 +2750,7 @@ export interface WebStatsTableQueryApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
-    orderBy?: (typeof UndefinedItem)[keyof typeof UndefinedItem][] | null
+    orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
     properties: (
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
@@ -2822,7 +2822,7 @@ export interface WebOverviewQueryApi {
     kind?: 'WebOverviewQuery'
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
-    orderBy?: (typeof UndefinedItem)[keyof typeof UndefinedItem][] | null
+    orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
     properties: (
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
@@ -4074,7 +4074,7 @@ export interface FunnelsActorsQueryApi {
     /** Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons. */
     funnelStep?: number | null
     /** The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts. */
-    funnelStepBreakdown?: number | string | number | (number | string | number)[] | null
+    funnelStepBreakdown?: number | string | (number | string)[] | null
     funnelTrendsDropOff?: boolean | null
     /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
     funnelTrendsEntrancePeriodStart?: string | null
@@ -4507,14 +4507,15 @@ export interface ExperimentBreakdownResultApi {
     /** Control variant stats for this breakdown */
     baseline: ExperimentStatsBaseValidatedApi
     /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
-    breakdown_value: (string | number | number)[]
+    breakdown_value: (string | number)[]
     /** Test variant results with statistical comparisons for this breakdown */
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
 
 export type ExperimentQueryResponseApiCredibleIntervals = { [key: string]: number[] } | null
 
-export const UndefinedItem = { ...WebAnalyticsOrderByFieldsApi, ...WebAnalyticsOrderByDirectionApi } as const
+export type ExperimentQueryResponseApiInsight = { [key: string]: unknown }[] | null
+
 export type ExperimentQueryResponseApiProbability = { [key: string]: number } | null
 
 export interface ExperimentQueryResponseApi {
@@ -4524,7 +4525,7 @@ export interface ExperimentQueryResponseApi {
     clickhouse_sql?: string | null
     credible_intervals?: ExperimentQueryResponseApiCredibleIntervals
     hogql?: string | null
-    insight?: undefinedItem[] | null
+    insight?: ExperimentQueryResponseApiInsight
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean | null
     kind?: 'ExperimentQuery'
@@ -4569,7 +4570,7 @@ export interface ExperimentActorsQueryApi {
     /** Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons. */
     funnelStep?: number | null
     /** The variant key for filtering actors. For experiments, this filters by feature flag variant (e.g., 'control', 'test'). */
-    funnelStepBreakdown?: number | string | number | (number | string | number)[] | null
+    funnelStepBreakdown?: number | string | (number | string)[] | null
     includeRecordings?: boolean | null
     kind?: 'ExperimentActorsQuery'
     /** Modifiers used when performing the query */
@@ -4809,7 +4810,7 @@ export interface WebExternalClicksTableQueryApi {
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
-    orderBy?: (typeof UndefinedItem)[keyof typeof UndefinedItem][] | null
+    orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
     properties: (
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
@@ -4866,7 +4867,7 @@ export interface WebGoalsQueryApi {
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
-    orderBy?: (typeof UndefinedItem)[keyof typeof UndefinedItem][] | null
+    orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
     properties: (
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
@@ -4899,7 +4900,7 @@ export interface WebVitalsQueryApi {
     kind?: 'WebVitalsQuery'
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
-    orderBy?: (typeof UndefinedItem)[keyof typeof UndefinedItem][] | null
+    orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
     properties: (
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
@@ -4979,7 +4980,7 @@ export interface WebVitalsPathBreakdownQueryApi {
     metric: WebVitalsMetricApi
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
-    orderBy?: (typeof UndefinedItem)[keyof typeof UndefinedItem][] | null
+    orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null
     percentile: WebVitalsPercentileApi
     properties: (
         | EventPropertyFilterApi
@@ -6291,7 +6292,7 @@ export interface EndpointsUsageTableQueryApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
-    orderBy?: (typeof UndefinedItem)[keyof typeof UndefinedItem][] | null
+    orderBy?: (EndpointsUsageOrderByFieldApi | EndpointsUsageOrderByDirectionApi)[] | null
     response?: EndpointsUsageTableQueryResponseApi | null
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
@@ -6670,7 +6671,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -6707,7 +6708,7 @@ export const EffectivePrivilegeLevelEnumApi = {
 export type InsightApiResolvedDateRange = {
     readonly date_from?: string
     readonly date_to?: string
-} | null | null
+} | null
 
 /**
  * Simplified serializer to speed response times when loading large amounts of objects.
@@ -6734,23 +6735,23 @@ export interface InsightApi {
     order?: number | null
     deleted?: boolean
     /**
-        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
-        A dashboard ID for each of the dashboards that this insight is displayed on.
-         */
+          DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+          A dashboard ID for each of the dashboards that this insight is displayed on.
+           */
     dashboards?: number[]
     /**
-    A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
-     */
+      A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+       */
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     /**
-   * 
-    The datetime this insight's results were generated.
-    If added to one or more dashboards the insight can be refreshed separately on each.
-    Returns the appropriate last_refresh datetime for the context the insight is viewed in
-    (see from_dashboard query parameter).
-    
-   * @nullable
-   */
+     *
+      The datetime this insight's results were generated.
+      If added to one or more dashboards the insight can be refreshed separately on each.
+      Returns the appropriate last_refresh datetime for the context the insight is viewed in
+      (see from_dashboard query parameter).
+
+     * @nullable
+     */
     readonly last_refresh: string | null
     /**
      * The target age of the cached results for this insight.
@@ -6758,12 +6759,12 @@ export interface InsightApi {
      */
     readonly cache_target_age: string | null
     /**
-   * 
-    The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-    by querying the database.
-    
-   * @nullable
-   */
+     *
+      The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+      by querying the database.
+
+     * @nullable
+     */
     readonly next_allowed_client_refresh: string | null
     readonly result: unknown
     /** @nullable */
@@ -6825,7 +6826,7 @@ export interface PaginatedInsightListApi {
 export type PatchedInsightApiResolvedDateRange = {
     readonly date_from?: string
     readonly date_to?: string
-} | null | null
+} | null
 
 /**
  * Simplified serializer to speed response times when loading large amounts of objects.
@@ -6852,23 +6853,23 @@ export interface PatchedInsightApi {
     order?: number | null
     deleted?: boolean
     /**
-        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
-        A dashboard ID for each of the dashboards that this insight is displayed on.
-         */
+          DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+          A dashboard ID for each of the dashboards that this insight is displayed on.
+           */
     dashboards?: number[]
     /**
-    A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
-     */
+      A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+       */
     readonly dashboard_tiles?: readonly DashboardTileBasicApi[]
     /**
-   * 
-    The datetime this insight's results were generated.
-    If added to one or more dashboards the insight can be refreshed separately on each.
-    Returns the appropriate last_refresh datetime for the context the insight is viewed in
-    (see from_dashboard query parameter).
-    
-   * @nullable
-   */
+     *
+      The datetime this insight's results were generated.
+      If added to one or more dashboards the insight can be refreshed separately on each.
+      Returns the appropriate last_refresh datetime for the context the insight is viewed in
+      (see from_dashboard query parameter).
+
+     * @nullable
+     */
     readonly last_refresh?: string | null
     /**
      * The target age of the cached results for this insight.
@@ -6876,12 +6877,12 @@ export interface PatchedInsightApi {
      */
     readonly cache_target_age?: string | null
     /**
-   * 
-    The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
-    by querying the database.
-    
-   * @nullable
-   */
+     *
+      The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+      by querying the database.
+
+     * @nullable
+     */
     readonly next_allowed_client_refresh?: string | null
     readonly result?: unknown
     /** @nullable */
@@ -6949,9 +6950,9 @@ export interface BulkUpdateTagsRequestApi {
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
 
-* `add` - add
-* `remove` - remove
-* `set` - set */
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
@@ -7049,7 +7050,7 @@ export type InsightsListParams = {
      */
     offset?: number
     /**
- * 
+ *
 Whether to refresh the retrieved insights, how aggressively, and if sync or async:
 - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
 - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
@@ -7129,13 +7130,13 @@ export type InsightsRetrieveParams = {
     filters_override?: string
     format?: InsightsRetrieveFormat
     /**
- * 
+ *
 Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
 When set, the specified dashboard's filters and date range override will be applied.
  */
     from_dashboard?: number
     /**
- * 
+ *
 Whether to refresh the insight, how aggresively, and if sync or async:
 - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
 - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache

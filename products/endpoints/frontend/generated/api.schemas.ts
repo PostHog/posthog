@@ -39,7 +39,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -105,7 +105,7 @@ export interface EndpointColumnApi {
  * Per-column bucket overrides for range variable materialization.
  * @nullable
  */
-export type EndpointResponseApiBucketOverrides = { [key: string]: unknown } | null | null
+export type EndpointResponseApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Full endpoint representation returned by list/retrieve/create/update.
@@ -189,7 +189,7 @@ export interface PaginatedEndpointResponseListApi {
  * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
  * @nullable
  */
-export type EndpointRequestApiBucketOverrides = { [key: string]: unknown } | null | null
+export type EndpointRequestApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
@@ -248,7 +248,7 @@ export interface EndpointRequestApi {
  * Per-column bucket overrides for range variable materialization.
  * @nullable
  */
-export type EndpointVersionResponseApiBucketOverrides = { [key: string]: unknown } | null | null
+export type EndpointVersionResponseApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Extended endpoint representation when viewing a specific version.
@@ -338,7 +338,7 @@ export interface EndpointVersionResponseApi {
  * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
  * @nullable
  */
-export type PatchedEndpointRequestApiBucketOverrides = { [key: string]: unknown } | null | null
+export type PatchedEndpointRequestApiBucketOverrides = { [key: string]: unknown } | null
 
 /**
  * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
@@ -397,7 +397,7 @@ export interface PatchedEndpointRequestApi {
  * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
  * @nullable
  */
-export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null | null
+export type MaterializationPreviewRequestApiBucketOverrides = { [key: string]: string } | null
 
 export interface MaterializationPreviewRequestApi {
     version?: number
@@ -779,13 +779,13 @@ export interface EndpointRunRequestApi {
     refresh?: EndpointRefreshModeApi | null
     /** Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
 
-For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+  For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
 
-For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+  For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
 
-For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+  For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
 
-Unknown variable names will return a 400 error. */
+  Unknown variable names will return a 400 error. */
     variables?: EndpointRunRequestApiVariables
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: number | null

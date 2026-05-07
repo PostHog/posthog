@@ -48,7 +48,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -156,12 +156,12 @@ export interface LogsAlertStateIntervalApi {
     end: string
     /** Alert state during this interval.
 
-* `not_firing` - Not firing
-* `firing` - Firing
-* `pending_resolve` - Pending resolve
-* `errored` - Errored
-* `snoozed` - Snoozed
-* `broken` - Broken */
+  * `not_firing` - Not firing
+  * `firing` - Firing
+  * `pending_resolve` - Pending resolve
+  * `errored` - Errored
+  * `snoozed` - Snoozed
+  * `broken` - Broken */
     state: LogsAlertConfigurationStateEnumApi
     /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
     enabled: boolean
@@ -198,8 +198,8 @@ export interface LogsAlertConfigurationApi {
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
 
-* `above` - Above
-* `below` - Below */
+  * `above` - Above
+  * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
@@ -207,12 +207,12 @@ export interface LogsAlertConfigurationApi {
     readonly check_interval_minutes: number
     /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
 
-* `not_firing` - Not firing
-* `firing` - Firing
-* `pending_resolve` - Pending resolve
-* `errored` - Errored
-* `snoozed` - Snoozed
-* `broken` - Broken */
+  * `not_firing` - Not firing
+  * `firing` - Firing
+  * `pending_resolve` - Pending resolve
+  * `errored` - Errored
+  * `snoozed` - Snoozed
+  * `broken` - Broken */
     readonly state: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -305,8 +305,8 @@ export interface PatchedLogsAlertConfigurationApi {
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
 
-* `above` - Above
-* `below` - Below */
+  * `above` - Above
+  * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
@@ -314,12 +314,12 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly check_interval_minutes?: number
     /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
 
-* `not_firing` - Not firing
-* `firing` - Firing
-* `pending_resolve` - Pending resolve
-* `errored` - Errored
-* `snoozed` - Snoozed
-* `broken` - Broken */
+  * `not_firing` - Not firing
+  * `firing` - Firing
+  * `pending_resolve` - Pending resolve
+  * `errored` - Errored
+  * `snoozed` - Snoozed
+  * `broken` - Broken */
     readonly state?: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -387,8 +387,8 @@ export interface PatchedLogsAlertConfigurationApi {
 export interface LogsAlertCreateDestinationApi {
     /** Destination type — slack or webhook.
 
-* `slack` - slack
-* `webhook` - webhook */
+  * `slack` - slack
+  * `webhook` - webhook */
     type: NotificationDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
@@ -467,8 +467,8 @@ export interface LogsAlertSimulateRequestApi {
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold.
 
-* `above` - Above
-* `below` - Below */
+  * `above` - Above
+  * `below` - Below */
     threshold_operator: ThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
@@ -595,25 +595,25 @@ export interface _LogPropertyFilterApi {
     key: string
     /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
 
-* `log` - log
-* `log_attribute` - log_attribute
-* `log_resource_attribute` - log_resource_attribute */
+  * `log` - log
+  * `log_attribute` - log_attribute
+  * `log_resource_attribute` - log_resource_attribute */
     type: _LogPropertyFilterTypeEnumApi
     /** Comparison operator.
 
-* `exact` - exact
-* `is_not` - is_not
-* `icontains` - icontains
-* `not_icontains` - not_icontains
-* `regex` - regex
-* `not_regex` - not_regex
-* `gt` - gt
-* `lt` - lt
-* `is_date_exact` - is_date_exact
-* `is_date_before` - is_date_before
-* `is_date_after` - is_date_after
-* `is_set` - is_set
-* `is_not_set` - is_not_set */
+  * `exact` - exact
+  * `is_not` - is_not
+  * `icontains` - icontains
+  * `not_icontains` - not_icontains
+  * `regex` - regex
+  * `not_regex` - not_regex
+  * `gt` - gt
+  * `lt` - lt
+  * `is_date_exact` - is_date_exact
+  * `is_date_before` - is_date_before
+  * `is_date_after` - is_date_after
+  * `is_set` - is_set
+  * `is_not_set` - is_not_set */
     operator: _LogPropertyFilterOperatorEnumApi
     /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
     value?: unknown
@@ -636,8 +636,8 @@ export interface _LogAttributeEntryApi {
     propertyFilterType: string
     /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
 
-* `key` - key
-* `value` - value */
+  * `key` - key
+  * `value` - value */
     matchedOn: MatchedOnEnumApi
     /**
      * Sample matching value — only set when matchedOn is "value".
@@ -755,8 +755,8 @@ export interface _LogsQueryBodyApi {
     serviceNames?: string[]
     /** Order results by timestamp.
 
-* `latest` - latest
-* `earliest` - earliest */
+  * `latest` - latest
+  * `earliest` - earliest */
     orderBy?: OrderByEnumApi
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
@@ -864,9 +864,9 @@ export interface LogsSamplingRuleApi {
     priority?: number | null
     /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
-* `severity_sampling` - Severity-based reduction
-* `path_drop` - Path exclusion
-* `rate_limit` - Rate limit */
+  * `severity_sampling` - Severity-based reduction
+  * `path_drop` - Path exclusion
+  * `rate_limit` - Rate limit */
     rule_type: RuleTypeEnumApi
     /**
      * If set, the rule applies only to this service name; null means all services.
@@ -921,9 +921,9 @@ export interface PatchedLogsSamplingRuleApi {
     priority?: number | null
     /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
 
-* `severity_sampling` - Severity-based reduction
-* `path_drop` - Path exclusion
-* `rate_limit` - Rate limit */
+  * `severity_sampling` - Severity-based reduction
+  * `path_drop` - Path exclusion
+  * `rate_limit` - Rate limit */
     rule_type?: RuleTypeEnumApi
     /**
      * If set, the rule applies only to this service name; null means all services.
@@ -1056,8 +1056,8 @@ export interface _LogsSparklineBodyApi {
     filterGroup?: _LogPropertyFilterApi[]
     /** Break down sparkline by "severity" (default) or "service".
 
-* `severity` - severity
-* `service` - service */
+  * `severity` - severity
+  * `service` - service */
     sparklineBreakdownBy?: SparklineBreakdownByEnumApi
 }
 

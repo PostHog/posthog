@@ -229,7 +229,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     threshold: zod
         .object({
             id: zod.string().optional(),
-            created_at: zod.iso.datetime({}).optional(),
+            created_at: zod.iso.datetime({ offset: true }).optional(),
             name: zod.string().optional().describe('Optional name for the threshold.'),
             configuration: zod
                 .object({
@@ -248,7 +248,11 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             zod.null(),
                         ])
                         .default(alertsCreateBodyThresholdOneConfigurationOneBoundsDefault),
-                    type: zod.enum(['absolute', 'percentage']),
+                    type: zod
+                        .enum(['absolute', 'percentage'])
+                        .describe(
+                            'Whether bounds are compared as absolute values or as percentage change from the previous interval.'
+                        ),
                 })
                 .describe(
                     'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).'
@@ -968,7 +972,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                 ])
                             )
                             .describe('Sub-detector configurations (minimum 2)'),
-                        operator: zod.enum(['and', 'or']),
+                        operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
                         type: zod.literal('ensemble').default(alertsCreateBodyDetectorConfigOneOneTypeDefault),
                     }),
                     zod.object({
@@ -1781,7 +1785,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     threshold: zod
         .object({
             id: zod.string().optional(),
-            created_at: zod.iso.datetime({}).optional(),
+            created_at: zod.iso.datetime({ offset: true }).optional(),
             name: zod.string().optional().describe('Optional name for the threshold.'),
             configuration: zod
                 .object({
@@ -1800,7 +1804,11 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             zod.null(),
                         ])
                         .default(alertsPartialUpdateBodyThresholdOneConfigurationOneBoundsDefault),
-                    type: zod.enum(['absolute', 'percentage']),
+                    type: zod
+                        .enum(['absolute', 'percentage'])
+                        .describe(
+                            'Whether bounds are compared as absolute values or as percentage change from the previous interval.'
+                        ),
                 })
                 .describe(
                     'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).'
@@ -2553,7 +2561,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 ])
                             )
                             .describe('Sub-detector configurations (minimum 2)'),
-                        operator: zod.enum(['and', 'or']),
+                        operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
                         type: zod.literal('ensemble').default(alertsPartialUpdateBodyDetectorConfigOneOneTypeDefault),
                     }),
                     zod.object({
@@ -4077,7 +4085,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         ])
                     )
                     .describe('Sub-detector configurations (minimum 2)'),
-                operator: zod.enum(['and', 'or']),
+                operator: zod.enum(['and', 'or']).describe('How to combine sub-detector results'),
                 type: zod.literal('ensemble').default(alertsSimulateCreateBodyDetectorConfigOneOneTypeDefault),
             }),
             zod.object({

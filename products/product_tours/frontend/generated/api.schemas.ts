@@ -60,14 +60,14 @@ export interface MinimalFeatureFlagApi {
     version?: number | null
     /** Specifies where this feature flag should be evaluated
 
-* `server` - Server
-* `client` - Client
-* `all` - All */
+  * `server` - Server
+  * `client` - Client
+  * `all` - All */
     evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID */
+  * `distinct_id` - User ID (default)
+  * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
 }
@@ -98,7 +98,7 @@ export const RoleAtOrganizationEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -125,7 +125,7 @@ export interface UserBasicApi {
  * Return the targeting flag filters, excluding the base exclusion properties.
  * @nullable
  */
-export type ProductTourApiTargetingFlagFilters = { [key: string]: unknown } | null | null
+export type ProductTourApiTargetingFlagFilters = { [key: string]: unknown } | null
 
 /**
  * Read-only serializer for ProductTour.
@@ -202,8 +202,8 @@ export interface ProductTourSerializerCreateUpdateOnlyApi {
     archived?: boolean
     /** Where the tour was created/updated from
 
-* `app` - app
-* `toolbar` - toolbar */
+  * `app` - app
+  * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
 }
 
@@ -232,8 +232,8 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
     archived?: boolean
     /** Where the tour was created/updated from
 
-* `app` - app
-* `toolbar` - toolbar */
+  * `app` - app
+  * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
 }
 

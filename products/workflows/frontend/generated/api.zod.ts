@@ -32,7 +32,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.string()).optional(),
         scope: zod
             .enum(['team', 'organization', 'global'])
-            .describe('* `team` - Only team\n* `organization` - Organization\n* `global` - Global'),
+            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'),
         trigger: zod.unknown().optional(),
         trigger_masking: zod
             .union([
@@ -59,7 +59,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+                '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
             ),
         edges: zod.unknown().optional(),
         actions: zod.array(
@@ -73,7 +73,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['continue', 'abort', 'complete', 'branch'])
                                 .describe(
-                                    '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                    '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                                 ),
                             zod.null(),
                         ])
@@ -86,7 +86,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                                 source: zod
                                     .enum(['events', 'person-updates', 'data-warehouse-table'])
                                     .describe(
-                                        '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                                     )
                                     .default(hogFlowTemplatesCreateBodyActionsItemFiltersOneSourceDefault),
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -106,7 +106,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                     output_variable: zod.unknown().optional(),
                 })
                 .describe(
-                    'Custom action serializer for templates that skips input validation\n(since templates should have default/empty values).'
+                    'Custom action serializer for templates that skips input validation\n(since templates should have default\/empty values).'
                 )
         ),
         abort_action: zod.string().max(hogFlowTemplatesCreateBodyAbortActionMax).nullish(),
@@ -139,7 +139,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.string()).optional(),
         scope: zod
             .enum(['team', 'organization', 'global'])
-            .describe('* `team` - Only team\n* `organization` - Organization\n* `global` - Global'),
+            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'),
         trigger: zod.unknown().optional(),
         trigger_masking: zod
             .union([
@@ -166,7 +166,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+                '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
             ),
         edges: zod.unknown().optional(),
         actions: zod.array(
@@ -180,7 +180,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                             zod
                                 .enum(['continue', 'abort', 'complete', 'branch'])
                                 .describe(
-                                    '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                    '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                                 ),
                             zod.null(),
                         ])
@@ -193,7 +193,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                                 source: zod
                                     .enum(['events', 'person-updates', 'data-warehouse-table'])
                                     .describe(
-                                        '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                                     )
                                     .default(hogFlowTemplatesUpdateBodyActionsItemFiltersOneSourceDefault),
                                 actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -213,7 +213,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                     output_variable: zod.unknown().optional(),
                 })
                 .describe(
-                    'Custom action serializer for templates that skips input validation\n(since templates should have default/empty values).'
+                    'Custom action serializer for templates that skips input validation\n(since templates should have default\/empty values).'
                 )
         ),
         abort_action: zod.string().max(hogFlowTemplatesUpdateBodyAbortActionMax).nullish(),
@@ -247,7 +247,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
         scope: zod
             .enum(['team', 'organization', 'global'])
             .optional()
-            .describe('* `team` - Only team\n* `organization` - Organization\n* `global` - Global'),
+            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'),
         trigger: zod.unknown().optional(),
         trigger_masking: zod
             .union([
@@ -274,7 +274,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+                '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
             ),
         edges: zod.unknown().optional(),
         actions: zod
@@ -291,7 +291,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                                 zod
                                     .enum(['continue', 'abort', 'complete', 'branch'])
                                     .describe(
-                                        '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                        '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                                     ),
                                 zod.null(),
                             ])
@@ -304,7 +304,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                                     source: zod
                                         .enum(['events', 'person-updates', 'data-warehouse-table'])
                                         .describe(
-                                            '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                                         )
                                         .default(hogFlowTemplatesPartialUpdateBodyActionsItemFiltersOneSourceDefault),
                                     actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -324,7 +324,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                         output_variable: zod.unknown().optional(),
                     })
                     .describe(
-                        'Custom action serializer for templates that skips input validation\n(since templates should have default/empty values).'
+                        'Custom action serializer for templates that skips input validation\n(since templates should have default\/empty values).'
                     )
             )
             .optional(),
@@ -352,7 +352,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -379,7 +379,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod.array(
@@ -392,7 +392,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['continue', 'abort', 'complete', 'branch'])
                         .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                            '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                         ),
                     zod.null(),
                 ])
@@ -405,7 +405,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFlowsCreateBodyActionsItemFiltersOneSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -445,7 +445,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -472,7 +472,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod.array(
@@ -485,7 +485,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['continue', 'abort', 'complete', 'branch'])
                         .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                            '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                         ),
                     zod.null(),
                 ])
@@ -498,7 +498,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFlowsUpdateBodyActionsItemFiltersOneSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -538,7 +538,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -565,7 +565,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod
@@ -579,7 +579,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         zod
                             .enum(['continue', 'abort', 'complete', 'branch'])
                             .describe(
-                                '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                             ),
                         zod.null(),
                     ])
@@ -592,7 +592,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             source: zod
                                 .enum(['events', 'person-updates', 'data-warehouse-table'])
                                 .describe(
-                                    '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                                 )
                                 .default(hogFlowsPartialUpdateBodyActionsItemFiltersOneSourceDefault),
                             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -633,7 +633,7 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -660,7 +660,7 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod.array(
@@ -673,7 +673,7 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['continue', 'abort', 'complete', 'branch'])
                         .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                            '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                         ),
                     zod.null(),
                 ])
@@ -686,7 +686,7 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFlowsBatchJobsCreateBodyActionsItemFiltersOneSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -726,7 +726,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -753,7 +753,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod.array(
@@ -766,7 +766,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['continue', 'abort', 'complete', 'branch'])
                         .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                            '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                         ),
                     zod.null(),
                 ])
@@ -779,7 +779,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFlowsInvocationsCreateBodyActionsItemFiltersOneSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -822,7 +822,7 @@ export const HogFlowsReplayAllBlockedRunsCreateBody = /* @__PURE__ */ zod.object
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -849,7 +849,7 @@ export const HogFlowsReplayAllBlockedRunsCreateBody = /* @__PURE__ */ zod.object
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod.array(
@@ -862,7 +862,7 @@ export const HogFlowsReplayAllBlockedRunsCreateBody = /* @__PURE__ */ zod.object
                     zod
                         .enum(['continue', 'abort', 'complete', 'branch'])
                         .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                            '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                         ),
                     zod.null(),
                 ])
@@ -875,7 +875,7 @@ export const HogFlowsReplayAllBlockedRunsCreateBody = /* @__PURE__ */ zod.object
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFlowsReplayAllBlockedRunsCreateBodyActionsItemFiltersOneSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -918,7 +918,7 @@ export const HogFlowsReplayBlockedRunCreateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -945,7 +945,7 @@ export const HogFlowsReplayBlockedRunCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod.array(
@@ -958,7 +958,7 @@ export const HogFlowsReplayBlockedRunCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['continue', 'abort', 'complete', 'branch'])
                         .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                            '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                         ),
                     zod.null(),
                 ])
@@ -971,7 +971,7 @@ export const HogFlowsReplayBlockedRunCreateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFlowsReplayBlockedRunCreateBodyActionsItemFiltersOneSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -1011,7 +1011,7 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -1038,7 +1038,7 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod.array(
@@ -1051,7 +1051,7 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['continue', 'abort', 'complete', 'branch'])
                         .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                            '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                         ),
                     zod.null(),
                 ])
@@ -1064,7 +1064,7 @@ export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFlowsSchedulesCreateBodyActionsItemFiltersOneSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -1104,7 +1104,7 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -1131,7 +1131,7 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod
@@ -1145,7 +1145,7 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
                         zod
                             .enum(['continue', 'abort', 'complete', 'branch'])
                             .describe(
-                                '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                             ),
                         zod.null(),
                     ])
@@ -1158,7 +1158,7 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             source: zod
                                 .enum(['events', 'person-updates', 'data-warehouse-table'])
                                 .describe(
-                                    '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                                 )
                                 .default(hogFlowsSchedulesPartialUpdateBodyActionsItemFiltersOneSourceDefault),
                             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -1199,7 +1199,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['draft', 'active', 'archived'])
         .optional()
-        .describe('* `draft` - Draft\n* `active` - Active\n* `archived` - Archived'),
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
     trigger: zod.unknown().optional(),
     trigger_masking: zod
         .union([
@@ -1226,7 +1226,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `exit_on_conversion` - Conversion\n* `exit_on_trigger_not_matched` - Trigger Not Matched\n* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n* `exit_only_at_end` - Only At End'
+            '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
         ),
     edges: zod.unknown().optional(),
     actions: zod.array(
@@ -1239,7 +1239,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                     zod
                         .enum(['continue', 'abort', 'complete', 'branch'])
                         .describe(
-                            '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                            '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
                         ),
                     zod.null(),
                 ])
@@ -1252,7 +1252,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                         source: zod
                             .enum(['events', 'person-updates', 'data-warehouse-table'])
                             .describe(
-                                '* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
                             )
                             .default(hogFlowsBulkDeleteCreateBodyActionsItemFiltersOneSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),

@@ -60,14 +60,14 @@ export interface MinimalFeatureFlagApi {
     version?: number | null
     /** Specifies where this feature flag should be evaluated
 
-* `server` - Server
-* `client` - Client
-* `all` - All */
+  * `server` - Server
+  * `client` - Client
+  * `all` - All */
     evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID */
+  * `distinct_id` - User ID (default)
+  * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
     readonly evaluation_contexts: readonly string[]
 }
@@ -108,12 +108,12 @@ export interface EarlyAccessFeatureApi {
     description?: string
     /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
 
-* `draft` - draft
-* `concept` - concept
-* `alpha` - alpha
-* `beta` - beta
-* `general-availability` - general availability
-* `archived` - archived */
+  * `draft` - draft
+  * `concept` - concept
+  * `alpha` - alpha
+  * `beta` - beta
+  * `general-availability` - general availability
+  * `archived` - archived */
     stage: StageEnumApi
     /**
      * URL to external documentation for this feature. Shown to users in the opt-in UI.
@@ -145,12 +145,12 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     description?: string
     /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
 
-* `draft` - draft
-* `concept` - concept
-* `alpha` - alpha
-* `beta` - beta
-* `general-availability` - general availability
-* `archived` - archived */
+  * `draft` - draft
+  * `concept` - concept
+  * `alpha` - alpha
+  * `beta` - beta
+  * `general-availability` - general availability
+  * `archived` - archived */
     stage: StageEnumApi
     /**
      * URL to external documentation for this feature. Shown to users in the opt-in UI.
@@ -183,12 +183,12 @@ export interface PatchedEarlyAccessFeatureApi {
     description?: string
     /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
 
-* `draft` - draft
-* `concept` - concept
-* `alpha` - alpha
-* `beta` - beta
-* `general-availability` - general availability
-* `archived` - archived */
+  * `draft` - draft
+  * `concept` - concept
+  * `alpha` - alpha
+  * `beta` - beta
+  * `general-availability` - general availability
+  * `archived` - archived */
     stage?: StageEnumApi
     /**
      * URL to external documentation for this feature. Shown to users in the opt-in UI.

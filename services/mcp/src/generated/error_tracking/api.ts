@@ -2217,7 +2217,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     name: zod.string().nullish(),
     description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({}).optional(),
+    first_seen: zod.iso.datetime({ offset: true }).optional(),
     assignee: zod
         .object({
             id: zod.union([zod.number(), zod.string(), zod.null()]).optional(),

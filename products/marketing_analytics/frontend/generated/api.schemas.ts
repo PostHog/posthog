@@ -23,8 +23,8 @@ export interface UtmIssueApi {
     field: string
     /** Issue severity level
 
-* `error` - error
-* `warning` - warning */
+  * `error` - error
+  * `warning` - warning */
     severity: UtmIssueSeverityEnumApi
     /** Human-readable description of the issue */
     message: string
@@ -73,15 +73,15 @@ export interface UtmEventApi {
     event_count: number
     /** How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)
 
-* `none` - none
-* `auto` - auto
-* `mapped` - mapped */
+  * `none` - none
+  * `auto` - auto
+  * `mapped` - mapped */
     campaign_match: SourceMatchEnumApi
     /** How utm_source matched: none, auto (default source), or mapped (custom mapping)
 
-* `none` - none
-* `auto` - auto
-* `mapped` - mapped */
+  * `none` - none
+  * `auto` - auto
+  * `mapped` - mapped */
     source_match: SourceMatchEnumApi
     /**
      * Name of the matched campaign, if any

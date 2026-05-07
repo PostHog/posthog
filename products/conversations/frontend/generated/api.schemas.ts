@@ -52,7 +52,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -221,8 +221,8 @@ export interface ConversationApi {
     readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
 
-Combines metadata from conversation.approval_decisions with payload from checkpoint
-interrupts (single source of truth for payload data). */
+  Combines metadata from conversation.approval_decisions with payload from checkpoint
+  interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
 }
 
@@ -274,8 +274,8 @@ export interface PatchedConversationApi {
     readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
 
-Combines metadata from conversation.approval_decisions with payload from checkpoint
-interrupts (single source of truth for payload data). */
+  Combines metadata from conversation.approval_decisions with payload from checkpoint
+  interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
 }
 
@@ -377,12 +377,12 @@ export const PriorityEnumApi = {
 /**
  * @nullable
  */
-export type TicketAssignmentApiUser = { [key: string]: string } | null | null
+export type TicketAssignmentApiUser = { [key: string]: string } | null
 
 /**
  * @nullable
  */
-export type TicketAssignmentApiRole = { [key: string]: string } | null | null
+export type TicketAssignmentApiRole = { [key: string]: string } | null
 
 /**
  * Serializer for ticket assignment (user or role).
@@ -422,17 +422,17 @@ export interface TicketApi {
     readonly distinct_id: string
     /** Ticket status: new, open, pending, on_hold, or resolved
 
-* `new` - New
-* `open` - Open
-* `pending` - Pending
-* `on_hold` - On hold
-* `resolved` - Resolved */
+  * `new` - New
+  * `open` - Open
+  * `pending` - Pending
+  * `on_hold` - On hold
+  * `resolved` - Resolved */
     status?: TicketStatusEnumApi
     /** Ticket priority: low, medium, or high. Null if unset.
 
-* `low` - Low
-* `medium` - Medium
-* `high` - High */
+  * `low` - Low
+  * `medium` - Medium
+  * `high` - High */
     priority?: PriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -500,17 +500,17 @@ export interface PatchedTicketApi {
     readonly distinct_id?: string
     /** Ticket status: new, open, pending, on_hold, or resolved
 
-* `new` - New
-* `open` - Open
-* `pending` - Pending
-* `on_hold` - On hold
-* `resolved` - Resolved */
+  * `new` - New
+  * `open` - Open
+  * `pending` - Pending
+  * `on_hold` - On hold
+  * `resolved` - Resolved */
     status?: TicketStatusEnumApi
     /** Ticket priority: low, medium, or high. Null if unset.
 
-* `low` - Low
-* `medium` - Medium
-* `high` - High */
+  * `low` - Low
+  * `medium` - Medium
+  * `high` - High */
     priority?: PriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -588,9 +588,9 @@ export interface BulkUpdateTagsRequestApi {
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
 
-* `add` - add
-* `remove` - remove
-* `set` - set */
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]

@@ -734,13 +734,13 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Survey appearance customization.'),
     start_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
             "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so."
         ),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('When the survey stopped being shown to users. Setting this will complete the survey.'),
     archived: zod.boolean().optional().describe('Archive state for the survey.'),
@@ -764,14 +764,14 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.'
         ),
-    iteration_start_dates: zod.array(zod.iso.datetime({}).nullable()).nullish(),
+    iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
     current_iteration: zod
         .number()
         .min(surveysCreateBodyCurrentIterationMin)
         .max(surveysCreateBodyCurrentIterationMax)
         .nullish(),
-    current_iteration_start_date: zod.iso.datetime({}).nullish(),
-    response_sampling_start_date: zod.iso.datetime({}).nullish(),
+    current_iteration_start_date: zod.iso.datetime({ offset: true }).nullish(),
+    response_sampling_start_date: zod.iso.datetime({ offset: true }).nullish(),
     response_sampling_interval_type: zod
         .union([
             zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
@@ -1519,13 +1519,13 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Survey appearance customization.'),
     start_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe(
             "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so."
         ),
     end_date: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .nullish()
         .describe('When the survey stopped being shown to users. Setting this will complete the survey.'),
     archived: zod.boolean().optional().describe('Archive state for the survey.'),
@@ -1549,14 +1549,14 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.'
         ),
-    iteration_start_dates: zod.array(zod.iso.datetime({}).nullable()).nullish(),
+    iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
     current_iteration: zod
         .number()
         .min(surveysPartialUpdateBodyCurrentIterationMin)
         .max(surveysPartialUpdateBodyCurrentIterationMax)
         .nullish(),
-    current_iteration_start_date: zod.iso.datetime({}).nullish(),
-    response_sampling_start_date: zod.iso.datetime({}).nullish(),
+    current_iteration_start_date: zod.iso.datetime({ offset: true }).nullish(),
+    response_sampling_start_date: zod.iso.datetime({ offset: true }).nullish(),
     response_sampling_interval_type: zod
         .union([
             zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
@@ -1618,11 +1618,11 @@ export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
 
 export const SurveysStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     date_from: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)'),
     date_to: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)'),
 })
@@ -1647,11 +1647,11 @@ export const SurveysGlobalStatsRetrieveParams = /* @__PURE__ */ zod.object({
 
 export const SurveysGlobalStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     date_from: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)'),
     date_to: zod.iso
-        .datetime({})
+        .datetime({ offset: true })
         .optional()
         .describe('Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)'),
 })

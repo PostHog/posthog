@@ -771,6 +771,42 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     return result
 
 
+def _strip_null_from_path_param(param: dict) -> dict:
+    """Path parameters can never be ``null`` — they're URL segments. drf-spectacular
+    propagates the underlying model field's ``null=True`` into the parameter schema,
+    which in 3.1 surfaces as ``type: ["X", "null"]`` and makes generated TS clients
+    accept ``null`` for required path IDs (e.g. ``insightId: number | null``).  Strip
+    the null branch from any path-param schema so callers can't pass ``null`` and
+    build URLs like ``/insights/null/sharing/``.
+    """
+    schema = param.get("schema")
+    if not isinstance(schema, dict):
+        return param
+
+    # Common case: type-array form ``type: ["integer", "null"]`` → ``type: "integer"``
+    schema_type = schema.get("type")
+    if isinstance(schema_type, list) and "null" in schema_type:
+        non_null = [t for t in schema_type if t != "null"]
+        new_schema = dict(schema)
+        new_schema["type"] = non_null[0] if len(non_null) == 1 else non_null
+        return {**param, "schema": new_schema}
+
+    # ``anyOf`` form: drop the null branch.
+    if isinstance(schema.get("anyOf"), list):
+        non_null = [s for s in schema["anyOf"] if not (isinstance(s, dict) and s.get("type") == "null")]
+        if len(non_null) != len(schema["anyOf"]):
+            new_schema = dict(schema)
+            if len(non_null) == 1:
+                # Single non-null branch — inline it, dropping the combinator.
+                new_schema.pop("anyOf")
+                new_schema.update(non_null[0])
+            else:
+                new_schema["anyOf"] = non_null
+            return {**param, "schema": new_schema}
+
+    return param
+
+
 def _fix_pydantic_schema_for_openapi(schema):
     """
     Recursively clean up Pydantic v2 JSON Schema for OpenAPI 3.1.
@@ -1085,6 +1121,8 @@ def custom_postprocessing_hook(result, generator, request, public):
                 definition["parameters"] = [
                     {"$ref": f"#/components/parameters/{_SHARED_PATH_PARAM_REFS[param['name']]}"}
                     if param.get("name") in _SHARED_PATH_PARAM_REFS and param.get("in") == "path"
+                    else _strip_null_from_path_param(param)
+                    if param.get("in") == "path"
                     else param
                     for param in definition["parameters"]
                 ]

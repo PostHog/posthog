@@ -39,7 +39,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -423,8 +423,8 @@ export interface ExperimentApi {
     readonly updated_at: string
     /** Experiment type: web for frontend UI changes, product for backend/API changes.
 
-* `web` - web
-* `product` - product */
+  * `web` - web
+  * `product` - product */
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
@@ -438,11 +438,11 @@ export interface ExperimentApi {
     _create_in_folder?: string
     /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
 
-* `won` - won
-* `lost` - lost
-* `inconclusive` - inconclusive
-* `stopped_early` - stopped_early
-* `invalid` - invalid */
+  * `won` - won
+  * `lost` - lost
+  * `inconclusive` - inconclusive
+  * `stopped_early` - stopped_early
+  * `invalid` - invalid */
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
@@ -524,8 +524,8 @@ export interface PatchedExperimentApi {
     readonly updated_at?: string
     /** Experiment type: web for frontend UI changes, product for backend/API changes.
 
-* `web` - web
-* `product` - product */
+  * `web` - web
+  * `product` - product */
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
@@ -539,11 +539,11 @@ export interface PatchedExperimentApi {
     _create_in_folder?: string
     /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
 
-* `won` - won
-* `lost` - lost
-* `inconclusive` - inconclusive
-* `stopped_early` - stopped_early
-* `invalid` - invalid */
+  * `won` - won
+  * `lost` - lost
+  * `inconclusive` - inconclusive
+  * `stopped_early` - stopped_early
+  * `invalid` - invalid */
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
@@ -576,11 +576,11 @@ export interface CopyExperimentToProjectApi {
 export interface EndExperimentApi {
     /** The conclusion of the experiment.
 
-* `won` - won
-* `lost` - lost
-* `inconclusive` - inconclusive
-* `stopped_early` - stopped_early
-* `invalid` - invalid */
+  * `won` - won
+  * `lost` - lost
+  * `inconclusive` - inconclusive
+  * `stopped_early` - stopped_early
+  * `invalid` - invalid */
     conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
@@ -592,11 +592,11 @@ export interface EndExperimentApi {
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
 
-* `won` - won
-* `lost` - lost
-* `inconclusive` - inconclusive
-* `stopped_early` - stopped_early
-* `invalid` - invalid */
+  * `won` - won
+  * `lost` - lost
+  * `inconclusive` - inconclusive
+  * `stopped_early` - stopped_early
+  * `invalid` - invalid */
     conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.

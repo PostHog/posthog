@@ -13,7 +13,7 @@
 export type ErrorTrackingAssignmentRuleApiAssignee = {
     readonly type?: 'user' | 'role'
     readonly id?: number | string
-} | null | null
+} | null
 
 export interface ErrorTrackingAssignmentRuleApi {
     readonly id: string
@@ -327,8 +327,8 @@ export const AssigneeTypeEnumApi = {
 export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
     /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
 
-* `user` - user
-* `role` - role */
+  * `user` - user
+  * `role` - role */
     type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
@@ -361,7 +361,7 @@ export interface PatchedErrorTrackingAssignmentRuleUpdateRequestApi {
 export type PatchedErrorTrackingAssignmentRuleApiAssignee = {
     readonly type?: 'user' | 'role'
     readonly id?: number | string
-} | null | null
+} | null
 
 export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly id?: string
@@ -433,13 +433,13 @@ export interface GitProviderFileLinkResolveResponseApi {
 export type ErrorTrackingGroupingRuleApiAssignee = {
     readonly type?: 'user' | 'role'
     readonly id?: number | string
-} | null | null
+} | null
 
 /**
  * Issue linked to this rule
  * @nullable
  */
-export type ErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
+export type ErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null
 
 export interface ErrorTrackingGroupingRuleApi {
     readonly id: string
@@ -470,8 +470,8 @@ export interface ErrorTrackingGroupingRuleListResponseApi {
 export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
     /** Assignee type. Use `user` for a user ID or `role` for a role UUID.
 
-* `user` - user
-* `role` - role */
+  * `user` - user
+  * `role` - role */
     type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
@@ -495,13 +495,13 @@ export interface ErrorTrackingGroupingRuleCreateRequestApi {
 export type PatchedErrorTrackingGroupingRuleApiAssignee = {
     readonly type?: 'user' | 'role'
     readonly id?: number | string
-} | null | null
+} | null
 
 /**
  * Issue linked to this rule
  * @nullable
  */
-export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
+export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null
 
 export interface PatchedErrorTrackingGroupingRuleApi {
     readonly id?: string
@@ -554,7 +554,7 @@ export interface ErrorTrackingIssueAssignmentApi {
 export type ErrorTrackingIssueFullApiCohort = {
     readonly id?: number
     readonly name?: string
-} | null | null
+} | null
 
 export interface ErrorTrackingIssueFullApi {
     readonly id: string
@@ -585,7 +585,7 @@ export interface PaginatedErrorTrackingIssueFullListApi {
 export type PatchedErrorTrackingIssueFullApiCohort = {
     readonly id?: number
     readonly name?: string
-} | null | null
+} | null
 
 export interface PatchedErrorTrackingIssueFullApi {
     readonly id?: string
@@ -873,7 +873,7 @@ export interface PatchedErrorTrackingReleaseApi {
  * Release associated with this symbol set, if any.
  * @nullable
  */
-export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
+export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null
 
 export interface ErrorTrackingSymbolSetApi {
     /** Unique symbol set ID. */
@@ -916,7 +916,7 @@ export interface PaginatedErrorTrackingSymbolSetListApi {
  * Release associated with this symbol set, if any.
  * @nullable
  */
-export type PatchedErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null | null
+export type PatchedErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null
 
 export interface PatchedErrorTrackingSymbolSetApi {
     /** Unique symbol set ID. */

@@ -121,7 +121,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -363,13 +363,13 @@ export interface HogFunctionApi {
     readonly id: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-* `destination` - Destination
-* `site_destination` - Site Destination
-* `internal_destination` - Internal Destination
-* `source_webhook` - Source Webhook
-* `warehouse_source_webhook` - Warehouse Source Webhook
-* `site_app` - Site App
-* `transformation` - Transformation */
+  * `destination` - Destination
+  * `site_destination` - Site Destination
+  * `internal_destination` - Internal Destination
+  * `source_webhook` - Source Webhook
+  * `warehouse_source_webhook` - Warehouse Source Webhook
+  * `site_app` - Site App
+  * `transformation` - Transformation */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -438,13 +438,13 @@ export interface PatchedHogFunctionApi {
     readonly id?: string
     /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
 
-* `destination` - Destination
-* `site_destination` - Site Destination
-* `internal_destination` - Internal Destination
-* `source_webhook` - Source Webhook
-* `warehouse_source_webhook` - Warehouse Source Webhook
-* `site_app` - Site App
-* `transformation` - Transformation */
+  * `destination` - Destination
+  * `site_destination` - Site Destination
+  * `internal_destination` - Internal Destination
+  * `source_webhook` - Source Webhook
+  * `warehouse_source_webhook` - Warehouse Source Webhook
+  * `site_app` - Site App
+  * `transformation` - Transformation */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.

@@ -39,7 +39,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -455,10 +455,10 @@ export interface AlertApi {
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
-* `hourly` - hourly
-* `daily` - daily
-* `weekly` - weekly
-* `monthly` - monthly */
+  * `hourly` - hourly
+  * `daily` - daily
+  * `weekly` - weekly
+  * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -483,8 +483,8 @@ export interface AlertApi {
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
 
-* `notify` - Notify
-* `suppress` - Suppress */
+  * `notify` - Notify
+  * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
 }
 
@@ -533,10 +533,10 @@ export interface PatchedAlertApi {
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: hourly, daily, weekly, or monthly.
 
-* `hourly` - hourly
-* `daily` - daily
-* `weekly` - weekly
-* `monthly` - monthly */
+  * `hourly` - hourly
+  * `daily` - daily
+  * `weekly` - weekly
+  * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -561,8 +561,8 @@ export interface PatchedAlertApi {
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
 
-* `notify` - Notify
-* `suppress` - Suppress */
+  * `notify` - Notify
+  * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
 }
 

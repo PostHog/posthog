@@ -17,14 +17,14 @@ export const HogFunctionsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const HogFunctionsListQueryParams = /* @__PURE__ */ zod.object({
-    created_at: zod.iso.datetime({}).optional(),
+    created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.number().optional(),
     enabled: zod.boolean().optional(),
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     type: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
-    updated_at: zod.iso.datetime({}).optional(),
+    updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
 export const HogFunctionsCreateParams = /* @__PURE__ */ zod.object({
@@ -591,7 +591,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe('Display name for the function.'),
             description: zod.string().optional().describe('Human-readable description of what this function does.'),
-            created_at: zod.iso.datetime({}).optional(),
+            created_at: zod.iso.datetime({ offset: true }).optional(),
             created_by: zod
                 .object({
                     id: zod.number().optional(),
@@ -633,7 +633,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 })
                 .optional(),
-            updated_at: zod.iso.datetime({}).optional(),
+            updated_at: zod.iso.datetime({ offset: true }).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
             deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
@@ -955,8 +955,11 @@ export const hogFunctionsLogsRetrieveQueryLimitDefault = 50
 export const hogFunctionsLogsRetrieveQueryLimitMax = 500
 
 export const HogFunctionsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    after: zod.iso.datetime({}).optional().describe('Only return entries after this ISO 8601 timestamp.'),
-    before: zod.iso.datetime({}).optional().describe('Only return entries before this ISO 8601 timestamp.'),
+    after: zod.iso.datetime({ offset: true }).optional().describe('Only return entries after this ISO 8601 timestamp.'),
+    before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return entries before this ISO 8601 timestamp.'),
     instance_id: zod.string().min(1).optional().describe('Filter logs to a specific execution instance.'),
     level: zod
         .string()
