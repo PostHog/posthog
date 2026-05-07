@@ -37,6 +37,15 @@ class BigQueryUseCustomRegionConfig(config.Config):
 
 
 @config.config
+class FirebaseKeyFileConfig(config.Config):
+    project_id: str
+    private_key: str
+    private_key_id: str
+    client_email: str
+    token_uri: str
+
+
+@config.config
 class GithubAuthMethodConfig(config.Config):
     github_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
     selection: Literal["oauth", "pat"] = "oauth"
@@ -323,7 +332,8 @@ class FacebookPagesSourceConfig(config.Config):
 
 @config.config
 class FirebaseSourceConfig(config.Config):
-    pass
+    key_file: FirebaseKeyFileConfig
+    database_id: str | None = None
 
 
 @config.config
