@@ -553,8 +553,11 @@ export function OverviewTab({
                     noun: ['flag', 'flags'],
                     renderActions: (ctx) => {
                         const totalMatchingCount = effectiveCount
+                        const selectedKeysSet = new Set(ctx.selectedKeys)
                         const isAllMatchingSelected =
-                            matchingFlagIds !== null && ctx.selectedCount === matchingFlagIds.length
+                            matchingFlagIds !== null &&
+                            ctx.selectedCount === matchingFlagIds.length &&
+                            matchingFlagIds.every((id) => selectedKeysSet.has(id))
                         const showSelectAllMatchingBanner =
                             !isAllMatchingSelected &&
                             ctx.selectedCount >= FLAGS_PER_PAGE &&
